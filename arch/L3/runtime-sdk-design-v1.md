@@ -506,7 +506,7 @@ earp-sdk-runtime-py       ← 调 Capability（只依赖 core，不依赖 capabi
 ## 7. 包结构
 
 ```
-earp-sdk-runtime-py/
+libs/earp-sdk-runtime-py/
 ├── pyproject.toml              # 依赖: earp-sdk-core, httpx
 ├── README.md
 └── src/earp_sdk_runtime/

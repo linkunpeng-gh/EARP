@@ -37,7 +37,7 @@ Task 3 (Schema生成) ───────────────────�
 | **标题** | 包脚手架与基类 |
 | **子标题** | pyproject.toml、包结构、Capability/QueryCapability/CommandCapability/CapabilityContext**
 | **输入** | `arch/L3/capability-sdk-design-v1.md` 第2章 |
-| **产出目录** | `earp-sdk-core-py/` + `earp-sdk-capability-py/` |
+| **产出目录** | `libs/earp-sdk-core-py/` + `libs/earp-sdk-capability-py/` |
 
 **acceptance_criteria：**
 - `earp-sdk-core-py` 和 `earp-sdk-capability-py` 两个包都可 `pip install -e .`
@@ -51,13 +51,13 @@ Task 3 (Schema生成) ───────────────────�
 
 **修改的文件：**
 ```
-earp-sdk-core-py/pyproject.toml
-earp-sdk-core-py/src/earp_sdk_core/__init__.py
-earp-sdk-core-py/src/earp_sdk_core/errors.py
-earp-sdk-capability-py/pyproject.toml
-earp-sdk-capability-py/src/earp_sdk_capability/__init__.py
-earp-sdk-capability-py/src/earp_sdk_capability/base.py
-earp-sdk-capability-py/src/earp_sdk_capability/context.py
+libs/earp-sdk-core-py/pyproject.toml
+libs/earp-sdk-core-py/src/earp_sdk_core/__init__.py
+libs/earp-sdk-core-py/src/earp_sdk_core/errors.py
+libs/earp-sdk-capability-py/pyproject.toml
+libs/earp-sdk-capability-py/src/earp_sdk_capability/__init__.py
+libs/earp-sdk-capability-py/src/earp_sdk_capability/base.py
+libs/earp-sdk-capability-py/src/earp_sdk_capability/context.py
 ```
 
 ---

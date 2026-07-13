@@ -26,13 +26,13 @@
 ## Task 001 交付物清单
 
 ```
-earp-sdk-core-py/                   # 共享基础包
+libs/earp-sdk-core-py/                   # 共享基础包
 ├── pyproject.toml
 └── src/earp_sdk_core/
     ├── __init__.py                  # 导出 ConnectorError, CapabilityError
     └── errors.py                    # 6 个 ConnectorErrorCode + 8 个 CapabilityErrorCode
 
-earp-sdk-capability-py/             # Capability SDK 本体
+libs/earp-sdk-capability-py/             # Capability SDK 本体
 ├── pyproject.toml
 └── src/earp_sdk_capability/
     ├── __init__.py                  # 公共导出（依赖 earp_sdk_core）

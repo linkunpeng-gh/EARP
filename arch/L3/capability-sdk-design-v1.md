@@ -462,13 +462,13 @@ equipment_caps = await client.list_by_domain("equipment")
 ## 8. SDK 包结构
 
 ```
-earp-sdk-core-py/                  # 共享基础包（所有 SDK 依赖）
+libs/earp-sdk-core-py/                  # 共享基础包（所有 SDK 依赖）
 ├── pyproject.toml
 └── src/earp_sdk_core/
     ├── __init__.py                 # 导出: ConnectorError, CapabilityError
     └── errors.py                   # ConnectorErrorCode(6) + CapabilityErrorCode(8)
 
-earp-sdk-capability-py/            # Capability SDK
+libs/earp-sdk-capability-py/            # Capability SDK
 ├── pyproject.toml                  # 依赖: earp-sdk-core, pydantic, httpx, rich, typer
 ├── capability.yaml.example
 ├── README.md

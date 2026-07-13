@@ -198,12 +198,12 @@ earp search "报警" --domain equipment
 ## 包结构
 
 ```
-earp-sdk-core-py/                  # 共享基础包
+libs/earp-sdk-core-py/                  # 共享基础包
 └── src/earp_sdk_core/
     ├── __init__.py
     └── errors.py                   # ConnectorError(6) + CapabilityError(8)
 
-earp-sdk-capability-py/            # 主 SDK 包
+libs/earp-sdk-capability-py/            # 主 SDK 包
 └── src/earp_sdk_capability/
     ├── base.py                     # Capability / QueryCapability / CommandCapability
     ├── context.py                  # CapabilityContext + CapLogger
