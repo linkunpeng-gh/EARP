@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "earp-sdk-core"
+version = "0.1.0.dev0"
+description = "EARP SDK Core"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "EARP Team" }]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/earp_sdk_core"]
