@@ -1,13 +1,15 @@
 from __future__ import annotations
-from enum import StrEnum
+from enum import Enum
 from typing import Any
 
-class ConnectorErrorCode(StrEnum):
+
+class ConnectorErrorCode(str, Enum):
     CONNECTION_FAILED = "CONNECTION_FAILED"
     TIMEOUT = "TIMEOUT"
     RATE_LIMITED = "RATE_LIMITED"
     AUTH_EXPIRED = "AUTH_EXPIRED"
     INVALID_RESPONSE = "INVALID_RESPONSE"
+    OPERATION_NOT_FOUND = "OPERATION_NOT_FOUND"
     SYSTEM_ERROR = "SYSTEM_ERROR"
 
 CONNECTOR_RETRYABLE = {
@@ -16,6 +18,7 @@ CONNECTOR_RETRYABLE = {
     ConnectorErrorCode.RATE_LIMITED: True,
     ConnectorErrorCode.AUTH_EXPIRED: False,
     ConnectorErrorCode.INVALID_RESPONSE: False,
+    ConnectorErrorCode.OPERATION_NOT_FOUND: False,
     ConnectorErrorCode.SYSTEM_ERROR: True,
 }
 
@@ -34,12 +37,13 @@ class ConnectorError(Exception):
         return {ConnectorErrorCode.CONNECTION_FAILED: "Connection failed",
                 ConnectorErrorCode.TIMEOUT: "Timeout", ConnectorErrorCode.RATE_LIMITED: "Rate limited",
                 ConnectorErrorCode.AUTH_EXPIRED: "Auth expired", ConnectorErrorCode.INVALID_RESPONSE: "Invalid response",
+                ConnectorErrorCode.OPERATION_NOT_FOUND: "Operation not found",
                 ConnectorErrorCode.SYSTEM_ERROR: "System error"}.get(self.code, "Unknown")
 
     def __str__(self):
         b = f"[{self.code.value}] {self.message}"; return b if self.retry_after is None else f"{b} (retry after {self.retry_after}s)"
 
-class CapabilityErrorCode(StrEnum):
+class CapabilityErrorCode(str, Enum):
     CAPABILITY_NOT_FOUND = "CAPABILITY_NOT_FOUND"
     SCHEMA_VALIDATION_FAILED = "SCHEMA_VALIDATION_FAILED"
     PERMISSION_DENIED = "PERMISSION_DENIED"
@@ -72,3 +76,9 @@ class RateLimitExceededError(CapabilityError):
     def __init__(self, message="Rate limit exceeded", *, retry_after=None):
         super().__init__(CapabilityErrorCode.RATE_LIMIT_EXCEEDED, message)
         self.retry_after = retry_after
+
+
+class CredentialKeyError(Exception):
+    """Raised when credential encryption key is missing, malformed,
+    wrong length, or decryptor is not available (after unpickling)."""
+    pass

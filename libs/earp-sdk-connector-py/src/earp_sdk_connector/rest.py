@@ -98,7 +98,7 @@ class RESTConnector(BaseConnector):
     def _get_endpoint(self, operation: str) -> dict:
         ep = self.endpoints.get(operation)
         if ep is None:
-            raise ConnectorError(ConnectorErrorCode.INVALID_RESPONSE,
+            raise ConnectorError(ConnectorErrorCode.OPERATION_NOT_FOUND,
                 f"Operation '{operation}' not defined. Valid: {list(self.endpoints.keys())}")
         return ep
 

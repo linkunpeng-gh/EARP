@@ -1,16 +1,20 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
+
 
 @dataclass
 class AuthConfig:
     type: str = ""
-    token: str = ""
+    token: str = field(default="", repr=False)
     username: str = ""
-    password: str = ""
+    password: str = field(default="", repr=False)
+
 
 @dataclass
 class ConnectorRetryConfig:
     max_attempts: int = 3
     backoff: str = "exponential"
+
 
 @dataclass
 class ConnectorConfig:

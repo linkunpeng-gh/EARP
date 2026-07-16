@@ -7,6 +7,24 @@ from earp_sdk_plugin.permissions import Permission
 
 logger = logging.getLogger(__name__)
 
+def _publish_plugin_audit(event_type: str, action: str, result: str,
+                          plugin: Plugin, error: str = "") -> None:
+    """Publish plugin lifecycle audit event (non-fatal on failure)."""
+    try:
+        from earp_sdk_core import AuditEvent, publish_audit_event
+        detail = {"plugin_name": plugin.name, "version": plugin.version}
+        if error:
+            detail["error"] = error
+        publish_audit_event(AuditEvent(
+            source="security", event_type=event_type,
+            tenant_id="", user_id="",
+            action=action, result=result,
+            detail=detail,
+        ))
+    except Exception:
+        pass
+
+
 class PluginManager:
     def __init__(self):
         self._plugins: dict[ExtensionPoint, list[Plugin]] = {}
@@ -40,15 +58,19 @@ class PluginManager:
         for plugin in self._all:
             try:
                 await plugin.on_load()
+                _publish_plugin_audit("PLUGIN_LOADED", "plugin_load", "success", plugin)
             except Exception as e:
                 logger.error("Failed to load plugin '%s': %s\n%s", plugin.name, e, traceback.format_exc())
+                _publish_plugin_audit("PLUGIN_LOADED", "plugin_load", "failure", plugin, str(e))
 
     async def unload_all(self) -> None:
         for plugin in reversed(self._all):
             try:
                 await plugin.on_unload()
-            except Exception:
-                logger.error("Failed to unload plugin '%s'", plugin.name)
+                _publish_plugin_audit("PLUGIN_UNLOADED", "plugin_unload", "success", plugin)
+            except Exception as e:
+                logger.error("Failed to unload plugin '%s': %s", plugin.name, e)
+                _publish_plugin_audit("PLUGIN_UNLOADED", "plugin_unload", "failure", plugin, str(e))
 
     @staticmethod
     async def wrap_call(plugin: Plugin, coro: Any) -> Any:
