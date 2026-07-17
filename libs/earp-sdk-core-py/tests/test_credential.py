@@ -214,3 +214,77 @@ class TestEncryptedAuthConfig:
             _ = enc_auth.token
         with pytest.raises(CredentialKeyError, match="no decryptor"):
             _ = enc_auth.password
+
+
+# ── Per-tenant HKDF key derivation (PRD-2026-009 AC-01/02/03) ──
+
+class TestCredentialEncryptorPerTenant:
+    """AC-01/02: per-tenant key derivation via HKDF-SHA256."""
+
+    @pytest.fixture
+    def key_bytes(self):
+        return os.urandom(32)
+
+    @pytest.fixture
+    def master_key_env(self, key_bytes, monkeypatch):
+        monkeypatch.setenv("EARP_CREDENTIAL_KEY", base64.b64encode(key_bytes).decode())
+        return key_bytes
+
+    def test_different_tenants_different_keys(self, master_key_env):
+        """AC-01: same master key, different tenants → different derived keys."""
+        enc_t1 = CredentialEncryptor(tenant_id="tenant-a")
+        enc_t2 = CredentialEncryptor(tenant_id="tenant-b")
+        assert enc_t1.key != enc_t2.key
+
+    def test_different_tenants_different_ciphertexts(self, master_key_env):
+        """AC-01: same plaintext, different tenants → different ciphertexts."""
+        enc_t1 = CredentialEncryptor(tenant_id="t1")
+        enc_t2 = CredentialEncryptor(tenant_id="t2")
+        c1 = enc_t1.encrypt("same-secret")
+        c2 = enc_t2.encrypt("same-secret")
+        assert c1 != c2
+
+    def test_cross_tenant_decrypt_fails(self, master_key_env):
+        """AC-02: t1 cannot decrypt t2's ciphertext."""
+        enc_t1 = CredentialEncryptor(tenant_id="t1")
+        enc_t2 = CredentialEncryptor(tenant_id="t2")
+        cipher_t2 = enc_t2.encrypt("secret")
+        from cryptography.exceptions import InvalidTag
+        with pytest.raises(InvalidTag):
+            enc_t1.decrypt(cipher_t2)
+
+    def test_same_tenant_same_key(self, master_key_env):
+        """Same tenant_id produces same derived key (deterministic)."""
+        enc_a = CredentialEncryptor(tenant_id="t1")
+        enc_b = CredentialEncryptor(tenant_id="t1")
+        assert enc_a.key == enc_b.key
+        # And they can decrypt each other's ciphertexts
+        cipher = enc_a.encrypt("shared")
+        assert enc_b.decrypt(cipher) == "shared"
+
+    def test_empty_tenant_id_backward_compat(self, master_key_env):
+        """AC-03: tenant_id='' uses HKDF(salt=b'') — transition mode."""
+        enc_empty = CredentialEncryptor(tenant_id="")
+        enc_t1 = CredentialEncryptor(tenant_id="t1")
+
+        # Empty tenant produces a valid derived key (not raw master key)
+        assert enc_empty.key != enc_t1.key
+
+        # Old ciphertexts encrypted with empty tenant can be decrypted
+        # by a new encryptor with empty tenant (same salt)
+        cipher_old = enc_empty.encrypt("legacy-data")
+        enc_empty2 = CredentialEncryptor(tenant_id="")
+        assert enc_empty2.decrypt(cipher_old) == "legacy-data"
+
+        # But NOT by a different tenant
+        from cryptography.exceptions import InvalidTag
+        with pytest.raises(InvalidTag):
+            enc_t1.decrypt(cipher_old)
+
+    def test_tenant_id_preserved_in_property(self, master_key_env):
+        enc = CredentialEncryptor(tenant_id="my-tenant")
+        assert enc.tenant_id == "my-tenant"
+
+    def test_default_tenant_id_is_empty(self, master_key_env):
+        enc = CredentialEncryptor()
+        assert enc.tenant_id == ""

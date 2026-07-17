@@ -11,6 +11,7 @@ from earp_sdk_runtime.models import RetryConfig
 from earp_sdk_runtime.session import Session
 
 USER_AGENT = "earp-sdk-runtime/0.1.0.dev0"
+_UNSET = object()
 
 
 class RuntimeClient:
@@ -44,7 +45,7 @@ class RuntimeClient:
         self,
         *,
         user_id: str,
-        tenant_id: str = "",
+        tenant_id: str | object = _UNSET,
         ttl_seconds: int = 3600,
         metadata: dict[str, Any] | None = None,
     ) -> Session:
@@ -52,7 +53,7 @@ class RuntimeClient:
 
         Args:
             user_id: (MUST) Creator user identifier. Aligns with L2-01 §6.3.
-            tenant_id: Tenant scope.
+            tenant_id: (MUST) Tenant scope — Multi-Tenant Spec §3.2.
             ttl_seconds: Session TTL in seconds.
             metadata: Extended metadata.
 
@@ -61,6 +62,8 @@ class RuntimeClient:
         """
         if not user_id:
             raise ValueError("user_id is required (L2-01 §6.3 MUST)")
+        if tenant_id is _UNSET:
+            raise ValueError("tenant_id is required (Multi-Tenant Spec §3.2 MUST)")
 
         response = await self._client.post(
             f"{self.endpoint}/v1/sessions",
@@ -92,7 +95,7 @@ class RuntimeClient:
         params: dict[str, Any],
         *,
         user_id: str = "",
-        tenant_id: str = "",
+        tenant_id: str | object = _UNSET,
         timeout_seconds: int = 30,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:

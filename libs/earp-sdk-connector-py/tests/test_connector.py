@@ -309,3 +309,56 @@ class TestSecurityAuditPhase2:
         critical_records = [r for r in caplog.records if r.levelno == _log.CRITICAL]
         assert len(critical_records) >= 1, "Fallback critical log should still be emitted"
         assert "Security audit: AUTH_EXPIRED" in critical_records[0].getMessage()
+
+
+# ── Tenant isolation tests (PRD-2026-009 AC-04) ──
+
+class TestSecurityTenantHeader:
+    """AC-04: RESTConnector injects X-EARP-Tenant-Id header when tenant_id is set."""
+
+    async def test_tenant_id_header_injected(self):
+        hdrs = {}
+
+        async def h(req):
+            hdrs.update(dict(req.headers))
+            return httpx.Response(200)
+
+        class TenantConnector(RESTConnector):
+            connector_id = "tc"
+            name = "TenantTest"
+            protocol = "http"
+            endpoints = {"ping": {"method": "GET", "path": "/ping", "required_params": []}}
+
+        conn = TenantConnector()
+        conn.tenant_id = "tenant-42"
+        conn._transport = httpx.AsyncClient(transport=_make_transport(h))
+        conn.config = ConnectorConfig(base_url="http://mock",
+                                       auth=AuthConfig(type="bearer", token="t"))
+
+        await conn.execute("ping", {"msg": "hi"})
+        assert hdrs.get("x-earp-tenant-id") == "tenant-42"
+        assert hdrs.get("authorization") == "Bearer t"
+        await conn._transport.aclose()
+
+    async def test_no_tenant_id_header_when_empty(self):
+        hdrs = {}
+
+        async def h(req):
+            hdrs.update(dict(req.headers))
+            return httpx.Response(200)
+
+        class NoTenantConnector(RESTConnector):
+            connector_id = "ntc"
+            name = "NoTenantTest"
+            protocol = "http"
+            endpoints = {"ping": {"method": "GET", "path": "/ping", "required_params": []}}
+
+        conn = NoTenantConnector()
+        conn.tenant_id = ""  # system-level connector
+        conn._transport = httpx.AsyncClient(transport=_make_transport(h))
+        conn.config = ConnectorConfig(base_url="http://mock",
+                                       auth=AuthConfig(type="bearer", token="t"))
+
+        await conn.execute("ping", {"msg": "hi"})
+        assert "x-earp-tenant-id" not in {k.lower(): k for k in hdrs}
+        await conn._transport.aclose()

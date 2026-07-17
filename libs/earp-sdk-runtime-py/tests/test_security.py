@@ -79,7 +79,7 @@ class TestJWTBearerHeaderPropagation:
         captured: dict[str, str] = {}
         client = self._make_client(self._default_handler(captured))
 
-        await client.create_session(user_id="u1")
+        await client.create_session(user_id="u1", tenant_id="t1")
         assert captured.get("authorization") == f"Bearer {self.JWT_TOKEN}", (
             f"create_session missing Auth header. Got: {captured}"
         )
@@ -92,7 +92,7 @@ class TestJWTBearerHeaderPropagation:
         captured: dict[str, str] = {}
         client = self._make_client(self._default_handler(captured))
 
-        session = await client.create_session(user_id="u1")
+        session = await client.create_session(user_id="u1", tenant_id="t1")
         await session.capabilities.invoke("ping", {"msg": "hello"})
         assert captured.get("authorization") == f"Bearer {self.JWT_TOKEN}", (
             f"invoke missing Auth header. Got: {captured}"
@@ -107,7 +107,7 @@ class TestJWTBearerHeaderPropagation:
         captured: dict[str, str] = {}
         client = self._make_client(self._default_handler(captured))
 
-        session = await client.create_session(user_id="u1")
+        session = await client.create_session(user_id="u1", tenant_id="t1")
         await session.capabilities.search("ping")
         assert captured.get("authorization") == f"Bearer {self.JWT_TOKEN}", (
             f"search missing Auth header. Got: {captured}"
@@ -122,7 +122,7 @@ class TestJWTBearerHeaderPropagation:
         captured: dict[str, str] = {}
         client = self._make_client(self._default_handler(captured))
 
-        session = await client.create_session(user_id="u1")
+        session = await client.create_session(user_id="u1", tenant_id="t1")
         await session.capabilities.resolve("find user by email")
         assert captured.get("authorization") == f"Bearer {self.JWT_TOKEN}", (
             f"resolve missing Auth header. Got: {captured}"
@@ -137,7 +137,7 @@ class TestJWTBearerHeaderPropagation:
         captured: dict[str, str] = {}
         client = self._make_client(self._default_handler(captured))
 
-        session = await client.create_session(user_id="u1")
+        session = await client.create_session(user_id="u1", tenant_id="t1")
         await session.close()
         assert captured.get("authorization") == f"Bearer {self.JWT_TOKEN}", (
             f"close missing Auth header. Got: {captured}"
@@ -151,7 +151,7 @@ class TestJWTBearerHeaderPropagation:
         captured: dict[str, str] = {}
         client = self._make_client(self._default_handler(captured))
 
-        session = await client.create_session(user_id="u1")
+        session = await client.create_session(user_id="u1", tenant_id="t1")
         await session.status_info()
         assert captured.get("authorization") == f"Bearer {self.JWT_TOKEN}", (
             f"status_info missing Auth header. Got: {captured}"
@@ -166,7 +166,7 @@ class TestJWTBearerHeaderPropagation:
         captured: dict[str, str] = {}
         client = self._make_client(self._default_handler(captured))
 
-        await client.call("ping", {"msg": "hi"}, user_id="u1")
+        await client.call("ping", {"msg": "hi"}, user_id="u1", tenant_id="t1")
         assert captured.get("authorization") == f"Bearer {self.JWT_TOKEN}", (
             f"call shortcut missing Auth header. Got: {captured}"
         )
@@ -195,7 +195,7 @@ class TestJWTNoTokenNoAuthHeader:
         rc.retry_config = None
         rc._client = httpx.AsyncClient(transport=transport, headers=headers)
 
-        await rc.create_session(user_id="u1")
+        await rc.create_session(user_id="u1", tenant_id="t1")
         assert "authorization" not in {k.lower(): v for k, v in captured.items()}, (
             "No token should mean no Authorization header"
         )

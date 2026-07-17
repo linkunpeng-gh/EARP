@@ -103,14 +103,17 @@ class RESTConnector(BaseConnector):
         return ep
 
     def _ensure_auth_headers(self) -> None:
-        if self._auth_headers: return
-        if self.config and self.config.auth.token:
-            if self.config.auth.type == "bearer":
-                self._auth_headers["Authorization"] = f"Bearer {self.config.auth.token}"
-            elif self.config.auth.type == "basic":
-                import base64
-                creds = base64.b64encode(f"{self.config.auth.username}:{self.config.auth.password}".encode()).decode()
-                self._auth_headers["Authorization"] = f"Basic {creds}"
+        if not self._auth_headers:
+            if self.config and self.config.auth.token:
+                if self.config.auth.type == "bearer":
+                    self._auth_headers["Authorization"] = f"Bearer {self.config.auth.token}"
+                elif self.config.auth.type == "basic":
+                    import base64
+                    creds = base64.b64encode(f"{self.config.auth.username}:{self.config.auth.password}".encode()).decode()
+                    self._auth_headers["Authorization"] = f"Basic {creds}"
+        # Tenant header: always refresh (may change at runtime, not cached)
+        if self.tenant_id:
+            self._auth_headers["X-EARP-Tenant-Id"] = self.tenant_id
 
     @staticmethod
     def _build_body(params: dict, endpoint: dict, body_type: str | None) -> Any:
