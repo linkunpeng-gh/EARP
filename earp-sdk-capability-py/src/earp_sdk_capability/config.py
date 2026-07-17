@@ -55,6 +55,7 @@ class ConnectorRetryConfig:
 
     max_attempts: int = 0
     backoff: str = "exponential"
+    fallback_capability_id: str = ""  # v1.3: 重试耗尽后切换到备用 Capability
 
 
 @dataclass

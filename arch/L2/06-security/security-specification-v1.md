@@ -5,7 +5,7 @@
 **文档编号：L2-06-SECURITY**
 **版本：v1.1**
 **定位：L2 — 平台规范。定义 EARP 的安全策略——凭证管理、数据加密、LLM 安全、API 安全。审计基础设施和授权策略由各自的 Governance 规范承载。**
-**依赖：L0/design-philosophy.md, L1/architecture-v6.md, L2-01-RUNTIME v1.2, L2-05-POLICY v1.0, L2-05-AUDIT v1.1, L2-05-OBSERVATION v1.0**
+**依赖：L0/design-philosophy.md, L1/architecture-v6.md, L2-01-RUNTIME v1.2, L2-05-POLICY v1.0, L2-05-AUDIT v1.1, L2-05-OBSERVATION v1.1**
 
 ---
 

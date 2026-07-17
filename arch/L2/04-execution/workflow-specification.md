@@ -2,10 +2,12 @@
 
 ## EARP 工作流规范
 
-**文档编号：L2-04-WORKFLOW**
-**版本：v1.0**
-**定位：L2 — 平台规范。本文定义 Workflow 的契约。Workflow 是 Runtime 的一种 Execution Pattern（预定义 DAG 执行模式），不是 Runtime 本身。**
-**依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-01-runtime/runtime-specification.md, L2-03-capability/capability-center-specification.md**
+**文档编号：L2-04-WORKFLOW**  
+**版本：v1.1**  
+**定位：L2 — 平台规范。本文定义 Workflow 的契约——DSL、节点类型、编译规则、执行状态机。Workflow 是 Runtime 的一种 Execution Pattern，不是 Runtime 本身。**  
+**依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-01-runtime/runtime-specification.md, L2-03-capability/capability-center-specification.md, L2-05-POLICY v1.0, L2-05-OBSERVATION v1.1**
+
+> **v1.1 变更**：新增 §7 工作流状态机（running/paused/approved/rejected/failed + 暂停/恢复/超时升级）；§6 闭环机制扩展；依赖增加 Policy Center + Observation Spec。
 
 ---
 
@@ -217,12 +219,124 @@ MUST: 流程治理的完整规则由 Policy Center Specification 定义（参见
 
 ---
 
+# 第七章：工作流状态机（v1.1 新增）
+
+## 7.1 状态定义
+
+Workflow Instance（一次 Workflow 执行的实例）具有以下状态：
+
+```
+          ┌─────────┐
+          │ running │◀──────────────────────────────┐
+          └────┬────┘                               │
+               │                                    │
+     ┌─────────┼──────────┐                         │
+     ▼         ▼          ▼                         │
+┌────────┐ ┌──────┐ ┌──────────┐                    │
+│paused  │ │failed│ │completed │                    │
+└───┬────┘ └──────┘ └──────────┘                    │
+    │                                                │
+    ├──▶ 审批通过 ──▶ ┌──────────┐                   │
+    │                 │ approved  │──▶ 继续执行 ──────┘
+    │                 └────┬─────┘
+    │                      │
+    │                 审批拒绝 → failed
+    │
+    ├──▶ 超时 ──▶ ┌──────────┐
+    │             │ escalated │──▶ Policy Center 通知
+    │             └──────────┘
+    │
+    └──▶ 手动恢复 ──▶ running
+```
+
+## 7.2 暂停与恢复
+
+```
+MUST: human_approval 节点执行时 Workflow 自动进入 paused 状态
+MUST: paused 状态下所有在途 Task 保持等待（不取消、不超时）
+MUST: 审批通过 → 状态转为 approved → 编译剩余节点 → 恢复 running 执行
+MUST: 审批拒绝 → 状态转为 failed → 所有在途 Task 取消
+MUST: Workflow 支持手动暂停/恢复（通过 API，SHOULD）
+```
+
+## 7.3 超时升级
+
+```
+MUST: human_approval 节点配置 timeout_hours 后，超时自动升级
+MUST: 升级策略由 Policy Center 定义（如通知上级审批人、自动转为 rejected）
+SHOULD: 超时升级事件通过 EventBus 发布（event_type: workflow.escalated）
+SHOULD: 升级后状态保持 paused（等待人工处理），或按 Policy 自动转为 rejected
+```
+
+## 7.4 状态机与 Runtime 的映射
+
+| Workflow 状态 | Runtime Execution 行为 |
+|:-------------|:----------------------|
+| running | Execution 正常执行 Plan DAG |
+| paused | Execution 暂停（在途 Task 保持）→ Checkpoint |
+| approved | 编译审批节点之后的剩余节点为新 Plan → 继续执行 |
+| rejected | Execution 取消 → 状态转为 FAILED |
+| failed | Execution 状态 FAILED → 触发 RePlan（见 Runtime Spec） |
+| completed | Execution 状态 COMPLETED → Feedback 闭环 |
+
+## 7.5 RePlan 闭环时序（v1.1 新增）
+
+```
+Runtime      Planner     Capability   Connector   fallback_Capability   Audit
+   │            │             │            │              │               │
+   │─execute──▶│             │            │              │               │
+   │            │             │──call────▶│              │               │
+   │            │             │◀─FAILED───│              │               │
+   │            │             │  (timeout)│              │               │
+   │            │             │           │              │               │
+   │◀─FAILED────│             │           │              │               │
+   │            │             │           │              │               │
+   │──replan(context)────────▶│           │              │               │
+   │  failure_context:        │           │              │               │
+   │  {cap_id, error_code,    │           │              │               │
+   │   session_id}            │           │              │               │
+   │            │             │           │              │               │
+   │            │─generate corrected plan──▶            │               │
+   │            │  (继承 session_id)        │            │               │
+   │            │◀─new DAG─────────────────│            │               │
+   │            │  (plan_id ≠ original)    │            │               │
+   │            │                          │            │               │
+   │──▶ Audit: REPLAN_TRIGGERED ──────────────────────────────────────▶│
+   │            │                          │            │               │
+   │──new Execution (PLANNING)─▶           │            │               │
+   │  继承 session_id, 新 plan_id          │            │               │
+   │            │                          │            │               │
+   │            │──call(fallback_cap)──────│───────────▶│               │
+   │            │                          │  fallback   │               │
+   │            │◀─SUCCESS─────────────────│───────────│               │
+   │            │                          │            │               │
+   │◀─SUCCESS──│                          │            │               │
+   │            │                          │            │               │
+   │   ┌─ 3 次 RePlan 上限? ─┐             │            │               │
+   │   │ → Audit:                        │            │               │
+   │   │   REPLAN_EXHAUSTED ───────────────────────────────────────────▶│
+   │   │ → Execution FAILED              │            │               │
+   │   └─────────────────────┘             │            │               │
+```
+
+**步骤说明：**
+1. Capability 调用失败 → Execution FAILED
+2. Runtime 调用 `Planner.replan()`，传入 failure_context（capability_id, error_code, session_id）
+3. Planner 生成修正 Plan（新 plan_id，继承原 session_id）
+4. Audit 发布 REPLAN_TRIGGERED 事件
+5. 新 Execution 以 PLANNING 状态启动 → 执行新 Plan（自动使用 fallback_capability_id）
+6. 3 次 RePlan 上限耗尽 → REPLAN_EXHAUSTED → Execution 最终 FAILED
+
+---
+
 # 附录：规范依赖
 
 | 规范 | 关系 |
 |------|------|
-| Runtime Spec — Execution | 编译为 Runtime Plan |
+| Runtime Spec — Execution | 编译为 Runtime Plan；状态机映射 |
 | Runtime Spec — Lifecycle | 同步/异步/长流程 |
-| Runtime Spec — Checkpoint | 长流程 Checkpoint 恢复 |
+| Runtime Spec — Checkpoint | 长流程 Checkpoint 恢复；paused→Checkpoint |
 | Capability Center Spec | business 节点引用 Capability |
 | Decision Engine Spec | decision 节点调用 |
+| Policy Center Spec | human_approval 超时升级策略；审批流程 |
+| Observation Spec v1.1 | 状态变更事件发布到 EventBus |

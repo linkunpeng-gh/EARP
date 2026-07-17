@@ -1,0 +1,63 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sdk: [earp-sdk-core-py, earp-sdk-connector-py, earp-sdk-runtime-py, earp-sdk-plugin-py]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio httpx cryptography
+          pip install -e libs/earp-sdk-core-py
+          pip install -e libs/earp-sdk-connector-py
+          pip install -e libs/earp-sdk-runtime-py
+          pip install -e libs/earp-sdk-plugin-py
+
+      - name: Run tests (${{ matrix.sdk }})
+        run: |
+          python -m pytest libs/${{ matrix.sdk }}/tests/ -v --tb=short
+
+  test-all:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install all SDKs
+        run: |
+          pip install pytest pytest-asyncio httpx cryptography
+          pip install -e libs/earp-sdk-core-py
+          pip install -e libs/earp-sdk-connector-py
+          pip install -e libs/earp-sdk-runtime-py
+          pip install -e libs/earp-sdk-plugin-py
+      - name: Run full test suite
+        run: |
+          python -m pytest libs/earp-sdk-core-py/tests/ libs/earp-sdk-connector-py/tests/ libs/earp-sdk-runtime-py/tests/ libs/earp-sdk-plugin-py/tests/ -v --tb=short
+
+  validate-refs:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross-reference validation
+        run: python3 scripts/validate-cross-refs.py

@@ -5,7 +5,7 @@
 **文档编号：L2-05-AUDIT**
 **版本：v1.1**
 **定位：L2 — 平台规范。Audit 是 EARP 的统一审计基础设施，负责所有执行的日志记录与溯源。**
-**依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-01-runtime/runtime-specification.md, L2-01-runtime/eventbus-specification-v1.1.md（事件类型来源）**
+**依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-01-runtime/runtime-specification.md, L2-01-runtime/eventbus-specification-v1.1.md（事件类型来源）, L2-05-OBSERVATION v1.1（Replay 决策链追溯依赖 AuditLog）**
 
 ---
 

@@ -87,6 +87,7 @@ MUST: 每个 Capability 包含以下字段
   - version:           string          — 语义版本号（MUST）
   - capability_type:   "query" | "command"（MUST）
   - status:            "draft" | "active" | "deprecated" | "retired"（MUST）
+  - fallback_capability_id: string | null   — 执行失败时自动切换的备用能力（MUST，v1.3 新增）
 
 MUST: capability_id 全局唯一，永久不变，下架后不可复用
 MUST: 版本号遵循语义化版本（MAJOR.MINOR.PATCH）

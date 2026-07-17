@@ -3,9 +3,11 @@
 ## EARP 运行时规范
 
 **文档编号：L2-01-RUNTIME**
-**版本：v1.2**
-**定位：L2 — 平台规范。本文定义 Runtime 核心层的契约，所有上层模块（Planner、Workflow、Agent）必须遵守此规范。**
-**依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md**
+**版本：v1.3**
+**定位：L2 — 平台规范。本文定义 Runtime 核心层的契约，所有上层模块（Planner、Workflow、Agent）必须遵守此规范。**  
+**依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-05-OBSERVATION v1.1**
+
+> **v1.3 变更**：§4.1 新增 Replanning 状态；§4.2 新增 3 条 Replanning 转换路径和 3 个事件；进入 Replanning 时同 Execution 内其他在途并行 Step 保持等待（不取消）
 
 ---
 
@@ -208,6 +210,7 @@ Context 在 Session 创建时初始化，在 Session 完成时归档。多个 Ex
 | Paused | 已暂停（可恢复） |
 | Retrying | 失败后正在重试 |
 | Compensating | 正在执行补偿/回滚 |
+| Replanning | 失败后 Planner 正在生成修正 Plan（v1.3 新增） |
 | Succeeded | 执行成功 |
 | Failed | 执行失败（不可恢复） |
 | Cancelled | 被取消 |
@@ -233,6 +236,10 @@ Created → Cancelled
 Queued → Cancelled
 Running → Cancelled
 
+Failed → Replanning（v1.3 新增：Capability 失败 + 可重试条件 + 次数 < 3。进入 Replanning 时同 Execution 内其他在途并行 Step 保持等待，不取消）
+Replanning → Planning（生成新 Plan，继承原 session_id）
+Replanning → Failed（Planner 无法生成修正 Plan 或达到 3 次上限）
+
 状态转换事件对照：
   转换                         事件
   ─────────────────────       ──────────────────────
@@ -250,6 +257,9 @@ Running → Cancelled
   Running → Cancelled          runtime.execution.cancelled
   Compensating → Failed        runtime.execution.failed
   Succeeded → Archived         runtime.execution.archived
+  Failed → Replanning           runtime.execution.replanning          (v1.3)
+  Replanning → Planning         runtime.execution.replan_generated    (v1.3)
+  Replanning → Failed           runtime.execution.replan_exhausted    (v1.3)
 ```
 
 ## 4.3 超时规则
@@ -302,6 +312,7 @@ data:      any         — 事件负载
 | `runtime.execution.compensating` | 执行补偿 | `{execution_id, step_index, compensating_capability}` |
 | `runtime.execution.succeeded` | 成功 | `{execution_id, duration_ms}` |
 | `runtime.execution.failed` | 失败 | `{execution_id, error_code, error_message}` |
+| `runtime.execution.replan_triggered` | RePlan 触发（审计） | `{execution_id, session_id, failure_capability_id, replan_count}` | (v1.3)
 | `runtime.execution.cancelled` | 取消 | `{execution_id, reason}` |
 | `runtime.execution.archived` | 归档 | `{execution_id, final_status}` |
 
@@ -880,6 +891,17 @@ MUST: Agent 不直接写入 Working Memory（由 Execution Runtime 负责）
 ```
 
 ---
+
+# 附录 B：v1.2 → v1.3 变更记录
+
+| 变更 | 类型 | 说明 | 章节 |
+|------|------|------|------|
+| REPLANNING 状态 | 新增 | Execution 新增 Replanning 状态（失败→重规划→新执行，上限 3 次） | 第四章 |
+| 状态转换规则 | 新增 | 3 条 Replanning 转换路径（Failed→Replanning→Planning/Failed） | §4.2 |
+| 状态转换事件 | 新增 | 3 个 Replanning 事件（replanning/replan_generated/replan_exhausted） | §4.2 |
+| REPLAN_TRIGGERED 审计 | 新增 | 审计事件 `runtime.execution.replan_triggered`（含 session_id、failure_capability_id、replan_count） | §5.2 |
+| 并行 Step 行为 | 新增 | 进入 Replanning 时同 Execution 内其他在途并行 Step 保持等待 | §4.2 |
+| 依赖更新 | 优化 | +Observation Spec v1.1 | 文件头 |
 
 # 附录 B：v1.1 → v1.2 变更记录
 

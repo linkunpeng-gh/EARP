@@ -200,3 +200,41 @@ Phase 0 (PRD) → Gate A (PRD Review) → Phase 1 (影响分析) → Phase 2 (L3
 - **状态机**: Phase 0 ✅ → Gate A ⏩(Claude超时,self-review) → Phase 3 ✅ → Phase 4 ✅ → Gate C ✅(P0=0)
 - **变更**: `arch/L1/sequence-diagrams-v1.md` (v1.0, 6图/4AC)
 - **评审**: Gate C=1 (Claude超时跳过Gate A)
+
+---
+
+### 11. Observation Spec Replay (v1.0→v1.1)
+
+- **PRD**: `prd/PRD-2026-013-observation-replay.md` v1.2
+- **日期**: 2026-07-15
+- **状态机**: Phase 0 ✅ → Gate A ✅ (2轮) → Phase 3 ✅ → Phase 4 ✅
+- **变更**: `observation-specification.md` v1.1 (+§6 Replay), Security Spec 依赖更新, Audit Spec 依赖更新
+- **评审**: Gate A=2
+
+---
+
+### 12. Closed-loop Agent/Workflow 深化
+
+- **PRD**: `prd/PRD-2026-014-closed-loop.md` v1.2
+- **日期**: 2026-07-17
+- **状态机**: Phase 0 ✅ → Gate A ✅ (2轮) → Phase 3 ✅ → Phase 4 ✅ → Gate C ✅ (P0=0)
+- **变更**: Workflow Spec v1.1(+§7状态机+RePlan时序图), Runtime Spec v1.3(+REPLANNING+3事件+changelog), Capability Spec(+fallback MUST), ConnectorRetryConfig×2(+fallback)
+- **评审**: Gate A=2, Gate C=1 (2P0+5P1已修)
+
+---
+
+### 13. CI/CD 流水线
+
+- **PRD**: `prd/PRD-2026-015-ci-cd.md` v1.0
+- **日期**: 2026-07-17
+- **状态机**: Phase 0 ✅ → Phase 4 ✅ (单文件直写)
+- **变更**: `.github/workflows/test.yml` (push/PR触发, 4 SDK matrix + 全量测试)
+
+---
+
+### 14. 交叉引用自动化校验
+
+- **日期**: 2026-07-17
+- **状态机**: 直接实现 (单脚本)
+- **变更**: `scripts/validate-cross-refs.py` (4规则: R1 Spec版本/R2 PRD版本/R3 SDKMUST/R4 AC测试) + CI 集成
+- **结果**: 当前全绿 ✅
