@@ -39,6 +39,7 @@ class RuntimeClient:
 
         self._client = httpx.AsyncClient(headers=headers)
         self._tenant_id: str | None = None
+        self._role_id: str | None = None
 
     def set_tenant_id(self, tenant_id: str) -> None:
         """Switch tenant context for subsequent create_session() calls.
@@ -47,6 +48,15 @@ class RuntimeClient:
         """
         self._tenant_id = tenant_id
 
+    def switch_role(self, role_id: str) -> None:
+        """Switch current role for subsequent create_session() calls.
+
+        Raises ValueError if role_id is empty.
+        """
+        if not role_id:
+            raise ValueError("role_id must not be empty")
+        self._role_id = role_id
+
     # ── Session management ──
 
     async def create_session(
@@ -54,6 +64,7 @@ class RuntimeClient:
         *,
         user_id: str,
         tenant_id: str | object = _UNSET,
+        role_id: str | object = _UNSET,
         ttl_seconds: int = 3600,
         metadata: dict[str, Any] | None = None,
     ) -> Session:
@@ -62,6 +73,7 @@ class RuntimeClient:
         Args:
             user_id: (MUST) Creator user identifier. Aligns with L2-01 §6.3.
             tenant_id: (MUST) Tenant scope — Multi-Tenant Spec §3.2.
+            role_id: (MUST) Current role — Policy Center Spec §5.1.
             ttl_seconds: Session TTL in seconds.
             metadata: Extended metadata.
 
@@ -75,13 +87,18 @@ class RuntimeClient:
                 tenant_id = self._tenant_id
             else:
                 raise ValueError("tenant_id is required — call set_tenant_id() or pass explicitly (Multi-Tenant Spec §3.2 MUST)")
+        if role_id is _UNSET:
+            if self._role_id:
+                role_id = self._role_id
+            else:
+                raise ValueError("role_id is required — call switch_role() or pass explicitly (Policy Center Spec §5.1 MUST)")
 
         response = await self._client.post(
             f"{self.endpoint}/v1/sessions",
             json={
                 "user_id": user_id,
                 "tenant_id": tenant_id,
-                "ttl_seconds": ttl_seconds,
+                "role_id": role_id,
                 "metadata": metadata or {},
             },
             timeout=30,
@@ -107,6 +124,7 @@ class RuntimeClient:
         *,
         user_id: str = "",
         tenant_id: str | object = _UNSET,
+        role_id: str | object = _UNSET,
         timeout_seconds: int = 30,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
@@ -120,6 +138,7 @@ class RuntimeClient:
             params: Input parameters (aligned with input_schema).
             user_id: User identity for the ad-hoc session.
             tenant_id: Tenant scope.
+            role_id: Current role — Policy Center Spec §5.1. (MUST) from set_role_id() callback
             timeout_seconds: Request timeout.
             idempotency_key: (Command) Idempotency key for safe retry.
 
@@ -129,6 +148,7 @@ class RuntimeClient:
         session = await self.create_session(
             user_id=user_id or "anonymous",
             tenant_id=tenant_id,
+            role_id=role_id,
         )
         try:
             return await session.capabilities.invoke(

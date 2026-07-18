@@ -3,9 +3,11 @@
 ## EARP 审计规范
 
 **文档编号：L2-05-AUDIT**
-**版本：v1.1**
-**定位：L2 — 平台规范。Audit 是 EARP 的统一审计基础设施，负责所有执行的日志记录与溯源。**
-**依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-01-runtime/runtime-specification.md, L2-01-runtime/eventbus-specification-v1.1.md（事件类型来源）, L2-05-OBSERVATION v1.1（Replay 决策链追溯依赖 AuditLog）**
+**版本：v1.2**  
+**定位：L2 — 平台规范。Audit 是 EARP 的统一审计基础设施。**  
+**依赖：L2-07-TENANT v1.2, L2-05-OBSERVATION v1.1**
+
+> **v1.2 变更**：AuditEvent.detail 增加 role_id + user_roles 字段（角色级审计追溯）
 
 ---
 
@@ -53,7 +55,11 @@ MUST: 每条审计日志包含
   - subject:       string    — 操作对象（SHOULD）
   - action:        string    — 操作
   - result:        "success" | "failure" | "pending"
-  - detail:        dict      — 详细信息（SHOULD）
+  - detail:        dict      — 详细信息，以下事件类型 MUST 包含 role_id + user_roles（v1.2 新增）：
+    - role_id:    string    — 操作时的当前角色
+    - user_roles: list[str] — 用户拥有的所有角色
+    MUST 事件：SESSION_CREATED, EXECUTION_STARTED, EXECUTION_COMPLETED, EXECUTION_FAILED,
+              CAPABILITY_CALL, PERMISSION_DENIED, KNOWLEDGE_RETRIEVAL, ROLE_SWITCHED
 ```
 
 > **v1.1 变更**：`event_type` 字段从"本文定义"改为"引用 EventBus Spec 第 3 章"。

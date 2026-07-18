@@ -44,6 +44,8 @@ class CapabilityContext:
     request_id: str = ""
     user_id: str | None = None
     tenant_id: str | None = None
+    role_id: str | None = None        # 当前角色 — Policy Center Spec v1.1 §5.1
+    user_roles: list[str] = field(default_factory=list)  # 用户所有角色 — Policy Center Spec v1.1 §5.1
     connectors: ConnectorRegistry | None = None
     capabilities: CapabilityRegistry | None = None
     logger: CapLogger | None = None
@@ -52,3 +54,9 @@ class CapabilityContext:
     def set_tenant(self, tenant_id: str) -> None:
         """Switch tenant context. Aligns with Dify Account.set_tenant_id()."""
         self.tenant_id = tenant_id
+
+    def switch_role(self, role_id: str) -> None:
+        """Switch current role. MUST: role_id ∈ user_roles."""
+        if self.user_roles and role_id not in self.user_roles:
+            raise ValueError(f"Role '{role_id}' not in user_roles: {self.user_roles}")
+        self.role_id = role_id

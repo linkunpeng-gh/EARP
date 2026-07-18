@@ -3,9 +3,11 @@
 ## EARP 多租户隔离规范
 
 **文档编号：L2-07-TENANT**  
-**版本：v1.1**  
-**定位：L2 — 平台规范。定义 EARP 的多租户隔离策略——请求隔离、安全隔离、数据隔离、资源隔离、审计追责。**  
-**依赖：L0/design-philosophy.md, L1/architecture-v6.md, L1/enterprise-architecture.md, L2-01-RUNTIME v1.2, L2-06-SECURITY v1.1, L2-05-POLICY v1.0, L2-05-AUDIT v1.1**
+**版本：v1.2**  
+**定位：L2 — 平台规范。定义 EARP 的多租户隔离策略——请求隔离、安全隔离、数据隔离、角色隔离、资源隔离、审计追责。**  
+**依赖：L2-01-RUNTIME v1.3, L2-06-SECURITY v1.1, L2-05-POLICY v1.1, L2-05-AUDIT v1.1**
+
+> **v1.2 变更**：新增 §5.4 角色级数据隔离（Session/Execution 增加 role_id + 应用层四层 data_scope 过滤）；Policy Center Spec 依赖更新 v1.0→v1.1
 
 > **v1.1 变更**：调整章节顺序（概述→租户模型→请求隔离→安全隔离→数据隔离→资源隔离→审计）；HKDF 密钥派生补充 `tenant_id=""` 时的 salt 行为；明确系统事件的 SHOULD 适用条件；密文格式增加 version byte 预留。
 
@@ -181,6 +183,41 @@ SHOULD: 每个租户有独立的缓存 namespace
 ```
 MUST: 文件/对象存储路径包含 tenant_id 前缀（如 "s3://earp/{tenant_id}/..."）
 MUST: 文件访问 URL 为临时签名 URL，签名中绑定 tenant_id
+```
+
+## 5.4 角色级数据隔离（v1.2 新增）
+
+```
+MUST: Session、Execution、Checkpoint 创建时写入当前 role_id
+MUST: 数据按角色隔离（三层防线）：
+  第一层 — Session/Execution 创建时写入 role_id
+  第二层 — 应用层按 data_scope 过滤（self/department/org/all）
+  第三层 — RLS 仅做 tenant 隔离兜底（WHERE tenant_id = ?）
+MUST: 默认封闭 — 无显式授权时角色间数据不可互见
+MUST: data_scope 四层由 Policy Center Spec §5.3 定义，应用层 `build_data_filter()` 执行
+```
+
+### 5.4.1 影响的数据实体
+
+| 实体 | 新增字段 | 说明 |
+|:-----|:---------|:-----|
+| Session | `role_id: string` | 创建时的当前角色 |
+| Execution | `role_id: string` | 继承 Session 的 role_id |
+| Checkpoint | `role_id: string` | 继承 Execution 的 role_id |
+| AuditLog | `detail.role_id: string`, `detail.user_roles: list` | 操作时的角色上下文 |
+
+### 5.4.2 示例
+
+```
+市场分析员（role=market_analyst, data_scope=department）创建 Session：
+  → Session.role_id = "market_analyst"
+  → Session.user_id = "u-123"
+  → 财务主管（role=finance_manager, data_scope=all）查询时：
+     应用层 data_scope="all" → 无 role_id 过滤 → 可看到该 Session
+  → 市场分析员（role=market_analyst, data_scope=department）查询时：
+     应用层 data_scope="department" → role_id IN ("market_analyst", ...) → 可看到
+  → 另一市场分析员（data_scope=self）查询时：
+     应用层 data_scope="self" → role_id="market_analyst" AND user_id="u-123" → 不可见
 ```
 
 ---

@@ -2,9 +2,12 @@
 
 ## EARP 策略中心规范
 
-**文档编号：L2-05-POLICY**
-**版本：v1.0**
-**定位：L2 — 平台规范。Policy Center 管理所有策略的定义、评估与执行，控制"谁能做什么、什么时候能做、做到什么程度"。**
+**文档编号：L2-05-POLICY**  
+**版本：v1.1**  
+**定位：L2 — 平台规范。Policy Center 管理所有策略的定义、评估与执行，控制"以什么角色、能做什么、能做到什么程度"。**  
+**依赖：L2-07-TENANT v1.2**
+
+> **v1.1 变更**：§5.1 RBAC 增加角色切换规则和多角色权限评估；§5.3 Data Scope 增加 role 级数据范围过滤
 
 ---
 
@@ -103,7 +106,12 @@ MUST: 显式绑定优先于继承
 
 ```
 MUST: 使用 "domain:action" 格式（alarm:read / work_order:write）
-MUST: 评估：User.Role.permissions → Capability.required_permissions
+MUST: 评估：查询当前角色 permissions = Role.find_by_id(User.current_role_id).permissions
+        → 与 Capability.required_permissions 做子集判断（role.permissions ⊇ required_permissions）
+MUST: 用户可拥有多个角色（User.roles = [role_a, role_b]）
+MUST: 操作前选择当前角色（User.current_role_id），权限评估基于当前角色
+MUST: 角色切换需记录审计事件 ROLE_SWITCHED（detail: {from_role, to_role, user_id}）
+MUST: 权限评估以当前角色为准——不可跨角色合并权限（如需更高权限，显式切换角色）
 ```
 
 ## 5.2 Rate Limit
@@ -117,7 +125,13 @@ MUST: 超出返回 RATE_LIMIT_EXCEEDED
 
 ```
 MUST: 定义范围：self / department / org / all
-SHOULD: 通过 Context.org_id 判断
+MUST: 评估基于当前角色的 data_scope 字段
+  - self:       只能看到自己创建的数据（user_id = current_user AND role_id = current_role）
+  - department: 只能看到自己拥有角色创建的数据（role_id IN (user_roles)）
+  - org:        同一租户内所有角色可见
+  - all:        无限制（管理员）
+MUST: 数据范围过滤在应用层执行（RLS 仅做 tenant 隔离兜底）
+SHOULD: 通过 Context.role_id + Context.user_roles 判断
 ```
 
 ## 5.4 Approval

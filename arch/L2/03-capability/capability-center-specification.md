@@ -3,7 +3,9 @@
 ## EARP 能力中心规范
 
 **文档编号：L2-03-CAPABILITY**
-**版本：v1.1**
+**版本：v1.4**  
+
+> **v1.4 变更**：§3 discover() 增加 role_id 参数按角色过滤；BusinessCapability 增加 visible_roles 字段；v1.1→v1.3 已有变更（三层结构+fallback_capability_id）不在此列出
 **定位：L2 — 平台规范。本文定义 Capability Center 的契约，是所有业务能力的注册、发现、解析、治理标准。**
 **依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-01-runtime/runtime-specification.md**
 
@@ -88,6 +90,7 @@ MUST: 每个 Capability 包含以下字段
   - capability_type:   "query" | "command"（MUST）
   - status:            "draft" | "active" | "deprecated" | "retired"（MUST）
   - fallback_capability_id: string | null   — 执行失败时自动切换的备用能力（MUST，v1.3 新增）
+  - visible_roles:     list[str]            — 可见角色列表，空=所有角色可见 (SHOULD，v1.4 新增)
 
 MUST: capability_id 全局唯一，永久不变，下架后不可复用
 MUST: 版本号遵循语义化版本（MAJOR.MINOR.PATCH）
@@ -245,7 +248,20 @@ PATCH  /capabilities/{id}             — 更新
 POST   /capabilities/{id}/deprecate   — 废弃
 POST   /capabilities/{id}/retire      — 退役
 GET    /capabilities/{id}             — 详情
-GET    /capabilities/search?q={query} — 发现
+GET    /capabilities/search?q={query}&role_id={role_id} — 发现（按角色过滤）
+
+SHOULD: 支持以下检索模式
+  - 语义搜索（Embedding + Vector）
+  - 关键词搜索
+  - 领域筛选（domain）
+  - 类型筛选（type=query|command）
+  - **角色筛选（role_id）** — 仅返回当前角色有权调用的 Capability（v1.4 新增）
+  - 组合检索
+
+MUST: 角色筛选规则
+  - 评估：role.permissions ⊇ capability.required_permissions
+  - BusinessCapability.visible_roles 非空时，额外检查 role_id ∈ visible_roles
+  - 无权限的 Capability 不出现在结果中
 ```
 
 ## 5.2 Discovery 规范
