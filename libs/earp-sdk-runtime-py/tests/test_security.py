@@ -172,6 +172,15 @@ class TestJWTBearerHeaderPropagation:
         )
         await client.close()
 
+    async def test_set_tenant_id_persists(self):
+        """AC-01: set_tenant_id() → create_session without explicit tenant_id does not raise."""
+        captured: dict[str, str] = {}
+        client = self._make_client(self._default_handler(captured))
+        client.set_tenant_id("tenant-from-setter")
+        # Should not raise ValueError — tenant comes from set_tenant_id()
+        session = await client.create_session(user_id="u1")
+        assert session.session_id == "s-1"
+
 
 class TestJWTNoTokenNoAuthHeader:
     """When no token is provided, no Authorization header should be sent."""
@@ -199,4 +208,4 @@ class TestJWTNoTokenNoAuthHeader:
         assert "authorization" not in {k.lower(): v for k, v in captured.items()}, (
             "No token should mean no Authorization header"
         )
-        await rc.close()
+

@@ -32,7 +32,7 @@ class TestPluginManager:
 
     def test_register_invalid_extension_point(self):
         with pytest.raises(ValueError, match="not valid"):
-            p = Plugin(); p.extension_point = "invalid.ep"  # type: ignore
+            p = Plugin(); p.name = "test"; p.version = "1.0"; p.extension_point = "invalid.ep"  # type: ignore
             PluginManager().register(p)
 
     def test_register_duplicate_name(self):

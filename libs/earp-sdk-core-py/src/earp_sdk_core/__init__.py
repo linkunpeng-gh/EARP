@@ -6,6 +6,7 @@ from earp_sdk_core.key_source import KeySource, EnvVarSource
 from earp_sdk_core.credential import CredentialEncryptor, EncryptedAuthConfig
 from earp_sdk_core.audit import AuditEvent, publish_audit_event
 from earp_sdk_core.guard import InputGuard, OutputFilter, GuardResult, GuardStatus
+from earp_sdk_core.knowledge import KnowledgeBase, Document, DocumentStatus, Chunk, ChunkWithScore
 __all__ = ["ConnectorError","ConnectorErrorCode","CapabilityError","CapabilityErrorCode",
            "CapabilityNotFoundError","PermissionDeniedError","RateLimitExceededError",
            "CredentialKeyError",
@@ -14,4 +15,5 @@ __all__ = ["ConnectorError","ConnectorErrorCode","CapabilityError","CapabilityEr
            "KeySource","EnvVarSource",
            "CredentialEncryptor","EncryptedAuthConfig",
            "AuditEvent","publish_audit_event",
-           "InputGuard","OutputFilter","GuardResult","GuardStatus"]
+           "InputGuard","OutputFilter","GuardResult","GuardStatus",
+           "KnowledgeBase","Document","DocumentStatus","Chunk","ChunkWithScore"]

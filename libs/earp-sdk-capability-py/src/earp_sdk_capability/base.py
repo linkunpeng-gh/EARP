@@ -30,7 +30,9 @@ class Capability(ABC, Generic[InputT, OutputT]):
 
     # ── Optional fields ──
     version: str = "0.1.0"
+    status: str = "draft"  # draft | active | deprecated | retired (Spec v1.3 MUST)
     tags: list[str] = []
+    fallback_capability_id: str = ""  # 失败时自动切换 (Spec v1.3 MUST)
 
     @abstractmethod
     async def execute(self, ctx: "CapabilityContext", params: InputT) -> OutputT:

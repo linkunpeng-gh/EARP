@@ -48,3 +48,7 @@ class CapabilityContext:
     capabilities: CapabilityRegistry | None = None
     logger: CapLogger | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def set_tenant(self, tenant_id: str) -> None:
+        """Switch tenant context. Aligns with Dify Account.set_tenant_id()."""
+        self.tenant_id = tenant_id

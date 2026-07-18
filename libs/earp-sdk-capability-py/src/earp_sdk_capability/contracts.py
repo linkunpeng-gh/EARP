@@ -35,6 +35,7 @@ class ExecutionContract:
     transaction_scope: str = "none"
     supports_compensation: bool = False
     compensating_capability: str | None = None
+    fallback_capability_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -63,10 +64,11 @@ def generate_contract(cap_cls: type, capability_type: str) -> ExecutionContract:
         protocol="sdk",
         timeout=getattr(cap_cls, "timeout", 30000),
         retry_policy=RetryPolicy(max_attempts=0),
-        idempotent=not is_command,  # Query = idempotent, Command = not by default
+        idempotent=not is_command,
         transaction_scope="none",
         supports_compensation=has_compensation,
         compensating_capability=None,
+        fallback_capability_id=getattr(cap_cls, "fallback_capability_id", ""),
     )
 
 

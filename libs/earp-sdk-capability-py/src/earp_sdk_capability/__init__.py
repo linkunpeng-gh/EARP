@@ -7,6 +7,7 @@ Depends on:
 from earp_sdk_capability.base import Capability, QueryCapability, CommandCapability
 from earp_sdk_capability.context import CapabilityContext
 from earp_sdk_capability.decorators import capability
+from earp_sdk_capability.entities import CapabilityResult, CapabilityUsage
 from earp_sdk_capability.schema import schema_of
 
 from earp_sdk_core import ConnectorError, CapabilityError
@@ -16,6 +17,8 @@ __all__ = [
     "QueryCapability",
     "CommandCapability",
     "CapabilityContext",
+    "CapabilityResult",
+    "CapabilityUsage",
     "capability",
     "schema_of",
     "ConnectorError",

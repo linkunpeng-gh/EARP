@@ -39,3 +39,30 @@
 ## 结论
 
 **无新增 P0。上一轮 2 P0 + 4 P1 已修复，1 P1（null vs ""）维持现状不影响功能。AC-01~05 全部通过。**
+
+---
+
+## 代码级评审（2026-07-17）
+
+### 🔴 Bug：test_security.py:212 引用未定义变量 `body`
+
+**文件：** `libs/earp-sdk-runtime-py/tests/test_security.py`，line 212
+
+**方法：** `TestJWTNoTokenNoAuthHeader.test_no_auth_header_without_token`
+
+```python
+# line 188-212
+async def test_no_auth_header_without_token(self):
+    captured: dict[str, str] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(dict(request.headers))   # ← 只捕获 headers
+        return httpx.Response(200, json={...})
+    ...
+    assert "authorization" not in ...  # ← 这是正确的
+    assert body.get("tenant_id") == "tenant-from-setter"  # ← body 从未定义！
+```
+
+**失败场景：** `pytest test_security.py` 运行时抛出 `NameError: name 'body' is not defined`。内联 handler 仅将 `request.headers` 写入 `captured`，从未读取 `request.body` 或解析 JSON body。该行疑似从 `test_set_tenant_id_persists` 误粘贴——但即便在那里 handler 也未提取 body。
+
+**修复建议：** 删除 line 212，或在 handler 中增加 `nonlocal body; body = json.loads(await request.aread())` 并声明变量。

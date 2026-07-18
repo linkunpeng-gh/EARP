@@ -38,6 +38,14 @@ class RuntimeClient:
             headers["Authorization"] = f"Bearer {token}"
 
         self._client = httpx.AsyncClient(headers=headers)
+        self._tenant_id: str | None = None
+
+    def set_tenant_id(self, tenant_id: str) -> None:
+        """Switch tenant context for subsequent create_session() calls.
+
+        Aligns with Dify Account._current_tenant setter pattern.
+        """
+        self._tenant_id = tenant_id
 
     # ── Session management ──
 
@@ -63,7 +71,10 @@ class RuntimeClient:
         if not user_id:
             raise ValueError("user_id is required (L2-01 §6.3 MUST)")
         if tenant_id is _UNSET:
-            raise ValueError("tenant_id is required (Multi-Tenant Spec §3.2 MUST)")
+            if self._tenant_id:
+                tenant_id = self._tenant_id
+            else:
+                raise ValueError("tenant_id is required — call set_tenant_id() or pass explicitly (Multi-Tenant Spec §3.2 MUST)")
 
         response = await self._client.post(
             f"{self.endpoint}/v1/sessions",

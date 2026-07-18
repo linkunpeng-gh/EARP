@@ -19,7 +19,9 @@ def capability(
     description: str = "",
     domain: str = "",
     version: str = "0.1.0",
+    status: str = "draft",
     tags: list[str] | None = None,
+    fallback_capability_id: str = "",
     **kwargs: Any,
 ) -> Callable[[T], T]:
     """Class decorator that sets Capability metadata fields.
@@ -44,7 +46,9 @@ def capability(
             ("description", description),
             ("domain", domain),
             ("version", version),
+            ("status", status),
             ("tags", tags),
+            ("fallback_capability_id", fallback_capability_id),
         ]:
             if value:
                 setattr(cls, key, value)

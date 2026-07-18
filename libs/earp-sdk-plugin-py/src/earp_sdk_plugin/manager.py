@@ -1,7 +1,7 @@
 import logging, traceback
 from typing import Any
 from earp_sdk_core import CapabilityError, CapabilityErrorCode
-from earp_sdk_plugin.base import Plugin
+from earp_sdk_plugin.base import Plugin, PluginStatus
 from earp_sdk_plugin.extensions import EXTENSION_POINT_PROTOCOLS, ExtensionPoint
 from earp_sdk_plugin.permissions import Permission
 
@@ -12,7 +12,7 @@ def _publish_plugin_audit(event_type: str, action: str, result: str,
     """Publish plugin lifecycle audit event (non-fatal on failure)."""
     try:
         from earp_sdk_core import AuditEvent, publish_audit_event
-        detail = {"plugin_name": plugin.name, "version": plugin.version}
+        detail = {"plugin_name": plugin.name, "version": plugin.version, "status": plugin.status.value}
         if error:
             detail["error"] = error
         publish_audit_event(AuditEvent(
@@ -31,6 +31,14 @@ class PluginManager:
         self._all: list[Plugin] = []
 
     def register(self, plugin: Plugin) -> None:
+        # Manifest validation (AC-03)
+        missing = []
+        for field in ("name", "version", "extension_point"):
+            if not getattr(plugin, field, "").strip():
+                missing.append(field)
+        if missing:
+            raise ValueError(f"Plugin manifest missing required fields: {', '.join(missing)}")
+
         ep = plugin.extension_point
         if ep not in EXTENSION_POINT_PROTOCOLS:
             raise ValueError(f"extension_point '{ep}' is not valid")
@@ -56,10 +64,21 @@ class PluginManager:
 
     async def load_all(self) -> None:
         for plugin in self._all:
+            # Status → INSTALLING
+            plugin.status = PluginStatus.INSTALLING
             try:
                 await plugin.on_load()
-                _publish_plugin_audit("PLUGIN_LOADED", "plugin_load", "success", plugin)
+                # Health check (AC-02)
+                healthy = await plugin.health_check()
+                if healthy:
+                    plugin.status = PluginStatus.ACTIVE
+                    _publish_plugin_audit("PLUGIN_LOADED", "plugin_load", "success", plugin)
+                else:
+                    plugin.status = PluginStatus.ERROR
+                    _publish_plugin_audit("PLUGIN_LOADED", "plugin_load", "failure",
+                                          plugin, "health_check returned False")
             except Exception as e:
+                plugin.status = PluginStatus.ERROR
                 logger.error("Failed to load plugin '%s': %s\n%s", plugin.name, e, traceback.format_exc())
                 _publish_plugin_audit("PLUGIN_LOADED", "plugin_load", "failure", plugin, str(e))
 
@@ -67,6 +86,7 @@ class PluginManager:
         for plugin in reversed(self._all):
             try:
                 await plugin.on_unload()
+                plugin.status = PluginStatus.INACTIVE
                 _publish_plugin_audit("PLUGIN_UNLOADED", "plugin_unload", "success", plugin)
             except Exception as e:
                 logger.error("Failed to unload plugin '%s': %s", plugin.name, e)
@@ -79,4 +99,5 @@ class PluginManager:
         except CapabilityError:
             raise
         except Exception as e:
-            raise CapabilityError(CapabilityErrorCode.SYSTEM_ERROR, f"Plugin '{plugin.name}' error: {e}", cause=e) from e
+            raise CapabilityError(CapabilityErrorCode.SYSTEM_ERROR,
+                                  f"Plugin '{plugin.name}' error: {e}", cause=e) from e

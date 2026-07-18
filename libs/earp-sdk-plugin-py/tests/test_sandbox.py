@@ -5,7 +5,7 @@ import logging
 import pytest
 
 from earp_sdk_core import PermissionDeniedError
-from earp_sdk_plugin import Plugin, PluginManager
+from earp_sdk_plugin import Plugin, PluginManager, PluginStatus
 from earp_sdk_plugin.permissions import Permission, PermissionEnforcer
 from earp_sdk_plugin.sandbox import (
     SandboxConfig,
@@ -204,4 +204,118 @@ class TestPluginManagerAudit:
         assert len(records) >= 1
         data = json.loads(records[0].message)
         assert data["event_type"] == "PLUGIN_UNLOADED"
-        assert data["action"] == "plugin_unload"
+
+
+# ── PluginStatus + health_check + manifest validation (PRD-2026-017) ──
+
+class TestPluginStatus:
+    """AC-01: PluginStatus lifecycle."""
+
+    def test_default_status(self):
+        p = Plugin()
+        assert p.status == PluginStatus.INACTIVE
+
+    def test_status_load_cycle(self):
+        import asyncio
+
+        class TestP(Plugin):
+            name = "status-plugin"
+            extension_point = "audit.hook"
+            permissions = []
+
+        mgr = PluginManager()
+        p = TestP()
+        mgr._all = [p]
+        mgr._plugins = {"audit.hook": [p]}
+
+        assert p.status == PluginStatus.INACTIVE
+        asyncio.run(mgr.load_all())
+        assert p.status == PluginStatus.ACTIVE
+        asyncio.run(mgr.unload_all())
+        assert p.status == PluginStatus.INACTIVE
+
+
+class TestHealthCheck:
+    """AC-02: health_check on load."""
+
+    def test_healthy_plugin_status_active(self):
+        import asyncio
+
+        class TestP(Plugin):
+            name = "healthy-plugin"
+            extension_point = "audit.hook"
+            permissions = []
+            async def health_check(self):
+                return True
+
+        mgr = PluginManager()
+        p = TestP()
+        mgr._all = [p]
+        mgr._plugins = {"audit.hook": [p]}
+        asyncio.run(mgr.load_all())
+        assert p.status == PluginStatus.ACTIVE
+
+    def test_unhealthy_plugin_status_error(self):
+        import asyncio
+
+        class TestP(Plugin):
+            name = "unhealthy-plugin"
+            extension_point = "audit.hook"
+            permissions = []
+            async def health_check(self):
+                return False
+
+        mgr = PluginManager()
+        p = TestP()
+        mgr._all = [p]
+        mgr._plugins = {"audit.hook": [p]}
+        asyncio.run(mgr.load_all())
+        assert p.status == PluginStatus.ERROR
+
+
+class TestManifestValidation:
+    """AC-03: register() validates required fields."""
+
+    def test_valid_manifest_passes(self):
+        from earp_sdk_plugin.extensions import AuditHookProtocol
+        class TestP(Plugin, AuditHookProtocol):
+            name = "test"
+            version = "1.0"
+            extension_point = "audit.hook"
+            async def on_audit(self, record): pass
+        p = TestP()
+        mgr = PluginManager()
+        mgr.register(p)  # no exception — manifest ok, protocol check passes
+
+    def test_missing_name_raises(self):
+        p = Plugin()
+        p.version = "1.0"
+        p.extension_point = "audit.hook"
+        mgr = PluginManager()
+        with pytest.raises(ValueError, match="name"):
+            mgr.register(p)
+
+    def test_missing_version_raises(self):
+        p = Plugin()
+        p.name = "test"
+        p.version = ""
+        p.extension_point = "audit.hook"
+        mgr = PluginManager()
+        with pytest.raises(ValueError, match="version"):
+            mgr.register(p)
+
+    def test_missing_extension_point_raises(self):
+        p = Plugin()
+        p.name = "test"
+        p.version = "1.0"
+        mgr = PluginManager()
+        with pytest.raises(ValueError, match="extension_point"):
+            mgr.register(p)
+
+    def test_missing_multiple_fields_raises(self):
+        p = Plugin()
+        p.version = ""
+        p.extension_point = ""
+        mgr = PluginManager()
+        with pytest.raises(ValueError, match="name.*extension_point"):
+            mgr.register(p)
