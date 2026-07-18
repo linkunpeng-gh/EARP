@@ -7,6 +7,8 @@
 **参考对象**: LangGraph v0.3+ (`langgraph.graph.StateGraph`, `langgraph.checkpoint`)  
 **License**: MIT — 可复用概念和模式
 
+> **v1.1 变更（2026-07-18）**：基于本地源码 `~/code/langchain/langgraph-main/` 实地勘察，将 v1.0 的概念级结论升级为代码级验证：§2.5 修正为 PostgresSaver 真实 3 表 DDL（新增 checkpoint_blobs 分离设计与 task_path 列）；新增 §2.6 Durability 三档模式与 Pregel 引擎模块清单。LangChain 框架本体分析另见 langchain-earp-mapping.md。
+
 ---
 
 # 一、概念映射总表
@@ -215,6 +217,64 @@ CREATE INDEX idx_checkpoints_execution ON earp_checkpoints(execution_id, seq);
 ```
 
 **关键参考：** LangGraph 的 `thread_id + checkpoint_ns + checkpoint_id` 复合主键设计解决了多轮对话中的 Checkpoint 命名空间问题——EARP 的 Execution 可能在一次 Session 中多次 RePlan，需要类似的命名空间隔离。
+
+### v1.1 实码勘察修正：PostgresSaver 真实 DDL 是 3 表而非 2 表
+
+源码 `libs/checkpoint-postgres/langgraph/checkpoint/postgres/base.py` MIGRATIONS 实测：
+
+```sql
+CREATE TABLE checkpoints (
+    thread_id TEXT NOT NULL,
+    checkpoint_ns TEXT NOT NULL DEFAULT '',
+    checkpoint_id TEXT NOT NULL,
+    parent_checkpoint_id TEXT,
+    type TEXT,
+    checkpoint JSONB NOT NULL,           -- 快照主体（小字段）
+    metadata JSONB NOT NULL DEFAULT '{}',
+    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
+);
+CREATE TABLE checkpoint_blobs (          -- ⭐ v1.0 分析遗漏的表
+    thread_id TEXT NOT NULL,
+    checkpoint_ns TEXT NOT NULL DEFAULT '',
+    channel TEXT NOT NULL,
+    version TEXT NOT NULL,
+    type TEXT NOT NULL,
+    blob BYTEA,                          -- 大值（channel_values）按版本单独存储
+    PRIMARY KEY (thread_id, checkpoint_ns, channel, version)
+);
+CREATE TABLE checkpoint_writes (
+    thread_id TEXT NOT NULL,
+    checkpoint_ns TEXT NOT NULL DEFAULT '',
+    checkpoint_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    idx INTEGER NOT NULL,
+    channel TEXT NOT NULL,
+    type TEXT,
+    blob BYTEA NOT NULL,
+    task_path TEXT NOT NULL DEFAULT '',  -- 后补迁移：子图/嵌套任务路径
+    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)
+);
+-- 三表均有 thread_id 单列索引（CREATE INDEX CONCURRENTLY）
+```
+
+**对 EARP DDL 的修正结论：**
+1. **大小值分离**——checkpoint 行只存小快照（JSONB），大的 channel 值（LLM 上下文、中间产物）拆到 blobs 表按 `(channel, version)` 存，同版本值不随每个 checkpoint 重复落盘。EARP 的 earp_checkpoints 表设计（本文 §2.5 EARP 版）应同样把 `state` 拆为"小快照 JSONB + 大值 BYTEA/S3 引用"，否则多步 Execution 的 checkpoint 会线性放大存储。
+2. **task_path 列**——嵌套子图执行的任务寻址（对应 EARP 嵌套 Workflow / 子 Execution 场景），M5 前在 checkpoint_writes 等价表预留。
+3. **迁移即代码**——MIGRATIONS 是带版本号的 SQL 列表 + checkpoint_migrations 版本表，与 EARP 的 Alembic 策略一致，无需变更。
+
+## 2.6 Durability 三档与 Pregel 引擎（v1.1 新增）
+
+源码 `langgraph/types.py`: `Durability = Literal["sync", "async", "exit"]`：
+
+| 档位 | 语义 | EARP 对应场景 |
+|:-----|:-----|:--------------|
+| sync | 每步先落 checkpoint 再继续（最强，最慢） | Command 类 Capability / Saga 步骤（一致性优先） |
+| async | 执行下一步的同时异步落盘（默认） | Query 为主的常规 Execution |
+| exit | 仅在图退出/中断时落盘（最快） | 短平快的纯 Query 会话 |
+
+**结论**：EARP Runtime Spec 的 Checkpoint 创建点（Step 完成/Waiting/Paused）可增加 per-execution 的持久化档位参数（默认 async），Command 步骤强制 sync——把"一致性 vs 吞吐"的取舍显式化。建议 M5 L3 设计采纳。
+
+执行引擎实体为 Pregel 模块（`langgraph/pregel/`）：`_loop`（BSP 主循环）/ `_algo`（plan-execute-update 三阶段）/ `_runner`/`_executor`（任务执行）/ `_retry`（步级重试）/ `_checkpoint`（落盘）/ `protocol.py`。印证 EARP Orchestrator 的"计划→执行→更新状态→落 checkpoint"循环骨架；步级重试内建于引擎层而非节点层，与 M5 Retry/Timeout Manager 的位置一致。
 
 ---
 
