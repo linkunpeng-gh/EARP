@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Callable, Awaitable
 
 from earp_sdk_core.audit import AuditEvent, publish_audit_event
 
@@ -148,16 +148,45 @@ class InputGuard:
         return f"{_SANITIZE_HEADER}{user_input}{_SANITIZE_FOOTER}"
 
     def summarize(self, text: str, max_chars: int = 2000) -> str:
-        """Truncate external data + annotate source.
+        """Truncate external data + annotate source. Phase 3 fallback.
 
-        Phase 3 simplification — Security Spec §4.2 'LLM 二次摘要'
-        will be implemented in Phase 4 when Runtime LLM pipeline is ready.
+        For LLM-powered summarization, use summarize_with_llm().
         """
         if not text:
             return ""
         if len(text) <= max_chars:
             return text
         return f"[External source: {len(text)} chars] {text[:max_chars]} (truncated)"
+
+    async def summarize_with_llm(
+        self,
+        text: str,
+        llm_summarize: "Callable[[str], Awaitable[str]]",
+        max_chars: int = 2000,
+    ) -> str:
+        """Summarize external data using LLM. Phase 4 upgrade.
+
+        Args:
+            text: The raw external data to summarize.
+            llm_summarize: Async callback(truncated_text) → summary string.
+            max_chars: Truncate raw text before passing to LLM (cost control).
+
+        Returns:
+            LLM-generated summary, or truncated fallback on failure.
+        """
+        if not text:
+            return ""
+        if len(text) <= max_chars:
+            return text
+        try:
+            truncated = text[:max_chars]
+            summary = await llm_summarize(truncated)
+            if summary:
+                return f"[Summarized from {len(text)} chars] {summary}"
+        except Exception:
+            pass
+        # Fallback to truncation
+        return self.summarize(text, max_chars)
 
 
 # ── OutputFilter ──

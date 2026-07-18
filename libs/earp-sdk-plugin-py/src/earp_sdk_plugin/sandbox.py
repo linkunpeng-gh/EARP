@@ -40,6 +40,7 @@ class SandboxExecutionError(RuntimeError):
 class SandboxConfig:
     timeout_seconds: float = 30.0
     max_memory_mb: int = 0  # 0 = no limit; Linux-only via setrlimit(RLIMIT_AS)
+    protocol: str = "json_stdio"  # "json_stdio" | "grpc" (Phase 3)
 
 
 # ── Runner template ──

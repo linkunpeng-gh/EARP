@@ -1,68 +1,126 @@
-# PRD-2026-014 闭环变更复审
+# P6 SDK 变更评审
 
-**评审日期：2026-07-17（第 2 轮）**
-**评审范围：** 上一轮 2 P0 + 5 P1 修复情况
-
----
-
-## P0 修复验证
-
-| 编号 | 问题 | 状态 | 证据 |
-|:----:|:-----|:----:|------|
-| P0-1 | Capability SDK 缺少 fallback_capability_id（2 处副本） | ✅ 已修复 | `libs/earp-sdk-capability-py` 和 `earp-sdk-capability-py` 均已新增 `fallback_capability_id: str = ""`，与 Core SDK 一致 |
-| P0-2 | Runtime Spec header 版本号 v1.2 未更新 | ✅ 已修复 | `版本：v1.3` + changelog 摘要 |
-
-## P1 修复验证
-
-| 编号 | 问题 | 状态 | 证据 |
-|:----:|:-----|:----:|------|
-| P1-1 | REPLANNING 缺"在途 step 等待"声明 | ✅ 已修复 | 转换规则新增：`进入 Replanning 时同 Execution 内其他在途并行 Step 保持等待，不取消`；v1.2→v1.3 changelog 同步记录 |
-| P1-2 | REPLAN_TRIGGERED 未入 Runtime 事件表 | ✅ 已修复 | §5.2 事件表新增 `runtime.execution.replan_triggered`，data 含 `{execution_id, session_id, failure_capability_id, replan_count}` |
-| P1-3 | Spec `null` vs SDK `""` 语义不一致 | ⚠️ 维持 | 设计取舍：Spec 用 `string \| null` 表意，SDK 用 `""` 降级为 falsy。无功能影响，可后续统一 |
-| P1-4 | Runtime Spec 缺 v1.2→v1.3 changelog | ✅ 已修复 | 新增附录 B：v1.2→v1.3 变更记录，含 6 项变更 |
-| P1-5 | fallback_capability_id 规范级别 SHOULD→MUST | ✅ 已修复 | `（MUST，v1.3 新增）` |
+**评审日期：2026-07-17**
+**变更文件（6 个模块）：**
+| 模块 | 文件 | 新增内容 |
+|------|------|----------|
+| key_source | `libs/earp-sdk-core-py/.../key_source.py` | VaultSource, FileSource, `_decode` 重构为 @staticmethod |
+| feedback | `libs/earp-sdk-core-py/.../feedback.py` | CapabilityFeedback, PlannerFeedback |
+| tenant_keys | `libs/earp-sdk-core-py/.../tenant_keys.py` | TenantKeyStore, PerTenantAuthConfig |
+| guard | `libs/earp-sdk-core-py/.../guard.py` | summarize_with_llm() |
+| conversation | `libs/earp-sdk-core-py/.../conversation.py` | summarize_history() |
+| sandbox+grpc_protocol | `libs/earp-sdk-plugin-py/.../` | SandboxConfig.protocol 字段, PluginProtocol, PLUGIN_PROTO_SCHEMA |
 
 ---
 
-## 逐 AC 终判
+## P1
 
-| AC | 状态 | 备注 |
-|:--:|:----:|------|
-| AC-01 | ✅ | Workflow Spec §7.1-7.3：7 状态 + 6 MUST（≥5/≥3 要求） |
-| AC-02 | ✅ | Runtime Spec §4.1-4.2：REPLANNING 状态 + 触发/退出 + 上限 3 + 在途并行保持 |
-| AC-03 | ✅ | Capability Spec §2.2：`fallback_capability_id: string \| null`，MUST 级别 |
-| AC-04 | ✅ | Core SDK + Capability SDK（3 处）同步新增 `fallback_capability_id: str` |
-| AC-05 | ✅ | (a)-(e) 5 条行为全部在 Workflow Spec §7.5 时序图中可溯源 + REPLAN_TRIGGERED 已入 Runtime 事件表 |
+### 1. CapabilityFeedback.health_score 偏向未测试 Capability
 
----
+**文件：** `libs/earp-sdk-core-py/src/earp_sdk_core/feedback.py:34`
 
-## 结论
+**失败场景：**
+- 默认值：`success_rate=1.0`，`total_calls=0`，`avg_latency_ms=0.0` → `health_score = 0.7×1.0 + 0.3×1.0 = 1.0`
+- 调用 1 次，耗时 1000ms：`health_score = 0.7×1.0 + 0.3×0.5 = 0.85`
 
-**无新增 P0。上一轮 2 P0 + 4 P1 已修复，1 P1（null vs ""）维持现状不影响功能。AC-01~05 全部通过。**
+**结果：未测试的 Capability（score=1.0）排名高于已测试的 Capability（score=0.85），Planner 会优先选择从未调用过的能力。** 这不合理——从未验证过的 Capability 不应获得完美健康分。
 
----
+**修复建议：** 默认 `total_calls=0` 时 `health_score` 应低于任何已验证的 Capability，例如设为 `0.0` 或 `None` 由调用方另行处理。
 
-## 代码级评审（2026-07-17）
+### 2. summarize_history 未导出
 
-### 🔴 Bug：test_security.py:212 引用未定义变量 `body`
+**文件：** `libs/earp-sdk-core-py/src/earp_sdk_core/__init__.py`
 
-**文件：** `libs/earp-sdk-runtime-py/tests/test_security.py`，line 212
+`conversation.py` 定义的 `summarize_history()` 是一个完整的 pubic API（有 docstring、类型注解），但 `__init__.py` 既不 import 也未加入 `__all__`。其他 5 个模块的新 API 全部正确导出，唯独此函数遗漏，外部 `from earp_sdk_core import summarize_history` 会报 `ImportError`。
 
-**方法：** `TestJWTNoTokenNoAuthHeader.test_no_auth_header_without_token`
+### 3. CapabilityFeedback._update_latency 的 p99/p95 跟踪有缺陷
+
+**文件：** `libs/earp-sdk-core-py/src/earp_sdk_core/feedback.py:52-57`
 
 ```python
-# line 188-212
-async def test_no_auth_header_without_token(self):
-    captured: dict[str, str] = {}
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        captured.update(dict(request.headers))   # ← 只捕获 headers
-        return httpx.Response(200, json={...})
+def _update_latency(self, latency_ms: int) -> None:
     ...
-    assert "authorization" not in ...  # ← 这是正确的
-    assert body.get("tenant_id") == "tenant-from-setter"  # ← body 从未定义！
+    if latency_ms > self.p99_latency_ms:
+        self.p99_latency_ms = latency_ms
 ```
 
-**失败场景：** `pytest test_security.py` 运行时抛出 `NameError: name 'body' is not defined`。内联 handler 仅将 `request.headers` 写入 `captured`，从未读取 `request.body` 或解析 JSON body。该行疑似从 `test_set_tenant_id_persists` 误粘贴——但即便在那里 handler 也未提取 body。
+两个问题：
+1. **p99 只涨不跌**：首个调用若因冷启动耗时 5000ms，`p99` 永久锁定在 5000ms，后续 10000 次调用都是 10ms 也降不下来。
+2. **p95 从未更新**：`p95_latency_ms` 无任何赋值逻辑，永远为 `0.0`，PlannerFeedback 中引用它会产生误导数据。
 
-**修复建议：** 删除 line 212，或在 handler 中增加 `nonlocal body; body = json.loads(await request.aread())` 并声明变量。
+---
+
+## P2
+
+### 4. SandboxConfig.protocol 字段有定义无消费
+
+**文件：** `libs/earp-sdk-plugin-py/src/earp_sdk_plugin/sandbox.py:43`
+
+`SandboxConfig` 新增 `protocol: str = "json_stdio"`，但 `SandboxManager.run()` **从未读取此字段**。用户设置 `protocol="grpc"` 后沙箱仍走 JSON stdio——无报错无告警，形成静默降级。
+
+### 5. grpc_protocol.py 注释已过时
+
+**文件：** `libs/earp-sdk-plugin-py/src/earp_sdk_plugin/grpc_protocol.py:67-68`
+
+```python
+# Extend SandboxConfig with protocol choice
+# (Note: modify SandboxConfig in sandbox.py to add `protocol: str = PluginProtocol.JSON_STDIO`)
+```
+
+该注释提示"需要修改 SandboxConfig"，但实际上 `sandbox.py` 中 `protocol` 字段已加入。注释应更新为指向已完成的工作。
+
+### 6. TenantKeyStore.resolve("") 静默返回 default key
+
+**文件：** `libs/earp-sdk-core-py/src/earp_sdk_core/tenant_keys.py:36-37`
+
+```python
+def resolve(self, tenant_id: str) -> str:
+    if not tenant_id:
+        return self._default_key  # 静默降级
+```
+
+所有 falsy tenant_id（`None`、`""`）静默返回默认 key。多租户环境下若调用方传错参数，会**跨租户使用共享 key**，且无任何告警。建议至少 `logger.warning` 一条安全审计事件。
+
+---
+
+## P3 / 观察
+
+### 7. CapabilityFeedback 的 latency 平均算法有精度丢失
+
+**文件：** `libs/earp-sdk-core-py/src/earp_sdk_core/feedback.py:54`
+
+```python
+self.avg_latency_ms = (self.avg_latency_ms * (n - 1) + latency_ms) / n
+```
+
+公式正确（Welford 变体），但多线程环境下 `_update_latency` 和 `_recalc` 分开调用且无锁，存在竞态。不过 Python GIL 下对 float 的单次赋值是原子的，生产风险低。标记为 P3。
+
+### 8. VaultSource 每次 get_key() 都新建 hvac.Client
+
+**文件：** `libs/earp-sdk-core-py/src/earp_sdk_core/key_source.py:90`
+
+每次调用 `get_key()` 都执行 `hvac.Client(url=addr, token=token)` 和 `client.is_authenticated()`，高频率访问时会重复建连/认证。实际使用频率低（只在密钥轮换时调用），标记为 P3。
+
+---
+
+## 安全性总评
+
+| 维度 | 结论 |
+|------|------|
+| 密钥管理 | ✅ VaultSource/FileSource 复用 `_decode()`，32 字节校验一致 |
+| 提示注入 | ✅ summarize_with_llm 剥离了 sanitize 包裹后再检查 |
+| 多租户 | ⚠️ 空 tenant_id 静默降级为共享 key（P2-6） |
+| 审计 | ✅ VaultSource、summarize_with_llm 异常路径有审计事件 |
+| 输出过滤 | ✅ OutputFilter 未变更，保持不变 |
+
+---
+
+## 总结
+
+| 级别 | 数量 | 关键项 |
+|:----:|:----:|:------|
+| P1 | 3 | health_score 偏向未测试 cap、summarize_history 未导出、p99 单调不降 + p95 从未更新 |
+| P2 | 4 | protocol 字段未消费、grpc_protocol 注释过时、TenantKeyStore 空 tenant 静默降级、latency 算法精度 |
+| P3 | 2 | 竞态风险、VaultSource 重用优化 |
+
+**建议：** 3 个 P1 均影响核心功能正确性（feedback 误导 Planner、API 不可发现、p95 返回错误数据），建议修复后再合入。
