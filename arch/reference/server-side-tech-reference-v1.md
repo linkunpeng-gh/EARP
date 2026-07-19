@@ -5,6 +5,8 @@
 **日期：2026-07-18**
 **定位：服务端开发前的技术方案分析——汇总既有 3 份开源分析中适用于服务端的结论，并基于本地 Dify v1.15.0 代码库补做服务端工程形态勘察，为 server-side-development-plan 的 D1-D5 决策提供证据。**
 **依赖：arch/reference/opensource-analysis.md, arch/reference/dify-earp-mapping.md, arch/reference/langgraph-earp-mapping.md, arch/design/server-side-development-plan-v1.md**
+
+> **注意**：本文是 Dify v1.15.0 的勘察记录。D6（异步任务框架）分析阶段推荐 Celery（§三），该建议已在 server-side-development-plan v1.4 中更新为 procrastinate 首选（依据 tech-stack-analysis v1.1 §4.4 与 PRD-2026-020 spike 结论）。本文不作更新——保持勘察时的原样以保留决策链可追溯性。
 **勘察对象：`/Users/linkunpeng/code/dify-code/dify` @ v1.15.0（api/pyproject.toml version=1.15.0）**
 
 ---

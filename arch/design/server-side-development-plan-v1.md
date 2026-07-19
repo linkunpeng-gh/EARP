@@ -1,14 +1,15 @@
 # EARP 服务器端开发计划分析
 
 **文档编号：DESIGN-SERVER-PLAN**
-**版本：v1.3**
+**版本：v1.4**
 **日期：2026-07-18**
 **定位：分析文档 — 盘点服务端现状、识别缺口、给出里程碑分解与决策建议。经确认后逐里程碑进入 Phase 0 PRD。**
-**依赖：L1/architecture-v6.md, L1/deployment-architecture-v1.md (v1.1), L1/data-architecture-v1.md (v1.0), L1/sequence-diagrams-v1.md, L2 全部 11 域规范, arch/design/role-based-access-control-v1.md (v1.1), arch/reference/server-side-tech-reference-v1.md (v1.0), arch/reference/opensource-comparison-findings-v1.md (v1.0)**
+**依赖：L1/architecture-v6.md, L1/deployment-architecture-v1.md (v1.1), L1/data-architecture-v1.md (v1.0), L1/sequence-diagrams-v1.md, L2 全部 11 域规范, arch/design/role-based-access-control-v1.md (v1.1), arch/design/tech-stack-analysis-v1.md (v1.0), arch/reference/server-side-tech-reference-v1.md (v1.0), arch/reference/opensource-comparison-findings-v1.md (v1.0)**
 
 > **v1.1 变更：** 完成开源技术方案对齐（详见 arch/reference/server-side-tech-reference-v1.md）。ADR-007 获得 Dify v1.15 生产实践佐证；进程模型明确为"一镜像多进程"（api/worker/beat，M6 增 websocket）；新增决策项 D6 异步任务框架（建议 Celery+Beat）；M0 增补 checkpoints 表 DDL（LangGraph PostgresSaver 模型）与 worker/beat 脚手架；M1 审计明确为"引擎事件流消费者"模式。
 > **v1.2 变更：** LangChain 代码级分析完成（arch/reference/langchain-earp-mapping.md + langgraph-earp-mapping v1.1）。M0 增补：tenacity 依赖、checkpoints 采用真实 3 表模型（含 blob 分离）、chunks 表 content_hash/source_updated_at 列；M4 增补 RecordManager 式增量索引与 text-splitters 依赖决策。
 > **v1.3 变更（依据 opensource-comparison-findings 全量优化）：** ① M1 架构升级——Step Runner 一次定义三形态调用、Orchestrator 内置 Layer 拦截器链（graphon 模式）、最小 Checkpoint 落盘前移进 M1、Connector 调用带 tenacity 基础重试；② M2 改为"以 Layer 挂入 M1 拦截器链"（不侵入引擎）；③ M3 增补 LLMConnector 五挂点接口与 structured output Plan 约束；④ M5 增补 Durability 三档、handle_tool_error 三态、Temporal Retry/Saga/Heartbeat 细则；⑤ M7 增补 Plugin 五段安装流程与 ssrf_proxy 出口代理；⑥ 新增"里程碑 ↔ L2 规范升级映射表"（Gate A 检查表）；⑦ 风险表补开源结论时效性条目。
+> **v1.4 变更（技术栈终选定稿，依据 tech-stack-analysis-v1.md）：** §5.2 改为技术栈终选全表；D6 修订为 procrastinate 首选（Celery 回退备选，M0 spike 定夺）；新增 D7（psycopg3 全线统一）、D8（Redis 7.2 命令面+Valkey 双验证；S3 API only，MinIO 可替换）、D9（uv/ruff/pyright/testcontainers/squawk）；M0 增加 procrastinate spike 与工具链落地；EventBus 接口明确"必须可背 RabbitMQ/Redis Streams 双实现"，M6 改为带数据决策。
 
 ---
 
@@ -135,20 +136,35 @@ apps/earp-server/                  ← 单一 FastAPI 应用 + 单一镜像
 **规则**：
 1. 模块边界 = 部署架构服务边界，**模块间只准走各自的 service 接口 + EventBus，禁止跨模块 import 内部实现**（用 import-linter 在 CI 强制）。
 2. 所有状态外置 PG/Redis（对齐 A9 Stateless），保证未来拆分时模块可直接搬出为服务。
-3. EventBus 先用进程内实现（v6 §9 Phase 1 明确允许），接口对齐 EventBus Spec v1.1，M6 换 RabbitMQ 实现类。
+3. EventBus 先用进程内实现（v6 §9 Phase 1 明确允许），接口对齐 EventBus Spec v1.1 且**必须可背 RabbitMQ / Redis Streams 双实现**；M6 带数据决策后替换实现类（若选 Redis Streams 则提 ADR 修订部署架构）。
 4. 与部署架构的偏差记录为 ADR：**部署架构是 prod 目标态，dev/MVP 以单体承载同一套逻辑拓扑**。
-5. **进程模型：一镜像多进程**（Dify v1.15 生产实践同款，tech-reference §2.1）——同一代码库/镜像以不同 entrypoint 跑出 `api`（HTTP）、`worker`（异步任务：KB 索引/归档/TTL 清理）、`beat`（定时调度：Schedule 域 + data-arch TTL 任务）三个角色，M6 增加 `websocket`（事件流推送）。扩容拆进程不拆代码库；仅安全边界（Plugin Daemon/沙箱/出口代理）才独立成服务（M7）。
+5. **进程模型：一镜像多进程**（Dify v1.15 生产实践同款，tech-reference §2.1）——同一代码库/镜像以不同 entrypoint 跑出 `api`（HTTP）、`worker`（异步任务：KB 索引/归档/TTL 清理）、`scheduler`（调度循环：Schedule 域扫表触发 + 系统级 cron，v1.4 起不再依赖 Celery Beat）三个角色，M6 增加 `websocket`（事件流推送）。扩容拆进程不拆代码库；仅安全边界（Plugin Daemon/沙箱/出口代理）才独立成服务（M7）。
 
-## 5.2 技术栈建议（M0 确认）
+## 5.2 技术栈终选（v1.4 定稿，依据见 tech-stack-analysis-v1.md）
 
-| 决策项 | 建议 | 依据 |
-|:-------|:-----|:-----|
-| Web 框架 | FastAPI + uvicorn | SDK 全线 httpx + pydantic + asyncio，风格一致；部署基础镜像 python:3.12-slim 已定 |
-| ORM/迁移 | SQLAlchemy 2.x async + Alembic | data-architecture §6.1 已指定 Alembic |
-| DB | PostgreSQL 16 + pgvector | data-architecture §3.1 已定 |
-| 本地基础设施 | docker-compose（PG+pgvector / Redis / MinIO；RabbitMQ M6 再加） | dev 环境策略（部署架构 §5.1 dev=Mock 外部依赖） |
-| 认证 | JWT（HS256 dev / RS256 prod），middleware 注入 tenant_id/role_id 上下文 | 时序图 3 认证与授权流 |
+| 层 | 终选 | 关键依据 / 约束 |
+|:---|:-----|:----------------|
+| 语言 | Python 3.12（全异步栈） | SDK 同栈；GIL 为 documented limitation（IO 密集 + 多进程） |
+| Web 框架 | FastAPI + uvicorn | pydantic 同源；OpenAPI 导出即契约固化；Dify Flask+gevent 反证 |
+| ORM/迁移 | SQLAlchemy 2.x async + Alembic | data-arch §6.1 已定；RLS SET LOCAL 控制面最精细 |
+| DB | PostgreSQL 16 + pgvector（HNSW，高维 halfvec） | data-arch §3.1 已定；注意 HNSW+角色过滤召回率（ef_search/iterative scan） |
+| DB 驱动 | **psycopg3 全线统一**（D7） | 与 procrastinate 联动；统一驱动 > 极限性能 |
+| 任务队列 | **procrastinate**（PG broker，async 原生，事务性入队；D6 修订）；Celery 为回退备选 | 消除 async/sync 双栈税；KB 索引任务与业务行同事务；基础设施 -1。**M0 半天 spike 定夺** |
+| 定时调度 | 系统级（TTL 清理/归档）= procrastinate cron；业务级 Schedule 域 = 自建 DB 驱动调度循环 | Beat 静态 schedule 无独特价值（Dify 亦是 beat 内扫表） |
+| 缓存/限流/锁 | Redis——**锁定 7.2 命令面，CI 对 Valkey 双验证**（D8a） | Redis 7.4+ 非 OSI 许可；Valkey=BSD |
+| EventBus | M1 进程内实现（接口对齐 EventBus Spec，**必须可背 RabbitMQ/Redis Streams 双实现**）→ M6 带数据决策 | broker 是实现细节，契约不变 |
+| 对象存储 | **只依赖 S3 API**（aioboto3）；dev=MinIO，交付可替换 SeaweedFS/客户 S3（D8b） | MinIO AGPL + 社区版削功能风险 |
+| 认证 | JWT（HS256 dev / RS256 prod），middleware 注入 tenant_id/role_id；OIDC SSO=Phase 2 | 时序图 3 |
+| 重试 | tenacity（映射 ConnectorRetryConfig 字段） | langchain §2.2 |
+| KB 分块 | langchain-text-splitters（MIT，M4 PRD 终审） | langchain §2.6 |
+| 可观测 | OTel instrumentation（fastapi/sqlalchemy/redis/httpx）+ 响应注入 X-Trace-Id | Dify 同款组合（OTel 套件） |
+| 流式推送 | 原生 WebSocket 独立进程（不用 socketio 协议） | 部署架构 WS GW；Dify api_websocket 形态 |
+| 包管理 | **uv**（workspace 管 apps/ + libs/）（D9） | Dify 已用（uv.lock 实测）；lockfile 可复现 |
+| Lint/类型 | ruff + pyright（strict 渐进）（D9） | 单人零配置价值最大 |
+| 测试 | pytest + pytest-asyncio + **testcontainers**（真 PG 跑 RLS/pgvector）（D9） | SQLite 无法模拟 RLS/pgvector |
+| 迁移安全 | alembic check + squawk（D9） | data-arch §6.3 大表纪律自动化 |
 | API 契约 | openapi.yaml 由 FastAPI 导出 + 入库固化，交叉引用校验新增规则 R5（SDK 端点 vs OpenAPI） | 缺口 #4 |
+| 本地基础设施 | docker-compose（PG+pgvector / Redis / MinIO；broker 视 M6 决策再加） | dev 环境策略（部署架构 §5.1） |
 
 ## 5.3 质量策略
 
@@ -163,10 +179,12 @@ apps/earp-server/                  ← 单一 FastAPI 应用 + 单一镜像
 > 粒度说明：1 个里程碑 = 1-3 个 PRD；参照流水线 Cycle Time（中等 Feature 2.5-4h），M0+M1 合计约 4-6 个工作日可交付最小闭环。
 
 ## M0 — 决策与脚手架（1 PRD）
-- ADR-007（单体先行）+ 技术栈确认（含 D6 异步任务框架：建议 Celery+Beat，tech-reference §2.2）
-- apps/earp-server 脚手架（api/worker/beat 三进程角色 + ext_* 装配模式 + repositories 仓储接口层）、docker-compose、CI 接入
-- Alembic 基线 DDL：8 数据域核心表（**含 role_id 列与 RLS tenant 策略，RBAC DDL 一步到位**，避免二次迁移）+ **checkpoints 3 表**（采用 LangGraph PostgresSaver 真实模型：checkpoints/checkpoint_blobs/checkpoint_writes，大小值分离，langgraph-earp-mapping v1.1 §2.5）+ chunks 表预置 content_hash/source_updated_at（M4 增量索引用，langchain-earp-mapping §2.5）
-- 基础依赖定稿：tenacity（重试）、Celery+Beat（D6）等（langchain-earp-mapping §四 决策表）
+- ADR-007（单体先行 + 技术栈终选 §5.2 定稿）
+- **procrastinate spike（半天）**：验证并发 worker 稳定性 / 失败重试语义 / 与 SQLAlchemy async session 共存——通过则 D6 定稿 procrastinate，否则回退 Celery（psycopg3 统一驱动缓解双栈）
+- apps/earp-server 脚手架（api/worker/调度循环三进程角色 + ext_* 装配模式 + repositories 仓储接口层）、docker-compose、CI 接入
+- 工具链落地（D9）：uv workspace + ruff + pyright + testcontainers + squawk
+- Alembic 基线 DDL：8 数据域核心表（**含 role_id 列与 RLS tenant 策略，RBAC DDL 一步到位**，避免二次迁移）+ **checkpoints 3 表**（采用 LangGraph PostgresSaver 真实模型：checkpoints/checkpoint_blobs/checkpoint_writes，三表冗余 tenant_id，大小值分离，langgraph-earp-mapping v1.1 §2.5）。注：chunks 表的 content_hash/source_updated_at 列改在 M4（PRD-2026-020 Gate A P0-2 决议：先升 KB Spec v1.1 再 ADD COLUMN，非破坏性）
+- 基础依赖定稿：tenacity（重试）、procrastinate（D6，spike 后）、psycopg3（D7）等（tech-stack-analysis §五）
 - openapi.yaml 初版（sessions 域，从 runtime-py 契约反推）
 - 依赖：无。产出后 M1 才能开工。
 
@@ -217,11 +235,11 @@ apps/earp-server/                  ← 单一 FastAPI 应用 + 单一镜像
 - REPLANNING 状态 + interrupt 模式暂停/恢复（异常驱动 Checkpoint+Resume，langgraph §2.4；human_approval 节点）
 - 错误策略：handle_tool_error 三态（吞错返回预设 / 抛出 / callable 定制，langchain §2.3）——业务性失败不炸整个 Plan
 - Workflow Engine（DSL 编译 + 状态机 + Agent↔Workflow 协调最小版）
-- Scheduler/Trigger（Schedule Spec v1.0，落 beat 进程）
+- Scheduler/Trigger（Schedule Spec v1.0，落 scheduler 进程：扫表触发 + 系统级 cron）
 - 依赖：M3
 
 ## M6 — 事件与流式（1-2 PRD）
-- EventBus 切 RabbitMQ（接口不变，实现替换）
+- EventBus 切独立 broker：**RabbitMQ vs Redis Streams 带数据决策 spike**（事件峰值/路由复杂度实测；选 Redis Streams 则提 ADR 修订部署架构）——接口不变，仅换实现类
 - WebSocket Gateway：执行事件流式推送（runtime-py events 对接；独立进程形态，Dify api_websocket 同款）——传输层替换，Step Runner 流式接口 M1 已定
 - 流式 token 事件类型入 EventBus 注册表（对齐 on_llm_new_token，langchain §2.1）；工具调用期间流式边界处理（disable_streaming="tool_calling" 语义，langchain §2.4）
 - Audit Service 拆为独立消费者进程（第一个"拆分"演练）
@@ -290,7 +308,10 @@ M0 ─→ M1 ─→ M2 ─→ M4
 | D3 | 服务端目录 | `apps/earp-server/`（monorepo 内） | 独立仓库（不建议，交叉引用校验会断） |
 | D4 | 里程碑顺序 | M0→M7 如上 | 调整（如 KB 提前） |
 | D5 | PRD 编号 | 服务端从 PRD-2026-020 起 | — |
-| D6 | 异步任务框架 | Celery + Beat（Dify 生产验证、OTel instrumentation 现成、beat 一体承载 Schedule 域与 TTL 清理任务） | arq（纯 asyncio 但无 beat、生态弱） |
+| D6 | 任务队列 | **procrastinate**（v1.4 修订：async 原生消除双栈税 + PG 事务性入队 + 基础设施-1；MIT 实测；M0 半天 spike 定夺，tech-stack-analysis §4.4） | Celery+Beat（spike 不过时回退；psycopg3 统一驱动缓解双栈） |
+| D7 | DB 驱动 | psycopg3 全线统一（api/worker/队列同一驱动家族，tech-stack-analysis §4.5） | asyncpg（api 单独提速，不建议混用） |
+| D8 | 基础设施许可策略 | a) Redis 锁 7.2 命令面 + CI 对 Valkey(BSD) 双验证；b) 代码只依赖 S3 API，MinIO 可替换（SeaweedFS/客户 S3）（tech-stack-analysis §4.7/§4.8） | 忽略许可风险（不建议——企业交付合规门槛真实存在） |
+| D9 | 工程工具链 | uv workspace + ruff + pyright + testcontainers + squawk（tech-stack-analysis §4.9） | poetry/mypy 等传统组合 |
 
 确认后即可产出 M0 的 PRD-2026-020（脚手架+DDL 基线）进入流水线。
 

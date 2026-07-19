@@ -399,6 +399,8 @@ api/
 | **集成** | 无独立集成层 | `adapters/integrations/` 企业适配器体系 |
 | **消息总线** | EventBus（进程内） | MessageBus（Kafka/RabbitMQ/MQTT） |
 | **调度** | Celery Beat | 完整 `domain/schedule/` 支持 Cron/Event/Webhook/MQTT/Condition |
+
+> **Deprecated**：任务队列选型已改为 procrastinate（见 ADR-007 与 server-side-development-plan v1.4，PRD-2026-020 spike 四场景全 PASS 定案 D6）。本文作业遗留，仅作架构推演参考。
 | **审计** | 无 | `domain/audit/` 完整决策链溯源 |
 | **产物管理** | 无 | `kernel/artifact.py` 统一管理执行产物 |
 | **多租户** | 隐含 tenant_id | 显式 `domain/workspace/` 含 Tenant/Org/User/Role/ServiceAccount |

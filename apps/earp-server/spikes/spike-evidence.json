@@ -1,0 +1,34 @@
+{
+  "spike": "procrastinate 3.6 (D6, tech-stack-analysis v1.1 section 4.4)",
+  "dsn_host": "localhost:5433/earp",
+  "S1_concurrency": {
+    "pass": true,
+    "tasks": 100,
+    "workers": 2,
+    "elapsed_s": 0.28,
+    "unfinished_jobs": 0,
+    "connections_before": 5,
+    "connections_after": 5
+  },
+  "S2_retry": {
+    "pass": true,
+    "final_status": "failed",
+    "total_executions": 4,
+    "retries_done": 3,
+    "expected_retries": 3,
+    "semantics": "procrastinate retry=N == N retries (N+1 executions); EARP max_attempts -> retry=max_attempts-1"
+  },
+  "S3_session_coexist": {
+    "pass": true,
+    "query_results_ok": 10,
+    "pool_checked_out_after": 0
+  },
+  "S4_tx_enqueue": {
+    "pass": true,
+    "jobs_after_rollback": 0,
+    "probes_after_rollback": 0,
+    "jobs_after_commit": 1,
+    "probes_after_commit": 1
+  },
+  "verdict": "PASS - D6 finalized: procrastinate"
+}

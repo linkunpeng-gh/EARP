@@ -238,3 +238,31 @@ Phase 0 (PRD) → Gate A (PRD Review) → Phase 1 (影响分析) → Phase 2 (L3
 - **状态机**: 直接实现 (单脚本)
 - **变更**: `scripts/validate-cross-refs.py` (4规则: R1 Spec版本/R2 PRD版本/R3 SDKMUST/R4 AC测试) + CI 集成
 - **结果**: 当前全绿 ✅
+
+---
+
+### 15. 服务端开发计划 + 开源对比 + 技术栈选型（分析阶段）
+
+- **日期**: 2026-07-18
+- **状态机**: 分析 ✅ → 评审 r1 (P0×2/P1×7/P2×7) → 修复 → 评审 r2 ✅ (0 P0/P1，评审关闭)
+- **变更**:
+  - `arch/design/server-side-development-plan-v1.md` v1.0→v1.4（M0-M7 里程碑 + D1-D9 决策 + L2 规范升级映射表 + 技术栈终选表）
+  - `arch/design/tech-stack-analysis-v1.md` v1.0→v1.1（D6 翻案 procrastinate + D7-D9 + spike 判定矩阵 + 附录 A/B）
+  - `arch/reference/` 新增 4 份：server-side-tech-reference-v1、langchain-earp-mapping、opensource-comparison-findings-v1；langgraph-earp-mapping v1.0→v1.1（真实 3 表 DDL 修正）
+  - `arch/L2/02-reasoning/knowledge-center-specification.md` v1.0→v1.1（评审 P0-1：Celery→任务队列去实现绑定）
+- **评审**: Gate(分析) r1+r2=2 轮（arch/reviews/tech-stack-analysis-v1-review*.md）；交叉引用校验 ✅
+- **关键决策**: 模块化单体（一镜像多进程）/ FastAPI / SQLAlchemy2 async / psycopg3 / procrastinate(M0 spike) / Redis 7.2+Valkey / S3 API only / uv+ruff+pyright+testcontainers
+- **下一步**: D1-D9 用户确认 → PRD-2026-020（M0 脚手架 + DDL 基线 + spike）
+
+---
+
+### 16. Server M0 — 脚手架 + DDL 基线 + procrastinate spike（PRD-2026-020）
+
+- **PRD**: `prd/PRD-2026-020-server-m0-foundation.md` v1.1
+- **日期**: 2026-07-18
+- **状态机**: Phase 0 ✅ → Gate A r1(P0×3/P1×7/P2×5)→修复→r2 PASS ✅ → Phase 1 影响分析 ✅ → Phase 2 L3 v1.1 ✅ → Gate B r1(P0×3/P1×5/P2×6)→修复→r2 PASS ✅ → Phase 3 任务清单+人工确认 ✅ → Phase 4 编码 ✅ → Phase 5 门禁 ✅ → Gate C r1(P0=0/P1×9)→修复→r2 CLOSED ✅
+- **变更**: `apps/earp-server/` 全新（46 文件：FastAPI 工厂+/health/ready、entrypoints×3、TaskQueue Protocol+procrastinate 实现、queue_schema、Alembic 0001_baseline 25 表+24 RLS 策略+双角色+FK 加固、openapi.yaml 基线、spike、17 测试）；`.github/workflows/test.yml` +server job（SDK matrix 未动）；`arch/design/ADR-007-modular-monolith.md`；L3 设计 v1.1；`arch/impact/server-m0-impact.md`
+- **测试**: server 17/17 绿（testcontainers 真 PG16+pgvector：迁移幂等/downgrade/RLS 隔离/UPDATE·DELETE 阻断/GUC 未设/入口优雅退出/openapi 字节稳定/import 契约）；SDK 回归 203/203（CI matrix 4 包口径，用户本地实跑）；squawk 0 issues；ruff/pyright strict/import-linter 全净
+- **spike 结论**: 四场景全 PASS → **D6 定案 procrastinate**（S1 并发 0.28s 连接 5→5；S2 重试语义 retry=N=N 次重试；S3 session 共存 pool=0；S4 同事务原子 0/0→1/1）。语义备忘：max_attempts→retry=max_attempts-1；池化 defer 非事务性，事务性入队走同会话插入（M1 enqueue_in_session）
+- **评审**: Gate A=2 轮, Gate B=2 轮, Gate C=2 轮（arch/reviews/prd-2026-020-review*.md, server-m0-l3-design-review*.md, server-m0-code-review*.md）
+- **M1 顺手修清单**: ① SDK 打包缺陷 core 0.1.0.dev0 vs 下游 >=0.1.0（uv 拒绝解析）② CI matrix 缺 earp-sdk-capability-py（114 测试未进 CI）③ runtime SDK datetime.utcnow 弃用警告 ④ TaskQueue enqueue_in_session + 任务名注册校验（Gate C P1-7/P1-9）⑤ RLS 全表数据级矩阵 + queue_schema 幂等测试（Gate C P1-8 余项）

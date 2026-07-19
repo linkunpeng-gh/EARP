@@ -3,9 +3,11 @@
 ## EARP 知识中心规范
 
 **文档编号：L2-02-KNOWLEDGE**
-**版本：v1.0**
+**版本：v1.1**
 **定位：L2 — 平台规范。本文定义 Knowledge Center 的契约，负责企业知识的建模、存储、检索与注入。**
 **依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-01-runtime/runtime-specification.md**
+
+> **v1.1 变更（2026-07-18）**：§3.3 "MUST: 异步处理（Celery 任务）" 改为 "MUST: 异步处理（任务队列）"——队列实现选型属 L3 实现细节，不入规范层（tech-stack-analysis-v1 评审 P0-1 修复；当前选型见 arch/design/tech-stack-analysis-v1.md D6）。
 
 ---
 
@@ -127,7 +129,7 @@ SHOULD: 支持数据库表 / API 返回 / 网页抓取（Phase 2+）
 ```
 
 ```
-MUST: 异步处理（Celery 任务）
+MUST: 异步处理（任务队列）
 MUST: 按文档类型选择提取器
 SHOULD: 分割策略可配置（chunk_size / overlap）
 MUST: 使用统一的 Embedding Provider
