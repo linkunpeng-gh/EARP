@@ -1,22 +1,15 @@
-"""M1 walking skeleton integration tests (holistic review r1-r3).
+"""M1 walking skeleton integration tests (holistic review r4: AC-04/05 restored).
 
-AC-01/02/03/08/10/11: HTTP endpoint regression via TestClient.
-AC-06: StepRunner 3-form (separate class).
-AC-07: Connector retry (separate class).
-
-AC-04/05 NOT covered here (documented limitation, review r3): audit_logs +
-checkpoints + checkpoint_blobs table writes cannot be tested via TestClient
-because the async engine lives in a separate event loop from the sync TestClient
-request scope. Two mitigations:
-1. SDK integration (AC-09, 37/37 runtime-py tests over real uvicorn server)
-   validates the full invoke -> checkpoint -> audit chain end-to-end.
-2. test_rls.py `test_full_table_rls_matrix` validates all 24 tables including
-   checkpoints / checkpoint_blobs / audit_logs exist and enforce RLS isolation.
-3. test_migrations.py validates baseline DDL includes all three tables.
+AC-01/02/03/08/10/11: HTTP endpoint regression via TestClient (sync).
+AC-04/05: invoke -> audit + checkpoint via httpx.AsyncClient (async).
+AC-06: StepRunner 3-form (separate class). AC-07: Connector retry (separate class).
 """
 
 from __future__ import annotations
 
+import asyncio
+
+import httpx
 import jwt
 import pytest
 from fastapi.testclient import TestClient
@@ -34,6 +27,7 @@ def _token(sub="u1", tenant_id="t1", role_id="r1") -> str:
     )
 
 AUTH = {"Authorization": f"Bearer {_token()}"}
+BASE_URL = "http://test"
 
 
 def test_session_crud_and_close(migrated: str, app_url: str) -> None:
@@ -86,7 +80,7 @@ class TestStepRunnerInterface:
     """AC-06: Step Runner 3-form interface lock."""
 
     async def test_stream_raises_not_implemented(self, migrated: str, app_url: str) -> None:
-        from earp_server.orchestrator.step_runner import StepRunner, Step
+        from earp_server.orchestrator.step_runner import Step, StepRunner
 
         app = create_app(Settings(database_url=app_url, app_env="test"))
         with TestClient(app):
@@ -96,7 +90,7 @@ class TestStepRunnerInterface:
                 await runner.stream(step)
 
     async def test_batch_raises_not_implemented(self, migrated: str, app_url: str) -> None:
-        from earp_server.orchestrator.step_runner import StepRunner, Step
+        from earp_server.orchestrator.step_runner import Step, StepRunner
 
         app = create_app(Settings(database_url=app_url, app_env="test"))
         with TestClient(app):
@@ -115,3 +109,73 @@ class TestConnectorRetry:
         connector = Connector()
         with pytest.raises(ConnectorError):
             await connector.execute({"adapter_type": "nonexistent.fail", "input": {}})
+
+
+# ── AC-04/05: async integration (httpx.AsyncClient, shared event loop) ──
+
+
+class TestInvokeProducesAuditAndCheckpoint:
+    """AC-04/05: invoke -> audit_logs EXECUTION_COMPLETED + checkpoints + blobs.
+
+    Uses httpx.AsyncClient with ASGITransport so the app's lifespan (async engine,
+    demo capability registration) and the test share the same event loop.
+    """
+
+    @pytest.fixture(scope="class")
+    def app(self, migrated: str, app_url: str):
+        return create_app(Settings(database_url=app_url, app_env="test"))
+
+    async def test_invoke_produces_audit_and_checkpoint(self, app, migrated: str, app_url: str) -> None:
+        from sqlalchemy import text
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
+            # Create session
+            resp = await client.post("/v1/sessions",
+                                     json={"user_id": "u1", "tenant_id": "t1", "role_id": "r1"},
+                                     headers=AUTH)
+            assert resp.status_code == 201, f"create session failed: {resp.text}"
+            sid = resp.json()["session_id"]
+
+            # Invoke echo capability
+            resp = await client.post(f"/v1/sessions/{sid}/invoke",
+                                     json={"capability_id": "cap-demo-echo", "input": {"message": "hello"}},
+                                     headers=AUTH)
+            assert resp.status_code == 200, f"invoke failed: {resp.text}"
+            data = resp.json()
+            assert data["checkpoint_id"] is not None
+            ckpt_id = data["checkpoint_id"]
+
+        # Verify DB state (using app.state.engine, same event loop as lifespan)
+        await asyncio.sleep(0.1)  # let EventBus fire-and-forget audit write land
+        async with app.state.engine.connect() as conn:
+            await conn.execute(text("SET LOCAL earp.tenant_id = 't1'"))
+
+            # AC-05: checkpoint row exists
+            ckpt_row = await conn.execute(
+                text("SELECT checkpoint FROM checkpoints WHERE checkpoint_id = :cid"),
+                {"cid": ckpt_id},
+            )
+            assert ckpt_row.fetchone() is not None, "checkpoints row missing"
+
+            # AC-05: blobs exist
+            blob_count = await conn.execute(
+                text("SELECT count(*) FROM checkpoint_blobs WHERE checkpoint_id = :cid"),
+                {"cid": ckpt_id},
+            )
+            assert int(blob_count.scalar_one()) > 0, "checkpoint_blobs empty"
+
+            # AC-04: audit log exists with checkpoint_id
+            audit = await conn.execute(
+                text(
+                    "SELECT detail FROM audit_logs "
+                    "WHERE event_type = 'earp.execution.completed' "
+                    "AND detail ->> 'checkpoint_id' = :cid "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"cid": ckpt_id},
+            )
+            row = audit.fetchone()
+            assert row is not None, "audit_logs: EXECUTION_COMPLETED with checkpoint_id missing"
+
+            await conn.rollback()

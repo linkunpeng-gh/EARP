@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.capability.registry import discover
 from earp_server.infra.eventbus import EventBus
-from earp_server.orchestrator.layers import AuditLayer
+from earp_server.orchestrator.layers import AuditLayer, PolicyLayer
 from earp_server.orchestrator.step_runner import StepRunner
 from earp_server.orchestrator.types import InvokeContext, Step
 
@@ -86,9 +86,12 @@ async def invoke(session_id: str, request_invoke: InvokeRequest, request: Reques
         execution_id=execution_id,
         session_id=session_id,
         user_id=ctx.user_id,
+        role_id=ctx.role_id,
         step=step,
     )
-    result = await runner.invoke(step, layers=[AuditLayer(bus)], ctx=ctx_)
+    result = await runner.invoke(
+        step, layers=[AuditLayer(bus), PolicyLayer(engine, bus)], ctx=ctx_
+    )
 
     exec_status = "completed" if result.status == "completed" else "failed"
     async with engine.connect() as conn:

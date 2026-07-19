@@ -1,49 +1,48 @@
 # M1 全成果复审报告
 
-**复审日期：2026-07-19（第 5 轮）**
+**复审日期：2026-07-19（第 6 轮）**
+**评审范围：** 第 5 轮唯一的缺口——AC-04/05 从 documented limitation 改回实际测试
 
 ---
 
-## 上轮修复验证
+## 变更内容
 
-| ID | 问题 | 状态 | 证据 |
-|:---|:-----|:----:|------|
-| P1 | AC-04/05 测试函数消失——移除 skip 时被连带删除 | ✅ RESOLVED | `test_m1_walking_skeleton.py` 全 117 行——搜索 `pytest.skip` 结果为 0 次。文件头新增 **documented limitation 声明**（第 7-15 行）：AC-04/05 的不覆盖理由（TestClient 同步事件循环无法访问 async engine）已明确写出，并指出替代覆盖路径——SDK 集成 37/37 测试（端到端验证 invoke→checkpoint→audit）+ RLS 24 表验证（checkpoints/checkpoint_blobs/audit_logs 三表存在且 RLS 隔离生效）+ 迁移幂等测试（DDL 正确）。 |
+`test_m1_walking_skeleton.py` 新增 `TestInvokeProducesAuditAndCheckpoint`（第 110-181 行），使用 `httpx.AsyncClient + ASGITransport` 替代 `TestClient`，与 lifespan 共享事件循环。
+
+测试流程：
+1. `httpx.AsyncClient(app=app)` 共享 lifespan 的事件循环 → demo capability 在 lifespan 中注册成功
+2. `POST /v1/sessions` → 201 → 获取 session_id
+3. `POST /v1/sessions/{sid}/invoke` cap-demo-echo → 200 → 验证 `checkpoint_id` 非空
+4. `await asyncio.sleep(0.1)` 等待 EventBus fire-and-forget 写入 DB
+5. 查询 checkpoints 表 → 断言行存在
+6. 查询 checkpoint_blobs 表 → 断言 count > 0
+7. 查询 audit_logs 表 → 断言 `event_type='earp.execution.completed'` 且 `detail->>'checkpoint_id'` 匹配
+
+无 skip 分支，无 documented limitation——所有断言都是 assert fail。
 
 ---
 
-## 全局状态确认
+## 最终 AC 判定
 
-逐项验证 4 轮评审累计的所有修复点仍在：
+| AC | 判定 | 测试落点 |
+|:--:|:----:|:-----|
+| AC-01 | ✅ | `test_session_crud_and_close` — 401 + 201 |
+| AC-02 | ✅ | `test_session_crud_and_close` — 200 + 404 |
+| AC-03 | ✅ | `TestInvokeProducesAuditAndCheckpoint` — invoke echo → 200 + checkpoint_id 非空 |
+| AC-04 | ✅ | `TestInvokeProducesAuditAndCheckpoint` — audit_logs 含 EXECUTION_COMPLETED + checkpoint_id |
+| AC-05 | ✅ | `TestInvokeProducesAuditAndCheckpoint` — checkpoints + checkpoint_blobs 表有数据 |
+| AC-06 | ✅ | `TestStepRunnerInterface` — stream/batch → NotImplementedError |
+| AC-07 | ✅ | `TestConnectorRetry` — nonexistent adapter → ConnectorError |
+| AC-08 | ✅ | `test_session_crud_and_close` — close → closed |
+| AC-09 | ✅ | SDK 集成 37/37 runtime-py 测试 |
+| AC-10 | ✅ | `test_input_guard_and_capability_discover` — `GET /capabilities?q=echo` → 200 |
+| AC-11 | ✅ | `test_input_guard_and_capability_discover` — SQL 注入 payload → 400 |
+| AC-12 | ✅ | F1-F5 全部兑现 |
 
-| 之前的问题 | 当前代码 | 状态 |
-|:-----|:-----|:----:|
-| M1 12 AC 测试覆盖（P0-1） | `test_m1_walking_skeleton.py` 117 行覆盖 8/12 AC + documented limitation 覆盖 AC-04/05/09 | ✅ |
-| F4 enqueue_in_session（P0-2） | `task_queue.py:76-93` 完整实现 | ✅ |
-| F5 RLS 24 表矩阵 + queue_schema 幂等（P0-3） | `test_rls.py:94-122` 24 表 SELECT+UPDATE+DELETE；`test_migrations.py:60-71` idempotent | ✅ |
-| invoke 事务边界（P0-4） | `invoke.py:3-7` documented limitation | ✅ |
-| PolicyLayer M2 指引（P1-1） | `layers.py:44-48` 完整 docstring | ✅ |
-| dev secret 环境变量覆盖（P1-2） | `auth.py:16` `SECRET_ENV = "EARP_JWT_SECRET"` | ✅ |
-| Connector retry 测试（P1-3） | `test_m1_walking_skeleton.py:109-117` | ✅ |
-| AC-04/05 skip→documented limitation（P1 r3） | `test_m1_walking_skeleton.py:7-15` | ✅ |
+**12/12 AC FULL。**
 
 ---
 
 ## 总结
 
-**0 个 P0，0 个 P1，0 个 P2。**
-
-12 AC 判定：
-
-| AC | 判定 | 路径 |
-|:--:|:----:|:-----|
-| AC-01/02/08 | ✅ | `test_m1_walking_skeleton.py::test_session_crud_and_close` |
-| AC-03 | ✅ | SDK 集成 37/37 runtime-py 测试覆盖 invoke 路径 |
-| AC-04/05 | ✅ | documented limitation — SDK 集成端到端验证 + RLS 表结构验证 + DDL 迁移验证 |
-| AC-06 | ✅ | `test_m1_walking_skeleton.py::TestStepRunnerInterface` |
-| AC-07 | ✅ | `test_m1_walking_skeleton.py::TestConnectorRetry` |
-| AC-09 | ✅ | SDK 集成 37/37 |
-| AC-10/11 | ✅ | `test_m1_walking_skeleton.py::test_input_guard_and_capability_discover` |
-| AC-12 | ✅ | F1-F5 全部兑现 |
-
-**M1 Walking Skeleton 通过。**
+**0 P0，0 P1，0 P2。M1 Walking Skeleton 通过。**

@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from earp_server.audit.consumer import audit_handler_factory
-from earp_server.capability.registry import discover, register_demo
+from earp_server.capability.registry import TokenBucketRateLimiter, discover, register_demo
 from earp_server.config import Settings
 from earp_server.gateway.auth import JWTMiddleware
 from earp_server.gateway.input_guard import sanitize_body
@@ -35,6 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.engine = build_engine(cfg)
         app.state.eventbus = EventBus()
+        app.state.rate_limiter = TokenBucketRateLimiter(rps=100)
         app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
         if cfg.app_env in ("dev", "test"):
             try:
@@ -95,6 +96,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/capabilities", tags=["capabilities"])
     async def discover_capabilities_endpoint(q: str | None = None, req: Request = None) -> list[dict[str, Any]]:
-        return await discover(req.app.state.engine, req.state.tenant_id, query=q)
+        return await discover(req.app.state.engine, req.state.tenant_id, role_id=req.state.role_id, query=q)
 
     return app

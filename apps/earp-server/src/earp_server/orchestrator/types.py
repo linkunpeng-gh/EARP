@@ -41,6 +41,7 @@ class InvokeContext:
     execution_id: str
     session_id: str
     user_id: str
+    role_id: str
     step: Step
 
 

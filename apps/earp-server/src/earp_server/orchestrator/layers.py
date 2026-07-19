@@ -1,10 +1,25 @@
-"""Orchestrator Layer Protocol + AuditLayer. PolicyLayer placeholder for M2."""
+"""Orchestrator Layer chain — AuditLayer + PolicyLayer (M2).
+
+Layer execution order in StepRunner.invoke():
+  [AuditLayer.before_step, PolicyLayer.before_step, ...execute...,
+   PolicyLayer.after_step(OutputFilter), AuditLayer.after_step]
+"""
 
 from __future__ import annotations
 
-from earp_server.infra.eventbus import CloudEvent, EventBus
-from earp_server.orchestrator.types import InvokeContext, StepResult
+import logging
 
+from fastapi import HTTPException
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from earp_server.infra.eventbus import CloudEvent, EventBus
+from earp_server.orchestrator.types import InvokeContext, Step, StepResult
+
+logger = logging.getLogger(__name__)
+
+
+# ── AuditLayer ────────────────────────────────────────────────────────────────
 
 class AuditLayer:
     def __init__(self, bus: EventBus) -> None:
@@ -16,7 +31,12 @@ class AuditLayer:
                 type="earp.execution.started",
                 source="earp-server/orchestrator",
                 tenant_id=ctx.tenant_id,
-                data={"execution_id": ctx.execution_id, "session_id": ctx.session_id},
+                data={
+                    "execution_id": ctx.execution_id,
+                    "session_id": ctx.session_id,
+                    "user_id": ctx.user_id,
+                    "role_id": ctx.role_id,
+                },
             )
         )
 
@@ -31,6 +51,7 @@ class AuditLayer:
                     "execution_id": ctx.execution_id,
                     "session_id": ctx.session_id,
                     "user_id": ctx.user_id,
+                    "role_id": ctx.role_id,
                     "entity_type": "execution",
                     "entity_id": ctx.execution_id,
                     "checkpoint_id": result.checkpoint_id or "",
@@ -41,16 +62,106 @@ class AuditLayer:
         )
 
 
-class PolicyLayer:
-    """Placeholder - M2 (PRD-2026-023) implements permissions/data_scope/rate-limit evaluation.
+# ── PolicyLayer (M2) ──────────────────────────────────────────────────────────
 
-    Registered in StepRunner.invoke() layers=[..., PolicyLayer()].
-    before_step -> check required_permissions vs role capabilities.
-    after_step -> inject PERMISSION_DENIED audit event on policy rejection.
+class PolicyLayer:
+    """M2: RBAC permissions check (before_step) + data_scope filtering (after_step).
+
+    Requires engine (DB lookup) and eventbus (PERMISSION_DENIED events).
     """
 
-    async def before_step(self, ctx: InvokeContext) -> None:  # noqa: ARG002
-        pass
+    def __init__(self, engine: AsyncEngine, bus: EventBus) -> None:
+        self._engine = engine
+        self._bus = bus
 
-    async def after_step(self, ctx: InvokeContext, result: StepResult) -> None:  # noqa: ARG002
-        pass
+    # ── before_step: permissions check ────────────────────────────────────────
+
+    async def before_step(self, ctx: InvokeContext) -> None:
+        required_permissions = await self._get_required_permissions(ctx.step)
+        if not required_permissions:
+            return  # no permissions required → allow
+
+        role_permissions = await self._get_role_permissions(ctx)
+        if not self._is_subset(required_permissions, role_permissions):
+            self._bus.publish(
+                CloudEvent(
+                    type="earp.execution.denied",
+                    source="earp-server/policy",
+                    tenant_id=ctx.tenant_id,
+                    data={
+                        "execution_id": ctx.execution_id,
+                        "user_id": ctx.user_id,
+                        "role_id": ctx.role_id,
+                        "entity_type": "execution",
+                        "entity_id": ctx.execution_id,
+                        "denied_capability": ctx.step.capability_call.get("capability_id", ""),
+                        "required_permissions": required_permissions,
+                        "role_permissions": role_permissions,
+                    },
+                )
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=f"Role {ctx.role_id} lacks required permissions: {required_permissions}",
+            )
+
+    async def _get_required_permissions(self, step: Step) -> list[str]:
+        capability_id = step.capability_call.get("capability_id", "")
+        if not capability_id:
+            return []
+        async with self._engine.connect() as conn:
+            row = await conn.execute(
+                text(
+                    "SELECT required_permissions FROM business_capabilities "
+                    "WHERE capability_id = :cid"
+                ),
+                {"cid": capability_id},
+            )
+            result = row.fetchone()
+            if result and result.required_permissions:
+                return list(result.required_permissions) if isinstance(result.required_permissions, list) else []
+            return []
+
+    async def _get_role_permissions(self, ctx: InvokeContext) -> list[str]:
+        async with self._engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{ctx.tenant_id}'"))
+            row = await conn.execute(
+                text("SELECT permissions FROM roles WHERE role_id = :rid"),
+                {"rid": ctx.role_id},
+            )
+            result = row.fetchone()
+            if result and result.permissions:
+                return list(result.permissions) if isinstance(result.permissions, list) else []
+            return []
+
+    @staticmethod
+    def _is_subset(required: list[str], granted: list[str]) -> bool:
+        granted_set = set(granted)
+        return all(p in granted_set for p in required)
+
+    # ── after_step: data_scope filtering (OutputFilter) ───────────────────────
+
+    async def after_step(self, ctx: InvokeContext, result: StepResult) -> None:
+        scope = await self._get_data_scope(ctx.role_id, ctx.tenant_id)
+        if scope == "all":
+            return  # no filtering needed
+        if result.output is None:
+            return
+
+        if scope == "self":
+            # only keep top-level items/dict where created_by matches current user
+            filtered = {}
+            for key, value in result.output.items():
+                if isinstance(value, dict) and value.get("created_by") == ctx.user_id:
+                    filtered[key] = value
+            result.output = filtered
+
+    async def _get_data_scope(self, role_id: str, tenant_id: str) -> str:
+        async with self._engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+            row = await conn.execute(
+                text("SELECT data_scope FROM roles WHERE role_id = :rid"),
+                {"rid": role_id},
+            )
+            result = row.fetchone()
+            return (result.data_scope or "all") if result else "all"
