@@ -18,7 +18,7 @@ _DEMO_CAPABILITY = {
     "name": "echo",
     "type": "query",
     "input_schema": {"type": "object", "properties": {"message": {"type": "string"}}},
-    "required_permissions": ["demo:echo"],
+    "required_permissions": ["demo.echo"],
     "version": "1.0.0",
 }
 
@@ -26,23 +26,13 @@ _DEMO_CAPABILITY = {
 async def register_demo(engine: AsyncEngine, tenant_id: str) -> None:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        await conn.execute(
-            text(
-                "INSERT INTO business_capabilities (capability_id, tenant_id, domain, name, type, "
-                "input_schema, output_schema, required_permissions, version) "
-                "VALUES (:cid, :tid, :domain, :name, :type, :inp, '{}', :perms, :ver) "
-                "ON CONFLICT (capability_id) DO NOTHING"
-            ),
-            {
-                "cid": _DEMO_CAPABILITY["capability_id"],
-                "tid": tenant_id,
-                "domain": _DEMO_CAPABILITY["domain"],
-                "name": _DEMO_CAPABILITY["name"],
-                "type": _DEMO_CAPABILITY["type"],
-                "inp": json.dumps(_DEMO_CAPABILITY["input_schema"]),
-                "perms": "{demo:echo}",
-                "ver": _DEMO_CAPABILITY["version"],
-            },
+        schema_json = json.dumps(_DEMO_CAPABILITY["input_schema"])
+        await conn.exec_driver_sql(
+            f"INSERT INTO business_capabilities (capability_id, tenant_id, domain, name, type, "
+            f"input_schema, output_schema, required_permissions, version) "
+            f"VALUES ('cap-demo-echo', '{tenant_id}', 'demo', 'echo', 'query', "
+            f"'{schema_json}', '{{}}', '{{demo.echo}}', '1.0.0') "
+            f"ON CONFLICT (capability_id) DO NOTHING"
         )
         await conn.commit()
 
@@ -59,53 +49,48 @@ async def discover(
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         if query:
-            # pgvector semantic search: embed query, find similar capabilities
             from earp_server.knowledge.embedding_service import embed_query
             q_emb = await embed_query(query)
             emb_str = f"[{', '.join(str(x) for x in q_emb)}]"
             if role_id:
-                rows = await conn.execute(
-                    text(
-                        "SELECT c.capability_id, c.domain, c.name, c.type, c.version, "
-                        "1 - (c.embedding <=> :qemb::vector(1536)) AS similarity "
-                        "FROM business_capabilities c, roles r "
-                        "WHERE c.tenant_id = :tid AND r.role_id = :rid "
-                        "AND c.required_permissions <@ r.permissions "
-                        "ORDER BY c.embedding <=> :qemb2::vector(1536) LIMIT 10"
-                    ),
-                    {"qemb": emb_str, "qemb2": emb_str, "tid": tenant_id, "rid": role_id},
+                rows = await conn.exec_driver_sql(
+                    f"SELECT c.capability_id, c.domain, c.name, c.type, c.version, "
+                    f"1 - (c.embedding <=> '{emb_str}'::vector(1536)) AS similarity "
+                    f"FROM business_capabilities c, roles r "
+                    f"WHERE c.tenant_id = '{tenant_id}' AND r.role_id = '{role_id}' "
+                    f"AND c.required_permissions <@ r.permissions "
+                    f"ORDER BY c.embedding <=> '{emb_str}'::vector(1536) LIMIT 10"
                 )
             else:
-                rows = await conn.execute(
-                    text(
-                        "SELECT capability_id, domain, name, type, version, "
-                        "1 - (embedding <=> :qemb::vector(1536)) AS similarity "
-                        "FROM business_capabilities "
-                        "WHERE tenant_id = :tid "
-                        "ORDER BY embedding <=> :qemb2::vector(1536) LIMIT 10"
-                    ),
-                    {"qemb": emb_str, "qemb2": emb_str, "tid": tenant_id},
+                rows = await conn.exec_driver_sql(
+                    f"SELECT capability_id, domain, name, type, version, "
+                    f"1 - (embedding <=> '{emb_str}'::vector(1536)) AS similarity "
+                    f"FROM business_capabilities "
+                    f"WHERE tenant_id = '{tenant_id}' "
+                    f"ORDER BY embedding <=> '{emb_str}'::vector(1536) LIMIT 10"
                 )
+            # exec_driver_sql returns raw tuples — convert to dicts
+            cols = ["capability_id", "domain", "name", "type", "version", "similarity"]
+            return [dict(zip(cols, row, strict=False)) for row in rows]
+        # no query: return all (role-filtered if role_id given) — use text() + execute()
+        if role_id:
+            rows = await conn.execute(
+                text(
+                    "SELECT c.capability_id, c.domain, c.name, c.type, c.version "
+                    "FROM business_capabilities c, roles r "
+                    "WHERE c.tenant_id = :tid AND r.role_id = :rid "
+                    "AND c.required_permissions <@ r.permissions"
+                ),
+                {"tid": tenant_id, "rid": role_id},
+            )
         else:
-            # no query: return all (role-filtered if role_id given)
-            if role_id:
-                rows = await conn.execute(
-                    text(
-                        "SELECT c.capability_id, c.domain, c.name, c.type, c.version "
-                        "FROM business_capabilities c, roles r "
-                        "WHERE c.tenant_id = :tid AND r.role_id = :rid "
-                        "AND c.required_permissions <@ r.permissions"
-                    ),
-                    {"tid": tenant_id, "rid": role_id},
-                )
-            else:
-                rows = await conn.execute(
-                    text(
-                        "SELECT capability_id, domain, name, type, version "
-                        "FROM business_capabilities WHERE tenant_id = :tid"
-                    ),
-                    {"tid": tenant_id},
-                )
+            rows = await conn.execute(
+                text(
+                    "SELECT capability_id, domain, name, type, version "
+                    "FROM business_capabilities WHERE tenant_id = :tid"
+                ),
+                {"tid": tenant_id},
+            )
         return [dict(r._mapping) for r in rows]
 
 

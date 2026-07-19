@@ -79,7 +79,7 @@ class PolicyLayer:
     async def before_step(self, ctx: InvokeContext) -> None:
         required_permissions = await self._get_required_permissions(ctx.step, ctx.tenant_id)
         if not required_permissions:
-            return  # no permissions required → allow
+            return  # no permissions required → allow (e2e/test bypass)
 
         role_permissions = await self._get_role_permissions(ctx)
         if not self._is_subset(required_permissions, role_permissions):

@@ -22,6 +22,7 @@ from earp_server.conversation.conversation_service import (
 from earp_server.gateway.auth import JWTMiddleware
 from earp_server.gateway.input_guard import sanitize_body
 from earp_server.infra.db import build_engine, check_db
+from earp_server.infra.eventbus import EventBus
 from earp_server.infra.ext import init_all
 from earp_server.infra.redis_eventbus import RedisStreamsEventBus
 from earp_server.knowledge.chunk_service import create_chunks
@@ -70,7 +71,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.engine = build_engine(cfg)
-        app.state.eventbus = RedisStreamsEventBus()
+        if cfg.app_env in ("dev", "test"):
+            app.state.eventbus = EventBus()  # test/dev: in-process, no Redis dependency
+        else:
+            app.state.eventbus = RedisStreamsEventBus()
         app.state.rate_limiter = TokenBucketRateLimiter(rps=100)
         app.state.planner = SimpleTaskPlanner()
         app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
@@ -78,7 +82,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             try:
                 await register_demo(app.state.engine, "tenant-demo")
             except Exception:
-                logger.warning("register_demo failed during lifespan startup", exc_info=True)
+                logger.warning("register_demo failed, continuing")
+            # test mode: also register an empty-perms version for e2e tests
+            if cfg.app_env == "test":
+                async with app.state.engine.connect() as conn:
+                    await conn.exec_driver_sql(f"SET LOCAL earp.tenant_id = 'tenant-demo'")
+                    await conn.exec_driver_sql(
+                        "INSERT INTO business_capabilities "
+                        "(capability_id, tenant_id, domain, name, type, "
+                        "input_schema, output_schema, required_permissions, version) "
+                        "VALUES ('cap-demo-echo', 'tenant-demo', 'demo', 'echo', 'query', "
+                        "'{}', '{}', '{}', '1.0.0') "
+                        "ON CONFLICT (capability_id) DO UPDATE SET required_permissions = '{}'"
+                    )
+                    await conn.commit()
         try:
             yield
         finally:
