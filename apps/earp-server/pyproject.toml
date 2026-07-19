@@ -84,6 +84,8 @@ modules = [
     "earp_server.planner",
     "earp_server.knowledge",
     "earp_server.conversation",
+    "earp_server.plugin",
+    "earp_server.mcp",
 ]
 # M1: runtime calls capability.discover (public service interface) and uses
 # orchestrator types — both are allowed cross-module references (plan v1.4 §5.1 "走 service 接口").

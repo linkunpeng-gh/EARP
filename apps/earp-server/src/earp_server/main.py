@@ -198,4 +198,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def ws_events(websocket: WebSocket, session_id: str):
         await ws_endpoint(websocket, session_id)
 
+    # ── MCP Server ──
+    from earp_server.mcp.server import handle_mcp_request
+
+    @app.post("/mcp/tools", tags=["mcp"])
+    async def mcp_tools(req: Request) -> dict[str, Any]:
+        body = await req.json()
+        return handle_mcp_request(body.get("method", "tools/list"), body.get("params"))
+
     return app

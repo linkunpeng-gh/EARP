@@ -427,6 +427,21 @@ paths:
       summary: Search Knowledge
       tags:
       - knowledge
+  /mcp/tools:
+    post:
+      operationId: mcp_tools_mcp_tools_post
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Mcp Tools Mcp Tools Post
+                type: object
+          description: Successful Response
+      summary: Mcp Tools
+      tags:
+      - mcp
   /plan:
     post:
       operationId: plan_endpoint_plan_post
