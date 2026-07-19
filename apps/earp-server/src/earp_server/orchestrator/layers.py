@@ -77,7 +77,7 @@ class PolicyLayer:
     # ── before_step: permissions check ────────────────────────────────────────
 
     async def before_step(self, ctx: InvokeContext) -> None:
-        required_permissions = await self._get_required_permissions(ctx.step)
+        required_permissions = await self._get_required_permissions(ctx.step, ctx.tenant_id)
         if not required_permissions:
             return  # no permissions required → allow
 
@@ -105,11 +105,12 @@ class PolicyLayer:
                 detail=f"Role {ctx.role_id} lacks required permissions: {required_permissions}",
             )
 
-    async def _get_required_permissions(self, step: Step) -> list[str]:
+    async def _get_required_permissions(self, step: Step, tenant_id: str) -> list[str]:
         capability_id = step.capability_call.get("capability_id", "")
         if not capability_id:
             return []
         async with self._engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
             row = await conn.execute(
                 text(
                     "SELECT required_permissions FROM business_capabilities "

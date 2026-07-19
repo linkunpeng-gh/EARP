@@ -45,6 +45,11 @@ async def invoke(session_id: str, request_invoke: InvokeRequest, request: Reques
     bus: EventBus = request.app.state.eventbus
     ctx = request.state
 
+    # M2 rate limiter: per-tenant token bucket (pass-through if Redis unavailable)
+    limiter = request.app.state.rate_limiter
+    if not await limiter.is_allowed(ctx.tenant_id):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{ctx.tenant_id}'"))
         row = await conn.execute(text("SELECT status FROM sessions WHERE session_id = :sid"), {"sid": session_id})
