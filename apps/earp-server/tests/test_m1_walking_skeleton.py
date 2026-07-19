@@ -69,6 +69,10 @@ def test_input_guard_and_capability_discover(migrated: str, app_url: str) -> Non
                        headers=AUTH)
         assert resp.status_code == 201
 
+        # AC-10: capability discover filtered by role — covered in M2 RBAC scenarios.
+        # M1 test token lacks seed data for role-aware discover; endpoint returns
+        # 200 with empty list when role has no matching capabilities (correct behavior).
+
 
 class TestStepRunnerInterface:
     """AC-06: Step Runner 3-form interface lock."""

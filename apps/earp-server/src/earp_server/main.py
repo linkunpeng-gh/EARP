@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from earp_server.audit.consumer import audit_handler_factory
 from earp_server.capability.registry import TokenBucketRateLimiter, discover, register_demo
@@ -18,6 +19,7 @@ from earp_server.gateway.input_guard import sanitize_body
 from earp_server.infra.db import build_engine, check_db
 from earp_server.infra.eventbus import EventBus
 from earp_server.infra.ext import init_all
+from earp_server.planner.task_planner import SimpleTaskPlanner
 from earp_server.runtime.invoke import router as invoke_router
 from earp_server.runtime.session_service import close_session, create_session, get_session
 from earp_server.schemas.sessions import SessionCreateRequest, SessionResponse
@@ -25,6 +27,10 @@ from earp_server.schemas.sessions import SessionCreateRequest, SessionResponse
 APP_TITLE = "EARP Server"
 APP_VERSION = "0.1.0"
 logger = logging.getLogger(__name__)
+
+
+class PlanRequest(BaseModel):
+    intent: str
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -36,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = build_engine(cfg)
         app.state.eventbus = EventBus()
         app.state.rate_limiter = TokenBucketRateLimiter(rps=100)
+        app.state.planner = SimpleTaskPlanner()
         app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
         if cfg.app_env in ("dev", "test"):
             try:
@@ -97,5 +104,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/capabilities", tags=["capabilities"])
     async def discover_capabilities_endpoint(q: str | None = None, req: Request = None) -> list[dict[str, Any]]:
         return await discover(req.app.state.engine, req.state.tenant_id, role_id=req.state.role_id, query=q)
+
+    # ── Planner ──
+    @app.post("/plan", tags=["planner"])
+    async def plan_endpoint(req_body: PlanRequest, req: Request) -> dict[str, Any]:
+        # JWT middleware already validated tenant_id/role_id on req.state
+        planner = req.app.state.planner
+        try:
+            steps = planner.plan(req_body.intent)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return {"intent": req_body.intent, "steps": [s.capability_call for s in steps]}
+
+    @app.get("/intents", tags=["planner"])
+    async def list_intents_endpoint() -> list[str]:
+        from earp_server.planner.business_dictionary import RuleIntentPlanner
+        return RuleIntentPlanner().list_intents()
 
     return app

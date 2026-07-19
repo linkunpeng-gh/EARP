@@ -80,6 +80,7 @@ modules = [
     "earp_server.schedule",
     "earp_server.audit",
     "earp_server.orchestrator",
+    "earp_server.planner",
 ]
 # M1: runtime calls capability.discover (public service interface) and uses
 # orchestrator types — both are allowed cross-module references (plan v1.4 §5.1 "走 service 接口").

@@ -1,1 +1,1 @@
-"""planner domain module (M0 skeleton - populated in later milestones)."""
+"""Planner domain — intent resolution + plan construction + validation."""

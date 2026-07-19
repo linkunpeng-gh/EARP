@@ -54,6 +54,15 @@ components:
       - status
       title: InvokeResponse
       type: object
+    PlanRequest:
+      properties:
+        intent:
+          title: Intent
+          type: string
+      required:
+      - intent
+      title: PlanRequest
+      type: object
     SessionCreateRequest:
       properties:
         metadata:
@@ -191,6 +200,49 @@ paths:
                 type: object
           description: Successful Response
       summary: Health
+  /intents:
+    get:
+      operationId: list_intents_endpoint_intents_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  type: string
+                title: Response List Intents Endpoint Intents Get
+                type: array
+          description: Successful Response
+      summary: List Intents Endpoint
+      tags:
+      - planner
+  /plan:
+    post:
+      operationId: plan_endpoint_plan_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Plan Endpoint Plan Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Plan Endpoint
+      tags:
+      - planner
   /ready:
     get:
       operationId: ready_ready_get
