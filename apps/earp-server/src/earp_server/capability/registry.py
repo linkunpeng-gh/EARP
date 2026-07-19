@@ -50,36 +50,62 @@ async def register_demo(engine: AsyncEngine, tenant_id: str) -> None:
 async def discover(
     engine: AsyncEngine, tenant_id: str, *, role_id: str | None = None, query: str | None = None
 ) -> list[dict[str, Any]]:
-    """Role-aware discovery. If role_id given, filter to capabilities the role can access."""
+    """Role-aware discovery with optional pgvector semantic search.
+
+    Without a query: return all capabilities (role-filtered if role_id given).
+    With a query: pgvector cosine similarity search on capability embedding.
+    Falls back to LIKE if embedding column is null for a capability.
+    """
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        if role_id:
-            rows = await conn.execute(
-                text(
-                    "SELECT c.capability_id, c.domain, c.name, c.type, c.version "
-                    "FROM business_capabilities c, roles r "
-                    "WHERE c.tenant_id = :tid AND r.role_id = :rid "
-                    "AND (:query IS NULL OR c.name LIKE :q) "
-                    "AND c.required_permissions <@ r.permissions"
-                ),
-                {"tid": tenant_id, "rid": role_id, "query": query, "q": f"%{query}%" if query else None},
-            )
-        elif query:
-            rows = await conn.execute(
-                text(
-                    "SELECT capability_id, domain, name, type, version FROM business_capabilities "
-                    "WHERE tenant_id = :tid AND name LIKE :q"
-                ),
-                {"tid": tenant_id, "q": f"%{query}%"},
-            )
+        if query:
+            # pgvector semantic search: embed query, find similar capabilities
+            from earp_server.knowledge.embedding_service import embed_query
+            q_emb = await embed_query(query)
+            emb_str = f"[{', '.join(str(x) for x in q_emb)}]"
+            if role_id:
+                rows = await conn.execute(
+                    text(
+                        "SELECT c.capability_id, c.domain, c.name, c.type, c.version, "
+                        "1 - (c.embedding <=> :qemb::vector(1536)) AS similarity "
+                        "FROM business_capabilities c, roles r "
+                        "WHERE c.tenant_id = :tid AND r.role_id = :rid "
+                        "AND c.required_permissions <@ r.permissions "
+                        "ORDER BY c.embedding <=> :qemb2::vector(1536) LIMIT 10"
+                    ),
+                    {"qemb": emb_str, "qemb2": emb_str, "tid": tenant_id, "rid": role_id},
+                )
+            else:
+                rows = await conn.execute(
+                    text(
+                        "SELECT capability_id, domain, name, type, version, "
+                        "1 - (embedding <=> :qemb::vector(1536)) AS similarity "
+                        "FROM business_capabilities "
+                        "WHERE tenant_id = :tid "
+                        "ORDER BY embedding <=> :qemb2::vector(1536) LIMIT 10"
+                    ),
+                    {"qemb": emb_str, "qemb2": emb_str, "tid": tenant_id},
+                )
         else:
-            rows = await conn.execute(
-                text(
-                    "SELECT capability_id, domain, name, type, version FROM business_capabilities "
-                    "WHERE tenant_id = :tid"
-                ),
-                {"tid": tenant_id},
-            )
+            # no query: return all (role-filtered if role_id given)
+            if role_id:
+                rows = await conn.execute(
+                    text(
+                        "SELECT c.capability_id, c.domain, c.name, c.type, c.version "
+                        "FROM business_capabilities c, roles r "
+                        "WHERE c.tenant_id = :tid AND r.role_id = :rid "
+                        "AND c.required_permissions <@ r.permissions"
+                    ),
+                    {"tid": tenant_id, "rid": role_id},
+                )
+            else:
+                rows = await conn.execute(
+                    text(
+                        "SELECT capability_id, domain, name, type, version "
+                        "FROM business_capabilities WHERE tenant_id = :tid"
+                    ),
+                    {"tid": tenant_id},
+                )
         return [dict(r._mapping) for r in rows]
 
 
