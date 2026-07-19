@@ -15,21 +15,19 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 async def create_policy(
     engine: AsyncEngine,
     tenant_id: str,
-    name: str,
-    resource_type: str,
-    action: str,
-    conditions: str = "{}",
+    policy_type: str = "access_control",
+    rules: str = "{}",
+    status: str = "active",
 ) -> dict:
     policy_id = f"pol-{uuid.uuid4().hex[:12]}"
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         await conn.execute(
             text(
-                "INSERT INTO policies (policy_id, tenant_id, name, resource_type, action, conditions) "
-                "VALUES (:pid, :tid, :name, :rtype, :action, :conds)"
+                "INSERT INTO policies (policy_id, tenant_id, policy_type, rules, status) "
+                "VALUES (:pid, :tid, :ptype, :rules, :status)"
             ),
-            {"pid": policy_id, "tid": tenant_id, "name": name, "rtype": resource_type,
-             "action": action, "conds": conditions},
+            {"pid": policy_id, "tid": tenant_id, "ptype": policy_type, "rules": rules, "status": status},
         )
         await conn.commit()
     return {"policy_id": policy_id}
@@ -39,20 +37,20 @@ async def bind_policy(
     engine: AsyncEngine,
     tenant_id: str,
     policy_id: str,
-    role_id: str,
+    entity_type: str = "role",
+    entity_id: str = "",
 ) -> dict:
-    binding_id = f"bnd-{uuid.uuid4().hex[:12]}"
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         await conn.execute(
             text(
-                "INSERT INTO policy_bindings (binding_id, tenant_id, policy_id, role_id) "
-                "VALUES (:bid, :tid, :pid, :rid)"
+                "INSERT INTO policy_bindings (policy_id, entity_type, entity_id, tenant_id) "
+                "VALUES (:pid, :etype, :eid, :tid)"
             ),
-            {"bid": binding_id, "tid": tenant_id, "pid": policy_id, "rid": role_id},
+            {"pid": policy_id, "etype": entity_type, "eid": entity_id, "tid": tenant_id},
         )
         await conn.commit()
-    return {"binding_id": binding_id}
+    return {"policy_id": policy_id, "entity_type": entity_type, "entity_id": entity_id}
 
 
 async def get_policies_for_role(
@@ -62,10 +60,11 @@ async def get_policies_for_role(
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         rows = await conn.execute(
             text(
-                "SELECT p.policy_id, p.name, p.resource_type, p.action, p.conditions "
+                "SELECT p.policy_id, p.policy_type, p.rules, p.status "
                 "FROM policies p "
                 "JOIN policy_bindings pb ON p.policy_id = pb.policy_id "
-                "WHERE pb.role_id = :rid AND p.tenant_id = :tid"
+                "WHERE pb.entity_type = 'role' AND pb.entity_id = :rid "
+                "AND p.tenant_id = :tid"
             ),
             {"rid": role_id, "tid": tenant_id},
         )
