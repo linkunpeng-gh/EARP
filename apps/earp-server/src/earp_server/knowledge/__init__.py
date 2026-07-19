@@ -1,1 +1,1 @@
-"""knowledge domain module (M0 skeleton - populated in later milestones)."""
+"""Knowledge Base domain — documents, chunks, embeddings, search."""

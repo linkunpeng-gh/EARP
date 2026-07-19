@@ -16,6 +16,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pyjwt>=2.13.0",
     "redis>=8.0.1",
+    "langchain-text-splitters>=1.1.2",
 ]
 
 [dependency-groups]
@@ -81,6 +82,8 @@ modules = [
     "earp_server.audit",
     "earp_server.orchestrator",
     "earp_server.planner",
+    "earp_server.knowledge",
+    "earp_server.conversation",
 ]
 # M1: runtime calls capability.discover (public service interface) and uses
 # orchestrator types — both are allowed cross-module references (plan v1.4 §5.1 "走 service 接口").

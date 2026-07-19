@@ -1,5 +1,30 @@
 components:
   schemas:
+    ConvCreate:
+      properties:
+        title:
+          default: ''
+          title: Title
+          type: string
+      title: ConvCreate
+      type: object
+    DocUpload:
+      properties:
+        content:
+          title: Content
+          type: string
+        knowledge_base_id:
+          title: Knowledge Base Id
+          type: string
+        title:
+          default: ''
+          title: Title
+          type: string
+      required:
+      - knowledge_base_id
+      - content
+      title: DocUpload
+      type: object
     HTTPValidationError:
       properties:
         detail:
@@ -54,6 +79,19 @@ components:
       - status
       title: InvokeResponse
       type: object
+    MsgAdd:
+      properties:
+        content:
+          title: Content
+          type: string
+        role:
+          title: Role
+          type: string
+      required:
+      - role
+      - content
+      title: MsgAdd
+      type: object
     PlanRequest:
       properties:
         intent:
@@ -62,6 +100,19 @@ components:
       required:
       - intent
       title: PlanRequest
+      type: object
+    SearchQuery:
+      properties:
+        query:
+          title: Query
+          type: string
+        top_k:
+          default: 5
+          title: Top K
+          type: integer
+      required:
+      - query
+      title: SearchQuery
       type: object
     SessionCreateRequest:
       properties:
@@ -186,6 +237,110 @@ paths:
       summary: Register Capability Endpoint
       tags:
       - capabilities
+  /conversations:
+    post:
+      operationId: create_conv_conversations_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConvCreate'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Conv Conversations Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Conv
+      tags:
+      - conversations
+  /conversations/{conv_id}/messages:
+    get:
+      operationId: list_msgs_conversations__conv_id__messages_get
+      parameters:
+      - in: path
+        name: conv_id
+        required: true
+        schema:
+          title: Conv Id
+          type: string
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          title: Limit
+          type: integer
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          title: Offset
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Msgs Conversations  Conv Id  Messages Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Msgs
+      tags:
+      - conversations
+    post:
+      operationId: add_msg_conversations__conv_id__messages_post
+      parameters:
+      - in: path
+        name: conv_id
+        required: true
+        schema:
+          title: Conv Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MsgAdd'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Add Msg Conversations  Conv Id  Messages Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Add Msg
+      tags:
+      - conversations
   /health:
     get:
       operationId: health_health_get
@@ -216,6 +371,62 @@ paths:
       summary: List Intents Endpoint
       tags:
       - planner
+  /knowledge/documents:
+    post:
+      operationId: upload_document_knowledge_documents_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocUpload'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Upload Document Knowledge Documents Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Upload Document
+      tags:
+      - knowledge
+  /knowledge/search:
+    post:
+      operationId: search_knowledge_knowledge_search_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchQuery'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response Search Knowledge Knowledge Search Post
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Search Knowledge
+      tags:
+      - knowledge
   /plan:
     post:
       operationId: plan_endpoint_plan_post

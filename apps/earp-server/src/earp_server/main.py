@@ -14,11 +14,21 @@ from pydantic import BaseModel
 from earp_server.audit.consumer import audit_handler_factory
 from earp_server.capability.registry import TokenBucketRateLimiter, discover, register_demo
 from earp_server.config import Settings
+from earp_server.conversation.conversation_service import (
+    add_message,
+    create_conversation,
+    get_messages,
+)
 from earp_server.gateway.auth import JWTMiddleware
 from earp_server.gateway.input_guard import sanitize_body
 from earp_server.infra.db import build_engine, check_db
 from earp_server.infra.eventbus import EventBus
 from earp_server.infra.ext import init_all
+from earp_server.knowledge.chunk_service import create_chunks
+from earp_server.knowledge.document_service import create_document
+from earp_server.knowledge.embedding_service import embed_chunks, embed_query
+from earp_server.knowledge.record_manager import cleanup_old_chunks, is_unchanged
+from earp_server.knowledge.search_service import search_chunks
 from earp_server.planner.task_planner import SimpleTaskPlanner
 from earp_server.runtime.invoke import router as invoke_router
 from earp_server.runtime.session_service import close_session, create_session, get_session
@@ -31,6 +41,26 @@ logger = logging.getLogger(__name__)
 
 class PlanRequest(BaseModel):
     intent: str
+
+
+class DocUpload(BaseModel):
+    knowledge_base_id: str
+    content: str
+    title: str = ""
+
+
+class SearchQuery(BaseModel):
+    query: str
+    top_k: int = 5
+
+
+class ConvCreate(BaseModel):
+    title: str = ""
+
+
+class MsgAdd(BaseModel):
+    role: str
+    content: str
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -120,5 +150,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def list_intents_endpoint() -> list[str]:
         from earp_server.planner.business_dictionary import RuleIntentPlanner
         return RuleIntentPlanner().list_intents()
+
+    # ── Knowledge Base ──
+    @app.post("/knowledge/documents", status_code=201, tags=["knowledge"])
+    async def upload_document(req_body: DocUpload, req: Request) -> dict[str, Any]:
+        engine = req.app.state.engine
+        tenant_id = req.state.tenant_id
+        doc = await create_document(engine, tenant_id, req_body.knowledge_base_id,
+                                     req_body.content, req_body.title)
+        if await is_unchanged(engine, tenant_id, doc["document_id"], doc["content_hash"]):
+            return {"document_id": doc["document_id"], "status": "unchanged", "chunks": 0}
+        await cleanup_old_chunks(engine, tenant_id, doc["document_id"])
+        chunk_ids = await create_chunks(engine, tenant_id, doc["document_id"],
+                                         req_body.content, doc["content_hash"])
+        await embed_chunks(engine, tenant_id, chunk_ids)
+        return {"document_id": doc["document_id"], "status": "indexed", "chunks": len(chunk_ids)}
+
+    @app.post("/knowledge/search", tags=["knowledge"])
+    async def search_knowledge(req_body: SearchQuery, req: Request) -> list[dict[str, Any]]:
+        engine = req.app.state.engine
+        bus = req.app.state.eventbus
+        q_emb = await embed_query(req_body.query)
+        return await search_chunks(engine, req.state.tenant_id, q_emb,
+                                    req.state.role_id, req_body.top_k, bus)
+
+    # ── Conversation ──
+    @app.post("/conversations", status_code=201, tags=["conversations"])
+    async def create_conv(req_body: ConvCreate, req: Request) -> dict[str, Any]:
+        return await create_conversation(req.app.state.engine, req.state.tenant_id,
+                                          req.state.user_id, req_body.title)
+
+    @app.post("/conversations/{conv_id}/messages", status_code=201, tags=["conversations"])
+    async def add_msg(conv_id: str, req_body: MsgAdd, req: Request) -> dict[str, Any]:
+        return await add_message(req.app.state.engine, req.state.tenant_id,
+                                  conv_id, req_body.role, req_body.content, req.state.user_id)
+
+    @app.get("/conversations/{conv_id}/messages", tags=["conversations"])
+    async def list_msgs(conv_id: str, limit: int = 50, offset: int = 0,
+                         req: Request = None) -> list[dict[str, Any]]:
+        return await get_messages(req.app.state.engine, req.state.tenant_id,
+                                   conv_id, limit, offset)
 
     return app

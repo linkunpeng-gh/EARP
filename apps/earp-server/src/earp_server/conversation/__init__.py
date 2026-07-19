@@ -1,1 +1,1 @@
-"""conversation domain module (M0 skeleton - populated in later milestones)."""
+"""Conversation domain — sessions, messages, summaries."""
