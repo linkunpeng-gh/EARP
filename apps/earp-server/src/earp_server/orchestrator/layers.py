@@ -150,12 +150,46 @@ class PolicyLayer:
             return
 
         if scope == "self":
-            # only keep top-level items/dict where created_by matches current user
             filtered = {}
             for key, value in result.output.items():
                 if isinstance(value, dict) and value.get("created_by") == ctx.user_id:
                     filtered[key] = value
             result.output = filtered
+        elif scope in ("department", "org"):
+            user_org = await self._get_user_org_unit(ctx.user_id, ctx.tenant_id)
+            if user_org is None:
+                return
+            filtered = {}
+            for key, value in result.output.items():
+                if isinstance(value, dict):
+                    target_org = value.get("org_unit_id", "")
+                    if scope == "department" and target_org == user_org:
+                        filtered[key] = value
+                    elif scope == "org":
+                        # org scope: self + all descendants of user's org_unit
+                        allowed = [user_org] + await self._get_descendant_orgs(user_org, ctx.tenant_id)
+                        if target_org in allowed:
+                            filtered[key] = value
+            result.output = filtered
+
+    async def _get_user_org_unit(self, user_id: str, tenant_id: str) -> str | None:
+        async with self._engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+            row = await conn.execute(
+                text("SELECT org_unit_id FROM users WHERE user_id = :uid"),
+                {"uid": user_id},
+            )
+            r = row.fetchone()
+            return r.org_unit_id if r else None
+
+    async def _get_descendant_orgs(self, org_unit_id: str, tenant_id: str) -> list[str]:
+        async with self._engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+            rows = await conn.execute(
+                text("SELECT org_unit_id FROM org_units WHERE parent_id = :pid"),
+                {"pid": org_unit_id},
+            )
+            return [r.org_unit_id for r in rows]
 
     async def _get_data_scope(self, role_id: str, tenant_id: str) -> str:
         async with self._engine.connect() as conn:
