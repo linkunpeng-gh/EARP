@@ -86,7 +86,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # test mode: also register an empty-perms version for e2e tests
             if cfg.app_env == "test":
                 async with app.state.engine.connect() as conn:
-                    await conn.exec_driver_sql(f"SET LOCAL earp.tenant_id = 'tenant-demo'")
+                    await conn.exec_driver_sql("SET LOCAL earp.tenant_id = 'tenant-demo'")
                     await conn.exec_driver_sql(
                         "INSERT INTO business_capabilities "
                         "(capability_id, tenant_id, domain, name, type, "

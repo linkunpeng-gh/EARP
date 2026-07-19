@@ -29,6 +29,7 @@ jobs:
           pip install -e libs/earp-sdk-connector-py
           pip install -e libs/earp-sdk-runtime-py
           pip install -e libs/earp-sdk-plugin-py
+          pip install -e libs/earp-sdk-capability-py
 
       - name: Run tests (${{ matrix.sdk }})
         run: |
