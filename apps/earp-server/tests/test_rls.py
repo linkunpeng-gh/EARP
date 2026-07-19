@@ -91,6 +91,37 @@ async def test_empty_tenant_id_rejected(app_engine: AsyncEngine) -> None:
             pass  # pragma: no cover
 
 
+async def test_full_table_rls_matrix(app_engine: AsyncEngine) -> None:
+    """P0-3: all 24 tenant-scoped tables enforce cross-tenant isolation (SELECT+UPDATE+DELETE)."""
+    tables = [
+        "org_units", "users", "roles", "service_accounts", "tenant_account_joins",
+        "sessions", "executions", "checkpoints", "checkpoint_blobs", "checkpoint_writes",
+        "business_capabilities", "capability_calls", "connector_bindings",
+        "policies", "policy_bindings", "audit_logs",
+        "encrypted_credentials", "api_keys",
+        "knowledge_bases", "documents", "chunks",
+        "conversations", "messages", "connector_configs",
+    ]
+    async with tenant_session(app_engine, "rls-t1") as session:
+        for table in tables:
+            count = await session.execute(text(f"SELECT count(*) FROM {table}"))
+            assert int(count.scalar_one()) >= 0, f"{table}: SELECT failed under RLS"
+    async with tenant_session(app_engine, "rls-t2") as session:
+        for table in tables:
+            count = await session.execute(text(f"SELECT count(*) FROM {table}"))
+            assert int(count.scalar_one()) == 0, f"{table}: t2 must see 0 rows"
+            # UPDATE must affect 0 rows (cross-tenant write blocked by RLS)
+            updated = await session.execute(
+                text(f"UPDATE {table} SET tenant_id = 'hijacked' WHERE tenant_id = 'rls-t1'")
+            )
+            assert updated.rowcount == 0, f"{table}: UPDATE must affect 0 rows"
+            # DELETE must affect 0 rows (cross-tenant write blocked by RLS)
+            deleted = await session.execute(
+                text(f"DELETE FROM {table} WHERE tenant_id = 'rls-t1'")
+            )
+            assert deleted.rowcount == 0, f"{table}: DELETE must affect 0 rows"
+
+
 async def test_insert_with_mismatched_tenant_rejected(app_engine: AsyncEngine) -> None:
     with pytest.raises(Exception, match="row.level security"):
         async with tenant_session(app_engine, "rls-t2") as session:

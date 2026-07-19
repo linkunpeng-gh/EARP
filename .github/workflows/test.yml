@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        sdk: [earp-sdk-core-py, earp-sdk-connector-py, earp-sdk-runtime-py, earp-sdk-plugin-py]
+        sdk: [earp-sdk-core-py, earp-sdk-connector-py, earp-sdk-runtime-py, earp-sdk-plugin-py, earp-sdk-capability-py]
 
     steps:
       - uses: actions/checkout@v4

@@ -55,3 +55,17 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
 
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES
+
+
+def test_queue_schema_idempotent(migrated: str, migration_url: str) -> None:
+    """P0-3/F5: queue_schema.apply() is safe to call twice (idempotent)."""
+    import asyncio
+
+    from earp_server.config import Settings
+    from earp_server.infra.queue_schema import apply
+
+    asyncio.run(apply(Settings(migration_database_url=migration_url)))
+    raw = migration_url.replace("postgresql+psycopg://", "postgresql://", 1)
+    with psycopg.connect(raw) as conn:
+        row = conn.execute("SELECT to_regclass('public.procrastinate_jobs')").fetchone()
+        assert row is not None and row[0] is not None

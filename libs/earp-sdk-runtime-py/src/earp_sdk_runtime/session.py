@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -36,7 +36,7 @@ class Session:
         self.tenant_id = tenant_id
         self.user_id = user_id
         self.status = status
-        self.created_at = datetime.utcnow()
+        self.created_at = datetime.now(timezone.utc)
 
         self.capabilities = CapabilityInvoker(
             session_id=session_id,

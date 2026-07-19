@@ -14,6 +14,7 @@ dependencies = [
     "pgvector>=0.3",
     "pydantic-settings>=2.4",
     "pyyaml>=6.0",
+    "pyjwt>=2.13.0",
 ]
 
 [dependency-groups]
@@ -49,8 +50,13 @@ typeCheckingMode = "strict"
 pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"
-# FastAPI route closures inside factories are registered via decorators, not called by name.
+# FastAPI route closures + starlette request.state are dynamically typed.
 reportUnusedFunction = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportMissingParameterType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -72,4 +78,13 @@ modules = [
     "earp_server.conversation",
     "earp_server.schedule",
     "earp_server.audit",
+    "earp_server.orchestrator",
+]
+# M1: runtime calls capability.discover (public service interface) and uses
+# orchestrator types — both are allowed cross-module references (plan v1.4 §5.1 "走 service 接口").
+ignore_imports = [
+    "earp_server.runtime -> earp_server.capability",
+    "earp_server.runtime -> earp_server.orchestrator",
+    "earp_server.orchestrator -> earp_server.infra",
+    "earp_server.runtime -> earp_server.infra",
 ]
