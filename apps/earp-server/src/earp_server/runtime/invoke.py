@@ -1,11 +1,9 @@
 """POST /v1/sessions/{id}/invoke - end-to-end demo capability execution.
 
 Transaction boundary note (holistic review P0-4): the invoke flow spans 3+
-independent DB transactions (session lookup / execution INSERT / StepRunner
-+ update). A crash between any two of these leaves an orphan execution row
-with status=pending. M1 accepts this as a documented limitation - crash
-recovery and multi-step saga coordination are M5 (Execution Reliability)
-concerns.
+independent DB transactions (session lookup / execution row insert + StepRunner /
+checkpoint write). Mid-crash orphan recovery: M5+ periodic cleanup via
+'DELETE FROM executions WHERE status = "pending" AND created_at < NOW() - 1h'.
 """
 
 from __future__ import annotations

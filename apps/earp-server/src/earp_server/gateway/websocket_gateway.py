@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import jwt
 from fastapi import WebSocket, WebSocketDisconnect
 
 from earp_server.infra.eventbus import CloudEvent
@@ -18,7 +19,16 @@ logger = logging.getLogger(__name__)
 _connections: dict[str, set[WebSocket]] = {}
 
 
-async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
+async def ws_endpoint(websocket: WebSocket, session_id: str, token: str = "") -> None:
+    """WebSocket streaming endpoint with optional JWT auth via query param."""
+    # M6 Phase 1: JWT validation via ?token=<jwt> query parameter
+    if token:
+        from earp_server.gateway.auth import JWTMiddleware
+        try:
+            _ = jwt.decode(token, JWTMiddleware.DEV_SECRET, algorithms=["HS256"])
+        except Exception:
+            await websocket.close(code=4001, reason="invalid token")
+            return
     await websocket.accept()
     _connections.setdefault(session_id, set()).add(websocket)
     logger.info("ws: client connected to session %s", session_id)
