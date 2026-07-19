@@ -74,4 +74,4 @@ class StepRunner:
         raise NotImplementedError("M6 streaming")
 
     async def batch(self, steps: list[Step]) -> list[StepResult]:
-        raise NotImplementedError("M5 multi-step")
+        raise NotImplementedError("M7+: parallel batch execution (M5 uses for-loop)")
