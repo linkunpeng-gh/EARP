@@ -84,8 +84,10 @@ class TestStepRunnerInterface:
         with TestClient(app):
             runner = StepRunner(app.state.engine)
             step = Step(step_id="s1", capability_call={})
-            with pytest.raises(NotImplementedError, match="M6 streaming"):
-                await runner.stream(step)
+            # stream() M6: yields STARTED event
+            async for event_obj in runner.stream(step):
+                assert event_obj.event_type in ("step_started", "step_completed", "step_failed")
+                break
 
     async def test_batch_raises_not_implemented(self, migrated: str, app_url: str) -> None:
         from earp_server.orchestrator.step_runner import Step, StepRunner

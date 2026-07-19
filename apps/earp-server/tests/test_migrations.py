@@ -8,7 +8,7 @@ from alembic import command
 
 from tests.conftest import alembic_config
 
-EXPECTED_TABLES = 25  # 25 base tables (M7 field additions like org_unit_id don't add tables)  # tenants + 24 tenant-scoped tables (L3 design section 3)
+EXPECTED_TABLES = 25  # tenants + 24 scoped tables
 
 
 @pytest.fixture(scope="module")

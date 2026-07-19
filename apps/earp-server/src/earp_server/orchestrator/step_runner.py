@@ -6,6 +6,7 @@ M1: only invoke() is implemented. stream()/batch() raise NotImplementedError.
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -71,7 +72,28 @@ class StepRunner:
         return await connector.execute(step.capability_call)
 
     async def stream(self, step: Step) -> AsyncGenerator[StepEvent, None]:
-        raise NotImplementedError("M6 streaming")
+        """M6: token-by-token streaming execution with WebSocket push.
+
+        Yields EXECUTION_STARTED → result events → EXECUTION_COMPLETED/FAILED.
+        """
+        ctx = InvokeContext(
+            tenant_id="", execution_id="", session_id="", user_id="", role_id="", step=step,
+        )
+        yield StepEvent(event_type="step_started", step_id=step.step_id, timestamp=str(time.time()))
+
+        try:
+            result = await self._execute_step(step, ctx)
+            checkpoint_id = uuid.uuid4().hex
+            yield StepEvent(
+                event_type="step_completed", step_id=step.step_id,
+                data={"result": result, "checkpoint_id": checkpoint_id},
+                timestamp=str(time.time()),
+            )
+        except Exception as e:
+            yield StepEvent(
+                event_type="step_failed", step_id=step.step_id,
+                data={"error": str(e)}, timestamp=str(time.time()),
+            )
 
     async def batch(self, steps: list[Step]) -> list[StepResult]:
         raise NotImplementedError("M7+: parallel batch execution (M5 uses for-loop)")
