@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -22,8 +22,8 @@ from earp_server.conversation.conversation_service import (
 from earp_server.gateway.auth import JWTMiddleware
 from earp_server.gateway.input_guard import sanitize_body
 from earp_server.infra.db import build_engine, check_db
-from earp_server.infra.eventbus import EventBus
 from earp_server.infra.ext import init_all
+from earp_server.infra.redis_eventbus import RedisStreamsEventBus
 from earp_server.knowledge.chunk_service import create_chunks
 from earp_server.knowledge.document_service import create_document
 from earp_server.knowledge.embedding_service import embed_chunks, embed_query
@@ -70,7 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.engine = build_engine(cfg)
-        app.state.eventbus = EventBus()
+        app.state.eventbus = RedisStreamsEventBus()
         app.state.rate_limiter = TokenBucketRateLimiter(rps=100)
         app.state.planner = SimpleTaskPlanner()
         app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
@@ -190,5 +190,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                          req: Request = None) -> list[dict[str, Any]]:
         return await get_messages(req.app.state.engine, req.state.tenant_id,
                                    conv_id, limit, offset)
+
+    # ── WebSocket ──
+    from earp_server.gateway.websocket_gateway import ws_endpoint
+
+    @app.websocket("/ws/events/{session_id}")
+    async def ws_events(websocket: WebSocket, session_id: str):
+        await ws_endpoint(websocket, session_id)
 
     return app
