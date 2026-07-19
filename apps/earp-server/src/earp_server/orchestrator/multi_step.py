@@ -48,6 +48,15 @@ class MultiStepExecutor:
         self._runner = StepRunner(engine)
         self._checkpoint = CheckpointStore(engine)
         self._bus = bus
+        self._interrupted = False  # M5: interrupt flag for human_approval/REPLANNING
+
+    def interrupt(self) -> None:
+        """Signal the executor to stop after the current step completes."""
+        self._interrupted = True
+
+    def resume(self) -> None:
+        """Clear the interrupt flag for recovery."""
+        self._interrupted = False
 
     async def execute(
         self,
@@ -67,6 +76,20 @@ class MultiStepExecutor:
             start_index = await self._get_completed_count(ctx.tenant_id, resume_from_checkpoint_id)
 
         for i in range(start_index, len(steps)):
+            # M5: interrupt check before executing next step
+            if self._interrupted:
+                state = {
+                    "status": ExecutionStatus.INTERRUPTED,
+                    "current_step_index": i,
+                    "completed_step_ids": [r.step_id for r in results if r.status == "completed"],
+                }
+                await self._checkpoint.write(
+                    execution_id=ctx.execution_id, session_id=ctx.session_id,
+                    tenant_id=ctx.tenant_id, state=state,
+                    channels={"step_results": str(results).encode()},
+                )
+                break
+
             step = steps[i]
             result = await self._runner.invoke(step, layers=layers, ctx=ctx)
             results.append(result)
