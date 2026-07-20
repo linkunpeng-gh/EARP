@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -17,6 +18,7 @@ from earp_server.config import Settings
 
 if TYPE_CHECKING:
     from earp_server.infra.llm_cache import LLMCache
+    from earp_server.orchestrator.types import TokenEvent
 
 logger = logging.getLogger(__name__)
 
@@ -197,3 +199,44 @@ class LLMConnector:
         via ``format: "json"``. plan() and plan_structured() share the same path.
         """
         return await self.plan(prompt)
+
+    async def stream(self, prompt: str, *, system: str = "") -> AsyncGenerator[TokenEvent, None]:
+        """Stream tokens from Ollama /api/chat with stream=true.
+
+        Yields TokenEvent for each token chunk from the LLM.
+        Handles Ollama's NDJSON streaming format.
+        """
+        from earp_server.orchestrator.types import TokenEvent
+
+        url = f"{self._settings.ollama_base_url}/api/chat"
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "stream": True,
+            "options": {"temperature": 0.7},
+        }
+        index = 0
+        try:
+            async with httpx.AsyncClient(timeout=300) as client:
+                async with client.stream("POST", url, json=payload) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if chunk.get("done"):
+                            break
+                        content = chunk.get("message", {}).get("content", "")
+                        if content:
+                            yield TokenEvent(token=content, index=index)
+                            index += 1
+        except httpx.HTTPError as exc:
+            logger.error("LLMConnector.stream: Ollama streaming failed: %s", exc)
+            raise ConnectorError(f"Ollama streaming failed: {exc}") from exc

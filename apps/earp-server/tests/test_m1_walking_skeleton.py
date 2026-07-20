@@ -77,17 +77,21 @@ def test_input_guard_and_capability_discover(migrated: str, app_url: str) -> Non
 class TestStepRunnerInterface:
     """AC-06: Step Runner 3-form interface lock."""
 
-    async def test_stream_raises_not_implemented(self, migrated: str, app_url: str) -> None:
+    async def test_stream_yields_events(self, migrated: str, app_url: str) -> None:
         from earp_server.orchestrator.step_runner import Step, StepRunner
 
         app = create_app(Settings(database_url=app_url, app_env="test"))
         with TestClient(app):
             runner = StepRunner(app.state.engine)
             step = Step(step_id="s1", capability_call={})
-            # stream() M6: yields STARTED event
+            # stream() M8: yields events for all capabilities (LLM or non-LLM)
+            events = []
             async for event_obj in runner.stream(step):
-                assert event_obj.event_type in ("step_started", "step_completed", "step_failed")
-                break
+                events.append(event_obj)
+                if event_obj.event_type in ("step_completed", "step_failed"):
+                    break
+            assert len(events) >= 2  # at least step_started + step_completed/failed
+            assert events[0].event_type == "step_started"
 
     async def test_batch_raises_not_implemented(self, migrated: str, app_url: str) -> None:
         from earp_server.orchestrator.step_runner import Step, StepRunner

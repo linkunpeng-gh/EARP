@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from earp_server.audit.consumer import audit_handler_factory
@@ -63,6 +64,12 @@ class ConvCreate(BaseModel):
 class MsgAdd(BaseModel):
     role: str
     content: str
+
+
+class StreamRequest(BaseModel):
+    prompt: str
+    system: str = ""
+    session_id: str = ""
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -201,6 +208,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await search_chunks(engine, req.state.tenant_id, q_emb,
                                     req.state.role_id, req_body.top_k, bus,
                                     embedding_dim=req.app.state.settings.embedding_dim)
+
+    # ── Streaming (M8) ──
+    @app.post("/stream/invoke", tags=["streaming"])
+    async def stream_invoke(req_body: StreamRequest, req: Request) -> StreamingResponse:
+        """SSE streaming endpoint — streams LLM tokens via text/event-stream."""
+        from earp_server.connector import LLMConnector
+
+        llm = LLMConnector(req.app.state.settings)
+
+        async def event_stream():
+            try:
+                async for token in llm.stream(req_body.prompt, system=req_body.system):
+                    yield f"data: {json.dumps({'token': token.token, 'index': token.index})}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # ── Conversation ──
     @app.post("/conversations", status_code=201, tags=["conversations"])

@@ -159,6 +159,23 @@ components:
       - user_id
       title: SessionResponse
       type: object
+    StreamRequest:
+      properties:
+        prompt:
+          title: Prompt
+          type: string
+        session_id:
+          default: ''
+          title: Session Id
+          type: string
+        system:
+          default: ''
+          title: System
+          type: string
+      required:
+      - prompt
+      title: StreamRequest
+      type: object
     ValidationError:
       properties:
         ctx:
@@ -480,6 +497,31 @@ paths:
                 title: Response Ready Ready Get
           description: Successful Response
       summary: Ready
+  /stream/invoke:
+    post:
+      description: SSE streaming endpoint — streams LLM tokens via text/event-stream.
+      operationId: stream_invoke_stream_invoke_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StreamRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Stream Invoke
+      tags:
+      - streaming
   /v1/sessions:
     post:
       operationId: create_session_endpoint_v1_sessions_post

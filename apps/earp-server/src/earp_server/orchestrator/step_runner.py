@@ -8,12 +8,15 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.infra.checkpoint import CheckpointStore
 from earp_server.orchestrator.types import InvokeContext, Layer, Step, StepEvent, StepResult
+
+if TYPE_CHECKING:
+    from earp_server.connector import LLMConnector
 
 
 class StepRunner:
@@ -71,28 +74,56 @@ class StepRunner:
         connector = Connector()
         return await connector.execute(step.capability_call)
 
-    async def stream(self, step: Step) -> AsyncGenerator[StepEvent, None]:
-        """M6: token-by-token streaming execution with WebSocket push.
+    async def stream(
+        self, step: Step, *, ctx: InvokeContext | None = None, llm: "LLMConnector | None" = None,
+    ) -> AsyncGenerator[StepEvent, None]:
+        """M8: token-by-token streaming execution.
 
-        Yields EXECUTION_STARTED → result events → EXECUTION_COMPLETED/FAILED.
+        For LLM-prompt capabilities: streams tokens from Ollama via LLMConnector.
+        For other capabilities: executes normally and yields start/completed events.
         """
-        ctx = InvokeContext(
-            tenant_id="", execution_id="", session_id="", user_id="", role_id="", step=step,
-        )
-        yield StepEvent(event_type="step_started", step_id=step.step_id, timestamp=str(time.time()))
+        if ctx is None:
+            ctx = InvokeContext(
+                tenant_id="", execution_id="", session_id="", user_id="", role_id="", step=step,
+            )
+        step_id = step.step_id
+        yield StepEvent(event_type="step_started", step_id=step_id)
 
+        adapter_type = step.capability_call.get("adapter_type", "")
+        # LLM streaming path: adapter_type starts with "llm."
+        if adapter_type.startswith("llm.") and llm is not None:
+            prompt = step.capability_call.get("input", {}).get("prompt", "")
+            system = step.capability_call.get("input", {}).get("system", "")
+            try:
+                async for token in llm.stream(prompt, system=system):
+                    yield StepEvent(
+                        event_type="token",
+                        step_id=step_id,
+                        data={"token": token.token, "index": token.index},
+                    )
+                yield StepEvent(
+                    event_type="step_completed", step_id=step_id,
+                    data={"status": "completed"},
+                )
+            except Exception as e:
+                yield StepEvent(
+                    event_type="step_failed", step_id=step_id,
+                    data={"error": str(e)},
+                )
+            return
+
+        # Non-LLM path: normal execution
         try:
             result = await self._execute_step(step, ctx)
             checkpoint_id = uuid.uuid4().hex
             yield StepEvent(
-                event_type="step_completed", step_id=step.step_id,
+                event_type="step_completed", step_id=step_id,
                 data={"result": result, "checkpoint_id": checkpoint_id},
-                timestamp=str(time.time()),
             )
         except Exception as e:
             yield StepEvent(
-                event_type="step_failed", step_id=step.step_id,
-                data={"error": str(e)}, timestamp=str(time.time()),
+                event_type="step_failed", step_id=step_id,
+                data={"error": str(e)},
             )
 
     async def batch(self, steps: list[Step]) -> list[StepResult]:

@@ -28,9 +28,17 @@ class StepResult:
 @dataclass
 class StepEvent:
     step_id: str
-    event_type: Literal["step_started", "step_completed", "step_failed", "checkpoint_written"]
+    event_type: Literal["step_started", "step_completed", "step_failed", "checkpoint_written", "token"]
     data: dict | None = None
     timestamp: str = field(default_factory=lambda: datetime.datetime.now(datetime.UTC).isoformat())
+
+
+@dataclass
+class TokenEvent:
+    """Streaming token event — yielded by LLMConnector.stream()."""
+    token: str
+    step_id: str = ""
+    index: int = 0
 
 
 @dataclass
