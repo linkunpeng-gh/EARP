@@ -210,7 +210,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                     embedding_dim=req.app.state.settings.embedding_dim)
 
     # ── Streaming (M8) ──
-    @app.post("/stream/invoke", tags=["streaming"])
+    @app.post(
+        "/stream/invoke",
+        tags=["streaming"],
+        responses={200: {"content": {"text/event-stream": {}}, "description": "SSE token stream"}},
+    )
     async def stream_invoke(req_body: StreamRequest, req: Request) -> StreamingResponse:
         """SSE streaming endpoint — streams LLM tokens via text/event-stream."""
         from earp_server.connector import LLMConnector

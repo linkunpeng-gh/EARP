@@ -93,6 +93,45 @@ class TestStepRunnerInterface:
             assert len(events) >= 2  # at least step_started + step_completed/failed
             assert events[0].event_type == "step_started"
 
+    async def test_stream_llm_path_yields_tokens(self) -> None:
+        """M8: mock LLM connector — verify token streaming event order."""
+        from unittest.mock import MagicMock
+
+        from earp_server.orchestrator.step_runner import InvokeContext, Step, StepRunner
+        from earp_server.orchestrator.types import TokenEvent
+
+        async def mock_stream(prompt, *, system=""):
+            yield TokenEvent(token="Hello", index=0)
+            yield TokenEvent(token=" world", index=1)
+
+        mock_llm = MagicMock()
+        mock_llm.stream = mock_stream
+
+        step = Step(
+            step_id="s1",
+            capability_call={
+                "adapter_type": "llm.chat",
+                "input": {"prompt": "Say hello"},
+            },
+        )
+        ctx = InvokeContext(
+            tenant_id="t1", execution_id="e1", session_id="s1",
+            user_id="u1", role_id="r1", step=step,
+        )
+        events = []
+        async for event_obj in StepRunner(MagicMock()).stream(step, ctx=ctx, llm=mock_llm):
+            events.append(event_obj)
+            if event_obj.event_type in ("step_completed", "step_failed"):
+                break
+
+        assert len(events) == 4  # step_started, token×2, step_completed
+        assert events[0].event_type == "step_started"
+        assert events[1].event_type == "token"
+        assert events[1].data["token"] == "Hello"
+        assert events[2].event_type == "token"
+        assert events[2].data["token"] == " world"
+        assert events[3].event_type == "step_completed"
+
     async def test_batch_raises_not_implemented(self, migrated: str, app_url: str) -> None:
         from earp_server.orchestrator.step_runner import Step, StepRunner
 

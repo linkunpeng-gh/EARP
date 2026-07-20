@@ -75,7 +75,7 @@ class StepRunner:
         return await connector.execute(step.capability_call)
 
     async def stream(
-        self, step: Step, *, ctx: InvokeContext | None = None, llm: "LLMConnector | None" = None,
+        self, step: Step, *, ctx: InvokeContext | None = None, llm: LLMConnector | None = None,
     ) -> AsyncGenerator[StepEvent, None]:
         """M8: token-by-token streaming execution.
 

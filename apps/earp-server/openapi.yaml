@@ -512,7 +512,8 @@ paths:
           content:
             application/json:
               schema: {}
-          description: Successful Response
+            text/event-stream: {}
+          description: SSE token stream
         '422':
           content:
             application/json:
