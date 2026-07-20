@@ -2,6 +2,7 @@
 
 M1: Connector.execute (capability call)
 M3/M8: LLMConnector.plan — structured output via Ollama + Redis cache
+M11: Dynamic capability injection in system prompt + plan validation
 """
 
 from __future__ import annotations
@@ -63,15 +64,31 @@ class Connector:
             )
 
 
-# ── LLMConnector (M3, Phase 2 enhanced) ──────────────────────────────────────
+# ── LLMConnector (M3, Phase 2/3 enhanced) ────────────────────────────────────
 
-_PLAN_SYSTEM_PROMPT = (
-    "You are an intent-to-action planner. Given a user intent, output a JSON plan "
-    'with exactly this structure: {"steps": [{"capability_id": "...", "input": {...}}]}. '
-    "Available capabilities: echo (cap-demo-echo), query users (cap-query-users), "
-    "create alarm (cap-create-alarm), query alarms (cap-query-alarms). "
-    "Output ONLY valid JSON, no explanation."
-)
+
+def _build_plan_system_prompt(capabilities: list[dict[str, Any]] | None = None) -> str:
+    """Build a system prompt dynamically from available capabilities.
+
+    When capabilities are provided, lists them in the prompt.
+    Falls back to a minimal default if none provided.
+    """
+    base = (
+        "You are an intent-to-action planner. Given a user intent, output a JSON plan "
+        'with exactly this structure: {"steps": [{"capability_id": "...", "input": {...}}]}. '
+    )
+    if capabilities:
+        cap_list = ", ".join(
+            f"{c['name']} ({c['capability_id']})" for c in capabilities
+        )
+        base += f"Available capabilities: {cap_list}. "
+    else:
+        base += (
+            "Available capabilities: echo (cap-demo-echo), query users (cap-query-users), "
+            "create alarm (cap-create-alarm), query alarms (cap-query-alarms). "
+        )
+    base += "Output ONLY valid JSON, no explanation."
+    return base
 
 
 class LLMConnector:
@@ -79,7 +96,8 @@ class LLMConnector:
 
     Interface finalized in M3 (5 hooks).
     Phase 2: cache (Redis+memory) + real Ollama structured output.
-    Phase 3 remaining: bind_tools, stream toggle.
+    Phase 3 (M11): dynamic capability injection + plan validation.
+    Remaining: bind_tools, stream toggle.
     """
 
     def __init__(
@@ -105,13 +123,16 @@ class LLMConnector:
     def cache(self, c: LLMCache | None) -> None:
         self._cache = c
 
-    async def _call_ollama(self, prompt: str) -> list[dict[str, Any]]:
+    async def _call_ollama(
+        self, prompt: str, *, capabilities: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
         """Call Ollama /api/chat with JSON format, return parsed steps."""
+        system = _build_plan_system_prompt(capabilities)
         url = f"{self._settings.ollama_base_url}/api/chat"
         payload = {
             "model": self._model,
             "messages": [
-                {"role": "system", "content": _PLAN_SYSTEM_PROMPT},
+                {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
             "format": "json",
@@ -132,8 +153,6 @@ class LLMConnector:
             parsed = json.loads(content)
         except json.JSONDecodeError:
             logger.warning("LLMConnector: non-JSON response, attempting substring parse")
-            # attempt to extract the first complete JSON object from the response
-            # find first '{' and its matching '}' via bracket counting
             start = content.find("{")
             if start != -1:
                 depth = 0
@@ -158,25 +177,41 @@ class LLMConnector:
             raise ConnectorError("LLM returned empty steps")
         return steps
 
-    async def plan(self, prompt: str, *, tools: list[dict] | None = None) -> list[dict[str, Any]]:
+    async def plan(
+        self, prompt: str, *, tools: list[dict] | None = None, capabilities: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
         """Generate a Plan via LLM with structured output + cache.
 
         Phase 2: real Ollama call with JSON mode + Redis/memory cache.
+        Phase 3: dynamic capability injection + plan validation.
         Falls back to RuleIntentPlanner if Ollama is unreachable.
         """
         # 1. Check cache
+        cache_key = f"{self._model}||{prompt}||{json.dumps(capabilities or [])}"
         if self._cache:
-            cached = await self._cache.get(self._model, prompt)
+            cached = await self._cache.get(self._model, cache_key)
             if cached is not None:
                 logger.info("LLMConnector.plan: cache hit")
                 return cached
 
         # 2. Try Ollama structured output
         try:
-            steps = await self._call_ollama(prompt)
+            steps = await self._call_ollama(prompt, capabilities=capabilities)
+            # Validate: capability_ids must exist in provided capabilities list
+            if capabilities:
+                valid_ids = {c["capability_id"] for c in capabilities}
+                for s in steps:
+                    cid = s.get("capability_id", "")
+                    if cid not in valid_ids:
+                        logger.warning(
+                            "LLMConnector.plan: unknown capability_id %r, discarding step", cid,
+                        )
+                steps = [s for s in steps if s.get("capability_id", "") in valid_ids]
+                if not steps:
+                    raise ConnectorError("LLM returned steps with no valid capability_ids")
             # Cache the result
             if self._cache:
-                await self._cache.set(self._model, prompt, steps)
+                await self._cache.set(self._model, cache_key, steps)
             return steps
         except ConnectorError:
             logger.warning("LLMConnector.plan: Ollama failed, falling back to RuleIntentPlanner")

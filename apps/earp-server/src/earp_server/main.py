@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from earp_server.audit.consumer import audit_handler_factory
-from earp_server.capability.registry import TokenBucketRateLimiter, discover, register_demo
+from earp_server.capability.registry import TokenBucketRateLimiter, discover, list_for_planning, register_demo
 from earp_server.config import Settings
 from earp_server.connector import LLMConnector
 from earp_server.conversation.conversation_service import (
@@ -174,8 +174,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def plan_endpoint(req_body: PlanRequest, req: Request) -> dict[str, Any]:
         # JWT middleware already validated tenant_id/role_id on req.state
         planner = req.app.state.planner
+        # Phase 3 (M11): inject real capabilities into LLM system prompt
+        caps = await list_for_planning(req.app.state.engine, req.state.tenant_id)
         try:
-            steps = await planner.plan(req_body.intent)
+            steps = await planner.plan(req_body.intent, capabilities=caps)
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {"intent": req_body.intent, "steps": [s.capability_call for s in steps]}

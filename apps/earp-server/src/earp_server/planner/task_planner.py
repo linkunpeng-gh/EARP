@@ -8,7 +8,7 @@ M5 extends to multi-step workflows with DSL compilation.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from earp_server.orchestrator.types import Step
 from earp_server.planner.business_dictionary import RuleIntentPlanner
@@ -34,11 +34,14 @@ class SimpleTaskPlanner:
         self._rules = RuleIntentPlanner()
         self._llm = llm
 
-    async def plan(self, intent: str) -> list[Step]:
-        """Resolve intent → list[Step]. LLM first, rules fallback."""
+    async def plan(self, intent: str, *, capabilities: list[dict[str, Any]] | None = None) -> list[Step]:
+        """Resolve intent → list[Step]. LLM first, rules fallback.
+
+        capabilities: if provided, injected into LLM system prompt for dynamic planning.
+        """
         if self._llm is not None:
             try:
-                steps_raw = await self._llm.plan(intent)
+                steps_raw = await self._llm.plan(intent, capabilities=capabilities)
                 return [
                     Step(
                         step_id=f"step-{s['capability_id']}",

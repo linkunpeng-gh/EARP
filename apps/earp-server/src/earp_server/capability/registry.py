@@ -40,6 +40,24 @@ async def register_demo(engine: AsyncEngine, tenant_id: str) -> None:
         await conn.commit()
 
 
+async def list_for_planning(engine: AsyncEngine, tenant_id: str) -> list[dict[str, Any]]:
+    """List all capabilities for a tenant — used by LLM planner for prompt injection.
+
+    Returns lightweight records: capability_id, domain, name, type, input_schema.
+    No role filtering — the planner needs full visibility to construct plans.
+    """
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        rows = await conn.execute(
+            text(
+                "SELECT capability_id, domain, name, type, input_schema "
+                "FROM business_capabilities WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id},
+        )
+        return [dict(r._mapping) for r in rows]
+
+
 async def discover(
     engine: AsyncEngine,
     tenant_id: str,
