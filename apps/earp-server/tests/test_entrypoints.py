@@ -89,3 +89,10 @@ def test_worker_entrypoint_graceful(migrated: str, app_url: str) -> None:
 def test_scheduler_entrypoint_graceful(migrated: str, app_url: str) -> None:
     code = _run_entrypoint("earp_server.entrypoints.scheduler", _env(app_url), "scheduler started")
     assert code == 0
+
+
+def test_audit_entrypoint_graceful(migrated: str, app_url: str) -> None:
+    """Audit worker: starts, fails Redis connect (no Redis in test), exits gracefully."""
+    code = _run_entrypoint("earp_server.entrypoints.audit", _env(app_url), "audit worker starting")
+    # SIGTERM after startup — Redis unavailable is non-fatal, exit clean
+    assert code == 0

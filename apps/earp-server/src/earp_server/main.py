@@ -91,7 +91,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         llm_cache = LLMCache(ttl=cfg.llm_cache_ttl)
         llm_connector.cache = llm_cache
         app.state.planner = SimpleTaskPlanner(llm=llm_connector)
-        app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
+        if cfg.app_env in ("dev", "test"):
+            # in-process audit: subscribe handler to local EventBus
+            # (prod uses independent audit worker process — see entrypoints/audit.py)
+            app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
         if cfg.app_env in ("dev", "test"):
             try:
                 await register_demo(app.state.engine, "tenant-demo")
