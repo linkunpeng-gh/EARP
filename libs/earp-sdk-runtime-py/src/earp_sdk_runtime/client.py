@@ -177,25 +177,26 @@ class RuntimeClient:
         """
         import json
 
-        async with httpx.AsyncClient(timeout=300) as sse_client:
-            async with sse_client.stream(
-                "POST",
-                f"{self.endpoint}/stream/invoke",
-                json={"prompt": prompt, "system": system, "session_id": session_id},
-                headers={"Authorization": f"Bearer {self.token}"} if self.token else {},
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]  # strip "data: " prefix
-                    if data_str == "[DONE]":
-                        yield {"token": "[DONE]", "index": -1}
-                        return
-                    try:
-                        yield json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+        # Use self._client for consistency — override timeout for long-lived SSE stream
+        sse_timeout = httpx.Timeout(connect=10, read=300, write=10, pool=5)
+        async with self._client.stream(
+            "POST",
+            f"{self.endpoint}/stream/invoke",
+            json={"prompt": prompt, "system": system, "session_id": session_id},
+            timeout=sse_timeout,
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[6:]  # strip "data: " prefix
+                if data_str == "[DONE]":
+                    yield {"token": "[DONE]", "index": -1}
+                    return
+                try:
+                    yield json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
 
     # ── Planning (M11) ──
 
