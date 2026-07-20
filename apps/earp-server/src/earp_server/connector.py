@@ -1,15 +1,22 @@
 """Capability execution + LLM planning channels.
 
 M1: Connector.execute (capability call)
-M3: LLMConnector.plan (structured output → Pydantic Plan schema)
+M3/M8: LLMConnector.plan — structured output via Ollama + Redis cache
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from earp_server.config import Settings
+
+if TYPE_CHECKING:
+    from earp_server.infra.llm_cache import LLMCache
 
 logger = logging.getLogger(__name__)
 
@@ -54,35 +61,129 @@ class Connector:
             )
 
 
-# ── LLMConnector (M3) ────────────────────────────────────────────────────────
+# ── LLMConnector (M3, Phase 2 enhanced) ──────────────────────────────────────
+
+_PLAN_SYSTEM_PROMPT = (
+    "You are an intent-to-action planner. Given a user intent, output a JSON plan "
+    'with exactly this structure: {"steps": [{"capability_id": "...", "input": {...}}]}. '
+    "Available capabilities: echo (cap-demo-echo), query users (cap-query-users), "
+    "create alarm (cap-create-alarm), query alarms (cap-query-alarms). "
+    "Output ONLY valid JSON, no explanation."
+)
+
 
 class LLMConnector:
-    """LLM integration with structured output + rate limiting + tool binding.
+    """LLM integration with structured output + rate limiting + cache.
 
-    Interface finalized in M3 (5 hooks). Implementation of cache / bind_tools /
-    stream toggle deferred to Phase 2/3.
+    Interface finalized in M3 (5 hooks).
+    Phase 2: cache (Redis+memory) + real Ollama structured output.
+    Phase 3 remaining: bind_tools, stream toggle.
     """
 
-    def __init__(self, model: str = "deepseek-v4-flash", rate_limiter=None) -> None:
-        self._model = model
+    def __init__(
+        self,
+        settings: Settings,
+        rate_limiter=None,
+    ) -> None:
+        self._settings = settings
+        self._model = settings.ollama_chat_model
         self._rate_limiter = rate_limiter
-        # M3: only rate_limiter wired. Remaining 4 hooks declared for interface stability.
-        self._cache: dict | None = None  # Phase 2: LLM response cache
-        self._bind_tools: bool = False   # Phase 3: inject Capability candidates as tools
-        self._structured_output: bool = False  # Phase 3: enforce Pydantic Plan schema
-        self._stream_enabled: bool = False     # M6: token streaming toggle
+        # Phase 2: wired
+        self._cache: LLMCache | None = None  # set via .cache setter
+        self._structured_output: bool = True
+        # Phase 3: deferred
+        self._bind_tools: bool = False
+        self._stream_enabled: bool = False
+
+    @property
+    def cache(self):
+        return self._cache
+
+    @cache.setter
+    def cache(self, c: LLMCache | None) -> None:
+        self._cache = c
+
+    async def _call_ollama(self, prompt: str) -> list[dict[str, Any]]:
+        """Call Ollama /api/chat with JSON format, return parsed steps."""
+        url = f"{self._settings.ollama_base_url}/api/chat"
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": _PLAN_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "format": "json",
+            "stream": False,
+            "options": {"temperature": 0.1},
+        }
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            logger.error("LLMConnector: Ollama chat failed: %s", exc)
+            raise ConnectorError(f"Ollama chat call failed: {exc}") from exc
+
+        content = data.get("message", {}).get("content", "")
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            logger.warning("LLMConnector: non-JSON response, attempting substring parse")
+            # attempt to extract the first complete JSON object from the response
+            # find first '{' and its matching '}' via bracket counting
+            start = content.find("{")
+            if start != -1:
+                depth = 0
+                end = start
+                for i in range(start, len(content)):
+                    if content[i] == "{":
+                        depth += 1
+                    elif content[i] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+                if depth == 0:
+                    parsed = json.loads(content[start:end])
+                else:
+                    raise ConnectorError(f"LLM returned unbalanced JSON: {content[:200]}") from None
+            else:
+                raise ConnectorError(f"LLM returned non-JSON: {content[:200]}") from None
+
+        steps = parsed.get("steps", [])
+        if not steps:
+            raise ConnectorError("LLM returned empty steps")
+        return steps
 
     async def plan(self, prompt: str, *, tools: list[dict] | None = None) -> list[dict[str, Any]]:
-        """Generate a Plan via LLM with structured output.
+        """Generate a Plan via LLM with structured output + cache.
 
-        M3 implementation: uses RuleIntentPlanner as fallback (LLM not wired).
-        Phase 3 adds real LLM call with structured output (Pydantic Plan schema).
+        Phase 2: real Ollama call with JSON mode + Redis/memory cache.
+        Falls back to RuleIntentPlanner if Ollama is unreachable.
         """
-        # Phase 3: call LLM with prompt, parse response via Pydantic Plan model.
-        # M3 fallback: delegate to RuleIntentPlanner as documented degradation path.
+        # 1. Check cache
+        if self._cache:
+            cached = await self._cache.get(self._model, prompt)
+            if cached is not None:
+                logger.info("LLMConnector.plan: cache hit")
+                return cached
+
+        # 2. Try Ollama structured output
+        try:
+            steps = await self._call_ollama(prompt)
+            # Cache the result
+            if self._cache:
+                await self._cache.set(self._model, prompt, steps)
+            return steps
+        except ConnectorError:
+            logger.warning("LLMConnector.plan: Ollama failed, falling back to RuleIntentPlanner")
+        except Exception:
+            logger.exception("LLMConnector.plan: unexpected error, falling back")
+
+        # 3. Fallback: RuleIntentPlanner
         from earp_server.planner.business_dictionary import RuleIntentPlanner
 
-        logger.info("LLMConnector.plan: using RuleIntentPlanner fallback (LLM not wired)")
         resolver = RuleIntentPlanner()
         match = resolver.resolve(prompt)
         if match is None:
@@ -90,11 +191,9 @@ class LLMConnector:
         return [{"capability_id": match.capability_id, "input": match.input}]
 
     async def plan_structured(self, prompt: str) -> list[dict[str, Any]]:
-        """Phase 3: LLM call with Pydantic Plan schema enforcement.
+        """Phase 2: LLM call with JSON structured output enforced.
 
-        M3 placeholder — delegates to plan(). Phase 3 adds:
-          - Pydantic Plan model validation
-          - ERR-PL-VALIDATION-001 on schema mismatch
-          - LLM retry on validation failure
+        Identical to plan() — the JSON format is enforced at the Ollama API level
+        via ``format: "json"``. plan() and plan_structured() share the same path.
         """
         return await self.plan(prompt)

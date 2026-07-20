@@ -3,7 +3,7 @@
 > 一刀即可。改动集中在 6 个文件。输出 `arch/reviews/p1p2-cleanup-review.md`。
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "P1+P2 优先级清理代码评审。
+cd /Users/linkunpeng/work/EARP && codex exec "P1+P2 优先级清理代码评审。
 
 评审对象（自上次全链路评审后的增量）：
 - apps/earp-server/src/earp_server/orchestrator/layers.py (data_scope=department+org)
@@ -53,5 +53,5 @@ cd /Users/linkunpeng/work/EARP && claude -p "P1+P2 优先级清理代码评审�
    - ADD COLUMN IF NOT EXISTS 在 prod 环境中幂等吗？
    - downgrade 的 DROP COLUMN 是否可逆？
 
-输出：逐项 PASS/ISSUE/WARN + P0/P1/P2 + file:line。中文，表格。" --max-turns 8 --output-format text > arch/reviews/p1p2-cleanup-review.md 2>&1
+输出：逐项 PASS/ISSUE/WARN + P0/P1/P2 + file:line。中文，表格。" > arch/reviews/p1p2-cleanup-review.md 2>&1
 ```

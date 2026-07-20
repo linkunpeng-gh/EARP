@@ -8,7 +8,7 @@
 ## 第 1 刀：核心链路追溯（决策→设计→代码）
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M2 Policy Center 追溯审计。PRD→代码完整性判定。
+cd /Users/linkunpeng/work/EARP && codex exec "M2 Policy Center 追溯审计。PRD→代码完整性判定。
 
 评审对象（6 个核心文件）：
 - prd/PRD-2026-022-server-m2-policy-rbac.md (v1.1, 6 US, 6 AC)
@@ -30,7 +30,7 @@ AC-06 'RBAC v1.1 §六 两个场景可执行' → 检查 tests/test_rbac_scenari
 
 反事实抽查（任选 1 条 AC）：说明你从代码确认该 AC 被真实覆盖的路径（不看测试数量，看断言语义）。
 
-输出：AC 逐条 FULL/PARTIAL/MISSING + P0/P1/P2 + file:line 证据。中文，表格。" --max-turns 10 --output-format text > arch/reviews/m2-holistic-review.md 2>&1
+输出：AC 逐条 FULL/PARTIAL/MISSING + P0/P1/P2 + file:line 证据。中文，表格。" > arch/reviews/m2-holistic-review.md 2>&1
 ```
 
 ---
@@ -38,7 +38,7 @@ AC-06 'RBAC v1.1 §六 两个场景可执行' → 检查 tests/test_rbac_scenari
 ## 第 2 刀：架构一致性 + RBAC 测试缺口（短刀）
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M2 架构一致性快速扫描。
+cd /Users/linkunpeng/work/EARP && codex exec "M2 架构一致性快速扫描。
 
 检查项（2-3 轮，每项 1 行判定）：
 
@@ -70,7 +70,7 @@ F. 与 RBAC 设计 v1.1 的一致性：
    - 能力可见性过滤是否对齐 $3.3？
    - Audit role_id 补充是否对齐 $3.5？（自查 RBAC v1.1 中是否定义了 $3.5 审计角色信息）
 
-输出：逐项 PASS/ISSUE/NA + 一行证据 + P0/P1/P2。中文，表格。" --max-turns 6 --output-format text >> arch/reviews/m2-holistic-review.md 2>&1
+输出：逐项 PASS/ISSUE/NA + 一行证据 + P0/P1/P2。中文，表格。" >> arch/reviews/m2-holistic-review.md 2>&1
 ```
 
 ---
@@ -78,7 +78,7 @@ F. 与 RBAC 设计 v1.1 的一致性：
 ## r2 重评模板
 
 ```bash
-claude -p "Round-2 复核。r1 报告：arch/reviews/m2-holistic-review.md。已修复清单：...。逐项 RESOLVED/NOT-RESOLVED + 一行证据；新 P0/P1 扫描；verdict CLOSED。中文，表格。" --max-turns 6 --output-format text >> arch/reviews/m2-holistic-review-r2.md 2>&1
+codex exec "Round-2 复核。r1 报告：arch/reviews/m2-holistic-review.md。已修复清单：...。逐项 RESOLVED/NOT-RESOLVED + 一行证据；新 P0/P1 扫描；verdict CLOSED。中文，表格。" >> arch/reviews/m2-holistic-review-r2.md 2>&1
 ```
 
 ---

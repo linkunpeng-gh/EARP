@@ -8,6 +8,7 @@ checkpoint write). Mid-crash orphan recovery: M5+ periodic cleanup via
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request
@@ -57,7 +58,10 @@ async def invoke(session_id: str, request_invoke: InvokeRequest, request: Reques
     if sess.status == "closed":
         raise HTTPException(status_code=400, detail="Session is closed")
 
-    caps = await discover(engine, ctx.tenant_id, query=request_invoke.capability_id)
+    caps = await discover(
+        engine, ctx.tenant_id,
+        query=request_invoke.capability_id, settings=request.app.state.settings,
+    )
     cap = next((c for c in caps if c["capability_id"] == request_invoke.capability_id), None)
     if cap is None:
         raise HTTPException(status_code=404, detail=f"Capability not found: {request_invoke.capability_id}")
@@ -101,7 +105,12 @@ async def invoke(session_id: str, request_invoke: InvokeRequest, request: Reques
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{ctx.tenant_id}'"))
         await conn.execute(
             text("UPDATE executions SET status = :st, result = :res, error = :err WHERE execution_id = :eid"),
-            {"st": exec_status, "res": result.output, "err": result.error, "eid": execution_id},
+            {
+                "st": exec_status,
+                "res": json.dumps(result.output) if result.output is not None else None,
+                "err": result.error,
+                "eid": execution_id,
+            },
         )
         await conn.commit()
 

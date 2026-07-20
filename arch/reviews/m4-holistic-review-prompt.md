@@ -7,7 +7,7 @@
 ## 第 1 刀：核心链路追溯
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M4 Knowledge+Conversation 追溯审计。
+cd /Users/linkunpeng/work/EARP && codex exec "M4 Knowledge+Conversation 追溯审计。
 
 评审对象：
 - prd/PRD-2026-024-server-m4-knowledge-conversation.md (v1.0, 6 AC)
@@ -32,7 +32,7 @@ AC-06 '跨租户消息不可见(RLS)' → 所有 DB 操作是否携带 SET LOCAL
 - langchain-text-splitters 依赖是否正确声明（pyproject.toml + PRD）？
 - RecordManager pattern（content_hash MD5 + cleanup_old_chunks）是否对齐 langchain §2.5？
 
-输出：AC 逐条 FULL/PARTIAL/MISSING + P0/P1/P2 + file:line。中文，表格。" --max-turns 10 --output-format text > arch/reviews/m4-holistic-review.md 2>&1
+输出：AC 逐条 FULL/PARTIAL/MISSING + P0/P1/P2 + file:line。中文，表格。" > arch/reviews/m4-holistic-review.md 2>&1
 ```
 
 ---
@@ -40,7 +40,7 @@ AC-06 '跨租户消息不可见(RLS)' → 所有 DB 操作是否携带 SET LOCAL
 ## 第 2 刀：一致性与安全边界
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M4 一致性+安全扫描。
+cd /Users/linkunpeng/work/EARP && codex exec "M4 一致性+安全扫描。
 
 检查项（每项 1 行判定）：
 
@@ -68,7 +68,7 @@ F. import-linter + main.py：
    - knowledge 和 conversation 模块是否加入 pyproject.toml 的 modules 列表？
    - main.py 从 knowledge 和 conversation 直接 import——这是 controller 层的合法 wire-up 还是违反域独立？
 
-输出：逐项 PASS/ISSUE/NA + P0/P1/P2。中文，表格。" --max-turns 8 --output-format text >> arch/reviews/m4-holistic-review.md 2>&1
+输出：逐项 PASS/ISSUE/NA + P0/P1/P2。中文，表格。" >> arch/reviews/m4-holistic-review.md 2>&1
 ```
 
 ---
@@ -76,5 +76,5 @@ F. import-linter + main.py：
 ## r2 重评模板
 
 ```bash
-claude -p "Round-2 复核。r1：arch/reviews/m4-holistic-review.md。已修：...。逐项 RESOLVED/NOT-RESOLVED；新 P0/P1 扫描；verdict。中文。" --max-turns 5 --output-format text >> arch/reviews/m4-holistic-review-r2.md 2>&1
+codex exec "Round-2 复核。r1：arch/reviews/m4-holistic-review.md。已修：...。逐项 RESOLVED/NOT-RESOLVED；新 P0/P1 扫描；verdict。中文。" >> arch/reviews/m4-holistic-review-r2.md 2>&1
 ```

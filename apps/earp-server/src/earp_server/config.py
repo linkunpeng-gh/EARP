@@ -21,3 +21,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+
+    # ── Embedding ──
+    ollama_base_url: str = "http://10.188.2.230:11434"
+    ollama_embedding_model: str = "bge-m3:latest"
+    ollama_chat_model: str = "qwen3.6:35b"
+    embedding_dim: int = 1024  # bge-m3 dimension; change when switching models
+
+    # ── LLM Cache ──
+    llm_cache_ttl: int = 3600  # seconds (1 hour)

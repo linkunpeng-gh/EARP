@@ -8,7 +8,7 @@
 ## 第 1 刀：决策与分析链审查
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "你是独立架构评审员，做'决策链审计'——检验从开源分析到技术选型到开发计划的推理链是否经得起推敲。
+cd /Users/linkunpeng/work/EARP && codex exec "你是独立架构评审员，做'决策链审计'——检验从开源分析到技术选型到开发计划的推理链是否经得起推敲。
 
 评审对象（按依赖序）：
 1. arch/reference/opensource-analysis.md + dify-earp-mapping.md + langgraph-earp-mapping.md(v1.1) + langchain-earp-mapping.md + server-side-tech-reference-v1.md
@@ -23,13 +23,13 @@ C. 遗漏的主流替代方案（2026 视角）
 D. 版本汇总一致性：五份文档间相互引用的版本号/结论是否一致
 E. 已声明的延期决策（EventBus broker M6、LiteLLM M3 前）的触发条件是否可执行
 
-已关闭问题不要重报（见两轮评审文件）。输出：P0/P1/P2 + 文档:章节定位 + 修复建议 + 决策链健康度总评。中文。" --max-turns 12 --output-format text 2>&1 | tee arch/reviews/m0-holistic-r1-decision-chain.md | tail -5
+已关闭问题不要重报（见两轮评审文件）。输出：P0/P1/P2 + 文档:章节定位 + 修复建议 + 决策链健康度总评。中文。" 2>&1 | tee arch/reviews/m0-holistic-r1-decision-chain.md | tail -5
 ```
 
 ## 第 2 刀：需求→设计→实现追溯审查
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "你是独立评审员，做'追溯性审计'——PRD 的每条承诺是否真实兑现到代码，设计与实现有无静默偏离。
+cd /Users/linkunpeng/work/EARP && codex exec "你是独立评审员，做'追溯性审计'——PRD 的每条承诺是否真实兑现到代码，设计与实现有无静默偏离。
 
 追溯链：prd/PRD-2026-020-server-m0-foundation.md(v1.1) → arch/impact/server-m0-impact.md → arch/design/server-m0-l3-design-v1.md(v1.1) → apps/earp-server/（实现）→ arch/design/ADR-007-modular-monolith.md。
 
@@ -44,13 +44,13 @@ E. 声明的验证事实抽查：任选 2 条 AC，说明你如何从测试代�
 
 可信锚点（不必重新执行，但可质疑方法）：pytest 17/17 绿、spike 4/4 PASS、squawk 0、pyright strict 0、SDK 回归 203/203。
 已关闭问题清单在 arch/reviews/prd-2026-020-review*.md 与 server-m0-l3-design-review*.md，不要重报。
-输出：追溯矩阵表(AC×落点×判定) + P0/P1/P2 + verdict。中文。" --max-turns 15 --output-format text 2>&1 | tee arch/reviews/m0-holistic-r2-traceability.md | tail -5
+输出：追溯矩阵表(AC×落点×判定) + P0/P1/P2 + verdict。中文。" 2>&1 | tee arch/reviews/m0-holistic-r2-traceability.md | tail -5
 ```
 
 ## 第 3 刀：代码对抗性全景审查
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "你是攻击性安全评审员（fresh eyes，假设此前评审都可能漏），全景审查 apps/earp-server/ 全部代码（src/ migrations/ tests/ spikes/ pyproject.toml Makefile docker-compose.yml）与 .github/workflows/test.yml 的 server job。
+cd /Users/linkunpeng/work/EARP && codex exec "你是攻击性安全评审员（fresh eyes，假设此前评审都可能漏），全景审查 apps/earp-server/ 全部代码（src/ migrations/ tests/ spikes/ pyproject.toml Makefile docker-compose.yml）与 .github/workflows/test.yml 的 server job。
 
 对抗视角优先级：
 A. 多租户逃逸：RLS 策略表达式、GUC 注入面、BYPASSRLS 角色触达面、FORCE RLS 例外（tenants 表无 RLS 的实际暴露面）、复合 FK 是否留了跨租户引用缝隙
@@ -60,13 +60,13 @@ D. 异步正确性：连接池生命周期、信号处理竞态、事务边界�
 E. 测试可信度：17 个测试里有没有'看起来测了其实没测'的（断言过宽/fixture 掩盖/顺序依赖）
 
 已知已修（Gate C 两轮，arch/reviews/server-m0-code-review*.md）：worker try/finally、tenant_session 空值自卫、TOCTOU 移除、5 处 FK/PK、+3 RLS 测试、S4 语义澄清。已声明 M1 顺延：任务名注册校验、enqueue_in_session、RLS 全表矩阵。这些不要重报，但可以质疑'顺延是否合理'。
-输出：P0/P1/P2 + file:line + 可复现的攻击/失败场景描述 + 修复建议。中文。" --max-turns 15 --output-format text 2>&1 | tee arch/reviews/m0-holistic-r3-adversarial.md | tail -5
+输出：P0/P1/P2 + file:line + 可复现的攻击/失败场景描述 + 修复建议。中文。" 2>&1 | tee arch/reviews/m0-holistic-r3-adversarial.md | tail -5
 ```
 
 ## 第 4 刀：治理与流程合规审查
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "你是流程审计员，检查 M0 全过程是否符合项目自己定义的治理规则。
+cd /Users/linkunpeng/work/EARP && codex exec "你是流程审计员，检查 M0 全过程是否符合项目自己定义的治理规则。
 
 治理规则来源：L0-L3 四层治理（L3 不得违背 L2、L2 不得违背 L1）、流水线 v2.0（PRD→Gate A→影响分析→L3→Gate B→任务清单人工确认→编码→门禁→Gate C）、scripts/validate-cross-refs.py 四规则。
 
@@ -78,7 +78,7 @@ D. .hermes/task-log.md #15/#16 记录 vs 实际产物核对
 E. 跑 python3 scripts/validate-cross-refs.py 确认全绿
 F. 流程偏差清单：哪些环节偏离了流水线定义（如有），偏差是否已记录
 
-输出：合规检查表(项×判定×证据) + P0/P1/P2 + 流程改进建议(最多 3 条，避免过程膨胀)。中文。" --max-turns 12 --output-format text 2>&1 | tee arch/reviews/m0-holistic-r4-governance.md | tail -5
+输出：合规检查表(项×判定×证据) + P0/P1/P2 + 流程改进建议(最多 3 条，避免过程膨胀)。中文。" 2>&1 | tee arch/reviews/m0-holistic-r4-governance.md | tail -5
 ```
 
 ---
@@ -86,7 +86,7 @@ F. 流程偏差清单：哪些环节偏离了流水线定义（如有），偏�
 ## r2 重评模板（任何一刀发现 P0/P1 修复后用）
 
 ```bash
-claude -p "Round-2 复核。r1 报告：arch/reviews/<r1文件>.md。已修复清单：<逐条列出修复动作与落点>。逐项给出 RESOLVED/NOT-RESOLVED + 一行证据；扫描修复是否引入新 P0/P1；verdict 行：CLOSED 或列出余项。中文，表格。" --max-turns 8 --output-format text 2>&1 | tee arch/reviews/<r1文件>-r2.md | tail -5
+codex exec "Round-2 复核。r1 报告：arch/reviews/<r1文件>.md。已修复清单：<逐条列出修复动作与落点>。逐项给出 RESOLVED/NOT-RESOLVED + 一行证据；扫描修复是否引入新 P0/P1；verdict 行：CLOSED 或列出余项。中文，表格。" 2>&1 | tee arch/reviews/<r1文件>-r2.md | tail -5
 ```
 
 ## Prompt 写法备忘（为什么这么写）

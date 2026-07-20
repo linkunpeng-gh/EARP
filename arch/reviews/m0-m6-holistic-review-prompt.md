@@ -8,7 +8,7 @@
 ## 第 1 刀：全链路 PRD→代码追溯（AC 矩阵）
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "跨里程碑全链路追溯审计。
+cd /Users/linkunpeng/work/EARP && codex exec "跨里程碑全链路追溯审计。
 
 覆盖 6 个里程碑：M0(脚手架+DDL) → M1(Walking Skeleton) → M2(Policy+RBAC) → M3(Reasoning) → M4(Knowledge+Conversation) → M5(Execution 可靠性) → M6(事件与流式)。
 
@@ -51,7 +51,7 @@ E. 跨域数据流：
    - M3 SimpleTaskPlanner.plan(intent)→M1 invoke(Step)→M2 PolicyLayer 鉴权→M5 retry 策略→这个完整链路在代码中可追踪吗？
    - M4 文档上传→chunk 分块→embedding→search 流水线的事务边界在跨文件调用中是否一致？
 
-输出：逐维度 PASS/ISSUE + file:line 证据 + P0/P1/P2。中文，表格。" --max-turns 15 --output-format text > arch/reviews/m0-m6-holistic-review.md 2>&1
+输出：逐维度 PASS/ISSUE + file:line 证据 + P0/P1/P2。中文，表格。" > arch/reviews/m0-m6-holistic-review.md 2>&1
 ```
 
 ---
@@ -59,7 +59,7 @@ E. 跨域数据流：
 ## 第 2 刀：DDL 表使用率 + 技术债务清单
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M0 DDL 25 表使用率扫描 + 技术债务盘点。
+cd /Users/linkunpeng/work/EARP && codex exec "M0 DDL 25 表使用率扫描 + 技术债务盘点。
 
 DDL 表清单（来自 apps/earp-server/migrations/versions/0001_baseline.py TENANT_TABLES）：
 org_units, users, roles, service_accounts, tenant_account_joins,
@@ -80,7 +80,7 @@ conversations, messages, connector_configs
 - 'NotImplementedError' 的出现位置和对应里程碑
 - 伪随机 embedding (M4 embedding_service.py) 的替换计划是否注明
 
-输出：表使用率矩阵 + 技术债务清单 + P0/P1/P2。中文，表格。" --max-turns 10 --output-format text >> arch/reviews/m0-m6-holistic-review.md 2>&1
+输出：表使用率矩阵 + 技术债务清单 + P0/P1/P2。中文，表格。" >> arch/reviews/m0-m6-holistic-review.md 2>&1
 ```
 
 ---
@@ -88,7 +88,7 @@ conversations, messages, connector_configs
 ## 第 3 刀：对抗性安全全链审计
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "全链路安全审计（M0→M6）。
+cd /Users/linkunpeng/work/EARP && codex exec "全链路安全审计（M0→M6）。
 
 审查维度：
 
@@ -111,7 +111,7 @@ D. 资源泄漏：
    - RedisStreamsEventBus 消费者循环中的 xreadgroup → xack 是否保证 ack 不丢？
    - WebSocket 连接注册表 (_connections) 的 dead connection 清理是否完整？
 
-输出：逐维度 PASS/ISSUE + file:line + P0/P1/P2。中文，表格。" --max-turns 10 --output-format text >> arch/reviews/m0-m6-holistic-review.md 2>&1
+输出：逐维度 PASS/ISSUE + file:line + P0/P1/P2。中文，表格。" >> arch/reviews/m0-m6-holistic-review.md 2>&1
 ```
 
 ---
@@ -119,7 +119,7 @@ D. 资源泄漏：
 ## 第 4 刀：架构决策一致性 + 未来演进能力
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "架构决策一致性终审。
+cd /Users/linkunpeng/work/EARP && codex exec "架构决策一致性终审。
 
 检查项：
 
@@ -142,7 +142,7 @@ D. 未来拆分准备：
 E. 6 个月后的新人 onboard 可读性：
    - 核心调用链路（invoke → PolicyLayer → StepRunner → Connector.execute → CheckpointStore.write）是否可以在 5 分钟内从代码追踪清楚？
 
-输出：逐项 PASS/ISSUE + P0/P1/P2。中文，表格。" --max-turns 10 --output-format text >> arch/reviews/m0-m6-holistic-review.md 2>&1
+输出：逐项 PASS/ISSUE + P0/P1/P2。中文，表格。" >> arch/reviews/m0-m6-holistic-review.md 2>&1
 ```
 
 ---
@@ -150,5 +150,5 @@ E. 6 个月后的新人 onboard 可读性：
 ## r2 重评模板
 
 ```bash
-claude -p "Round-2 复核。r1：arch/reviews/m0-m6-holistic-review.md。已修：...。逐项 RESOLVED/NOT-RESOLVED；新 P0/P1 扫描；verdict。中文。" --max-turns 8 --output-format text >> arch/reviews/m0-m6-holistic-review-r2.md 2>&1
+codex exec "Round-2 复核。r1：arch/reviews/m0-m6-holistic-review.md。已修：...。逐项 RESOLVED/NOT-RESOLVED；新 P0/P1 扫描；verdict。中文。" >> arch/reviews/m0-m6-holistic-review-r2.md 2>&1
 ```

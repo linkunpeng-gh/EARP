@@ -5,6 +5,7 @@ M5 extends with multi-step, durability modes, writes-table usage.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from sqlalchemy import text
@@ -36,7 +37,7 @@ class CheckpointStore:
                     "INSERT INTO checkpoints (thread_id, checkpoint_ns, checkpoint_id, tenant_id, "
                     "checkpoint, metadata) VALUES (:tid, :ns, :cid, :tenant, :ckpt, '{}')"
                 ),
-                {"tid": thread_id, "ns": ckpt_ns, "cid": checkpoint_id, "tenant": tenant_id, "ckpt": state},
+                {"tid": thread_id, "ns": ckpt_ns, "cid": checkpoint_id, "tenant": tenant_id, "ckpt": json.dumps(state)},
             )
 
             # checkpoint_blobs rows (channel values)

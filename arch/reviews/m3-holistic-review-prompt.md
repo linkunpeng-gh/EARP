@@ -7,7 +7,7 @@
 ## 第 1 刀：核心链路追溯（PRD→代码 AC 覆盖）
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M3 Reasoning 追溯审计。
+cd /Users/linkunpeng/work/EARP && codex exec "M3 Reasoning 追溯审计。
 
 评审对象（5 个文件）：
 - prd/PRD-2026-023-server-m3-reasoning.md (v1.0, 6 US, 6 AC)
@@ -30,7 +30,7 @@ AC-06 'LLMConnector.plan() 返回合法 Plan schema' → LLMConnector.plan 的 M
 - PlanRequest(BaseModel) 是否定义在模块顶层（非 create_app 内部）？
 - /plan 端点 400→PlanError 的异常链是否用 from e 保留根因？
 
-输出：AC 逐条 FULL/PARTIAL/MISSING + P0/P1/P2 + file:line。中文，表格。" --max-turns 8 --output-format text > arch/reviews/m3-holistic-review.md 2>&1
+输出：AC 逐条 FULL/PARTIAL/MISSING + P0/P1/P2 + file:line。中文，表格。" > arch/reviews/m3-holistic-review.md 2>&1
 ```
 
 ---
@@ -38,7 +38,7 @@ AC-06 'LLMConnector.plan() 返回合法 Plan schema' → LLMConnector.plan 的 M
 ## 第 2 刀：一致性与边界（短刀）
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M3 一致性与边界扫描。
+cd /Users/linkunpeng/work/EARP && codex exec "M3 一致性与边界扫描。
 
 检查项（每项 1 行判定）：
 
@@ -67,7 +67,7 @@ F. import-linter:
    - earp_server.planner 是否已加入 pyproject.toml 的 modules 列表？
    - planner 模块的 imports 是否违反独立契约？
 
-输出：逐项 PASS/ISSUE/NA + 一行证据 + P0/P1/P2。中文，表格。" --max-turns 5 --output-format text >> arch/reviews/m3-holistic-review.md 2>&1
+输出：逐项 PASS/ISSUE/NA + 一行证据 + P0/P1/P2。中文，表格。" >> arch/reviews/m3-holistic-review.md 2>&1
 ```
 
 ---
@@ -75,5 +75,5 @@ F. import-linter:
 ## r2 重评模板
 
 ```bash
-claude -p "Round-2 复核。r1 报告：arch/reviews/m3-holistic-review.md。已修复清单：...。逐项 RESOLVED/NOT-RESOLVED；新 P0/P1 扫描；verdict CLOSED。中文。" --max-turns 5 --output-format text >> arch/reviews/m3-holistic-review-r2.md 2>&1
+codex exec "Round-2 复核。r1 报告：arch/reviews/m3-holistic-review.md。已修复清单：...。逐项 RESOLVED/NOT-RESOLVED；新 P0/P1 扫描；verdict CLOSED。中文。" >> arch/reviews/m3-holistic-review-r2.md 2>&1
 ```

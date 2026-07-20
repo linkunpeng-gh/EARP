@@ -8,7 +8,7 @@
 ## 第 1 刀：PRD→实现追溯（AC 逐条兑现判定）
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M1 walking skeleton 追溯审计。PRD-2026-021 v1.1 (11 US, 12 AC) → L3 设计 v1.1 → 实际代码。
+cd /Users/linkunpeng/work/EARP && codex exec "M1 walking skeleton 追溯审计。PRD-2026-021 v1.1 (11 US, 12 AC) → L3 设计 v1.1 → 实际代码。
 
 评审对象：
 - prd/PRD-2026-021-server-m1-walking-skeleton.md (v1.1)
@@ -26,13 +26,13 @@ cd /Users/linkunpeng/work/EARP && claude -p "M1 walking skeleton 追溯审计。
 
 反事实抽查：任选 2 条 AC，说明你如何从代码确认其被真实测试覆盖（不看测试名，看断言语义）。
 
-输出：追溯矩阵 + P0/P1/P2 + 发现。中文，表格。" --max-turns 15 --output-format text | tee arch/reviews/m1-holistic-r1-trace.md | tail -5
+输出：追溯矩阵 + P0/P1/P2 + 发现。中文，表格。" | tee arch/reviews/m1-holistic-r1-trace.md | tail -5
 ```
 
 ## 第 2 刀：架构决策与设计折衷审查
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M1 架构审计。焦点：M1 的三个'接口一次到位'决策是否正确落地，实现折衷是否被诚实记录。
+cd /Users/linkunpeng/work/EARP && codex exec "M1 架构审计。焦点：M1 的三个'接口一次到位'决策是否正确落地，实现折衷是否被诚实记录。
 
 审查维度：
 A. Step Runner 三形态锁定 —— invoke 实现 vs stream/batch 抛 NotImplemented(含AsyncGenerator返回类型)。检查 step_runner.py 接口签名是否不可变。M5/M6 的真扩展成本（只加实现不碰接口？）。
@@ -52,13 +52,13 @@ E. 实现中发现的 5 个折衷是否被文档化：
 
 F. M0 承诺的 5 项顺手修复（F1-F5）是否全部落地。
 
-输出：逐项 PASS/ISSUE/PARTIAL + 证据 + P0/P1/P2。中文，简洁。" --max-turns 12 --output-format text | tee arch/reviews/m1-holistic-r2-arch.md | tail -5
+输出：逐项 PASS/ISSUE/PARTIAL + 证据 + P0/P1/P2。中文，简洁。" | tee arch/reviews/m1-holistic-r2-arch.md | tail -5
 ```
 
 ## 第 3 刀：代码对抗性审查（安全+异步+数据完整性）
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M1 代码安全审查。焦点：M1 首次引入认证和外部输入面。
+cd /Users/linkunpeng/work/EARP && codex exec "M1 代码安全审查。焦点：M1 首次引入认证和外部输入面。
 
 对抗视角：
 A. JWT 安全性 —— auth.py 的 decode 路径（alg=none 攻击面、exp 校验是否真实生效、HS256 dev secret 半径）。token payload 注入 tenant_id/role_id 到 request.state 后，下游是否有'信任state但未校验'的盲点。
@@ -71,13 +71,13 @@ D. 异步安全 —— EventBus publish() 的 asyncio.create_task 是否会导�
 
 E. tenacity 重试正确性 —— connector.py 的 @retry 装饰器在 async 方法上是否正确工作（有实测证据：spike S2 验证过 procrastinate 的 retry 语义——Connector 的 tenacity retry 是否被 M1 集成测试覆盖？）。
 
-输出：P0/P1/P2 + file:line + 可复现攻击/失败场景。中文。" --max-turns 12 --output-format text | tee arch/reviews/m1-holistic-r3-security.md | tail -5
+输出：P0/P1/P2 + file:line + 可复现攻击/失败场景。中文。" | tee arch/reviews/m1-holistic-r3-security.md | tail -5
 ```
 
 ## 第 4 刀：实现忠实度与文档同步审查（短刀，快速）
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "M1 实现忠实度快速扫描。不读代码细节——对比 L3 设计 v1.1 的接口签名列表 vs 实际代码文件存在性+导出符号。
+cd /Users/linkunpeng/work/EARP && codex exec "M1 实现忠实度快速扫描。不读代码细节——对比 L3 设计 v1.1 的接口签名列表 vs 实际代码文件存在性+导出符号。
 
 检查项（每项 1 行判定）：
 1. 目录结构：L3 §一 列出的 10 个文件是否全部存在（含 orchestrator/__init__.py、types.py）
@@ -89,7 +89,7 @@ cd /Users/linkunpeng/work/EARP && claude -p "M1 实现忠实度快速扫描。�
 7. M0 F3 (utcnow) 是否在两处都修了（core + runtime session.py）
 8. import-linter ignore_imports：当前清单是否最小化（没有 orphan 'no matches' warning）
 
-输出：逐项 PASS/FAIL + 一行证据。中文，表格。" --max-turns 6 --output-format text | tee arch/reviews/m1-holistic-r4-fidelity.md | tail -5
+输出：逐项 PASS/FAIL + 一行证据。中文，表格。" | tee arch/reviews/m1-holistic-r4-fidelity.md | tail -5
 ```
 
 ---
@@ -97,5 +97,5 @@ cd /Users/linkunpeng/work/EARP && claude -p "M1 实现忠实度快速扫描。�
 ## r2 重评模板
 
 ```bash
-claude -p "Round-2 复核。r1 报告：arch/reviews/<r1文件>.md。已修复清单：<逐条列出>。逐项 RESOLVED/NOT-RESOLVED + 一行证据；新 P0/P1 扫描；verdict CLOSED 或列余项。中文，表格。" --max-turns 8 --output-format text | tee arch/reviews/<r1文件>-r2.md | tail -5
+codex exec "Round-2 复核。r1 报告：arch/reviews/<r1文件>.md。已修复清单：<逐条列出>。逐项 RESOLVED/NOT-RESOLVED + 一行证据；新 P0/P1 扫描；verdict CLOSED 或列余项。中文，表格。" | tee arch/reviews/<r1文件>-r2.md | tail -5
 ```

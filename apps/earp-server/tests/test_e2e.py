@@ -79,8 +79,8 @@ def test_full_e2e_walking_skeleton(migrated: str, app_url: str) -> None:
                 # Audit: EXECUTION_COMPLETED
                 audit = await conn.execute(
                     text(
-                        "SELECT event_type, role_id, detail FROM audit_logs "
-                        "WHERE execution_id = :eid "
+                        "SELECT event_type, user_id, detail FROM audit_logs "
+                        "WHERE entity_id = :eid "
                         "ORDER BY created_at DESC LIMIT 1"
                     ),
                     {"eid": eid},
@@ -88,7 +88,7 @@ def test_full_e2e_walking_skeleton(migrated: str, app_url: str) -> None:
                 row = audit.fetchone()
                 assert row is not None, "audit_logs: no EXECUTION_COMPLETED"
                 assert row.event_type == "earp.execution.completed"
-                assert row.role_id == "r1"
+                assert row.user_id == "u1"
 
                 # Checkpoints (M1+M5)
                 ckpt = await conn.execute(
@@ -99,8 +99,8 @@ def test_full_e2e_walking_skeleton(migrated: str, app_url: str) -> None:
 
                 # Blobs (M1)
                 blob = await conn.execute(
-                    text("SELECT count(*) FROM checkpoint_blobs WHERE checkpoint_id = :cid"),
-                    {"cid": ckpt_id},
+                    text("SELECT count(*) FROM checkpoint_blobs WHERE thread_id = :tid"),
+                    {"tid": eid},
                 )
                 assert blob.scalar_one() > 0, "checkpoint_blobs: empty"
 

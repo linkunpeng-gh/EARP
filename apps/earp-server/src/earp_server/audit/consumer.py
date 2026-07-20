@@ -6,6 +6,7 @@ block the invoke response path (EventBus fire-and-forget).
 
 from __future__ import annotations
 
+import json
 import logging
 
 from sqlalchemy import text
@@ -31,7 +32,7 @@ def audit_handler_factory(engine: AsyncEngine):
                     "entity_type": event.data.get("entity_type", ""),
                     "entity_id": event.data.get("entity_id", ""),
                     "uid": event.data.get("user_id", ""),
-                    "detail": event.data,
+                    "detail": json.dumps(event.data),
                 },
             )
             await conn.commit()

@@ -3,7 +3,7 @@
 > 一刀。改动集中 4 个文件。输出 `arch/reviews/week-e2e-review.md`。
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "本周工作代码评审。
+cd /Users/linkunpeng/work/EARP && codex exec "本周工作代码评审。
 
 评审对象：
 - apps/earp-server/tests/test_e2e.py (126行，全链路 e2e 测试)
@@ -34,5 +34,5 @@ cd /Users/linkunpeng/work/EARP && claude -p "本周工作代码评审。
    - demo:echo→demo.echo 的变更是否影响已有引用？（Business Dictionary/M2 PolicyLayer 匹配）
    - 向下兼容性：cap-demo-echo 已在 DB 中的旧 required_permissions 是否会造成不匹配？
 
-输出：逐项 PASS/ISSUE + P0/P1/P2 + file:line。中文。" --max-turns 5 --output-format text > arch/reviews/week-e2e-review.md 2>&1
+输出：逐项 PASS/ISSUE + P0/P1/P2 + file:line。中文。" > arch/reviews/week-e2e-review.md 2>&1
 ```

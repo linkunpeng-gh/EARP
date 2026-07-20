@@ -14,21 +14,25 @@ from typing import Any
 _BUSINESS_DICTIONARY: dict[str, dict[str, Any]] = {
     "query users": {
         "capability_id": "cap-query-users",
+        "adapter_type": "query.users",
         "description": "Query user list",
         "input_template": {"action": "list", "entity": "users"},
     },
     "create alarm": {
         "capability_id": "cap-create-alarm",
+        "adapter_type": "create.alarm",
         "description": "Create a new alarm",
         "input_template": {"action": "create", "entity": "alarm"},
     },
     "query alarms": {
         "capability_id": "cap-query-alarms",
+        "adapter_type": "query.alarms",
         "description": "Query alarm list",
         "input_template": {"action": "list", "entity": "alarms"},
     },
     "echo": {
         "capability_id": "cap-demo-echo",
+        "adapter_type": "demo.echo",
         "description": "Echo demo capability",
         "input_template": {"message": "hello"},
     },
@@ -39,6 +43,7 @@ _BUSINESS_DICTIONARY: dict[str, dict[str, Any]] = {
 class IntentMatch:
     intent: str
     capability_id: str
+    adapter_type: str = ""
     input: dict[str, Any] = field(default_factory=dict)
     confidence: float = 1.0  # exact match = 1.0; M4+ supports fuzzy
 
@@ -53,6 +58,7 @@ class RuleIntentPlanner:
         return IntentMatch(
             intent=intent,
             capability_id=entry["capability_id"],
+            adapter_type=entry.get("adapter_type", ""),
             input=dict(entry.get("input_template", {})),
         )
 

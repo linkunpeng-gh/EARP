@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from earp_server.audit.consumer import audit_handler_factory
 from earp_server.capability.registry import TokenBucketRateLimiter, discover, register_demo
 from earp_server.config import Settings
+from earp_server.connector import LLMConnector
 from earp_server.conversation.conversation_service import (
     add_message,
     create_conversation,
@@ -70,13 +71,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+        app.state.settings = cfg
         app.state.engine = build_engine(cfg)
         if cfg.app_env in ("dev", "test"):
             app.state.eventbus = EventBus()  # test/dev: in-process, no Redis dependency
         else:
             app.state.eventbus = RedisStreamsEventBus()
         app.state.rate_limiter = TokenBucketRateLimiter(rps=100)
-        app.state.planner = SimpleTaskPlanner()
+        # Phase 2: LLM cache + structured output via Ollama
+        llm_connector = LLMConnector(cfg, rate_limiter=app.state.rate_limiter)
+        from earp_server.infra.llm_cache import LLMCache
+        llm_cache = LLMCache(ttl=cfg.llm_cache_ttl)
+        llm_connector.cache = llm_cache
+        app.state.planner = SimpleTaskPlanner(llm=llm_connector)
         app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
         if cfg.app_env in ("dev", "test"):
             try:
@@ -150,7 +157,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/capabilities", tags=["capabilities"])
     async def discover_capabilities_endpoint(q: str | None = None, req: Request = None) -> list[dict[str, Any]]:
-        return await discover(req.app.state.engine, req.state.tenant_id, role_id=req.state.role_id, query=q)
+        return await discover(
+            req.app.state.engine, req.state.tenant_id,
+            role_id=req.state.role_id, query=q, settings=req.app.state.settings,
+        )
 
     # ── Planner ──
     @app.post("/plan", tags=["planner"])
@@ -158,7 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # JWT middleware already validated tenant_id/role_id on req.state
         planner = req.app.state.planner
         try:
-            steps = planner.plan(req_body.intent)
+            steps = await planner.plan(req_body.intent)
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {"intent": req_body.intent, "steps": [s.capability_call for s in steps]}
@@ -180,16 +190,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await cleanup_old_chunks(engine, tenant_id, doc["document_id"])
         chunk_ids = await create_chunks(engine, tenant_id, doc["document_id"],
                                          req_body.content, doc["content_hash"])
-        await embed_chunks(engine, tenant_id, chunk_ids)
+        await embed_chunks(engine, tenant_id, chunk_ids, req.app.state.settings)
         return {"document_id": doc["document_id"], "status": "indexed", "chunks": len(chunk_ids)}
 
     @app.post("/knowledge/search", tags=["knowledge"])
     async def search_knowledge(req_body: SearchQuery, req: Request) -> list[dict[str, Any]]:
         engine = req.app.state.engine
         bus = req.app.state.eventbus
-        q_emb = await embed_query(req_body.query)
+        q_emb = await embed_query(req_body.query, req.app.state.settings)
         return await search_chunks(engine, req.state.tenant_id, q_emb,
-                                    req.state.role_id, req_body.top_k, bus)
+                                    req.state.role_id, req_body.top_k, bus,
+                                    embedding_dim=req.app.state.settings.embedding_dim)
 
     # ── Conversation ──
     @app.post("/conversations", status_code=201, tags=["conversations"])

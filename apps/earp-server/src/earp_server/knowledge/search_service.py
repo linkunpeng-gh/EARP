@@ -19,18 +19,20 @@ async def search_chunks(
     role_id: str,
     top_k: int = 5,
     eventbus: EventBus | None = None,
+    *,
+    embedding_dim: int = 1024,
 ) -> list[dict]:
     """Cosine similarity search over chunks, filtered by accessible_roles."""
     embedding_str = f"[{', '.join(str(x) for x in query_embedding)}]"
     search_sql = (
-        "SELECT c.chunk_id, c.document_id, c.content, c.chunk_index, "
-        "1 - (c.embedding <=> :qemb::vector(1536)) AS similarity "
-        "FROM chunks c "
-        "JOIN documents d ON c.document_id = d.document_id "
-        "JOIN knowledge_bases kb ON d.knowledge_base_id = kb.knowledge_base_id "
-        "WHERE c.tenant_id = :tid "
-        "AND (kb.accessible_roles IS NULL OR kb.accessible_roles = '{}' OR :rid = ANY(kb.accessible_roles)) "
-        "ORDER BY c.embedding <=> :qemb2::vector(1536) LIMIT :lim"
+        f"SELECT c.chunk_id, c.document_id, c.content, c.chunk_index, "
+        f"1 - (c.embedding <=> :qemb::vector({embedding_dim})) AS similarity "
+        f"FROM chunks c "
+        f"JOIN documents d ON c.document_id = d.document_id "
+        f"JOIN knowledge_bases kb ON d.knowledge_base_id = kb.knowledge_base_id "
+        f"WHERE c.tenant_id = :tid "
+        f"AND (kb.accessible_roles IS NULL OR kb.accessible_roles = '{{}}' OR :rid = ANY(kb.accessible_roles)) "
+        f"ORDER BY c.embedding <=> :qemb2::vector({embedding_dim}) LIMIT :lim"
     )
     try:
         async with engine.connect() as conn:

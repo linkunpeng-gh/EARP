@@ -3,7 +3,7 @@
 > 一刀。改动 3 个新文件。输出 `arch/reviews/short-term-review.md`。
 
 ```bash
-cd /Users/linkunpeng/work/EARP && claude -p "短期清理代码评审。
+cd /Users/linkunpeng/work/EARP && codex exec "短期清理代码评审。
 
 评审对象：
 - apps/earp-server/src/earp_server/orchestrator/workflow_dsl.py (78行，DSL编译)
@@ -27,5 +27,5 @@ cd /Users/linkunpeng/work/EARP && claude -p "短期清理代码评审。
    - add_account_join 的 ON CONFLICT (tenant_id, user_id) ——是否有对应该组合的唯一约束？
    - get_user_tenants 无 tenant_id 过滤——跨租户查询是否安全？（RLS 在 DB 层生效吗？）
 
-输出：PASS/ISSUE + P0/P1/P2 + file:line。中文。" --max-turns 5 --output-format text > arch/reviews/short-term-review.md 2>&1
+输出：PASS/ISSUE + P0/P1/P2 + file:line。中文。" > arch/reviews/short-term-review.md 2>&1
 ```

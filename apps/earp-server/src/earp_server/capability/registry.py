@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+if TYPE_CHECKING:
+    from earp_server.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,40 +41,83 @@ async def register_demo(engine: AsyncEngine, tenant_id: str) -> None:
 
 
 async def discover(
-    engine: AsyncEngine, tenant_id: str, *, role_id: str | None = None, query: str | None = None
+    engine: AsyncEngine,
+    tenant_id: str,
+    *,
+    role_id: str | None = None,
+    query: str | None = None,
+    settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
     """Role-aware discovery with optional pgvector semantic search.
 
     Without a query: return all capabilities (role-filtered if role_id given).
     With a query: pgvector cosine similarity search on capability embedding.
     Falls back to LIKE if embedding column is null for a capability.
+
+    settings is required when query is provided (for Ollama embed + vector dim).
     """
+    dim = settings.embedding_dim if settings else 1024
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         if query:
+            if settings is None:
+                raise ValueError("settings is required for semantic capability discovery")
             from earp_server.knowledge.embedding_service import embed_query
-            q_emb = await embed_query(query)
-            emb_str = f"[{', '.join(str(x) for x in q_emb)}]"
-            if role_id:
-                rows = await conn.exec_driver_sql(
-                    f"SELECT c.capability_id, c.domain, c.name, c.type, c.version, "
-                    f"1 - (c.embedding <=> '{emb_str}'::vector(1536)) AS similarity "
-                    f"FROM business_capabilities c, roles r "
-                    f"WHERE c.tenant_id = '{tenant_id}' AND r.role_id = '{role_id}' "
-                    f"AND c.required_permissions <@ r.permissions "
-                    f"ORDER BY c.embedding <=> '{emb_str}'::vector(1536) LIMIT 10"
+
+            try:
+                q_emb = await embed_query(query, settings)
+                emb_str = f"[{', '.join(str(x) for x in q_emb)}]"
+                if role_id:
+                    rows = await conn.execute(
+                        text(
+                            f"SELECT c.capability_id, c.domain, c.name, c.type, c.version, "
+                            f"1 - (c.embedding <=> :emb::vector({dim})) AS similarity "
+                            f"FROM business_capabilities c, roles r "
+                            f"WHERE c.tenant_id = :tid AND r.role_id = :rid "
+                            f"AND c.required_permissions <@ r.permissions "
+                            f"ORDER BY c.embedding <=> :emb2::vector({dim}) LIMIT 10"
+                        ),
+                        {"emb": emb_str, "emb2": emb_str, "tid": tenant_id, "rid": role_id},
+                    )
+                else:
+                    rows = await conn.execute(
+                        text(
+                            f"SELECT capability_id, domain, name, type, version, "
+                            f"1 - (embedding <=> :emb::vector({dim})) AS similarity "
+                            f"FROM business_capabilities "
+                            f"WHERE tenant_id = :tid "
+                            f"ORDER BY embedding <=> :emb2::vector({dim}) LIMIT 10"
+                        ),
+                        {"emb": emb_str, "emb2": emb_str, "tid": tenant_id},
+                    )
+                return [dict(r._mapping) for r in rows]
+            except Exception:
+                logger.warning(
+                    "discover: Ollama embedding failed, falling back to exact-match capability lookup",
+                    exc_info=True,
                 )
-            else:
-                rows = await conn.exec_driver_sql(
-                    f"SELECT capability_id, domain, name, type, version, "
-                    f"1 - (embedding <=> '{emb_str}'::vector(1536)) AS similarity "
-                    f"FROM business_capabilities "
-                    f"WHERE tenant_id = '{tenant_id}' "
-                    f"ORDER BY embedding <=> '{emb_str}'::vector(1536) LIMIT 10"
-                )
-            # exec_driver_sql returns raw tuples — convert to dicts
-            cols = ["capability_id", "domain", "name", "type", "version", "similarity"]
-            return [dict(zip(cols, row, strict=False)) for row in rows]
+                # Fallback: exact match by capability_id (no embedding needed)
+                if role_id:
+                    rows = await conn.execute(
+                        text(
+                            "SELECT c.capability_id, c.domain, c.name, c.type, c.version "
+                            "FROM business_capabilities c, roles r "
+                            "WHERE c.tenant_id = :tid AND r.role_id = :rid "
+                            "AND c.required_permissions <@ r.permissions "
+                            "AND c.capability_id LIKE :qlike"
+                        ),
+                        {"tid": tenant_id, "rid": role_id, "qlike": f"%{query}%"},
+                    )
+                else:
+                    rows = await conn.execute(
+                        text(
+                            "SELECT capability_id, domain, name, type, version "
+                            "FROM business_capabilities "
+                            "WHERE tenant_id = :tid AND capability_id LIKE :qlike"
+                        ),
+                        {"tid": tenant_id, "qlike": f"%{query}%"},
+                    )
+                return [dict(r._mapping) for r in rows]
         # no query: return all (role-filtered if role_id given) — use text() + execute()
         if role_id:
             rows = await conn.execute(
