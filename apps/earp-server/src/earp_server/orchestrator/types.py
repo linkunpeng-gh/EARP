@@ -13,6 +13,8 @@ class Step:
     capability_call: dict[str, Any]
     retry_config: dict | None = None
     timeout_seconds: int | None = None
+    # M12 Saga: optional compensation (undo) capability call for rollback
+    compensate_call: dict[str, Any] | None = None
 
 
 @dataclass

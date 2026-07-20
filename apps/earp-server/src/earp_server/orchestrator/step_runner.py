@@ -52,6 +52,7 @@ class StepRunner:
             tenant_id=ctx.tenant_id,
             state=state,
             channels=channels,
+            checkpoint_ns=step.step_id,  # unique namespace per step
         )
 
         result = StepResult(

@@ -23,10 +23,12 @@ class CheckpointStore:
         tenant_id: str,
         state: dict,
         channels: dict[str, bytes],
+        *,
+        checkpoint_ns: str = "",
     ) -> str:
         checkpoint_id = uuid.uuid4().hex
         thread_id = execution_id
-        ckpt_ns = ""
+        ckpt_ns = checkpoint_ns
 
         async with self._engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))

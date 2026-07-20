@@ -2,6 +2,7 @@
 
 M5 extends M1's single-Step invoke to multi-step Plan execution with
 checkpoint-after-each-step, recovery from checkpoint, and retry integration.
+M12 adds Saga compensation: register undo actions, rollback on failure.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.infra.checkpoint import CheckpointStore
 from earp_server.infra.eventbus import EventBus
+from earp_server.orchestrator.compensation import SagaCompensation
 from earp_server.orchestrator.step_runner import StepResult, StepRunner
 from earp_server.orchestrator.types import InvokeContext, Layer, Step
 
@@ -27,6 +29,7 @@ class ExecutionStatus(StrEnum):
     FAILED = "failed"
     REPLANNING = "replanning"
     INTERRUPTED = "interrupted"
+    ROLLED_BACK = "rolled_back"
 
 
 @dataclass
@@ -39,10 +42,11 @@ class ExecutionState:
     completed_steps: list[str] = field(default_factory=list)  # step_ids that succeeded
     last_checkpoint_id: str | None = None
     checkpoint_mode: str = "async"  # sync / async / exit
+    rollback_results: list[dict] = field(default_factory=list)  # M12: compensation outputs
 
 
 class MultiStepExecutor:
-    """Execute a Plan (list[Step]) with checkpoint-after-each-step and recovery."""
+    """Execute a Plan (list[Step]) with checkpoint + Saga compensation."""
 
     def __init__(self, engine: AsyncEngine, bus: EventBus | None = None) -> None:
         self._runner = StepRunner(engine)
@@ -66,9 +70,20 @@ class MultiStepExecutor:
         *,
         resume_from_checkpoint_id: str | None = None,
         durability: str = "async",
-    ) -> list[StepResult]:
-        """Execute plan steps sequentially with checkpoint between each step."""
+    ) -> tuple[list[StepResult], ExecutionState]:
+        """Execute plan steps sequentially with checkpoint + Saga compensation.
+
+        Returns (results, execution_state).
+        On step failure: rolls back completed steps via SagaCompensation.
+        """
         results: list[StepResult] = []
+        saga = SagaCompensation()
+        state = ExecutionState(
+            execution_id=ctx.execution_id,
+            session_id=ctx.session_id,
+            tenant_id=ctx.tenant_id,
+            status=ExecutionStatus.RUNNING,
+        )
         start_index = 0
 
         # Recovery: skip completed steps from checkpoint
@@ -78,44 +93,76 @@ class MultiStepExecutor:
         for i in range(start_index, len(steps)):
             # M5: interrupt check before executing next step
             if self._interrupted:
-                state = {
-                    "status": ExecutionStatus.INTERRUPTED,
-                    "current_step_index": i,
-                    "completed_step_ids": [r.step_id for r in results if r.status == "completed"],
-                }
+                state.status = ExecutionStatus.INTERRUPTED
+                state.current_step_index = i
+                state.completed_steps = [r.step_id for r in results if r.status == "completed"]
                 await self._checkpoint.write(
                     execution_id=ctx.execution_id, session_id=ctx.session_id,
-                    tenant_id=ctx.tenant_id, state=state,
+                    tenant_id=ctx.tenant_id, state={
+                        "status": ExecutionStatus.INTERRUPTED,
+                        "current_step_index": i,
+                        "completed_step_ids": state.completed_steps,
+                    },
                     channels={"step_results": str(results).encode()},
+                    checkpoint_ns="interrupt",
                 )
-                break
+                return results, state
 
             step = steps[i]
             result = await self._runner.invoke(step, layers=layers, ctx=ctx)
             results.append(result)
 
-            # Write checkpoint after each step
-            state = {
-                "current_step_index": i + 1,
-                "completed_step_ids": [r.step_id for r in results if r.status == "completed"],
-                "last_result_status": result.status,
-            }
-            _ = await self._checkpoint.write(
-                execution_id=ctx.execution_id,
-                session_id=ctx.session_id,
-                tenant_id=ctx.tenant_id,
-                state=state,
-                channels={"step_results": str(results).encode()},
-            )
+            if result.status == "completed":
+                # M12: register compensation for rollback
+                if step.compensate_call:
+                    async def _compensate(ctx_dict: dict) -> None:
+                        from earp_server.connector import Connector
+                        connector = Connector()
+                        await connector.execute(ctx_dict.get("compensate_call", {}))
 
-            if durability == "sync":
-                # sync mode: already waited (write is synchronous in M1 CheckpointStore)
-                pass
+                    saga.register(step.step_id, _compensate, {
+                        "compensate_call": step.compensate_call,
+                        "step_id": step.step_id,
+                    })
+
+                # Write checkpoint after each successful step
+                _ = await self._checkpoint.write(
+                    execution_id=ctx.execution_id,
+                    session_id=ctx.session_id,
+                    tenant_id=ctx.tenant_id,
+                    state={
+                        "current_step_index": i + 1,
+                        "completed_step_ids": [r.step_id for r in results if r.status == "completed"],
+                        "last_result_status": result.status,
+                    },
+                    channels={"step_results": str(results).encode()},
+                    checkpoint_ns=f"plan:{step.step_id}",  # unique namespace per step (plan-level)
+                )
 
             if result.status == "failed":
-                break
+                # M12: rollback completed steps in reverse order
+                if saga.count > 0:
+                    logger.info(
+                        "MultiStepExecutor: step %s failed, rolling back %d completed steps",
+                        step.step_id, saga.count,
+                    )
+                    await saga.rollback()
+                    state.status = ExecutionStatus.ROLLED_BACK
+                    state.rollback_results = [
+                        {"step_id": sid, "status": "rolled_back"}
+                        for sid in (r.step_id for r in results if r.status == "completed")
+                    ]
+                else:
+                    state.status = ExecutionStatus.FAILED
+                state.current_step_index = i
+                state.completed_steps = [r.step_id for r in results if r.status == "completed"]
+                return results, state
 
-        return results
+        # All steps completed
+        state.status = ExecutionStatus.COMPLETED
+        state.current_step_index = len(steps)
+        state.completed_steps = [r.step_id for r in results if r.status == "completed"]
+        return results, state
 
     async def _get_completed_count(self, tenant_id: str, checkpoint_id: str) -> int:
         """Return the number of steps that were completed in a previous run."""
