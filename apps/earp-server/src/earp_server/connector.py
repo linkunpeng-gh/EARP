@@ -194,29 +194,32 @@ class LLMConnector:
                 logger.info("LLMConnector.plan: cache hit")
                 return cached
 
-        # 2. Try Ollama structured output
-        try:
-            steps = await self._call_ollama(prompt, capabilities=capabilities)
-            # Validate: capability_ids must exist in provided capabilities list
-            if capabilities:
-                valid_ids = {c["capability_id"] for c in capabilities}
-                for s in steps:
-                    cid = s.get("capability_id", "")
-                    if cid not in valid_ids:
-                        logger.warning(
-                            "LLMConnector.plan: unknown capability_id %r, discarding step", cid,
-                        )
-                steps = [s for s in steps if s.get("capability_id", "") in valid_ids]
-                if not steps:
-                    raise ConnectorError("LLM returned steps with no valid capability_ids")
-            # Cache the result
-            if self._cache:
-                await self._cache.set(self._model, cache_key, steps)
-            return steps
-        except ConnectorError:
-            logger.warning("LLMConnector.plan: Ollama failed, falling back to RuleIntentPlanner")
-        except Exception:
-            logger.exception("LLMConnector.plan: unexpected error, falling back")
+        # 2. Try Ollama structured output (skip if capabilities list is explicitly empty)
+        if capabilities is not None and len(capabilities) == 0:
+            logger.info("LLMConnector.plan: empty capabilities list, skipping Ollama")
+        else:
+            try:
+                steps = await self._call_ollama(prompt, capabilities=capabilities)
+                # Validate: capability_ids must exist in provided capabilities list
+                if capabilities:
+                    valid_ids = {c["capability_id"] for c in capabilities}
+                    for s in steps:
+                        cid = s.get("capability_id", "")
+                        if cid not in valid_ids:
+                            logger.warning(
+                                "LLMConnector.plan: unknown capability_id %r, discarding step", cid,
+                            )
+                    steps = [s for s in steps if s.get("capability_id", "") in valid_ids]
+                    if not steps:
+                        raise ConnectorError("LLM returned steps with no valid capability_ids")
+                # Cache the result
+                if self._cache:
+                    await self._cache.set(self._model, cache_key, steps)
+                return steps
+            except ConnectorError:
+                logger.warning("LLMConnector.plan: Ollama failed, falling back to RuleIntentPlanner")
+            except Exception:
+                logger.exception("LLMConnector.plan: unexpected error, falling back")
 
         # 3. Fallback: RuleIntentPlanner
         from earp_server.planner.business_dictionary import RuleIntentPlanner

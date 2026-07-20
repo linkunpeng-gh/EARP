@@ -51,7 +51,8 @@ async def list_for_planning(engine: AsyncEngine, tenant_id: str) -> list[dict[st
         rows = await conn.execute(
             text(
                 "SELECT capability_id, domain, name, type, input_schema "
-                "FROM business_capabilities WHERE tenant_id = :tid"
+                "FROM business_capabilities WHERE tenant_id = :tid "
+                "ORDER BY capability_id"
             ),
             {"tid": tenant_id},
         )
