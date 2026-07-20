@@ -90,11 +90,11 @@ async def discover(
                     rows = await conn.execute(
                         text(
                             f"SELECT c.capability_id, c.domain, c.name, c.type, c.version, "
-                            f"1 - (c.embedding <=> :emb::vector({dim})) AS similarity "
+                            f"1 - (c.embedding <=> CAST(:emb AS vector({dim}))) AS similarity "
                             f"FROM business_capabilities c, roles r "
                             f"WHERE c.tenant_id = :tid AND r.role_id = :rid "
                             f"AND c.required_permissions <@ r.permissions "
-                            f"ORDER BY c.embedding <=> :emb2::vector({dim}) LIMIT 10"
+                            f"ORDER BY c.embedding <=> CAST(:emb2 AS vector({dim})) LIMIT 10"
                         ),
                         {"emb": emb_str, "emb2": emb_str, "tid": tenant_id, "rid": role_id},
                     )
@@ -102,10 +102,10 @@ async def discover(
                     rows = await conn.execute(
                         text(
                             f"SELECT capability_id, domain, name, type, version, "
-                            f"1 - (embedding <=> :emb::vector({dim})) AS similarity "
+                            f"1 - (embedding <=> CAST(:emb AS vector({dim}))) AS similarity "
                             f"FROM business_capabilities "
                             f"WHERE tenant_id = :tid "
-                            f"ORDER BY embedding <=> :emb2::vector({dim}) LIMIT 10"
+                            f"ORDER BY embedding <=> CAST(:emb2 AS vector({dim})) LIMIT 10"
                         ),
                         {"emb": emb_str, "emb2": emb_str, "tid": tenant_id},
                     )

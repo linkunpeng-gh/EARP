@@ -107,7 +107,7 @@ async def embed_chunks(
         for cid, emb in emb_map.items():
             emb_str = f"[{', '.join(str(x) for x in emb)}]"
             await conn.execute(
-                text(f"UPDATE chunks SET embedding = :emb::vector({dim}) WHERE chunk_id = :cid"),
+                text(f"UPDATE chunks SET embedding = CAST(:emb AS vector({dim})) WHERE chunk_id = :cid"),
                 {"emb": emb_str, "cid": cid},
             )
         await conn.commit()

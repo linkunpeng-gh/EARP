@@ -76,10 +76,29 @@ class RedisStreamsEventBus:
         self._fallback.subscribe(event_type, handler)
 
     async def start_consumer(self) -> None:
-        """Background consumer: read from Redis Stream, route to fallback subscribers."""
-        ok = await self._ensure_redis()
-        if not ok or not self._redis:
-            logger.warning("RedisStreamsEventBus: consumer skipped (no Redis)")
+        """Background consumer: read from Redis Stream, route to fallback subscribers.
+
+        Retries initial Redis connection with exponential backoff (max 5 attempts).
+        Once connected, loops forever consuming events from the stream.
+        """
+        # Retry initial connection with exponential backoff
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            ok = await self._ensure_redis()
+            if ok and self._redis:
+                break
+            if attempt < max_retries:
+                wait_s = min(2 ** attempt, 30)
+                logger.warning(
+                    "RedisStreamsEventBus: Redis unavailable (attempt %d/%d), retrying in %ds",
+                    attempt, max_retries, wait_s,
+                )
+                await asyncio.sleep(wait_s)
+        else:
+            logger.error(
+                "RedisStreamsEventBus: Redis unavailable after %d attempts, consumer skipped",
+                max_retries,
+            )
             return
         while True:
             try:

@@ -124,6 +124,8 @@ class MultiStepExecutor:
                         "compensate_call": step.compensate_call,
                         "step_id": step.step_id,
                     })
+                    # Track which steps have compensations registered
+                    state.completed_steps.append(step.step_id)
 
                 # Write checkpoint after each successful step
                 _ = await self._checkpoint.write(
@@ -150,7 +152,7 @@ class MultiStepExecutor:
                     state.status = ExecutionStatus.ROLLED_BACK
                     state.rollback_results = [
                         {"step_id": sid, "status": "rolled_back"}
-                        for sid in (r.step_id for r in results if r.status == "completed")
+                        for sid in state.completed_steps  # only steps with compensate_call
                     ]
                 else:
                     state.status = ExecutionStatus.FAILED
