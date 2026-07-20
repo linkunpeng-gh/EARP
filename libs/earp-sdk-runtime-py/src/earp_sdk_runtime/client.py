@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
@@ -159,6 +160,58 @@ class RuntimeClient:
             )
         finally:
             await session.close()
+
+    # ── Streaming (M8) ──
+
+    async def stream_invoke(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        session_id: str = "",
+    ) -> "AsyncGenerator[dict[str, Any], None]":
+        """Stream LLM tokens via SSE from POST /stream/invoke.
+
+        Yields dicts: {"token": str, "index": int} or {"error": str} on failure.
+        Final event is {"token": "[DONE]", "index": -1}.
+        """
+        import json
+
+        async with httpx.AsyncClient(timeout=300) as sse_client:
+            async with sse_client.stream(
+                "POST",
+                f"{self.endpoint}/stream/invoke",
+                json={"prompt": prompt, "system": system, "session_id": session_id},
+                headers={"Authorization": f"Bearer {self.token}"} if self.token else {},
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]  # strip "data: " prefix
+                    if data_str == "[DONE]":
+                        yield {"token": "[DONE]", "index": -1}
+                        return
+                    try:
+                        yield json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+
+    # ── Planning (M11) ──
+
+    async def plan(self, intent: str) -> list[dict[str, Any]]:
+        """Call POST /plan to resolve intent → capability steps.
+
+        Returns list of {"capability_id": str, "adapter_type": str, "input": dict}.
+        """
+        response = await self._client.post(
+            f"{self.endpoint}/plan",
+            json={"intent": intent},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("steps", [])
 
     # ── Lifecycle ──
 
