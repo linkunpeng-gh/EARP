@@ -96,3 +96,9 @@ def test_audit_entrypoint_graceful(migrated: str, app_url: str) -> None:
     code = _run_entrypoint("earp_server.entrypoints.audit", _env(app_url), "audit worker starting")
     # SIGTERM after startup — Redis unavailable is non-fatal, exit clean
     assert code == 0
+
+
+def test_plugin_daemon_entrypoint_graceful(migrated: str, app_url: str) -> None:
+    """Plugin daemon: starts, loads 0 plugins (no plugins dir), exits gracefully."""
+    code = _run_entrypoint("earp_server.entrypoints.plugin_daemon", _env(app_url), "plugin daemon starting")
+    assert code == 0

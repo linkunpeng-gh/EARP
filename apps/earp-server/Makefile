@@ -2,7 +2,7 @@ UV ?= uv
 export EARP_DATABASE_URL ?= postgresql+psycopg://earp_app:earp_app@localhost:5433/earp
 export EARP_MIGRATION_DATABASE_URL ?= postgresql+psycopg://postgres:postgres@localhost:5433/earp
 
-.PHONY: db-up db-down migrate api dev test lint openapi spike squawk e2e audit-worker
+.PHONY: db-up db-down migrate api dev test lint openapi spike squawk e2e audit-worker plugin-daemon
 
 db-up:
 	docker compose up -d --wait
@@ -43,3 +43,6 @@ e2e:
 
 audit-worker:
 	$(UV) run python -m earp_server.entrypoints.audit
+
+plugin-daemon:
+	$(UV) run python -m earp_server.entrypoints.plugin_daemon
