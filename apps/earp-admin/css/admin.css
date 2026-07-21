@@ -1,64 +1,162 @@
-/* EARP Admin Dashboard — Pico.css overrides */
-:root { --sidebar-width: 200px; }
-body { display: flex; min-height: 100vh; margin: 0; }
+/* EARP Admin — Linear-inspired dark design system */
+/* Fonts: Inter (primary), JetBrains Mono (code) via Google Fonts CDN */
 
-/* Skip-to-content for accessibility */
-.skip-link { position: absolute; top: -40px; left: 0; background: var(--primary); color: #fff; padding: 8px; z-index: 100; }
-.skip-link:focus { top: 0; }
+/* ── Design Tokens ── */
+:root {
+  /* Backgrounds — luminance stacking */
+  --bg-root: #08090a;
+  --bg-panel: #0f1011;
+  --bg-surface: #191a1b;
+  --bg-elevated: #28282c;
 
-/* Sidebar */
-aside#sidebar { width: var(--sidebar-width); background: var(--pico-background-color); border-right: 1px solid var(--pico-muted-border-color); padding: 1rem; flex-shrink: 0; }
-.brand { display: block; font-weight: bold; margin-bottom: 1rem; color: var(--pico-primary); }
+  /* Text */
+  --text-primary: #f7f8f8;
+  --text-secondary: #d0d6e0;
+  --text-tertiary: #8a8f98;
+  --text-quaternary: #62666d;
+
+  /* Brand accent — used ONLY for CTAs and active states */
+  --accent: #5e6ad2;
+  --accent-hover: #828fff;
+  --accent-text: #7170ff;
+
+  /* Status */
+  --green: #27a644;
+  --green-bright: #10b981;
+
+  /* Borders — always semi-transparent white on dark */
+  --border-subtle: rgba(255,255,255,0.05);
+  --border-standard: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.12);
+
+  /* Radii */
+  --radius-sm: 2px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 9999px;
+
+  /* Layout */
+  --sidebar-width: 220px;
+
+  /* Shadows — light translucent rings for dark surfaces */
+  --shadow-ring: 0 0 0 1px rgba(0,0,0,0.2);
+  --shadow-card: 0 2px 4px rgba(0,0,0,0.4);
+  --shadow-dialog: 0 0 1px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.07), 0 3px 2px rgba(0,0,0,0.04), 0 5px 2px rgba(0,0,0,0.01), 0 8px 2px rgba(0,0,0,0);
+}
+
+html { background: var(--bg-root); }
+body {
+  display: flex; min-height: 100vh; margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text-primary); background: var(--bg-root);
+  -webkit-font-smoothing: antialiased;
+}
+code, pre, .log-row {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+
+/* Skip-to-content */
+.skip-link { position: absolute; top: -40px; left: 0; background: var(--accent); color: #fff; padding: 8px; z-index: 100; border-radius: var(--radius-md); }
+.skip-link:focus { top: 8px; }
+
+/* ── Sidebar ── */
+aside#sidebar {
+  width: var(--sidebar-width); background: var(--bg-panel);
+  border-right: 1px solid var(--border-subtle);
+  padding: 1.25rem 1rem; flex-shrink: 0;
+  display: flex; flex-direction: column;
+}
+.brand {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.94rem; font-weight: 590; color: var(--text-primary);
+  letter-spacing: -0.165px; margin-bottom: 1.5rem;
+}
 aside#sidebar nav ul { list-style: none; padding: 0; margin: 0; }
-aside#sidebar nav ul li { margin-bottom: 0.2rem; }
-aside#sidebar nav a { display: block; padding: 0.35rem 0.5rem; text-decoration: none; color: var(--pico-color); border-radius: 4px; }
-aside#sidebar nav a:hover, aside#sidebar nav a.active { background: var(--pico-primary-background); color: var(--pico-primary-inverse); }
+aside#sidebar nav ul li { margin-bottom: 1px; }
+aside#sidebar nav a {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.6rem; border-radius: var(--radius-md);
+  text-decoration: none; font-size: 0.81rem; font-weight: 510;
+  color: var(--text-secondary); letter-spacing: -0.13px;
+}
+aside#sidebar nav a:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+aside#sidebar nav a.active, aside#sidebar nav a[aria-current] {
+  background: rgba(255,255,255,0.05); color: var(--text-primary);
+}
 .nav-login { margin-top: 1.5rem; opacity: 0.6; }
-.version { margin-top: auto; font-size: 0.75rem; opacity: 0.5; padding-top: 1rem; }
+.version { margin-top: auto; font-size: 0.69rem; font-weight: 510; color: var(--text-quaternary); padding-top: 1rem; }
 
-/* Main content */
-main#main { flex: 1; padding: 1.5rem; overflow-x: auto; }
+/* ── Icon ── */
+.icon { width: 1em; height: 1em; vertical-align: -0.125em; opacity: 0.6; flex-shrink: 0; }
+aside#sidebar nav a:hover .icon, aside#sidebar nav a.active .icon { opacity: 1; }
 
-/* Stats grid */
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-.stat-card { padding: 1rem; border: 1px solid var(--pico-muted-border-color); border-radius: 6px; text-align: center; }
-.stat-card .num { font-size: 1.8rem; font-weight: bold; }
+/* ── Main Content ── */
+main#main { flex: 1; padding: 2rem; overflow-x: auto; }
+main#main h2 {
+  font-size: 1.25rem; font-weight: 590; color: var(--text-primary);
+  letter-spacing: -0.24px; margin-top: 0; margin-bottom: 1.5rem;
+}
+main#main h3 {
+  font-size: 1rem; font-weight: 510; color: var(--text-secondary);
+  letter-spacing: -0.15px; margin-bottom: 1rem;
+}
 
-/* Audit logs */
-.log-row { font-family: var(--pico-font-family-monospace); font-size: 0.85rem; padding: 0.3rem 0; border-bottom: 1px solid var(--pico-muted-border-color); }
-.log-time { color: var(--pico-muted-color); margin-right: 1rem; }
-.log-type { color: var(--pico-primary); margin-right: 0.5rem; }
+/* ── Stats Grid ── */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 2rem; }
+.stat-card {
+  padding: 1.25rem; border-radius: var(--radius-lg);
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border-standard);
+  text-align: center;
+}
+.stat-card .num { font-size: 1.5rem; font-weight: 590; color: var(--text-primary); }
 
-/* Streaming output */
-#stream-output { background: var(--pico-code-background-color); padding: 1rem; min-height: 200px; font-family: var(--pico-font-family-monospace); white-space: pre-wrap; border-radius: 4px; margin-top: 0.5rem; }
+/* ── Table ── */
+table { width: 100%; border-collapse: collapse; font-size: 0.81rem; }
+th { font-weight: 510; color: var(--text-tertiary); text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border-subtle); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+tr:hover td { background: rgba(255,255,255,0.02); }
 
-/* Icons (inline SVG) */
-  .icon { width: 1em; height: 1em; vertical-align: -0.125em; }
- /* ===== Toolbar row (standardized across all pages) ===== */
- .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: flex-end; }
- .toolbar > * { margin-bottom: 0; }
- .toolbar .toolbar-spacer { margin-left: auto; }
- .toolbar input[type="text"],
- .toolbar input[type="search"] { flex: 1; min-width: 160px; }
- .toolbar textarea { flex: 1; min-width: 160px; }
- /* Login page (centered card, no sidebar) */
- body.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
- .login-card { width: 360px; max-width: 90vw; padding: 2rem; border: 1px solid var(--pico-muted-border-color); border-radius: 8px; }
- .login-card h2 { text-align: center; margin-bottom: 1.5rem; }
- .login-card button { width: 100%; margin-top: 0.5rem; }
- .login-note { text-align: center; font-size: 0.8rem; opacity: 0.5; margin-top: 1rem; }
- /* Section spacing */
- section + section { margin-top: 1.5rem; }
- /* Table wrapper for horizontal scroll */
- .table-wrap { overflow-x: auto; }
- /* Pagination bar */
- .pagination { margin-top: 1rem; }
- /* Plan page helpers */
- .plan-input-group { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
- .plan-meta-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
- .plan-context { font-size: 0.85rem; }
- .result-block { background: var(--pico-code-background-color); padding: 0.75rem 1rem; border-radius: 4px; overflow-x: auto; }
- /* Knowledge: upload form */
- .upload-group { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-start; margin-bottom: 1rem; }
- /* Conv page */
- .conv-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+/* ── Buttons (Linear ghost style) ── */
+button, [role="button"] {
+  background: rgba(255,255,255,0.02); color: var(--text-secondary);
+  border: 1px solid var(--border-standard); border-radius: var(--radius-md);
+  padding: 0.4rem 0.8rem; font-size: 0.81rem; font-weight: 510;
+  cursor: pointer; font-family: inherit; letter-spacing: -0.13px;
+}
+button:hover, [role="button"]:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
+button.primary {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+button.primary:hover { background: var(--accent-hover); }
+
+/* ── Inputs ── */
+input, textarea, select {
+  background: rgba(255,255,255,0.02); color: var(--text-secondary);
+  border: 1px solid var(--border-standard); border-radius: var(--radius-md);
+  padding: 0.4rem 0.6rem; font-family: inherit; font-size: 0.81rem;
+}
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+::placeholder { color: var(--text-quaternary); }
+
+/* ── Audit Logs ── */
+.log-row { font-size: 0.81rem; padding: 0.35rem 0; border-bottom: 1px solid var(--border-subtle); letter-spacing: -0.13px; }
+.log-time { color: var(--text-quaternary); margin-right: 1rem; }
+.log-type { color: var(--accent-text); margin-right: 0.5rem; font-weight: 500; }
+
+/* ── Streaming output ── */
+#stream-output {
+  background: var(--bg-surface); padding: 1rem; min-height: 200px;
+  border-radius: var(--radius-md); margin-top: 0.5rem;
+  border: 1px solid var(--border-standard); color: var(--text-secondary);
+  white-space: pre-wrap; font-size: 0.81rem;
+}
+
+/* ── Misc ── */
+details { margin-bottom: 1rem; }
+details summary { font-weight: 510; cursor: pointer; color: var(--text-secondary); font-size: 0.81rem; }
+pre { background: var(--bg-surface); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); font-size: 0.81rem; }
+nav.pagination { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; }
+nav.pagination a { color: var(--text-tertiary); text-decoration: none; font-size: 0.81rem; }
+nav.pagination span { color: var(--text-quaternary); font-size: 0.75rem; }
