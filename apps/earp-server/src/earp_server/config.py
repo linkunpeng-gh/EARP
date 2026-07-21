@@ -30,3 +30,8 @@ class Settings(BaseSettings):
 
     # ── LLM Cache ──
     llm_cache_ttl: int = 3600  # seconds (1 hour)
+
+    # ── Observability (M15) ──
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "http://localhost:3000"

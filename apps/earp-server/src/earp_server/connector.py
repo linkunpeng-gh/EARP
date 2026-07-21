@@ -18,6 +18,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from earp_server.config import Settings
 
 if TYPE_CHECKING:
+    from earp_server.infra.langfuse_tracer import LangfuseTracer
     from earp_server.infra.llm_cache import LLMCache
     from earp_server.orchestrator.types import TokenEvent
 
@@ -123,6 +124,9 @@ class LLMConnector:
     def cache(self, c: LLMCache | None) -> None:
         self._cache = c
 
+    # M15: Langfuse tracer — set by lifespan
+    tracer: LangfuseTracer | None = None
+
     async def _call_ollama(
         self, prompt: str, *, capabilities: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
@@ -199,7 +203,16 @@ class LLMConnector:
             logger.info("LLMConnector.plan: empty capabilities list, skipping Ollama")
         else:
             try:
+                import time
+                t0 = time.monotonic()
                 steps = await self._call_ollama(prompt, capabilities=capabilities)
+                latency_ms = int((time.monotonic() - t0) * 1000)
+                if self.tracer:
+                    self.tracer.trace_llm(
+                        "plan", self._model, prompt[:200],
+                        output=json.dumps(steps)[:500], latency_ms=latency_ms,
+                        usage={"output_tokens": len(json.dumps(steps).split())},
+                    )
                 # Validate: capability_ids must exist in provided capabilities list
                 if capabilities:
                     valid_ids = {c["capability_id"] for c in capabilities}
@@ -218,8 +231,18 @@ class LLMConnector:
                 return steps
             except ConnectorError:
                 logger.warning("LLMConnector.plan: Ollama failed, falling back to RuleIntentPlanner")
+                if self.tracer:
+                    self.tracer.trace_llm(
+                        "plan", self._model, prompt[:200],
+                        error="Ollama failed — fell back to RuleIntentPlanner", latency_ms=0,
+                    )
             except Exception:
                 logger.exception("LLMConnector.plan: unexpected error, falling back")
+                if self.tracer:
+                    self.tracer.trace_llm(
+                        "plan", self._model, prompt[:200],
+                        error="unexpected error", latency_ms=0,
+                    )
 
         # 3. Fallback: RuleIntentPlanner
         from earp_server.planner.business_dictionary import RuleIntentPlanner

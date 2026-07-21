@@ -90,6 +90,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from earp_server.infra.llm_cache import LLMCache
         llm_cache = LLMCache(ttl=cfg.llm_cache_ttl)
         llm_connector.cache = llm_cache
+        # M15: Langfuse observability tracer
+        from earp_server.infra.langfuse_tracer import LangfuseTracer
+        from earp_server.knowledge.embedding_service import set_tracer
+
+        tracer = LangfuseTracer(cfg)
+        llm_connector.tracer = tracer
+        set_tracer(tracer)
         app.state.planner = SimpleTaskPlanner(llm=llm_connector)
         if cfg.app_env in ("dev", "test"):
             # in-process audit: subscribe handler to local EventBus
@@ -116,6 +123,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            tracer.flush()
             await app.state.engine.dispose()
 
     app = FastAPI(title=APP_TITLE, version=APP_VERSION, lifespan=lifespan)

@@ -2,11 +2,15 @@
 
 Uses bge-m3 (1024d) by default. Callers must pass Settings for the
 Ollama endpoint URL and model name.
+
+M15: Optional Langfuse tracer — set via set_tracer() before use.
 """
 
 from __future__ import annotations
 
 import logging
+import time
+from typing import TYPE_CHECKING
 
 import httpx
 from sqlalchemy import text
@@ -14,7 +18,19 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.config import Settings
 
+if TYPE_CHECKING:
+    from earp_server.infra.langfuse_tracer import LangfuseTracer
+
 logger = logging.getLogger(__name__)
+
+# M15: module-level tracer reference (set by main.py lifespan)
+_tracer: LangfuseTracer | None = None
+
+
+def set_tracer(tracer: LangfuseTracer | None) -> None:
+    """Set the Langfuse tracer for embedding calls. Call once at startup."""
+    global _tracer
+    _tracer = tracer
 
 # Maximum texts per Ollama /api/embed batch — bge-m3 handles ~512 tokens each,
 # so keep batch size conservative to avoid OOM on the Ollama server.
@@ -27,6 +43,7 @@ async def _ollama_embed(settings: Settings, texts: list[str]) -> list[list[float
         return []
     url = f"{settings.ollama_base_url}/api/embed"
     try:
+        t0 = time.monotonic()
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 url,
@@ -34,9 +51,18 @@ async def _ollama_embed(settings: Settings, texts: list[str]) -> list[list[float
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["embeddings"]
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        if _tracer:
+            _tracer.trace_embedding(
+                settings.ollama_embedding_model, texts, latency_ms=latency_ms,
+            )
+        return data["embeddings"]
     except httpx.HTTPError as exc:
         logger.error("Ollama embed failed: %s", exc)
+        if _tracer:
+            _tracer.trace_embedding(
+                settings.ollama_embedding_model, texts, error=str(exc),
+            )
         raise RuntimeError(f"Ollama embedding call failed: {exc}") from exc
 
 
