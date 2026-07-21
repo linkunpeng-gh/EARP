@@ -18,14 +18,15 @@ EARP 目前纯 API，无人能直接使用。Admin Dashboard 提供 Web 管理�
 
 | 维度 | 决策 | 理由 |
 |:---|:---|:---|
-| 渲染 | 服务端渲染 (Jinja2) | 零前端构建工具链，复用 FastAPI |
-| 交互 | htmx (2.0) | 无 JavaScript 框架，属性驱动动态更新 |
-| 样式 | 独立 `<style>` 块 + Simple.css | 无 npm/tailwind，10KB 单文件，提供基础表格/表单/按钮样式 |
-| 部署 | 同一个 FastAPI app | `Jinja2Templates(directory="templates")` + `StaticFiles(directory="static")` |
-| 不选 | React/Vue/Svelte | 单人团队不需要前端工程化 |
+| 渲染 | Vue 3 (petite-vue, 6KB CDN) | 零构建工具链，`v-if`/`v-for`/`v-model` 开箱即用 |
+| 交互 | 客户端渲染 + REST API 直调 | 无需服务端模板，前后端解耦 |
+| 样式 | Simple.css (10KB CDN) | 无 npm，提供基础表格/表单/按钮样式 |
+| 部署 | 同一个 FastAPI app | `StaticFiles(directory="static")` serve HTML/JS/CSS |
+| 未来升级 | Vite + Vue 3 完整工具链 | 组件语法完全兼容，加 build step 即可 |
+| 不选 | React/Svelte | 团队未来方向是 Vue |
 
-**依赖**: `jinja2`, `python-multipart` (表单上传), `htmx` (CDN 单文件), `simple.css` (CDN 单文件)
-**目录结构**: `apps/earp-server/templates/` + `apps/earp-server/static/`
+**依赖**: `simple.css` (CDN), `petite-vue` (CDN), `vue` (CDN, 仅 dev 模式带 warnings)
+**目录结构**: `apps/earp-server/static/admin/` (HTML/JS/CSS 全部静态文件)
 
 ---
 
@@ -132,9 +133,9 @@ EARP 目前纯 API，无人能直接使用。Admin Dashboard 提供 Web 管理�
 
 | 维度 | 方案 |
 |:---|:---|
-| 认证 | dev: 跳过 JWT（本地开发）。prod: `/admin/login` 表单页（JWT 签发后存 cookie） |
-| 授权 | admin 路由复用 JWT 中间件，无 token 时重定向到 `/admin/login` |
-| CSRF | htmx 自动在请求头注入 `X-CSRFToken`（从 cookie 读取），服务端验证 |
+| 认证 | dev: 跳过 JWT（本地开发）。prod: `/admin/login` → JWT 签发后存 localStorage |
+| 授权 | 所有 API 请求在 `Authorization: Bearer <token>` header 携带 JWT |
+| CSRF | 不适用 — SPA 纯 Bearer token 鉴权，无 cookie 会话 |
 | 租户隔离 | Dashboard 统计/Sessions 列表/Audit 查询全部按当前 JWT 的 `tenant_id` 过滤 |
 | 速率限制 | admin 路由复用 `TokenBucketRateLimiter`，生产环境提高 admin 阈值 |
 
@@ -144,8 +145,8 @@ EARP 目前纯 API，无人能直接使用。Admin Dashboard 提供 Web 管理�
 
 | 风险 | 缓解 |
 |:---|:---|
-| htmx 学习曲线 | 仅用基础属性（hx-get/hx-post/hx-target/hx-swap） |
-| Jinja2 模板膨胀 | 页面 ≤ 9 个，模板 ≤ 12 个，复杂度可控 |
+| petite-vue 学习曲线 | 仅用基础语法（v-if/v-for/v-model/@click），与完整 Vue 3 语法兼容 |
 | 无前端测试 | Phase 3 人工验收 + curl 脚本覆盖关键路径 |
 | Sessions 列表性能 | 分页 20 条/页，`ORDER BY created_at DESC LIMIT 20 OFFSET ?` |
 | Audit 日志膨胀 | 分页 50 条/页，按需添加日期范围过滤 |
+| 无服务端模板 | API 直调无 CSRF 风险（JWT Bearer token 在 header），不暴露 cookie |
