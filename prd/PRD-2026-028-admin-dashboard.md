@@ -152,7 +152,7 @@ apps/earp-server/static/admin/
 
 | 维度 | 方案 |
 |:---|:---|
-| 认证 | 通过环境变量 `EARP_AUTH_STRATEGY=dev-skip` 跳过 JWT（仅本地开发，默认关闭）。生产环境 `/admin/login` → JWT 签发后存 localStorage，所有 API 请求带 `Authorization: Bearer <token>` |
+| 认证 | 生产环境：JWT Bearer token 鉴权（`EARP_AUTH_STRATEGY=jwt` 或未设置，默认要求认证）。本地开发：显式设置 `EARP_AUTH_STRATEGY=dev-skip` 跳过 JWT，应用启动时若检测到 `dev-skip` 且 `EARP_APP_ENV` 非 dev/test 则拒绝启动。 |
 | 授权 | 所有 API 请求在 `Authorization: Bearer <token>` header 携带 JWT |
 | CSRF | 不适用 — SPA 纯 Bearer token 鉴权，无 cookie 会话 |
 | 租户隔离 | Dashboard 统计/Sessions 列表/Audit 查询全部按当前 JWT 的 `tenant_id` 过滤 |
