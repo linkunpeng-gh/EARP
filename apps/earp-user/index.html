@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="EARP Assistant — AI-powered enterprise assistant">
+<title>EARP Assistant</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header>
+  <span class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    EARP Assistant
+  </span>
+  <nav>
+    <a href="index.html" class="active" aria-current="page">Chat</a>
+    <a href="pages/search.html">Search</a>
+    <a href="pages/history.html">History</a>
+  </nav>
+  <div class="meta">u1 · <a href="pages/login.html">Sign out</a></div>
+</header>
+
+<div class="chat-container">
+  <div class="chat-messages" id="messages">
+    <!-- TODO: wire to Conversation API -->
+    <div class="welcome">
+      <h2>👋 Hi, I'm EARP Assistant</h2>
+      <p>Ask me anything — I can query data, run analysis, and search your knowledge base.</p>
+      <div class="suggestions">
+        <button>Query all active users</button>
+        <button>Search deployment guide</button>
+        <button>Generate weekly report</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="chat-input">
+    <textarea placeholder="Type your message..." rows="1" id="input"></textarea>
+    <button class="primary" title="Send">↑</button>
+  </div>
+</div>
+
+</body>
+</html>

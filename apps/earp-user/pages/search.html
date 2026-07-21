@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Knowledge Search"><title>Search — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/app.css"></head>
+<body>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP Assistant</span><nav><a href="../index.html">Chat</a><a href="search.html" class="active" aria-current="page">Search</a><a href="history.html">History</a></nav><div class="meta">u1 · <a href="login.html">Sign out</a></div></header>
+
+<main>
+<div class="page-title"><div><h2>Knowledge Search</h2><p class="page-subtitle">Search documents with semantic embeddings</p></div></div>
+<!-- TODO: live data -->
+<div class="toolbar"><input placeholder="Search documents..." style="flex:1" value="deployment"><button class="primary">Search</button></div>
+
+<div class="search-results">
+  <div class="search-result">
+    <h4>📄 Deployment Guide</h4>
+    <p class="snippet">Deploy EARP using Docker Compose. The stack includes PostgreSQL with pgvector, Valkey for caching, MinIO for object storage, and Langfuse for observability...</p>
+    <div class="meta"><span>Relevance: 92%</span><span>doc-003</span><span>45 chunks</span></div>
+  </div>
+  <div class="search-result">
+    <h4>📄 Getting Started</h4>
+    <p class="snippet">EARP is an enterprise AI runtime platform that turns natural language intents into executable actions. This guide covers installation, configuration, and your first Plan &amp; Invoke...</p>
+    <div class="meta"><span>Relevance: 78%</span><span>doc-001</span><span>12 chunks</span></div>
+  </div>
+  <div class="search-result">
+    <h4>📄 API Reference</h4>
+    <p class="snippet">The EARP API provides REST endpoints for session management, capability discovery, planning, and invocation. All endpoints require JWT Bearer authentication...</p>
+    <div class="meta"><span>Relevance: 65%</span><span>doc-002</span><span>45 chunks</span></div>
+  </div>
+</div>
+</main>
+</body></html>
