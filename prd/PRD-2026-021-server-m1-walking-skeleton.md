@@ -14,6 +14,7 @@
 
 > **v1.1 变更：** P1-1 §3.1 补 close 端点 + US-09；P1-2 Checkpoint 行加 checkpoint_writes 说明（M1 单步无需写入，已建表，M5 启用）；P1-3 SDK 测试数 27→37（test_mock_runtime 16+invoker_http 12+security 9）；P1-4 US 拆分为 9 个（US-02 GET session / US-03 invoke）；P1 顺手修 P2-1~P2-4。
 
+> **v2.1 备注**：M1 覆盖纯执行路径，Domain Routing 发生在 M3 Planner 层，Data Domain v2.1 变更对此 PRD 无影响。
 ---
 
 ## 1. 背景

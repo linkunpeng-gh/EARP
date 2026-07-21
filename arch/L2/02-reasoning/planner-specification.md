@@ -207,7 +207,7 @@ SHOULD: soft 约束作为优化目标
 
 # 第五章：Domain Routing & Discovery（v2.1 更新）
 
-## 5.1 Domain Routing（二维决策）
+## 5.1 Business & Data Domain Routing（二维决策）
 
 ### 5.1.1 Business Domain Routing
 

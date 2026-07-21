@@ -5,7 +5,7 @@
 | 字段 | 值 |
 |------|-----|
 | **PRD ID** | PRD-2026-023 |
-| **Feature** | Rule Intent Planner + Simple Task Planner + LLMConnector 接口定稿 + Plan Validation |
+| **Feature** | Rule Intent Planner（含二维 Domain Routing）+ Simple Task Planner + LLMConnector 接口定稿 + Plan Validation |
 | **里程碑** | M3（依赖 M1 invoke 链 + M2 PolicyLayer 鉴权） |
 | **上游设计** | L1/architecture-v6.md §8（推理管道）；LLMConnector 五挂点（langchain §2.4） |
 | **PRD 链** | ← PRD-2026-022(M2) ← PRD-2026-021(M1) |
@@ -29,12 +29,16 @@
 
 | US | 描述 | 类型 |
 |:--:|:-----|:----:|
-| US-01 | 用户发送 intent="query users" → Rule Planner 查 Business Dictionary → 匹配到 capability → 构造 Plan(1 Step) → invoke 执行 | 正常 |
+| US-01 | 用户发送 intent="query users" → Rule Planner → Domain Routing（二维）：
+  ├── Business Domain → Resolution Engine → Capability（操作路径）
+  └── Data Domain → Knowledge Center → Knowledge（知识路径，可选）
+  → 合并结果 → Plan / 直接返回 | 正常 |
 | US-02 | 用户发送 intent 不在 Dictionary → 规则匹配失败 → `intent_not_found` error + audit | 错误 |
 | US-03 | Simple Task Planner 接收 Prompt → 构造顺序 Plan（Step[]，当前 M1 单步执行第一步） | 正常 |
 | US-04 | Plan 产出含非法字段（无 capability_id）→ Plan Validation 拒绝 → ERR-PL-VALIDATION-001 + audit | 校验 |
 | US-05 | Plan 深度超过 max_depth=5 → Plan Validation 拒绝 | 深度 |
 | US-06 | LLMConnector.plan(prompt) → 调用 LLM → 解析 Pydantic Plan → 校验 → 返回 Plan | 正常 |
+| US-07 | 用户发送纯知识意图（如"休假政策"）→ Domain Routing → 无 Business Domain 匹配 → 走 Data Domain → Knowledge Center 检索 → 直接返回结果（跳过 Execution Runtime） | 知识 |
 
 ---
 
@@ -48,6 +52,8 @@
 | AC-04 | Plan Validation: 缺少 capability_id → reject | pytest |
 | AC-05 | Plan depth > 5 → reject | pytest |
 | AC-06 | LLMConnector.plan() 返回合法 Plan schema | pytest |
+| AC-07 | "query users" → Rule Planner 同时评估 Business Domain 和 Data Domain，两条路径互不阻塞 | pytest |
+| AC-08 | "休假政策"（纯知识意图）→ 不走 Business Domain，只走 Data Domain → 直接返回 Knowledge Center 结果（不创建 Execution） | pytest |
 
 ---
 

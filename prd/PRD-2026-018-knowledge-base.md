@@ -19,7 +19,7 @@
 
 | 模型 | 字段 | Dify 对应 |
 |:-----|:-----|:---------|
-| `KnowledgeBase` | kb_id, tenant_id, name, description | `Dataset` |
+| `KnowledgeBase` | kb_id, tenant_id, name, description, data_domain_id | `Dataset` |
 | `Document` | doc_id, kb_id, title, format, status(processing/ready/error), chunk_count | `Document` |
 | `Chunk` | chunk_id, doc_id, content, embedding(list[float]), metadata | `Segment` |
 | `ChunkWithScore` | chunk: Chunk, score: float | (retrieval result) |
@@ -32,6 +32,7 @@
 | AC-02 | 对齐数据视图 entity 定义 + 含 tenant_id 字段 |
 | AC-03 | `ChunkWithScore` 支持排序（score 降序） |
 | AC-04 | 现有 104 tests 无回归 |
+| AC-05 | `KnowledgeBase.data_domain_id` 字段存在，可为 None（未分配 DD 的 KB 仍可检索） |
 
 ## 4. 产出物
 

@@ -10,6 +10,7 @@
 | **版本** | v1.2 |
 | **日期** | 2026-07-15 |
 
+> **v2.1 备注**：Observation/Replay 不涉及 Data Domain 路由，Data Domain v2.1 变更对此 PRD 无影响。
 ---
 
 ## 1. 背景

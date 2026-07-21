@@ -262,6 +262,7 @@ Capability SDK 是 EARP 平台首个 L3 实现层产物。它填补架构（架�
 ```
 
 #### GET /capabilities/search?q={query}&domain={domain}&page={n}&page_size={n}
+（注：domain 参数始终指 Business Domain，v2.1 起与 Data Domain 平行概念）
 
 **成功响应（200 OK）：**
 

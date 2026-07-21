@@ -26,6 +26,10 @@
 | 5 | Capability | `GET /capabilities?q=echo` 按角色过滤——db 层 JOIN `business_capabilities.required_permissions` 与 `role.permissions`（子集判定），只返回角色有权调用的 capability |
 | 6 | Audit | AuditLayer 增强：CloudEvent.data 加 `role_id` + `role_permissions` |
 | 7 | Audit | PERMISSION_DENIED 事件（含 denied capability + required_permissions） |
+| 8 | Policy | Data Domain 授权评估：Knowledge Center 检索时，取 Role.data_domain_access ∩ 请求 data_domain_ids ∩ 文档级 data_classification。结果为空时不报错，静默过滤。
+  data_domain_access 格式：`[{"data_domain_id": "...", "max_classification": "confidential"}, ...]`，空列表 = 无 Data Domain 访问权限。
+  max_classification 取值：从该角色对该域配置的字段中读取，等级链 `public < internal < confidential < restricted`。
+  旧角色升级策略：已有角色新增 data_domain_access 列后默认值为 `[]`（空数组=无权限，安全优先），不影响 Capability RBAC。
 
 ---
 
@@ -51,7 +55,9 @@
 | AC-03 | 令牌桶 10rps → 第 11 个请求 429 | pytest |
 | AC-04 | Capability discover 只返回角色可用的 capability | pytest |
 | AC-05 | audit COMPLETED/PERMISSION_DENIED 含 role_id | pytest |
-| AC-06 | RBAC v1.1 §六 场景可复现：① 角色 R1 有 `demo:echo` 权限→invoke 成功；角色 R2 无 `demo:echo`→403 + PERMISSION_DENIED 事件含 `{denied_capability, role_id, required_permissions}` ② data_scope=self 角色查 sessions 只返回自己创建的记录 | pytest（test_rbac_scenarios.py） |
+| AC-06 | RBAC v1.1 §六 场景可复现（权限拒绝+data_scope 过滤） | pytest（test_rbac_scenarios.py） |
+| AC-07 | data_domain_access 查询→只返回有权限的 Data Domain 中的知识资产 | pytest |
+| AC-08 | 跨 Data Domain 查询→静默跳过无权限的域（不报错，不阻断有权限的域） | pytest：角色 R1 的 data_domain_access 含 `equipment_data`、不含 `hr_data` → 跨域查询时 hr_data 域结果被静默过滤（返回 equipment_data 结果正常） | pytest（test_rbac_dd.py） |
 
 ---
 

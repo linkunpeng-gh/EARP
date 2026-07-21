@@ -5,7 +5,7 @@
 | 字段 | 值 |
 |------|-----|
 | **PRD ID** | PRD-2026-024 |
-| **Feature** | Knowledge Base: Document/Chunk 入库 + pgvector 检索 + accessible_roles RAG 过滤 + RecordManager 增量索引; Conversation: 会话消息/摘要 |
+| **Feature** | Knowledge Base: Document/Chunk 入库 + pgvector 检索 + Data Domain 过滤 + accessible_roles RAG 过滤 + RecordManager 增量索引; Conversation: 会话消息/摘要 |
 | **里程碑** | M4 (依赖 M2 PolicyLayer + M0 DDL) |
 | **上游设计** | RBAC v1.1 §3.4; langchain-earp-mapping §2.5(RecordManager) §2.6(text-splitters) |
 | **PRD 链** | ← PRD-2026-023(M3) |
@@ -19,7 +19,10 @@
 | 1 | KB | Document 入库: POST /knowledge/documents — 创建 document 行(knowledge_base_id/content) |
 | 2 | KB | Chunk 分块: langchain-text-splitters(MIT依赖), RecursiveCharacterTextSplitter, chunk_size=1000/overlap=200 |
 | 3 | KB | Chunk 嵌入: pgvector embedding(1536d), INSERT chunks 行(embedding+document_id+content) |
-| 4 | KB | pgvector 检索: POST /knowledge/search — text→embedding→cosine_similarity→top_k=5 + accessible_roles 过滤 |
+| 4 | KB | pgvector 检索: POST /knowledge/search — text→embedding→cosine_similarity→top_k=5
+  + Data Domain 过滤（WHERE knowledge_bases.data_domain_id IN ? OR knowledge_bases.data_domain_id IS NULL——未分配 DD 的 KB 仍可检索）
+  + 文档级 data_classification ≤ 角色 max_classification（max_classification 从 Role.data_domain_access 中该域的字段取值）
+  + accessible_roles 过滤（向后兼容）|
 | 5 | KB | RecordManager 增量索引: content_hash 去重(MD5), 旧 chunk 清理(incremental 模式) |
 | 6 | KB | RETRIEVAL_FAILED 事件(检索异常→stderr+audit) |
 | 7 | Conv | Conversation: POST /conversations — 创建 messages 行(role/content/created_at), 摘要生成 |
@@ -50,6 +53,7 @@
 | AC-04 | RETRIEVAL_FAILED 事件含 error message | pytest |
 | AC-05 | 创建 conversation→POST message→201; GET→按序返回 | pytest |
 | AC-06 | 跨租户消息不可见(RLS) | pytest |
+| AC-07 | Data Domain 过滤生效：角色 R1 只对 equipment_data 域有权限 → 跨域查询时只返回该域的 chunks（未分配 DD 的 KB 不受影响） | pytest |
 
 ---
 
