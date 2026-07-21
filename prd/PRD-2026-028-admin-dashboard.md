@@ -1,6 +1,7 @@
 # PRD-2026-028: Web Admin Dashboard
 
 **版本**: v1.7 (页面功能说明)
+> **v2.1 备注**：Data Domains 管理页面（§6.6）为 v2.1 新增
 **日期**: 2026-07-21
 **状态**: Phase 1 — 待人工审核
 
@@ -79,7 +80,7 @@ apps/earp-admin/
 | Data Domains | `GET /admin/api/data-domains`（列表）| **需要新端点** |
 | Audit | `GET /admin/api/audit-logs?page=&event_type=&tenant_id=` | **需要新端点** |
 
-**新增端点**: 2 个 (`GET /v1/sessions` 列表 + `GET /admin/api/audit-logs`)
+**新增端点**: 3 个 (`GET /v1/sessions` 列表 + `GET /admin/api/data-domains` + `GET /admin/api/audit-logs`)
 
 ### 四-B、API 设计约定
 
@@ -94,7 +95,7 @@ apps/earp-admin/
 - 认证：除 JWT 外，可附加 admin role 检查（`admin` permission required）
 - 速率限制：1000 req/min（高于 v1 API 的 100 req/min）
 - 未来扩展：用户管理、租户管理、系统配置等管理功能统一放在此前缀下
-- `GET /admin/api/audit-logs` 为首个 admin API：`?page=1&page_size=50&event_type=&tenant_id=&from=&to=`
+- `GET /admin/api/audit-logs` 为首个 admin API；`GET /admin/api/data-domains` 为第二个（v2.1 新增）`
 
 ---
 
@@ -308,8 +309,33 @@ Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回
 - `POST /knowledge/search {query: "...", top_k: 10}` → 返回 `[{chunk_id, content, score}]`
 
 ---
+### 6.6 Data Domains (`pages/data-domains.html`) — v2.1 新增
 
-### 6.6 Conversations (`pages/conversations.html`)
+**用途**: 管理 EARP 的数据域——查看所有 Data Domain、管理域配置、查看与 Business Domain 的映射关系。
+
+**角色**: 平台开发者和知识管理员。
+
+**场景**:
+- 知识管理员注册新的 Data Domain（如 "设备数据"）并关联到 Business Domain
+- 管理员查看当前有哪些 Data Domain、各域的文档数量和分类等级
+- 调整 Data Domain 与 Business Domain 的映射关系
+
+**参数/元素**:
+
+| 元素 | 类型 | 说明 |
+|:---|:---|:---|
+| 表格 | 数据展示 | 列: ID / Name / Classification / Owner / Mapped Business Domains / Document Count |
+| + New Domain 按钮 | 操作 | 打开创建表单（name, classification, owner, mapped BD）|
+| View 链接 | 操作 | 展开查看该域下的所有知识资产（文档/词条/实体）|
+| 筛选器 | 下拉 | 按 data_classification 过滤（all / public / internal / confidential / restricted）|
+
+**API**: `GET /admin/api/data-domains`（新增 admin API，admin permission required）
+
+---
+
+
+
+### 6.7 Conversations (`pages/conversations.html`)
 
 **用途**: 管理多轮对话——创建对话、查看消息历史。Conversation 是管理前端（如聊天 UI、客服系统）与 EARP 交互的容器。
 
@@ -335,7 +361,7 @@ Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回
 
 ---
 
-### 6.7 Streaming (`pages/stream.html`)
+### 6.8 Streaming (`pages/stream.html`)
 
 **用途**: 实时测试 LLM 流式输出——输入 prompt，逐 token 查看 LLM 生成过程。是调试 LLM 行为和验证流式管道的核心工具。
 
@@ -360,31 +386,7 @@ Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回
 
 ---
 
-### 6.9 Data Domains (`pages/data-domains.html`) — v2.1 新增
-
-**用途**: 管理 EARP 的数据域——查看所有 Data Domain、管理域配置、查看与 Business Domain 的映射关系。
-
-**角色**: 平台开发者和知识管理员。
-
-**场景**:
-- 知识管理员注册新的 Data Domain（如 "设备数据"）并关联到 Business Domain
-- 管理员查看当前有哪些 Data Domain、各域的文档数量和分类等级
-- 调整 Data Domain 与 Business Domain 的映射关系
-
-**参数/元素**:
-
-| 元素 | 类型 | 说明 |
-|:---|:---|:---|
-| 表格 | 数据展示 | 列: ID / Name / Classification / Owner / Mapped Business Domains / Document Count |
-| + New Domain 按钮 | 操作 | 打开创建表单（name, classification, owner, mapped BD）|
-| View 链接 | 操作 | 展开查看该域下的所有知识资产（文档/词条/实体）|
-| 筛选器 | 下拉 | 按 data_classification 过滤（all / public / internal / confidential / restricted）|
-
-**API**: `GET /admin/api/data-domains`（新增 admin API，admin permission required）
-
----
-
-### 6.8 Audit Logs (`pages/audit.html`)
+### 6.9 Audit Logs (`pages/audit.html`)
 
 **用途**: 查看平台审计日志——追踪所有执行事件、排查问题、满足合规要求。所有 EARP 操作（Session 创建→Plan→Invoke→完成）均产生审计事件。
 
@@ -413,7 +415,7 @@ Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回
 
 ---
 
-### 6.9 Langfuse (`pages/observability.html` — Phase 2)
+### 6.10 Langfuse (`pages/observability.html` — Phase 2)
 
 **用途**: 内嵌 Langfuse 可观测性面板——查看 LLM 调用的 trace、token 用量、延迟分布、错误率。
 
