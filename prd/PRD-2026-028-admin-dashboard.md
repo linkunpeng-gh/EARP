@@ -125,41 +125,45 @@ apps/earp-server/static/admin/
 
 ### 3. Plan & Invoke
 ```
-┌──────────────────────────────────────────┐
-│ Intent: [________________] [Plan]        │
-├──────────────────────────────────────────┤
-│ Steps:                                   │
-│ 1. cap-demo-echo → {msg: "hello"}        │
-│                              [Invoke]    │
-├──────────────────────────────────────────┤
-│ Result: {"echo": {"message": "hello"}}   │
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│ Intent: [__________________________] [Plan]      │
+│ Session: [sess-abc123 ▼]                        │
+├──────────────────────────────────────────────────┤
+│ ▶ Session Context (collapsed)                    │
+├──────────────────────────────────────────────────┤
+│ Steps:                                           │
+│ 1. cap-demo-echo → {msg: "hello"}               │
+│                              [Invoke]           │
+├──────────────────────────────────────────────────┤
+│ Result: {"echo": {"message": "hello"}}           │
+└──────────────────────────────────────────────────┘
 ```
+Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回的 session 状态（status、created_at、metadata），帮助调试时理解当前上下文。
 
 ### 4. Streaming
 ```
 ┌──────────────────────────────────────────────────┐
 │ Prompt: [__________________________] [Stream]    │
-│ Session ID: [auto-create ▼] [sess-abc123]        │
+│ Session: [auto-create ▼] [Load from list...]     │
 ├──────────────────────────────────────────────────┤
 │ Hello world, this is a streaming                 │
 │ response from the LLM...                         │
 └──────────────────────────────────────────────────┘
 ```
-支持自动创建临时 Session 或选择已有 Session。
+支持自动创建临时 Session、手动输入 Session ID、或点击按钮从弹出列表中选取已有 Session。
 
 ### 5. Audit Logs
 ```
 ┌──────────────────────────────────────────────────┐
 │ From: [2026-07-01] To: [2026-07-21]              │
-│ Event: [▼all] Tenant: [______] [Search]          │
+│ Event: [▼all]                    [Search]        │
 ├──────────────────────────────────────────────────┤
 │ 2026-07-21 10:00 | execution.completed           │
 │   exec-abc → cap-demo-echo → OK                 │
 │                ← 1 2 3 ... 10 →                  │
 └──────────────────────────────────────────────────┘
 ```
-分页：每页 50 条，按 `created_at DESC`。日期范围 + event_type + tenant_id 筛选。
+分页：每页 50 条，按 `created_at DESC`。筛选：日期范围 + event_type。tenant_id 由 JWT 自动注入，普通管理员不暴露 Tenant 选择器（超级管理员可见）。
 
 ---
 
