@@ -46,7 +46,7 @@ EARP 的设计原则分两层——**L0 哲学原则**回答"为什么这样设�
 | # | 原则 | 落地约束 | 对应 L0 |
 |---|------|---------|:-------:|
 | A1 | Runtime First | 三引擎（Reasoning/Execution/Coordination）对外统一接受 Request | P1 |
-| A2 | Domain First | Planner 先路由 Domain，再检索该 Domain 内的 Capability | P2 |
+| A2 | Domain First | Planner 先路由 Business Domain（→ Capability）和 Data Domain（→ Knowledge），二维并行决策 | P2 |
 | A3 | Capability First | Capability 封装业务语义，隐藏底层 Tool/Connector | P3 |
 | A4 | Reason-Act 解耦 | Reasoning Runtime 与 Execution Runtime 独立部署、独立迭代 | P4 |
 | A5 | CQRS | Capability 分为 Query（绕过审批）和 Command（必经审批） | P5 |
@@ -362,19 +362,25 @@ EARP 的设计原则分两层——**L0 哲学原则**回答"为什么这样设�
 ## 3.2 架构主链
 
 ```
-v6.0 核心路径（含闭环）：
+v6.0 核心路径（含闭环，v2.1 新增 Data Domain 知识路径）：
 
 Application
     ↓
 Coordination Runtime（协调：Multi-Agent + Human Task/人机交互 + 事件/Scheduler）
     ↓
 Reasoning Runtime（推理：Intent + Goal/Constraint → Plan）
-    ↓
-Plan Validation Layer（校验 — Policy Center 参与策略评估）
-    ↓
-Execution Runtime（执行：Orchestrator → Decision → Transaction/Capability）
     │
-    ├──→ Domain Layer → Capability Center → Service → Connector → System
+    │── Plan Validation Layer（校验 — Policy Center 参与策略评估）
+    │
+    │── Domain Routing（二维决策 — v2.1 新增）
+    │   ├── Business Domain → Capability Center → Service → Connector → System
+    │   │                                （操作路径：执行具体业务能力）
+    │   │
+    │   └── Data Domain → Knowledge Center（RAG/Dictionary/Ontology）
+    │                                    （知识路径：检索企业知识）
+    │
+    │── 合并结果 → Plan → Execution Runtime
+    │            （执行：Orchestrator → Decision → Transaction/Capability）
     │
     ├──→ Feedback Collector → Evaluation Center → Knowledge Center → Planner
     │                                                               (闭环)
@@ -401,6 +407,39 @@ Execution Runtime（执行：Orchestrator → Decision → Transaction/Capabilit
 # 第四章：Reasoning Runtime
 
 > 与 v5.0 第 4 章一致。
+
+> **v2.1 更新**：Planner 的 Domain Routing 从单一路径扩展为二维并行决策。
+>
+> ### Domain Routing 二维决策（v2.1 新增）
+>
+> 在 Intent Parsing 和 Goal Generation 完成后，Planner 不再只路由到一个 Business Domain，而是同时完成两个维度的路由：
+>
+> ```
+> Intent → Goal
+>     │
+>     ├── Business Domain Routing
+>     │   └──→ Resolution Engine → Candidate Capabilities（操作路径）
+>     │
+>     └── Data Domain Routing
+>         └──→ Knowledge Center → Candidate Knowledge（知识路径）
+> ```
+>
+> ### 决策规则
+>
+> | 用户意图类型 | Business Domain 路由 | Data Domain 路由 | 示例 |
+> |-------------|:-------------------:|:----------------:|------|
+> | 纯知识查询 | 不路由 | 路由 | "休假政策是什么？" |
+> | 纯操作请求 | 路由 | 不路由 | "创建工单" |
+> | 知识+操作混合 | 路由 | 路由 | "分析近期报警趋势并对比安全标准" |
+>
+> ### 契约
+>
+> ```
+> MUST: Planner 在 Intent Parsing 后同时评估是否路由 Business Domain 和 Data Domain
+> MUST: 两个路由决策互不阻塞（一个失败不影响另一个）
+> SHOULD: 混合模式时，两条路径的结果由 LLM 合并为统一回答
+> MAY: 纯知识查询跳过 Execution Runtime，直接返回 Knowledge Center 结果
+> ```
 
 ---
 

@@ -105,13 +105,32 @@ MUST: 显式绑定优先于继承
 ## 5.1 RBAC
 
 ```
-MUST: 使用 "domain:action" 格式（alarm:read / work_order:write）
+MUST: Capability 授权使用 "domain:action" 格式（alarm:read / work_order:write）
 MUST: 评估：查询当前角色 permissions = Role.find_by_id(User.current_role_id).permissions
         → 与 Capability.required_permissions 做子集判断（role.permissions ⊇ required_permissions）
 MUST: 用户可拥有多个角色（User.roles = [role_a, role_b]）
 MUST: 操作前选择当前角色（User.current_role_id），权限评估基于当前角色
 MUST: 角色切换需记录审计事件 ROLE_SWITCHED（detail: {from_role, to_role, user_id}）
 MUST: 权限评估以当前角色为准——不可跨角色合并权限（如需更高权限，显式切换角色）
+```
+
+### Data Domain 授权（v2.1 新增）
+
+```
+Data Domain 的访问控制独立于 Capability RBAC，在 Knowledge Center 检索时评估：
+
+MUST: 角色配置增加 data_domain_access 字段，列举可访问的 Data Domain
+MUST: Knowledge Center 检索时，根据当前角色 data_domain_access 过滤检索空间
+MUST: data_domain_access 包含以下维度
+  - data_domain_id: 可访问的 Data Domain 列表（空 = 无权限）
+  - data_classification: 最高可访问的数据分类等级
+SHOULD: data_domain_access 与 Business Domain 权限独立评估（两者取交集）
+SHOULD: 跨 Data Domain 查询时，仅返回当前角色有权限的域的结果
+
+权限评估示例：
+  role "设备工程师"   → data_domain_access: [equipment_data], max_classification: "confidential"
+  role "HR 经理"      → data_domain_access: [hr_data, corporate_data], max_classification: "restricted"
+  role "管理员"       → data_domain_access: [*], max_classification: "restricted"
 ```
 
 ## 5.2 Rate Limit
@@ -133,6 +152,8 @@ MUST: 评估基于当前角色的 data_scope 字段
 MUST: 数据范围过滤在应用层执行（RLS 仅做 tenant 隔离兜底）
 SHOULD: 通过 Context.role_id + Context.user_roles 判断
 ```
+
+> **v2.1 补充**：Data Scope 仅控制 Business Domain 维度的数据可见性。Data Domain 维度的访问控制由 §5.1 Data Domain 授权独立管理。两条评估路径是互斥的——Data Domain 授权在检索时过滤知识空间，Data Scope 在查询时过滤业务数据。
 
 ## 5.4 Approval
 

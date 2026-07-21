@@ -37,7 +37,7 @@ Planner 是 EARP **Reasoning Runtime** 的核心，是平台的"大脑"。它不
 | Planner 核心循环 | 理解 → 规划 → 交付 → 反思 | 第二章 |
 | Intent Parsing | 自然语言理解 + 实体提取 | 第三章 |
 | Goal Generation | 将 Intent 转化为可量化 Goal | 第四章 |
-| Domain Routing & Discovery | 领域路由 + 能力选择 | 第五章 |
+| Domain Routing & Discovery | 领域路由 + 能力/知识发现（Business Domain + Data Domain 二维决策） | 第五章 |
 | Plan Generation | DAG 生成 + 并行优化 | 第六章 |
 | Reflection & RePlanning | 执行后反思 + 失败重规划 | 第七章 |
 | Planner 类型 | Rule / LLM / Hybrid 模式规范 | 第八章 |
@@ -69,10 +69,15 @@ Phase 2: Goal Generation
   输出：Goal + Constraints
   依赖：Knowledge / Ontology
 
-Phase 3: Domain Routing & Capability Discovery
+Phase 3a: Business Domain Routing & Capability Discovery
   输入：Goal
-  输出：Domain + Candidate Capabilities
+  输出：Business Domain + Candidate Capabilities
   依赖：Resolution Engine
+
+Phase 3b: Data Domain Routing & Knowledge Discovery
+  输入：Goal
+  输出：Data Domain + Candidate Knowledge
+  依赖：Knowledge Center（RAG + Business Dictionary）
 
 Phase 4: Plan Generation
   输入：Goal + Candidates
@@ -200,13 +205,46 @@ SHOULD: soft 约束作为优化目标
 
 ---
 
-# 第五章：Domain Routing & Capability Discovery
+# 第五章：Domain Routing & Discovery（v2.1 更新）
 
-## 5.1 Domain Routing
+## 5.1 Domain Routing（二维决策）
+
+### 5.1.1 Business Domain Routing
 
 ```
-MUST: Planner 根据 Goal.domain 路由到对应 Domain
-跨域场景：Goal 含多个 Domain → Resolution Engine 分别检索
+MUST: Planner 根据 Goal.domain 路由到对应 Business Domain
+跨域场景：Goal 含多个 Business Domain → Resolution Engine 分别检索
+```
+
+### 5.1.2 Data Domain Routing（v2.1 新增）
+
+```
+MUST: Planner 在 Intent Parsing 后同时评估 Data Domain 路由
+MUST: Data Domain 路由不通过 Resolution Engine——直接请求 Knowledge Center
+MUST: 路由输出为 Data Domain 列表（支持多域并行检索）
+
+Planner → Knowledge Center
+  输入：Goal + Data Domain
+  输出：KnowledgeResult（匹配文档 / 词条 / 实体）
+```
+
+### 5.1.3 路由判别逻辑
+
+| 用户意图特征 | Business Domain | Data Domain | 路由模式 |
+|-------------|:--------------:|:-----------:|---------|
+| 包含操作动词（创建/查询/提交） | 路由 | 可选 | 操作优先 |
+| 包含知识性措辞（什么是/政策/说明） | 不路由 | 路由 | 知识优先 |
+| 两者兼备（分析/比较/评估） | 路由 | 路由 | 混合模式 |
+| 无法判断（置信度 < 阈值） | Rule-based 默认路由 | Rule-based 默认路由 | 兜底 |
+
+### 5.1.4 契约
+
+```
+MUST: Business Domain 路由和 Data Domain 路由互不阻塞
+SHOULD: 混合模式下，两条路径的结果由 LLM 合并
+SHOULD: 纯知识模式跳过 Execution Runtime，直接返回 Knowledge Center 结果
+MUST: Data Domain 路由失败时（如无可匹配域），不阻塞 Business Domain 路由
+MUST: 当两条路由均失败时，返回 LLM 自身知识作为最低兜底
 ```
 
 ## 5.2 Capability Discovery
@@ -216,7 +254,7 @@ MUST: Planner 不直接查询 Registry——必须通过 Resolution Engine
 MUST: Planner 接收 ResolutionResult 的 selected_capabilities 和 fallback_capabilities
 
 Planner → Resolution Engine
-  输入：Goal + Domain
+  输入：Goal + Business Domain
   输出：ResolutionResult
 ```
 

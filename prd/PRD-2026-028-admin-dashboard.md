@@ -42,6 +42,7 @@ apps/earp-admin/
     ├── conversations.html
     ├── stream.html
     ├── audit.html
+    ├── data-domains.html
     └── login.html
 ```
 
@@ -56,10 +57,11 @@ apps/earp-admin/
 | 3 | Capabilities | `/admin/capabilities` | `GET /capabilities`, `POST /capabilities` |
 | 4 | Plan & Invoke | `/admin/plan` | `POST /plan` → `POST /v1/sessions/{id}/invoke` |
 | 5 | Knowledge Base | `/admin/knowledge` | `POST /knowledge/documents`, `POST /knowledge/search` |
-| 6 | Conversation | `/admin/conversations` | `POST /conversations`, `POST /conversations/{id}/messages` |
-| 7 | Streaming | `/admin/stream` | `POST /stream/invoke` → SSE |
-| 8 | Audit Logs | `/admin/audit` | `GET /admin/api/audit-logs?page=&event_type=&tenant_id=` |
-| 8 | Langfuse | `/admin/observability` | iframe `{EARP_LANGFUSE_HOST}` (通过环境变量配置，默认 `http://localhost:3000`) |
+| 6 | Data Domains | `/admin/data-domains` | `GET /admin/api/data-domains`（新增 admin API） |
+| 7 | Conversation | `/admin/conversations` | `POST /conversations`, `POST /conversations/{id}/messages` |
+| 8 | Streaming | `/admin/stream` | `POST /stream/invoke` → SSE |
+| 9 | Audit Logs | `/admin/audit` | `GET /admin/api/audit-logs?page=&event_type=&tenant_id=` |
+| 10 | Langfuse | `/admin/observability` | iframe `{EARP_LANGFUSE_HOST}` (通过环境变量配置，默认 `http://localhost:3000`) |
 
 ---
 
@@ -74,6 +76,7 @@ apps/earp-admin/
 | Knowledge Base | `POST /knowledge/documents`, `POST /knowledge/search` | 否 |
 | Conversation | `POST /conversations`, `POST /conversations/{id}/messages`, `GET /conversations/{id}/messages` | 否 |
 | Streaming | `POST /stream/invoke` | 否 |
+| Data Domains | `GET /admin/api/data-domains`（列表）| **需要新端点** |
 | Audit | `GET /admin/api/audit-logs?page=&event_type=&tenant_id=` | **需要新端点** |
 
 **新增端点**: 2 个 (`GET /v1/sessions` 列表 + `GET /admin/api/audit-logs`)
@@ -354,6 +357,30 @@ Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回
 | 输出区域 | 只读 | 黑色背景（`#191a1b`），等宽字体。token 逐字追加显示。收到 `[DONE]` 时追加换行标记 |
 
 **API**: `POST /stream/invoke {prompt: "...", system: "", session_id: ""}` → SSE `text/event-stream` → `data: {"token": "...", "index": N}` → `data: [DONE]`
+
+---
+
+### 6.9 Data Domains (`pages/data-domains.html`) — v2.1 新增
+
+**用途**: 管理 EARP 的数据域——查看所有 Data Domain、管理域配置、查看与 Business Domain 的映射关系。
+
+**角色**: 平台开发者和知识管理员。
+
+**场景**:
+- 知识管理员注册新的 Data Domain（如 "设备数据"）并关联到 Business Domain
+- 管理员查看当前有哪些 Data Domain、各域的文档数量和分类等级
+- 调整 Data Domain 与 Business Domain 的映射关系
+
+**参数/元素**:
+
+| 元素 | 类型 | 说明 |
+|:---|:---|:---|
+| 表格 | 数据展示 | 列: ID / Name / Classification / Owner / Mapped Business Domains / Document Count |
+| + New Domain 按钮 | 操作 | 打开创建表单（name, classification, owner, mapped BD）|
+| View 链接 | 操作 | 展开查看该域下的所有知识资产（文档/词条/实体）|
+| 筛选器 | 下拉 | 按 data_classification 过滤（all / public / internal / confidential / restricted）|
+
+**API**: `GET /admin/api/data-domains`（新增 admin API，admin permission required）
 
 ---
 

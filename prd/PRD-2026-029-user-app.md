@@ -113,7 +113,10 @@ apps/earp-user/
 **API 链路**:
 1. 页面加载 → `POST /conversations {title: "New Chat"}` → 获取 `conversation_id`
 2. 用户输入 → `POST /conversations/{id}/messages {role:"user", content:"..."}`
-3. 后端: LLM Planner → Capability 调用 → 返回结果 → SSE 流式输出到对话区
+3. 后端: LLM Planner → Domain Routing（二维决策，v2.1 新增 Data Domain 路径）
+   ├── Business Domain → Capability 调用（用户请求涉及业务操作时）
+   └── Data Domain → Knowledge Center 检索（用户请求涉及企业知识时）
+   → LLM 合并结果 → SSE 流式输出到对话区
 
 **流式输出**: 与 Admin Streaming 页面相同技术（SSE `text/event-stream`），但 UI 是逐 token 追加到最新 AI 消息气泡中。
 
@@ -201,14 +204,17 @@ apps/earp-user/
 | 建议按钮 ×3 | 快捷操作 | 预设的自然语言问题模板，点击后自动填入输入框并提交。示例: "Query all active users" / "Search deployment guide" / "Generate weekly report"。帮助新用户理解平台能力边界 |
 | 对话区 | 滚动列表 | 用户消息（右对齐、Indigo 蓝底白字气泡）和 AI 回复（左对齐、白底灰字气泡）交替展示。每条消息显示头像（👤/🤖）和时间戳。自动滚动到最新消息 |
 | 输入框 | 文本域 | `textarea` 格式，自适应高度（min 44px, max 120px）。用户输入自然语言需求。按 Enter 提交（Shift+Enter 换行） |
-| Send 按钮 | 操作 | 圆形蓝色按钮（↑ 箭头图标）。点击后: `POST /conversations/{id}/messages {role: "user", content: "..."}` → 触发 AI 处理。AI 回复通过 SSE 流式逐 token 追加到对话区 |
+| Send 按钮 | 操作 | 圆形蓝色按钮（↑ 箭头图标）。点击后: `POST /conversations/{id}/messages {role: "user", content: "..."}` → 触发 AI 处理（Planner 根据用户意图自动路由到 Data Domain 知识检索或 Business Domain 能力调用，或两者混合）。AI 回复通过 SSE 流式逐 token 追加到对话区 |
 | 📎 附件按钮 | Phase 2 | 上传文件作为对话上下文。后端调用 `POST /knowledge/documents` 先存入知识库，再作为上下文注入 Planner |
 | New Chat 按钮 | 操作 | 位于导航栏右侧或对话区顶部。点击后 `POST /conversations {title: "New Chat"}` → 清空对话区 → 重新显示欢迎消息 |
 | 顶部导航 | 显示 | 品牌名 "EARP Assistant" + Chat/Search/History 标签 + 用户名。Chat 标签高亮（accent underline） |
 
 **API 链路**:
 1. 页面加载 → `POST /conversations {title: "New Chat"}` → 返回 `{conversation_id: "conv-001"}`
-2. 用户输入 "查询活跃用户" → `POST /conversations/conv-001/messages {role: "user", content: "查询活跃用户"}` → 后端: Planner → Capability Invoke → 返回结果
+2. 用户输入 "查询活跃用户" → `POST /conversations/conv-001/messages {role: "user", content: "查询活跃用户"}` → 后端: Planner → Domain Routing
+   ├── Business Domain → Resolution Engine → Capability Invoke（操作路径）
+   └── Data Domain → Knowledge Center RAG 检索（知识路径）
+   → LLM 合并两条路径结果 → 返回最终回答
 3. AI 回复通过 SSE 流式输出 → `data: {"token": "Found", "index": 0}` → `data: {"token": " 5", "index": 1}` → ... → `data: [DONE]`
 4. 每个 token 追加到当前 AI 消息气泡中，形成逐字打字效果
 

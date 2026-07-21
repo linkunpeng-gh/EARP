@@ -68,6 +68,7 @@ MUST: 每个词条包含
   - language:          string    — 语言（如 "zh-CN"）
   - mapped_entity:     string    — 映射的标准实体
   - mapped_domain:     string    — 映射的业务领域
+  - data_domain:       string    — 所属 Data Domain（v2.1 新增，MUST）
   - synonyms:          list[str] — 同义词（SHOULD）
   - context_rules:     list[ContextRule] — 上下文消歧规则（SHOULD）
 
@@ -133,6 +134,7 @@ MUST: 异步处理（任务队列）
 MUST: 按文档类型选择提取器
 SHOULD: 分割策略可配置（chunk_size / overlap）
 MUST: 使用统一的 Embedding Provider
+MUST: 文档索引时标注所属 Data Domain（v2.1 新增）
 ```
 
 ## 3.4 检索
@@ -141,6 +143,8 @@ MUST: 使用统一的 Embedding Provider
 MUST: 支持向量检索 / 关键词检索 / 混合检索
 SHOULD: 检索结果按相关性排序，支持 Top-K
 SHOULD: 结果附带来源引用
+MUST: 检索接口支持 data_domain 参数，按域过滤检索空间（v2.1 新增）
+SHOULD: 支持多 Data Domain 并行检索（跨域查询）
 ```
 
 ---
@@ -153,7 +157,8 @@ SHOULD: 结果附带来源引用
 MUST: Ontology 包含
   - entity_id:       string    — 对象标识
   - name:            string    — 中文名称
-  - domain:          string    — 所属领域
+  - domain:          string    — 所属业务领域
+  - data_domain:     string    — 所属 Data Domain（v2.1 新增，MUST）
   - attributes:      list      — 属性（SHOULD）
   - relationships:   list      — 关系（SHOULD）
 
@@ -216,6 +221,8 @@ SHOULD: 支持版本管理和 A/B 测试
 
 # 第八章：知识生命周期
 
+## 8.1 知识流入流出与闭环
+
 ```
 流入：
   Business Dictionary: 手动录入 + 批量导入 + 未匹配术语自动记录
@@ -235,6 +242,30 @@ SHOULD: 支持版本管理和 A/B 测试
             → RAG（优化权重）
             → Semantic Index（更新 Embedding）
             → Prompt Library（优化模板）
+```
+
+## 8.2 Data Domain 生命周期管理（v2.1 新增）
+
+```
+Data Domain 的创建与维护：
+
+创建：
+  MUST: Data Domain 在首次注册同类知识资产时自动创建
+  SHOULD: 支持手动创建（批量注册前预定义）
+  SHOULD: 创建时声明 data_classification（public / internal / confidential / restricted）
+
+变更：
+  MUST: Data Domain 与 Business Domain 的映射关系支持动态调整
+  SHOULD: 知识资产在不同 Data Domain 之间迁移时保留审计记录
+
+废弃：
+  MUST: Data Domain 废弃时，下属知识资产需先迁移或标记为 orphan
+  MUST: 废弃的 Data Domain 不可用于路由（路由时跳过）
+
+治理：
+  SHOULD: 每个 Data Domain 有明确的 owner 团队
+  SHOULD: data_classification 变更需审批（结合 Policy Center）
+  MAY: 支持 Data Domain 层级（子域继承父域的数据分类等级）
 ```
 
 ---
