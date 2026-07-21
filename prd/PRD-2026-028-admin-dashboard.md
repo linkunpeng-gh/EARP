@@ -78,6 +78,21 @@ apps/earp-server/static/admin/
 
 **新增端点**: 2 个 (`GET /v1/sessions` 列表 + `GET /admin/api/audit-logs`)
 
+### 四-B、API 设计约定
+
+**v1 API（通用端点）**:
+- `GET /v1/sessions` 是标准 EARP REST API，任何客户端均可使用（非 Dashboard 专用）
+- 分页参数：`?page=1&page_size=20`，响应格式：`{"items": [...], "total": N, "page": 1, "page_size": 20}`
+- 筛选参数：`?status=active&user_id=u1`
+- 认证：JWT Bearer token
+
+**admin API（管理端点）**:
+- `/admin/api/*` 是管理后台专用端点，与 v1 API 隔离
+- 认证：除 JWT 外，可附加 admin role 检查（`admin` permission required）
+- 速率限制：1000 req/min（高于 v1 API 的 100 req/min）
+- 未来扩展：用户管理、租户管理、系统配置等管理功能统一放在此前缀下
+- `GET /admin/api/audit-logs` 为首个 admin API：`?page=1&page_size=50&event_type=&tenant_id=&from=&to=`
+
 ---
 
 ## 五、页面设计（草图）
