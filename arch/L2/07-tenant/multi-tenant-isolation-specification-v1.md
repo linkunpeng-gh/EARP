@@ -329,8 +329,8 @@ SHOULD: 每个租户的 Dashboard 仅展示本租户数据
 | DB 层 RLS 隔离 (SET LOCAL earp.tenant_id) | ✅ 所有查询入口 | `infra/db.py:tenant_session()` + 各 service 手动 SET LOCAL |
 | SDK 层 tenant_id 传播 (X-EARP-Tenant-Id) | ✅ Connector + Runtime client | `libs/earp-sdk-connector-py/rest.py` + `libs/earp-sdk-runtime-py/client.py` |
 | 凭证密钥 HKDF per-tenant 派生 | ✅ HKDF-SHA256 | `libs/earp-sdk-core-py/credential.py` |
-| 密文格式 version byte 预留 | ✅ Phase 2 格式, Phase 3 扩展已定义 | `libs/earp-sdk-core-py/credential.py` |
-| 角色级数据隔离 (data_scope) | ✅ self/department/org/all | `policy/service.py` (data_scope 过滤) |
+| 密文格式 version byte 预留 | ⚠️ Phase 2 格式不含 version byte, Phase 3 实现 | `libs/earp-sdk-core-py/credential.py` (设计注释已定义) |
+| 角色级数据隔离 (data_scope) | ✅ self/department/org/all | `orchestrator/layers.py:PolicyLayer.after_step()` (data_scope 过滤) |
 | Session/Execution 写入 role_id | ✅ DDL + runtime 写入 | `migrations/0001_baseline.py` + `runtime/session_service.py` |
 | Role-filtered Capability 发现 | ✅ discover() role_id 过滤 | `capability/registry.py` |
 | RLS 全表数据级矩阵 | ✅ 24 RLS 策略 | `migrations/0001_baseline.py` |
