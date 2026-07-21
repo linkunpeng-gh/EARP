@@ -3,7 +3,7 @@
 ## EARP 多租户隔离规范
 
 **文档编号：L2-07-TENANT**  
-**版本：v1.2**  
+**版本：v1.3**  
 **定位：L2 — 平台规范。定义 EARP 的多租户隔离策略——请求隔离、安全隔离、数据隔离、角色隔离、资源隔离、审计追责。**  
 **依赖：L2-01-RUNTIME v1.3, L2-06-SECURITY v1.1, L2-05-POLICY v1.1, L2-05-AUDIT v1.1**
 
@@ -318,3 +318,23 @@ SHOULD: 每个租户的 Dashboard 仅展示本租户数据
 | P1-3 | 系统事件 SHOULD 与实现不一致 | §3.2 SHOULD 改为"绑定到租户时携带 tenant_id，全局事件可为空" |
 | P1-4 | 密文格式未预留版本号 | §4.2.2 新增 version byte 定义（0x01=当前格式） |
 | P2-1 | 章节顺序可优化 | 重组为：概述→租户模型→请求隔离→安全隔离→数据隔离→资源隔离→审计→SDK |
+
+---
+
+# 第十章：实现状态（v1.3 新增，2026-07-21）
+
+| 规范条款 | 实现状态 | 落点 |
+|:---|:---|:---|
+| tenant_id 全链路传播 (JWT→Session→Capability) | ✅ | `gateway/auth.py` → `runtime/session_service.py` → `capability/registry.py` |
+| DB 层 RLS 隔离 (SET LOCAL earp.tenant_id) | ✅ 所有查询入口 | `infra/db.py:tenant_session()` + 各 service 手动 SET LOCAL |
+| SDK 层 tenant_id 传播 (X-EARP-Tenant-Id) | ✅ Connector + Runtime client | `libs/earp-sdk-connector-py/rest.py` + `libs/earp-sdk-runtime-py/client.py` |
+| 凭证密钥 HKDF per-tenant 派生 | ✅ HKDF-SHA256 | `libs/earp-sdk-core-py/credential.py` |
+| 密文格式 version byte 预留 | ✅ Phase 2 格式, Phase 3 扩展已定义 | `libs/earp-sdk-core-py/credential.py` |
+| 角色级数据隔离 (data_scope) | ✅ self/department/org/all | `policy/service.py` (data_scope 过滤) |
+| Session/Execution 写入 role_id | ✅ DDL + runtime 写入 | `migrations/0001_baseline.py` + `runtime/session_service.py` |
+| Role-filtered Capability 发现 | ✅ discover() role_id 过滤 | `capability/registry.py` |
+| RLS 全表数据级矩阵 | ✅ 24 RLS 策略 | `migrations/0001_baseline.py` |
+| 多租户账号 (tenant_account_joins) | ✅ CRUD 已启用 | `runtime/tenant_service.py` |
+| Rate Limit per-tenant | ✅ Redis Token Bucket | `capability/registry.py:TokenBucketRateLimiter` |
+| 审计日志 tenant_id 必填 | ✅ audit_logs 表 + consumer | `audit/consumer.py` |
+| Langfuse 追踪 tenant 隔离 | ✅ tracer 按 tenant 标记 | `infra/langfuse_tracer.py` |

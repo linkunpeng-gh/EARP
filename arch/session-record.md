@@ -85,10 +85,18 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 | 优先级 | 事项 | 状态 |
 |:------:|------|:----:|
-| P0 | P6 SDK（Runtime/Capability/Connector/Plugin） | ⏳ 未开始 |
-| P1 | Security Specification（凭证管理/数据加密/LLM 安全） | 📝 待补充 |
-| P1 | 多租户隔离深度设计 | 📝 待补充 |
+| P0 | P6 SDK（Runtime/Capability/Connector/Plugin） | ✅ 已完成 (2026-07-20) |
+| P1 | Security Specification（凭证管理/数据加密/LLM 安全） | ✅ v1.2 追加实现状态附录 (2026-07-21) |
+| P1 | 多租户隔离深度设计 | ✅ v1.3 追加实现状态附录 (2026-07-21) |
 | P2 | 交叉引用自动化校验 | 🟡 Low |
+| — | Phase 2 (embedding/structured output/cache) | ✅ 已完成 |
+| — | M8 LLM 流式输出 | ✅ 已完成 |
+| — | M11 LLM Planner 真实调用 | ✅ 已完成 |
+| — | #10 Audit Service 拆独立进程 | ✅ 已完成 |
+| — | #12 Saga/TCC 完整补偿 | ✅ 已完成 |
+| — | #14 Plugin Daemon 独立进程 | ✅ 已完成 |
+| — | #15 Langfuse 可观测性 | ✅ 已完成 |
+| — | 技术债务追踪 | ✅ arch/tech-debt.md |
 
 ---
 

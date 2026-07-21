@@ -3,7 +3,7 @@
 ## EARP 安全规范
 
 **文档编号：L2-06-SECURITY**
-**版本：v1.1**
+**版本：v1.2**
 **定位：L2 — 平台规范。定义 EARP 的安全策略——凭证管理、数据加密、LLM 安全、API 安全。审计基础设施和授权策略由各自的 Governance 规范承载。**
 **依赖：L0/design-philosophy.md, L1/architecture-v6.md, L2-01-RUNTIME v1.2, L2-05-POLICY v1.0, L2-05-AUDIT v1.1, L2-05-OBSERVATION v1.1**
 
@@ -268,3 +268,21 @@ Phase 3: Sandbox（WASM 或 RestrictedPython）
 | P1-4 | OutputFilter 未定义 | §4.1 新增实体定义（Capability 链拦截器） |
 | P2-1 | 路线图缺规范 Phase | §8 新增"规范 Phase"列 |
 | P2-2 | 凭证表缺 Plugin API Key | §2.1 明确 Plugin 使用 Runtime JWT，不需独立 Key |
+
+---
+
+# 第十章：实现状态（v1.2 新增，2026-07-21）
+
+| 规范条款 | 实现状态 | 落点 |
+|:---|:---|:---|
+| JWT 认证 (RS256) | ✅ HS256 dev 模式, RS256 待 Prod | `gateway/auth.py` |
+| API 速率限制 | ✅ Redis Token Bucket | `capability/registry.py:TokenBucketRateLimiter` |
+| 凭证加密存储 (AES-256-GCM) | ✅ HKDF per-tenant 派生 | `libs/earp-sdk-core-py/credential.py` |
+| 敏感字段脱敏 (masking) | ✅ email/phone/id_card | `libs/earp-sdk-core-py/masking.py` |
+| InputGuard (注入检测) | ✅ 黑名单模式 | `gateway/input_guard.py` |
+| OutputFilter (LLM 输出) | ✅ guard.py | `libs/earp-sdk-core-py/guard.py` |
+| Plugin 沙箱 (Process 隔离) | ✅ 子进程 JSON stdio | `libs/earp-sdk-plugin-py/sandbox.py` |
+| Plugin Daemon 独立进程 | ✅ HTTP + 线程池执行 | `entrypoints/plugin_daemon.py` |
+| 凭证 key 不在日志中 | ✅ RESTConnector 不 log token | `libs/earp-sdk-connector-py/base.py` |
+| AUTH_EXPIRED 审计事件 | ✅ structured audit log | `libs/earp-sdk-connector-py/base.py` |
+| LLM 可观测性 (Langfuse) | ✅ tracer + shutdown flush | `infra/langfuse_tracer.py` |
