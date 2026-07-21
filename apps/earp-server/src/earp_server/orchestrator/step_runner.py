@@ -128,4 +128,8 @@ class StepRunner:
             )
 
     async def batch(self, steps: list[Step]) -> list[StepResult]:
-        raise NotImplementedError("M7+: parallel batch execution (M5 uses for-loop)")
+        """DEPRECATED since M5. Multi-step execution uses for-loop via MultiStepExecutor.
+
+        This interface is kept for API stability. Use MultiStepExecutor.execute() instead.
+        """
+        raise NotImplementedError("DEPRECATED: use MultiStepExecutor.execute() (M5 for-loop)")

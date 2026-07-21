@@ -3,6 +3,14 @@
 tenant_session implements contract "A" (L3 design section 1.4):
 entering opens a transaction and applies SET LOCAL earp.tenant_id;
 normal exit commits, exceptions roll back. One context = one transaction.
+
+Preferred pattern for data-access functions:
+    async with tenant_session(engine, tenant_id) as session:
+        result = await session.execute(...)
+
+Alternative (legacy, still valid): manual engine.connect() + SET LOCAL.
+Both patterns are functionally equivalent — tenant_session() is recommended
+for new code as it guarantees GUC is set without relying on developer memory.
 """
 
 from __future__ import annotations

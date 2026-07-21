@@ -139,7 +139,7 @@ class TestStepRunnerInterface:
         with TestClient(app):
             runner = StepRunner(app.state.engine)
             step = Step(step_id="s1", capability_call={})
-            with pytest.raises(NotImplementedError, match="M7.*batch"):
+            with pytest.raises(NotImplementedError, match="DEPRECATED.*MultiStepExecutor"):
                 await runner.batch([step])
 
 
