@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>EARP — Topnav Fluid</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;510;590&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg-root:#08090a;--bg-panel:#0f1011;--bg-surface:#191a1b;--text-primary:#f7f8f8;--text-secondary:#d0d6e0;--text-tertiary:#8a8f98;--text-quaternary:#62666d;--accent:#5e6ad2;--accent-hover:#828fff;--accent-text:#7170ff;--green:#27a644;--border-subtle:rgba(255,255,255,0.05);--border-standard:rgba(255,255,255,0.08);--radius-md:6px;--radius-lg:8px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg-root);color:var(--text-primary);-webkit-font-smoothing:antialiased}
+header{background:var(--bg-panel);border-bottom:1px solid var(--border-subtle);padding:0.75rem 2rem;display:flex;align-items:center;gap:2rem;position:sticky;top:0;z-index:10}
+header .brand{display:flex;align-items:center;gap:0.5rem;font-size:0.94rem;font-weight:590;color:var(--text-primary)}
+header .brand svg{width:1em;height:1em;opacity:0.7}
+header nav{display:flex;gap:1.5rem;flex:1}
+header nav a{font-size:0.81rem;font-weight:510;color:var(--text-tertiary);text-decoration:none;padding:0.25rem 0;border-bottom:2px solid transparent}
+header nav a:hover{color:var(--text-primary)}
+header nav a.active{color:var(--text-primary);border-bottom-color:var(--accent)}
+header .meta{font-size:0.75rem;color:var(--text-quaternary);display:flex;align-items:center;gap:1rem}
+main{max-width:1200px;margin:0 auto;padding:2rem}
+h2{font-size:1.5rem;font-weight:590;color:var(--text-primary);margin:0 0 0.25rem}
+.subtitle{font-size:0.88rem;color:var(--text-tertiary);margin-bottom:2rem}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:2.5rem}
+.card{padding:1.5rem;border-radius:var(--radius-lg);background:var(--bg-surface);border:1px solid var(--border-standard)}
+.card .num{font-size:2rem;font-weight:590;color:var(--text-primary);margin-bottom:0.25rem}
+.card .label{font-size:0.75rem;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em}
+.panels{display:grid;grid-template-columns:2fr 1fr;gap:1.5rem;margin-bottom:2rem}
+.panel{background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:1.5rem}
+.panel h3{font-size:0.94rem;font-weight:590;color:var(--text-primary);margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center}
+.panel h3 span{font-size:0.75rem;font-weight:510;color:var(--text-quaternary)}
+table{width:100%;border-collapse:collapse;font-size:0.81rem}
+th{font-weight:510;color:var(--text-tertiary);text-align:left;padding:0.4rem 0;border-bottom:1px solid var(--border-subtle);font-size:0.75rem;text-transform:uppercase}
+td{padding:0.5rem 0;border-bottom:1px solid var(--border-subtle);color:var(--text-secondary)}
+tr:last-child td{border-bottom:none}
+button,a[role=button]{background:var(--accent);color:#fff;border:none;border-radius:var(--radius-md);padding:0.5rem 1rem;font-size:0.81rem;font-weight:510;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-block}
+button:hover,a[role=button]:hover{background:var(--accent-hover)}
+button.secondary{background:transparent;color:var(--text-secondary);border:1px solid var(--border-standard)}
+button.secondary:hover{background:rgba(255,255,255,0.04);color:var(--text-primary)}
+.quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.quick-card{background:var(--bg-surface);border:1px solid var(--border-standard);border-radius:var(--radius-lg);padding:1.25rem;cursor:pointer;transition:border-color 0.15s}
+.quick-card:hover{border-color:var(--accent)}
+.quick-card h4{font-size:0.88rem;font-weight:590;color:var(--text-primary);margin-bottom:0.25rem}
+.quick-card p{font-size:0.75rem;color:var(--text-tertiary)}
+.status-active{color:var(--green)}
+code,pre{font-family:'JetBrains Mono',ui-monospace,monospace}
+</style></head>
+<body>
+<header>
+  <span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>
+  <nav>
+    <a href="#" class="active">Overview</a>
+    <a href="#">Sessions</a>
+    <a href="#">Capabilities</a>
+    <a href="#">Plan &amp; Invoke</a>
+    <a href="#">Knowledge</a>
+    <a href="#">Audit</a>
+    <a href="#">Streaming</a>
+  </nav>
+  <div class="meta">tenant-demo · v0.2</div>
+</header>
+<main>
+  <h2>Enterprise AI Runtime Platform</h2>
+  <p class="subtitle">Manage sessions, capabilities, and LLM workflows for tenant-demo.</p>
+  <div class="stats">
+    <div class="card"><div class="num">12</div><div class="label">Sessions</div></div>
+    <div class="card"><div class="num">47</div><div class="label">Executions</div></div>
+    <div class="card"><div class="num">5</div><div class="label">Capabilities</div></div>
+    <div class="card"><div class="num">89</div><div class="label">Audit Events</div></div>
+  </div>
+  <div class="panels">
+    <div class="panel">
+      <h3>Recent Activity <span>Last 7 days</span></h3>
+      <table><thead><tr><th>Event</th><th>Session</th><th>Time</th><th>Status</th></tr></thead><tbody>
+      <tr><td>execution.completed</td><td>sess-abc123</td><td>2 min ago</td><td><span class="status-active">● OK</span></td></tr>
+      <tr><td>execution.started</td><td>sess-abc123</td><td>3 min ago</td><td>—</td></tr>
+      <tr><td>session.created</td><td>sess-def456</td><td>1 hour ago</td><td>—</td></tr>
+      <tr><td>plan.generated</td><td>sess-abc123</td><td>5 min ago</td><td>—</td></tr></tbody></table>
+    </div>
+    <div class="panel">
+      <h3>Quick Actions</h3>
+      <div class="quick-grid">
+        <div class="quick-card"><h4>🧠 Plan Intent</h4><p>Convert natural language into executable steps</p></div>
+        <div class="quick-card"><h4>📋 New Session</h4><p>Create a new execution session</p></div>
+        <div class="quick-card"><h4>🔧 Register Capability</h4><p>Add a new capability to the registry</p></div>
+        <div class="quick-card"><h4>📜 View Audit Logs</h4><p>Check execution history and compliance</p></div>
+      </div>
+    </div>
+  </div>
+</main>
+</body></html>

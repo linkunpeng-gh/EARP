@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>EARP — Sidebar Dense</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;510;590&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg-root:#08090a;--bg-panel:#0f1011;--bg-surface:#191a1b;--text-primary:#f7f8f8;--text-secondary:#d0d6e0;--text-tertiary:#8a8f98;--text-quaternary:#62666d;--accent:#5e6ad2;--accent-hover:#828fff;--accent-text:#7170ff;--green:#27a644;--border-subtle:rgba(255,255,255,0.05);--border-standard:rgba(255,255,255,0.08);--radius-md:6px;--radius-lg:8px;--sidebar-width:200px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg-root);color:var(--text-primary);-webkit-font-smoothing:antialiased;display:flex;min-height:100vh}
+.sidebar{width:var(--sidebar-width);background:var(--bg-panel);border-right:1px solid var(--border-subtle);padding:1.25rem 1rem;flex-shrink:0;display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:0.5rem;font-size:0.94rem;font-weight:590;color:var(--text-primary);margin-bottom:1.5rem}
+.brand svg{width:1em;height:1em;opacity:0.7}
+.nav{list-style:none;padding:0;margin:0}
+.nav li{margin-bottom:1px}
+.nav a{display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;border-radius:var(--radius-md);text-decoration:none;font-size:0.81rem;font-weight:510;color:var(--text-secondary)}
+.nav a:hover{background:rgba(255,255,255,0.04);color:var(--text-primary)}
+.nav a.active{background:rgba(255,255,255,0.05);color:var(--text-primary)}
+.nav a svg{width:1em;height:1em;opacity:0.6;flex-shrink:0}
+.nav a:hover svg,.nav a.active svg{opacity:1}
+.nav-login{margin-top:1.5rem;opacity:0.6}
+.version{margin-top:auto;font-size:0.69rem;font-weight:510;color:var(--text-quaternary);padding-top:1rem}
+main{flex:1;padding:2rem;overflow-x:auto}
+h2{font-size:1.25rem;font-weight:590;color:var(--text-primary);margin:0 0 1.5rem}
+h3{font-size:1rem;font-weight:510;color:var(--text-secondary);margin:0 0 1rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;margin-bottom:2rem}
+.card{padding:1.25rem;border-radius:var(--radius-lg);background:rgba(255,255,255,0.02);border:1px solid var(--border-standard);text-align:center}
+.card .num{font-size:1.5rem;font-weight:590;color:var(--text-primary)}
+.card .label{font-size:0.75rem;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em}
+table{width:100%;border-collapse:collapse;font-size:0.81rem}
+th{font-weight:510;color:var(--text-tertiary);text-align:left;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border-subtle);font-size:0.75rem;text-transform:uppercase}
+td{padding:0.5rem 0.75rem;border-bottom:1px solid var(--border-subtle);color:var(--text-secondary)}
+tr:hover td{background:rgba(255,255,255,0.02)}
+button,a[role=button]{background:rgba(255,255,255,0.02);color:var(--text-secondary);border:1px solid var(--border-standard);border-radius:var(--radius-md);padding:0.4rem 0.8rem;font-size:0.81rem;font-weight:510;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-block}
+button:hover,a[role=button]:hover{background:rgba(255,255,255,0.05);color:var(--text-primary)}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.primary:hover{background:var(--accent-hover)}
+input,select{background:rgba(255,255,255,0.02);color:var(--text-secondary);border:1px solid var(--border-standard);border-radius:var(--radius-md);padding:0.4rem 0.6rem;font-family:inherit;font-size:0.81rem}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.quick-actions{display:flex;gap:0.5rem;margin-bottom:2rem}
+code,pre,.log{font-family:'JetBrains Mono',ui-monospace,monospace}
+pre{background:var(--bg-surface);padding:0.75rem;border-radius:var(--radius-md);border:1px solid var(--border-subtle);font-size:0.81rem;color:var(--text-secondary)}
+.pagination{display:flex;gap:0.5rem;align-items:center;margin-top:1rem;font-size:0.75rem}
+.pagination a{color:var(--text-tertiary);text-decoration:none}
+.pagination span{color:var(--text-quaternary)}
+.status-active{color:var(--green)}
+</style></head>
+<body>
+<aside class="sidebar">
+  <span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP Admin</span>
+  <ul class="nav">
+    <li><a href="#" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Dashboard</a></li>
+    <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Sessions</a></li>
+    <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Capabilities</a></li>
+    <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/></svg>Plan &amp; Invoke</a></li>
+    <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Knowledge Base</a></li>
+    <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Conversations</a></li>
+    <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Streaming</a></li>
+    <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Audit Logs</a></li>
+  </ul>
+  <div class="version">v0.2 · tenant-demo</div>
+</aside>
+<main>
+  <h2>Dashboard</h2>
+  <div class="quick-actions">
+    <a href="#" role="button">+ New Session</a>
+    <button class="primary">Plan Intent</button>
+  </div>
+  <div class="stats">
+    <div class="card"><div class="num">12</div><div class="label">Sessions</div></div>
+    <div class="card"><div class="num">47</div><div class="label">Executions</div></div>
+    <div class="card"><div class="num">5</div><div class="label">Capabilities</div></div>
+    <div class="card"><div class="num">89</div><div class="label">Audit Events</div></div>
+  </div>
+  <h3>Recent Sessions</h3>
+  <table><thead><tr><th>ID</th><th>User</th><th>Status</th><th>Created</th></tr></thead><tbody>
+  <tr><td>sess-abc123</td><td>u1</td><td><span class="status-active">● active</span></td><td>2026-07-21 10:00</td></tr>
+  <tr><td>sess-def456</td><td>u2</td><td>closed</td><td>2026-07-20 09:30</td></tr>
+  <tr><td>sess-ghi789</td><td>u1</td><td><span class="status-active">● active</span></td><td>2026-07-19 14:20</td></tr></tbody></table>
+  <div class="pagination"><a href="#">← Prev</a><span>1 of 1</span><a href="#">Next →</a></div>
+</main>
+</body></html>
