@@ -26,7 +26,24 @@ EARP 目前纯 API，无人能直接使用。Admin Dashboard 提供 Web 管理�
 | 不选 | React/Svelte | 团队未来方向是 Vue |
 
 **依赖**: `simple.css` (CDN), `petite-vue` (CDN), `vue` (CDN, 仅 dev 模式带 warnings)
-**目录结构**: `apps/earp-server/static/admin/` (HTML/JS/CSS 全部静态文件)
+**目录结构**:
+```
+apps/earp-server/static/admin/
+├── index.html              # Dashboard home
+├── css/
+│   └── admin.css           # 补充样式（覆盖 simple.css 默认值）
+├── js/
+│   └── app.js              # Vue app 入口 + 全局状态（token/tenant）
+└── pages/
+    ├── sessions.html       # Sessions 列表+详情
+    ├── capabilities.html   # Capability 注册+发现
+    ├── plan.html           # Plan & Invoke
+    ├── knowledge.html      # Knowledge Base
+    ├── conversations.html  # Conversation 管理
+    ├── stream.html         # Streaming 测试
+    ├── audit.html          # Audit Logs
+    └── login.html          # 登录页 (prod)
+```
 
 ---
 
@@ -42,7 +59,7 @@ EARP 目前纯 API，无人能直接使用。Admin Dashboard 提供 Web 管理�
 | 6 | Conversation | `/admin/conversations` | `POST /conversations`, `POST /conversations/{id}/messages` |
 | 7 | Streaming | `/admin/stream` | `POST /stream/invoke` → SSE |
 | 8 | Audit Logs | `/admin/audit` | `GET /admin/api/audit-logs?page=&event_type=&tenant_id=` |
-| 9 | Langfuse | `/admin/observability` | iframe `http://localhost:3000` |
+| 8 | Langfuse | `/admin/observability` | iframe `{EARP_LANGFUSE_HOST}` (通过环境变量配置，默认 `http://localhost:3000`) |
 
 ---
 
@@ -80,15 +97,16 @@ EARP 目前纯 API，无人能直接使用。Admin Dashboard 提供 Web 管理�
 
 ### 2. Sessions
 ```
-┌──────────────────────────────────────────┐
-│ Sessions                        [Create] │
-├──────────────────────────────────────────┤
-│ sess-abc123 | u1 | active | 2026-07-21  │
-│ sess-def456 | u2 | closed | 2026-07-20  │
-│                ← 1 2 3 ... 5 →           │
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│ Sessions  [Status: ▼all] [User ID: ______] [Search]│
+│                                    [Create New]   │
+├──────────────────────────────────────────────────┤
+│ sess-abc123 | u1 | active  | 2026-07-21 10:00   │
+│ sess-def456 | u2 | closed  | 2026-07-20 09:30   │
+│                ← 1 2 3 ... 5 →                   │
+└──────────────────────────────────────────────────┘
 ```
-分页：每页 20 条。
+分页：每页 20 条。筛选：状态下拉（all/active/closed）+ 用户 ID 搜索框。
 
 ### 3. Plan & Invoke
 ```
@@ -105,27 +123,28 @@ EARP 目前纯 API，无人能直接使用。Admin Dashboard 提供 Web 管理�
 
 ### 4. Streaming
 ```
-┌──────────────────────────────────────────┐
-│ Prompt: [________________] [Stream]      │
-├──────────────────────────────────────────┤
-│ Hello world, this is a streaming         │
-│ response from the LLM...                 │
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│ Prompt: [__________________________] [Stream]    │
+│ Session ID: [auto-create ▼] [sess-abc123]        │
+├──────────────────────────────────────────────────┤
+│ Hello world, this is a streaming                 │
+│ response from the LLM...                         │
+└──────────────────────────────────────────────────┘
 ```
+支持自动创建临时 Session 或选择已有 Session。
 
 ### 5. Audit Logs
 ```
-┌──────────────────────────────────────────┐
-│ Filter: [event_type] [tenant]  [Search]  │
-├──────────────────────────────────────────┤
-│ 2026-07-21 10:00 | execution.completed   │
-│   exec-abc → cap-demo-echo → OK         │
-│ 2026-07-21 09:55 | execution.started     │
-│   exec-abc → cap-demo-echo              │
-│                ← 1 2 3 ... 10 →          │
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│ From: [2026-07-01] To: [2026-07-21]              │
+│ Event: [▼all] Tenant: [______] [Search]          │
+├──────────────────────────────────────────────────┤
+│ 2026-07-21 10:00 | execution.completed           │
+│   exec-abc → cap-demo-echo → OK                 │
+│                ← 1 2 3 ... 10 →                  │
+└──────────────────────────────────────────────────┘
 ```
-分页：每页 50 条，按 `created_at DESC`。
+分页：每页 50 条，按 `created_at DESC`。日期范围 + event_type + tenant_id 筛选。
 
 ---
 
@@ -133,11 +152,11 @@ EARP 目前纯 API，无人能直接使用。Admin Dashboard 提供 Web 管理�
 
 | 维度 | 方案 |
 |:---|:---|
-| 认证 | dev: 跳过 JWT（本地开发）。prod: `/admin/login` → JWT 签发后存 localStorage |
+| 认证 | 通过环境变量 `EARP_AUTH_STRATEGY=dev-skip` 跳过 JWT（仅本地开发，默认关闭）。生产环境 `/admin/login` → JWT 签发后存 localStorage，所有 API 请求带 `Authorization: Bearer <token>` |
 | 授权 | 所有 API 请求在 `Authorization: Bearer <token>` header 携带 JWT |
 | CSRF | 不适用 — SPA 纯 Bearer token 鉴权，无 cookie 会话 |
 | 租户隔离 | Dashboard 统计/Sessions 列表/Audit 查询全部按当前 JWT 的 `tenant_id` 过滤 |
-| 速率限制 | admin 路由复用 `TokenBucketRateLimiter`，生产环境提高 admin 阈值 |
+| 速率限制 | admin 端点 1000 req/min，普通 API 100 req/min（生产环境初始值，上线后根据监控调整） |
 
 ---
 
