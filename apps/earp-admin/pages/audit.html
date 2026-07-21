@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><title>Audit Logs — EARP</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<div id="sidebar"><h3>⚡ EARP Admin</h3><nav>
+<a href="../index.html">🏠 Dashboard</a><a href="sessions.html">📋 Sessions</a>
+<a href="capabilities.html">🔧 Capabilities</a><a href="plan.html">🧠 Plan & Invoke</a>
+<a href="knowledge.html">📚 Knowledge Base</a><a href="conversations.html">💬 Conversations</a>
+<a href="stream.html">🌊 Streaming</a><a href="audit.html" class="active">📜 Audit Logs</a>
+</nav></div>
+<div id="main">
+<h2>Audit Logs</h2>
+<div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+  <label>From <input type="date" value="2026-07-01"></label>
+  <label>To <input type="date" value="2026-07-21"></label>
+  <select><option>all</option><option>earp.execution.completed</option><option>earp.execution.started</option><option>earp.execution.failed</option></select>
+  <button>Search</button>
+</div>
+<div class="log-row"><span class="log-time">2026-07-21 10:00:15</span><span class="log-type">execution.completed</span> exec-abc123 → cap-demo-echo → OK</div>
+<div class="log-row"><span class="log-time">2026-07-21 09:55:02</span><span class="log-type">execution.started</span> exec-abc123 → cap-demo-echo</div>
+<div class="log-row"><span class="log-time">2026-07-21 09:30:00</span><span class="log-type">session.created</span> sess-abc123 → user u1</div>
+<nav style="margin-top:1rem"><a href="#">← Prev</a> <span>Page 1 of 3</span> <a href="#">Next →</a></nav>
+</div></body></html>

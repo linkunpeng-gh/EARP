@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><title>Plan & Invoke — EARP</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<div id="sidebar"><h3>⚡ EARP Admin</h3><nav>
+<a href="../index.html">🏠 Dashboard</a><a href="sessions.html">📋 Sessions</a>
+<a href="capabilities.html">🔧 Capabilities</a><a href="plan.html" class="active">🧠 Plan & Invoke</a>
+<a href="knowledge.html">📚 Knowledge Base</a><a href="conversations.html">💬 Conversations</a>
+<a href="stream.html">🌊 Streaming</a><a href="audit.html">📜 Audit Logs</a>
+</nav></div>
+<div id="main">
+<h2>Plan & Invoke</h2>
+<div style="display:flex;gap:0.5rem;margin-bottom:0.5rem">
+  <input placeholder="Intent (e.g. echo hello)" style="flex:1" value="echo hello">
+  <button>Plan</button>
+</div>
+<div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+  <select><option>sess-abc123 (active)</option><option>+ New Session</option></select>
+</div>
+
+<details open><summary>Session Context</summary>
+<pre style="font-size:0.8rem">status: active | user: u1 | role: r1 | created: 2026-07-21 10:00</pre>
+</details>
+
+<h3>Steps</h3>
+<table>
+<thead><tr><th>#</th><th>Capability</th><th>Input</th><th></th></tr></thead>
+<tbody>
+<tr><td>1</td><td>cap-demo-echo</td><td><code>{"msg":"hello"}</code></td><td><button>Invoke</button></td></tr>
+</tbody>
+</table>
+
+<h3>Result</h3>
+<pre><code>{"echo": {"message": "hello"}}</code></pre>
+</div></body></html>

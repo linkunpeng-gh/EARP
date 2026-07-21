@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><title>Sessions — EARP</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<div id="sidebar"><h3>⚡ EARP Admin</h3><nav>
+<a href="../index.html">🏠 Dashboard</a><a href="sessions.html" class="active">📋 Sessions</a>
+<a href="capabilities.html">🔧 Capabilities</a><a href="plan.html">🧠 Plan & Invoke</a>
+<a href="knowledge.html">📚 Knowledge Base</a><a href="conversations.html">💬 Conversations</a>
+<a href="stream.html">🌊 Streaming</a><a href="audit.html">📜 Audit Logs</a>
+</nav></div>
+<div id="main">
+<h2>Sessions</h2>
+<div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+  <select><option>all</option><option>active</option><option>closed</option></select>
+  <input placeholder="User ID" style="width:150px">
+  <button>Search</button>
+  <button style="margin-left:auto">+ New Session</button>
+</div>
+<table>
+<thead><tr><th>Session ID</th><th>User</th><th>Status</th><th>Created</th><th></th></tr></thead>
+<tbody>
+<tr><td>sess-abc123</td><td>u1</td><td>active</td><td>2026-07-21 10:00</td><td><a href="#">View</a></td></tr>
+<tr><td>sess-def456</td><td>u2</td><td>closed</td><td>2026-07-20 09:30</td><td><a href="#">View</a></td></tr>
+</tbody>
+</table>
+<nav><a href="#">← Prev</a> <span>Page 1 of 1</span> <a href="#">Next →</a></nav>
+</div></body></html>

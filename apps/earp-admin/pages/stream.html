@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><title>Streaming — EARP</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<div id="sidebar"><h3>⚡ EARP Admin</h3><nav>
+<a href="../index.html">🏠 Dashboard</a><a href="sessions.html">📋 Sessions</a>
+<a href="capabilities.html">🔧 Capabilities</a><a href="plan.html">🧠 Plan & Invoke</a>
+<a href="knowledge.html">📚 Knowledge Base</a><a href="conversations.html">💬 Conversations</a>
+<a href="stream.html" class="active">🌊 Streaming</a><a href="audit.html">📜 Audit Logs</a>
+</nav></div>
+<div id="main">
+<h2>Streaming</h2>
+<div style="display:flex;gap:0.5rem;margin-bottom:0.5rem">
+  <input placeholder="Prompt" style="flex:1" value="Explain EARP in one sentence">
+  <button>Stream</button>
+</div>
+<div style="display:flex;gap:0.5rem;margin-bottom:1rem">
+  <select><option>auto-create</option><option>sess-abc123</option></select>
+  <button style="font-size:0.8rem">Load from list...</button>
+</div>
+<div id="stream-output">Streaming output will appear here...</div>
+</div></body></html>

@@ -1,0 +1,20 @@
+/* EARP Admin Dashboard — minimal style overrides on Simple.css */
+:root {
+  --sidebar-width: 200px;
+}
+body { display: flex; min-height: 100vh; margin: 0; }
+#sidebar { width: var(--sidebar-width); background: var(--bg); border-right: 1px solid var(--border); padding: 1rem; flex-shrink: 0; }
+#sidebar h3 { margin-top: 0; font-size: 1.1rem; }
+#sidebar nav a { display: block; padding: 0.3rem 0; text-decoration: none; color: var(--text); border-radius: 4px; }
+#sidebar nav a:hover, #sidebar nav a.active { background: var(--accent-bg); }
+#main { flex: 1; padding: 1.5rem; overflow-x: auto; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.stat-card { padding: 1rem; border: 1px solid var(--border); border-radius: 6px; text-align: center; }
+.stat-card .num { font-size: 1.8rem; font-weight: bold; }
+.log-row { font-family: monospace; font-size: 0.85rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
+.log-time { color: var(--text-light); margin-right: 1rem; }
+.log-type { color: var(--accent); margin-right: 0.5rem; }
+#stream-output { background: var(--code-bg); padding: 1rem; min-height: 200px; font-family: monospace; white-space: pre-wrap; border-radius: 4px; margin-top: 0.5rem; }
+.collapsible { cursor: pointer; user-select: none; }
+.collapsible-content { display: none; }
+.collapsible.open + .collapsible-content { display: block; }

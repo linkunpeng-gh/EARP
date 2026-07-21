@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EARP Admin</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+<link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+<div id="sidebar">
+  <h3>⚡ EARP Admin</h3>
+  <nav>
+    <a href="index.html" class="active">🏠 Dashboard</a>
+    <a href="pages/sessions.html">📋 Sessions</a>
+    <a href="pages/capabilities.html">🔧 Capabilities</a>
+    <a href="pages/plan.html">🧠 Plan & Invoke</a>
+    <a href="pages/knowledge.html">📚 Knowledge Base</a>
+    <a href="pages/conversations.html">💬 Conversations</a>
+    <a href="pages/stream.html">🌊 Streaming</a>
+    <a href="pages/audit.html">📜 Audit Logs</a>
+    <a href="pages/login.html" style="margin-top:1rem;opacity:0.5">🔑 Login (prod)</a>
+  </nav>
+  <div style="margin-top:auto;font-size:0.8rem;opacity:0.5">v0.1</div>
+</div>
+<div id="main">
+  <h2>Dashboard</h2>
+  <div class="stats">
+    <div class="stat-card"><div class="num">12</div>Sessions</div>
+    <div class="stat-card"><div class="num">47</div>Executions</div>
+    <div class="stat-card"><div class="num">5</div>Capabilities</div>
+    <div class="stat-card"><div class="num">89</div>Audit Events</div>
+  </div>
+  <h3>Quick Actions</h3>
+  <a href="pages/sessions.html" role="button">New Session</a>
+  <a href="pages/plan.html" role="button">Plan Intent</a>
+</div>
+</body>
+</html>

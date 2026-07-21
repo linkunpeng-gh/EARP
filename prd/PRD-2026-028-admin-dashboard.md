@@ -20,29 +20,29 @@ EARP 目前纯 API，无人能直接使用。Admin Dashboard 提供 Web 管理�
 |:---|:---|:---|
 | 渲染 | Vue 3 (petite-vue, 6KB CDN) | 零构建工具链，`v-if`/`v-for`/`v-model` 开箱即用 |
 | 交互 | 客户端渲染 + REST API 直调 | 无需服务端模板，前后端解耦 |
-| 样式 | Simple.css (10KB CDN) | 无 npm，提供基础表格/表单/按钮样式 |
-| 部署 | 同一个 FastAPI app | `StaticFiles(directory="static")` serve HTML/JS/CSS |
+| 样式 | Pico.css (CDN) | 无 npm，~20KB，语义化 classless CSS，原生深色模式 |
+| 部署 | 同一个 FastAPI app | `app.mount("/admin", StaticFiles(directory="apps/earp-admin", html=True))` |
 | 未来升级 | Vite + Vue 3 完整工具链 | 组件语法完全兼容，加 build step 即可 |
 | 不选 | React/Svelte | 团队未来方向是 Vue |
 
 **依赖**: `simple.css` (CDN), `petite-vue` (CDN), `vue` (CDN, 仅 dev 模式带 warnings)
 **目录结构**:
 ```
-apps/earp-server/static/admin/
+apps/earp-admin/
 ├── index.html              # Dashboard home
 ├── css/
-│   └── admin.css           # 补充样式（覆盖 simple.css 默认值）
+│   └── admin.css           # 补充样式
 ├── js/
-│   └── app.js              # Vue app 入口 + 全局状态（token/tenant）
+│   └── app.js              # Vue app 入口 + 全局状态
 └── pages/
-    ├── sessions.html       # Sessions 列表+详情
-    ├── capabilities.html   # Capability 注册+发现
-    ├── plan.html           # Plan & Invoke
-    ├── knowledge.html      # Knowledge Base
-    ├── conversations.html  # Conversation 管理
-    ├── stream.html         # Streaming 测试
-    ├── audit.html          # Audit Logs
-    └── login.html          # 登录页 (prod)
+    ├── sessions.html
+    ├── capabilities.html
+    ├── plan.html
+    ├── knowledge.html
+    ├── conversations.html
+    ├── stream.html
+    ├── audit.html
+    └── login.html
 ```
 
 ---
