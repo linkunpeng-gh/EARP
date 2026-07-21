@@ -1,20 +1,64 @@
-/* EARP Admin Dashboard — minimal style overrides on Simple.css */
-:root {
-  --sidebar-width: 200px;
-}
+/* EARP Admin Dashboard — Pico.css overrides */
+:root { --sidebar-width: 200px; }
 body { display: flex; min-height: 100vh; margin: 0; }
-#sidebar { width: var(--sidebar-width); background: var(--bg); border-right: 1px solid var(--border); padding: 1rem; flex-shrink: 0; }
-#sidebar h3 { margin-top: 0; font-size: 1.1rem; }
-#sidebar nav a { display: block; padding: 0.3rem 0; text-decoration: none; color: var(--text); border-radius: 4px; }
-#sidebar nav a:hover, #sidebar nav a.active { background: var(--accent-bg); }
-#main { flex: 1; padding: 1.5rem; overflow-x: auto; }
+
+/* Skip-to-content for accessibility */
+.skip-link { position: absolute; top: -40px; left: 0; background: var(--primary); color: #fff; padding: 8px; z-index: 100; }
+.skip-link:focus { top: 0; }
+
+/* Sidebar */
+aside#sidebar { width: var(--sidebar-width); background: var(--pico-background-color); border-right: 1px solid var(--pico-muted-border-color); padding: 1rem; flex-shrink: 0; }
+.brand { display: block; font-weight: bold; margin-bottom: 1rem; color: var(--pico-primary); }
+aside#sidebar nav ul { list-style: none; padding: 0; margin: 0; }
+aside#sidebar nav ul li { margin-bottom: 0.2rem; }
+aside#sidebar nav a { display: block; padding: 0.35rem 0.5rem; text-decoration: none; color: var(--pico-color); border-radius: 4px; }
+aside#sidebar nav a:hover, aside#sidebar nav a.active { background: var(--pico-primary-background); color: var(--pico-primary-inverse); }
+.nav-login { margin-top: 1.5rem; opacity: 0.6; }
+.version { margin-top: auto; font-size: 0.75rem; opacity: 0.5; padding-top: 1rem; }
+
+/* Main content */
+main#main { flex: 1; padding: 1.5rem; overflow-x: auto; }
+
+/* Stats grid */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-.stat-card { padding: 1rem; border: 1px solid var(--border); border-radius: 6px; text-align: center; }
+.stat-card { padding: 1rem; border: 1px solid var(--pico-muted-border-color); border-radius: 6px; text-align: center; }
 .stat-card .num { font-size: 1.8rem; font-weight: bold; }
-.log-row { font-family: monospace; font-size: 0.85rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
-.log-time { color: var(--text-light); margin-right: 1rem; }
-.log-type { color: var(--accent); margin-right: 0.5rem; }
-#stream-output { background: var(--code-bg); padding: 1rem; min-height: 200px; font-family: monospace; white-space: pre-wrap; border-radius: 4px; margin-top: 0.5rem; }
-.collapsible { cursor: pointer; user-select: none; }
-.collapsible-content { display: none; }
-.collapsible.open + .collapsible-content { display: block; }
+
+/* Audit logs */
+.log-row { font-family: var(--pico-font-family-monospace); font-size: 0.85rem; padding: 0.3rem 0; border-bottom: 1px solid var(--pico-muted-border-color); }
+.log-time { color: var(--pico-muted-color); margin-right: 1rem; }
+.log-type { color: var(--pico-primary); margin-right: 0.5rem; }
+
+/* Streaming output */
+#stream-output { background: var(--pico-code-background-color); padding: 1rem; min-height: 200px; font-family: var(--pico-font-family-monospace); white-space: pre-wrap; border-radius: 4px; margin-top: 0.5rem; }
+
+/* Icons (inline SVG) */
+  .icon { width: 1em; height: 1em; vertical-align: -0.125em; }
+ /* ===== Toolbar row (standardized across all pages) ===== */
+ .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: flex-end; }
+ .toolbar > * { margin-bottom: 0; }
+ .toolbar .toolbar-spacer { margin-left: auto; }
+ .toolbar input[type="text"],
+ .toolbar input[type="search"] { flex: 1; min-width: 160px; }
+ .toolbar textarea { flex: 1; min-width: 160px; }
+ /* Login page (centered card, no sidebar) */
+ body.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+ .login-card { width: 360px; max-width: 90vw; padding: 2rem; border: 1px solid var(--pico-muted-border-color); border-radius: 8px; }
+ .login-card h2 { text-align: center; margin-bottom: 1.5rem; }
+ .login-card button { width: 100%; margin-top: 0.5rem; }
+ .login-note { text-align: center; font-size: 0.8rem; opacity: 0.5; margin-top: 1rem; }
+ /* Section spacing */
+ section + section { margin-top: 1.5rem; }
+ /* Table wrapper for horizontal scroll */
+ .table-wrap { overflow-x: auto; }
+ /* Pagination bar */
+ .pagination { margin-top: 1rem; }
+ /* Plan page helpers */
+ .plan-input-group { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+ .plan-meta-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+ .plan-context { font-size: 0.85rem; }
+ .result-block { background: var(--pico-code-background-color); padding: 0.75rem 1rem; border-radius: 4px; overflow-x: auto; }
+ /* Knowledge: upload form */
+ .upload-group { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-start; margin-bottom: 1rem; }
+ /* Conv page */
+ .conv-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }

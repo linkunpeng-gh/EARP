@@ -8,22 +8,24 @@
 <link rel="stylesheet" href="css/admin.css">
 </head>
 <body>
-<div id="sidebar">
-  <h3>⚡ EARP Admin</h3>
+<aside id="sidebar">
+  <span class="brand">⚡ EARP Admin</span>
   <nav>
-    <a href="index.html" class="active">🏠 Dashboard</a>
-    <a href="pages/sessions.html">📋 Sessions</a>
-    <a href="pages/capabilities.html">🔧 Capabilities</a>
-    <a href="pages/plan.html">🧠 Plan & Invoke</a>
-    <a href="pages/knowledge.html">📚 Knowledge Base</a>
-    <a href="pages/conversations.html">💬 Conversations</a>
-    <a href="pages/stream.html">🌊 Streaming</a>
-    <a href="pages/audit.html">📜 Audit Logs</a>
-    <a href="pages/login.html" style="margin-top:1rem;opacity:0.5">🔑 Login (prod)</a>
+    <ul>
+      <li><a href="index.html" class="active">🏠 Dashboard</a></li>
+      <li><a href="pages/sessions.html">📋 Sessions</a></li>
+      <li><a href="pages/capabilities.html">🔧 Capabilities</a></li>
+      <li><a href="pages/plan.html">🧠 Plan & Invoke</a></li>
+      <li><a href="pages/knowledge.html">📚 Knowledge Base</a></li>
+      <li><a href="pages/conversations.html">💬 Conversations</a></li>
+      <li><a href="pages/stream.html">🌊 Streaming</a></li>
+      <li><a href="pages/audit.html">📜 Audit Logs</a></li>
+    </ul>
+    <a href="pages/login.html" class="nav-login">🔑 Login (prod)</a>
   </nav>
-  <div style="margin-top:auto;font-size:0.8rem;opacity:0.5">v0.1</div>
-</div>
-<div id="main">
+  <div class="version">v0.1</div>
+</aside>
+<main id="main">
   <h2>Dashboard</h2>
   <div class="stats">
     <div class="stat-card"><div class="num">12</div>Sessions</div>
@@ -34,6 +36,6 @@
   <h3>Quick Actions</h3>
   <a href="pages/sessions.html" role="button">New Session</a>
   <a href="pages/plan.html" role="button">Plan Intent</a>
-</div>
+</main>
 </body>
 </html>

@@ -1,16 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh"><head><meta charset="UTF-8"><title>Login — EARP</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-<link rel="stylesheet" href="../css/admin.css"></head>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Admin Login"><title>Login — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"><link rel="stylesheet" href="../css/admin.css"></head>
 <body style="display:flex;align-items:center;justify-content:center;min-height:100vh">
-<div style="width:360px;padding:2rem;border:1px solid var(--border);border-radius:8px">
-<h2 style="text-align:center">⚡ EARP Admin</h2>
-<form>
-  <label>Tenant ID <input type="text" placeholder="tenant-demo" value="tenant-demo"></label>
-  <label>User ID <input type="text" placeholder="u1" value="u1"></label>
-  <label>Role ID <input type="text" placeholder="r1" value="r1"></label>
-  <button type="submit" style="width:100%">Login</button>
-</form>
-<p style="text-align:center;font-size:0.8rem;opacity:0.5;margin-top:1rem">dev mode: EARP_AUTH_STRATEGY=dev-skip</p>
-</div>
-</body></html>
+<div style="width:360px;padding:2rem;border:1px solid var(--pico-muted-border-color);border-radius:8px">
+<h2 style="text-align:center"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> EARP Admin</h2>
+<!-- TODO: wire to backend JWT auth -->
+<form><label>Tenant ID <input type="text" placeholder="tenant-demo" value="tenant-demo"></label>
+<label>User ID <input type="text" placeholder="u1" value="u1"></label>
+<label>Role ID <input type="text" placeholder="r1" value="r1"></label>
+<button type="submit" style="width:100%">Login</button></form>
+<p style="text-align:center;font-size:0.85rem;opacity:0.5;margin-top:1rem">dev: EARP_AUTH_STRATEGY=dev-skip</p>
+</div></body></html>
