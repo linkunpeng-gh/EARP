@@ -77,7 +77,7 @@ class SimpleTaskPlanner:
 def _cap_id_to_adapter(capability_id: str) -> str:
     """Convert capability_id to adapter_type.
 
-    Convention: capability_id = "cap-{domain}-{name}", adapter_type = "{domain}.{name}".
+    Convention: capability_id = "cap-{domain}-{name}", adapter_type = "{domain}.{name}" ({domain} = Business Domain).
     Only replaces hyphen between domain and name (the last segment boundary).
     """
     if capability_id.startswith("cap-"):

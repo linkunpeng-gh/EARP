@@ -18,20 +18,33 @@ async def search_chunks(
     query_embedding: list[float],
     role_id: str,
     top_k: int = 5,
+    data_domain_ids: list[str] | None = None,
     eventbus: EventBus | None = None,
     *,
     embedding_dim: int = 1024,
 ) -> list[dict]:
-    """Cosine similarity search over chunks, filtered by accessible_roles."""
+    """Cosine similarity search over chunks, filtered by data_domain + accessible_roles."""
     embedding_str = f"[{', '.join(str(x) for x in query_embedding)}]"
+    conditions = ["c.tenant_id = :tid"]
+    params: dict = {"qemb": embedding_str, "qemb2": embedding_str, "tid": tenant_id, "rid": role_id, "lim": top_k}
+
+    # Data Domain filter (optional — None = no filter, backward compatible)
+    if data_domain_ids:
+        conditions.append("(kb.data_domain_id = ANY(:ddids) OR kb.data_domain_id IS NULL)")
+        params["ddids"] = data_domain_ids
+
+    # accessible_roles filter
+    conditions.append("(kb.accessible_roles IS NULL OR kb.accessible_roles = '{}' OR :rid = ANY(kb.accessible_roles))")
+
+    where_clause = " AND ".join(conditions)
     search_sql = (
         f"SELECT c.chunk_id, c.document_id, c.content, c.chunk_index, "
+        f"d.data_classification, "
         f"1 - (c.embedding <=> CAST(:qemb AS vector({embedding_dim}))) AS similarity "
         f"FROM chunks c "
         f"JOIN documents d ON c.document_id = d.document_id "
         f"JOIN knowledge_bases kb ON d.knowledge_base_id = kb.knowledge_base_id "
-        f"WHERE c.tenant_id = :tid "
-        f"AND (kb.accessible_roles IS NULL OR kb.accessible_roles = '{{}}' OR :rid = ANY(kb.accessible_roles)) "
+        f"WHERE {where_clause} "
         f"ORDER BY c.embedding <=> CAST(:qemb2 AS vector({embedding_dim})) LIMIT :lim"
     )
     try:
@@ -39,7 +52,7 @@ async def search_chunks(
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
             rows = await conn.execute(
                 text(search_sql),
-                {"qemb": embedding_str, "qemb2": embedding_str, "tid": tenant_id, "rid": role_id, "lim": top_k},
+                params,
             )
             return [dict(r._mapping) for r in rows]
     except Exception:

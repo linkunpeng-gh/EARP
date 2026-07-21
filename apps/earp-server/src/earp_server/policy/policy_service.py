@@ -69,3 +69,39 @@ async def get_policies_for_role(
             {"rid": role_id, "tid": tenant_id},
         )
         return [dict(r._mapping) for r in rows]
+
+
+async def check_data_domain_access(
+    engine: AsyncEngine,
+    tenant_id: str,
+    role_id: str,
+    requested_domain_ids: list[str],
+) -> list[str]:
+    """Return subset of requested_domain_ids the role can access."""
+    if not requested_domain_ids:
+        return []
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text("SELECT data_domain_access FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
+            {"rid": role_id, "tid": tenant_id},
+        )
+        r = row.fetchone()
+        if r is None:
+            return []
+        access_list = r._mapping.get("data_domain_access") or []
+        allowed = {entry["data_domain_id"] for entry in access_list if "data_domain_id" in entry}
+    return [did for did in requested_domain_ids if did in allowed]
+
+
+async def filter_by_data_domain(
+    engine: AsyncEngine,
+    tenant_id: str,
+    role_id: str,
+    results: list[dict],
+    domain_key: str = "data_domain_id",
+) -> list[dict]:
+    """Filter result dicts to Data Domains the role can access."""
+    dids = [r.get(domain_key, "") for r in results if domain_key in r]
+    allowed = await check_data_domain_access(engine, tenant_id, role_id, dids)
+    return [r for r in results if r.get(domain_key) in allowed]

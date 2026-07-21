@@ -1,14 +1,63 @@
 <!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Knowledge Base"><title>Knowledge Base — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
 <body>
-<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span><nav><a href="../index.html">Overview</a><a href="sessions.html">Sessions</a><a href="capabilities.html">Capabilities</a><a href="plan.html">Plan &amp; Invoke</a><a href="knowledge.html" class="active" aria-current="page">Knowledge</a><a href="conversations.html">Conversations</a><a href="stream.html">Streaming</a><a href="audit.html">Audit</a></nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span><nav><a href="../index.html">Overview</a><a href="sessions.html">Sessions</a><a href="capabilities.html">Capabilities</a><a href="plan.html">Plan &amp; Invoke</a><a href="knowledge.html" class="active" aria-current="page">Knowledge</a><a href="data-domains.html">Data Domains</a><a href="conversations.html">Conversations</a><a href="stream.html">Streaming</a><a href="audit.html">Audit</a></nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
 <main>
 <div class="page-title"><div><h2>Knowledge Base</h2><p class="page-subtitle">Upload documents and search with semantic embeddings</p></div></div>
-<div class="toolbar"><input placeholder="Search..." style="flex:1"><button>Search</button></div>
-<div class="toolbar"><input placeholder="Document title" style="flex:1"><textarea placeholder="Content" rows="3" style="width:100%"></textarea><button class="primary">Upload</button></div>
-<!-- TODO: live data -->
-<h3>Documents</h3>
-<table><thead><tr><th>ID</th><th>Title</th><th>Chunks</th><th>Status</th></tr></thead><tbody>
-<tr><td>doc-001</td><td>Getting Started</td><td>12</td><td>indexed</td></tr>
-<tr><td>doc-002</td><td>API Reference</td><td>45</td><td>indexed</td></tr></tbody></table>
+<div class="toolbar">
+  <select id="dd-filter" style="width:auto" onchange="filterByDomain()">
+    <option value="">All Data Domains</option>
+    <option value="equipment_data">Equipment Data</option>
+    <option value="hr_data">HR Policies</option>
+    <option value="corporate_data">Corporate Standards</option>
+  </select>
+  <input placeholder="Search..." style="flex:1;margin-left:8px"><button>Search</button>
+</div>
+<div class="toolbar"><input placeholder="Document title" style="flex:1"><textarea placeholder="Content" rows="3" style="width:100%"></textarea>
+  <select id="upload-dd" style="width:auto"><option value="">Data Domain</option><option value="equipment_data">Equipment Data</option><option value="hr_data">HR Policies</option></select>
+  <button class="primary">Upload</button>
+</div>
+<h3>Knowledge Bases</h3>
+<table id="kb-table"><thead><tr><th>KB ID</th><th>Name</th><th>Data Domain</th><th>Documents</th><th>Chunks</th><th>Created</th></tr></thead><tbody>
+<tr class="kb-summary" data-dd="equipment_data"><td>kb-eq-manuals</td><td><a href="#" onclick="return showDocs('equipment-manuals')">Equipment Manuals</a></td><td><span class="tag tag-internal">equipment_data</span></td><td>8</td><td>120</td><td>2026-07-10</td></tr>
+<tr class="kb-summary" data-dd="equipment_data"><td>kb-eq-alarms</td><td><a href="#" onclick="return showDocs('alarm-thresholds')">Alarm Thresholds</a></td><td><span class="tag tag-internal">equipment_data</span></td><td>4</td><td>45</td><td>2026-07-09</td></tr>
+<tr class="kb-summary" data-dd="hr_data"><td>kb-hr-policies</td><td><a href="#" onclick="return showDocs('hr-policies')">Company Policies</a></td><td><span class="tag tag-confidential">hr_data</span></td><td>5</td><td>60</td><td>2026-07-05</td></tr>
+</tbody></table>
+<h3>Documents <span class="hint" style="font-weight:400">Click a KB name to see its documents</span></h3>
+<table id="doc-table"><thead><tr><th>Doc ID</th><th>Title</th><th>Knowledge Base</th><th>Data Domain</th><th>Classification</th><th>Chunks</th><th>Status</th></tr></thead><tbody id="doc-tbody">
+<tr data-dd="equipment_data"><td>doc-001</td><td>CNC Operation Manual v3</td><td>Equipment Manuals</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-internal">internal</span></td><td>24</td><td>indexed</td></tr>
+<tr data-dd="equipment_data"><td>doc-002</td><td>Maintenance Schedule 2026</td><td>Equipment Manuals</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-internal">internal</span></td><td>15</td><td>indexed</td></tr>
+<tr data-dd="equipment_data"><td>doc-003</td><td>Safety Guidelines</td><td>Equipment Manuals</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-confidential">confidential</span></td><td>8</td><td>indexed</td></tr>
+<tr data-dd="equipment_data"><td>doc-004</td><td>Temperature Threshold Guide</td><td>Alarm Thresholds</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-internal">internal</span></td><td>12</td><td>indexed</td></tr>
+<tr data-dd="equipment_data"><td>doc-005</td><td>Pressure Alarm Settings</td><td>Alarm Thresholds</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-internal">internal</span></td><td>10</td><td>indexed</td></tr>
+<tr data-dd="hr_data"><td>doc-006</td><td>Leave Policy 2026</td><td>Company Policies</td><td><span class="tag tag-confidential">hr_data</span></td><td><span class="tag tag-internal">internal</span></td><td>18</td><td>indexed</td></tr>
+<tr data-dd="hr_data"><td>doc-007</td><td>Employee Handbook</td><td>Company Policies</td><td><span class="tag tag-confidential">hr_data</span></td><td><span class="tag tag-confidential">confidential</span></td><td>42</td><td>indexed</td></tr>
+</tbody></table>
+<script>
+function filterByDomain() {
+  var dd = document.getElementById('dd-filter').value;
+  document.querySelectorAll('.kb-summary').forEach(function(r) {
+    r.style.display = !dd || r.getAttribute('data-dd') === dd ? '' : 'none';
+  });
+  document.querySelectorAll('#doc-tbody tr').forEach(function(r) {
+    r.style.display = !dd || r.getAttribute('data-dd') === dd ? '' : 'none';
+  });
+}
+function showDocs(kbName) {
+  document.querySelectorAll('#doc-tbody tr').forEach(function(r) {
+    var shouldShow = false;
+    if (kbName === 'equipment-manuals') shouldShow = r.cells[2].textContent === 'Equipment Manuals';
+    else if (kbName === 'alarm-thresholds') shouldShow = r.cells[2].textContent === 'Alarm Thresholds';
+    else if (kbName === 'hr-policies') shouldShow = r.cells[2].textContent === 'Company Policies';
+    r.style.display = shouldShow ? '' : 'none';
+  });
+  return false;
+}
+</script>
+<style>
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:0.75rem;font-weight:500}
+.tag-internal{background:var(--yellow-bg,#fef3c7);color:var(--yellow-fg,#92400e)}
+.tag-confidential{background:var(--red-bg,#fee2e2);color:var(--red-fg,#991b1b)}
+.hint{font-size:0.81rem;color:var(--text-tertiary,#8b8d91)}
+</style>
 </main></body></html>

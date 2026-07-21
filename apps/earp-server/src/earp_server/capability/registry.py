@@ -1,4 +1,8 @@
-"""Capability registration + role-aware discovery + Redis token-bucket rate limiter."""
+"""Capability registration + role-aware discovery + Redis token-bucket rate limiter.
+
+All `domain` column references in this file refer to Business Domain
+(not Data Domain—those are a separate v2.1 concept in data_domains table).
+"""
 
 from __future__ import annotations
 

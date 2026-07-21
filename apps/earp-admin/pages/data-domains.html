@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Data Domains"><title>Data Domains — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span><nav><a href="../index.html">Overview</a><a href="sessions.html">Sessions</a><a href="capabilities.html">Capabilities</a><a href="plan.html">Plan &amp; Invoke</a><a href="knowledge.html">Knowledge</a><a href="data-domains.html" class="active" aria-current="page">Data Domains</a><a href="conversations.html">Conversations</a><a href="stream.html">Streaming</a><a href="audit.html">Audit</a></nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<main>
+<div class="page-title"><div><h2>Data Domains</h2><p class="page-subtitle">Manage enterprise data domains — knowledge classification and access boundaries</p></div></div>
+<div class="toolbar">
+  <select style="width:auto"><option value="">All classifications</option><option value="public">Public</option><option value="internal">Internal</option><option value="confidential">Confidential</option><option value="restricted">Restricted</option></select>
+  <button class="primary" style="margin-left:auto">+ New Domain</button>
+</div>
+<div class="toolbar"><input placeholder="Search domains..." style="flex:1"><button>Search</button></div>
+<h3>Data Domains <span class="hint" style="font-weight:400">Click a row to expand Knowledge Bases &amp; Documents</span></h3>
+<table id="dd-table"><thead><tr><th></th><th>ID</th><th>Name</th><th>Classification</th><th>Owner</th><th>Mapped BD</th><th>Knowledge Bases</th><th>Docs</th><th>Status</th></tr></thead><tbody>
+<tr class="dd-row" onclick="toggleDD('dd-equipment','kb-equipment')" style="cursor:pointer">
+  <td class="expand-icon">▶</td><td>equipment_data</td><td>Equipment Data</td><td><span class="tag tag-internal">internal</span></td><td>equipment-team</td><td>Equipment</td><td>2</td><td>12</td><td>active</td></tr>
+<tr id="kb-equipment" class="kb-detail" style="display:none"><td colspan="9">
+  <table style="width:100%;margin:0;background:var(--bg-secondary,#f5f5f5)"><thead><tr><th></th><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>
+  <tr class="kb-row" onclick="toggleKB('doc-equipment-manuals','docs-equipment-manuals')" style="cursor:pointer">
+    <td class="expand-icon">▶</td><td>kb-eq-manuals</td><td>Equipment Manuals</td><td>8</td><td>120</td></tr>
+  <tr id="docs-equipment-manuals" class="doc-detail" style="display:none"><td colspan="5">
+    <table style="width:100%;margin:0"><thead><tr><th>Doc ID</th><th>Title</th><th>Chunks</th><th>Classification</th><th>Created</th></tr></thead><tbody>
+      <tr><td>doc-001</td><td>CNC Operation Manual v3</td><td>24</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-15</td></tr>
+      <tr><td>doc-002</td><td>Maintenance Schedule 2026</td><td>15</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-14</td></tr>
+      <tr><td>doc-003</td><td>Safety Guidelines</td><td>8</td><td><span class="tag tag-confidential">confidential</span></td><td>2026-07-10</td></tr>
+    </tbody></table>
+  </td></tr>
+  <tr class="kb-row" onclick="toggleKB('doc-alarm-thresholds','docs-alarm-thresholds')" style="cursor:pointer">
+    <td class="expand-icon">▶</td><td>kb-eq-alarms</td><td>Alarm Thresholds</td><td>4</td><td>45</td></tr>
+  <tr id="docs-alarm-thresholds" class="doc-detail" style="display:none"><td colspan="5">
+    <table style="width:100%;margin:0"><thead><tr><th>Doc ID</th><th>Title</th><th>Chunks</th><th>Classification</th><th>Created</th></tr></thead><tbody>
+      <tr><td>doc-004</td><td>Temperature Threshold Guide</td><td>12</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-12</td></tr>
+      <tr><td>doc-005</td><td>Pressure Alarm Settings</td><td>10</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-11</td></tr>
+    </tbody></table>
+  </td></tr>
+  </tbody></table>
+</td></tr>
+<tr class="dd-row" onclick="toggleDD('dd-hr','kb-hr')" style="cursor:pointer">
+  <td class="expand-icon">▶</td><td>hr_data</td><td>HR Policies</td><td><span class="tag tag-confidential">confidential</span></td><td>hr-team</td><td>HR</td><td>1</td><td>5</td><td>active</td></tr>
+<tr id="kb-hr" class="kb-detail" style="display:none"><td colspan="9">
+  <table style="width:100%;margin:0;background:var(--bg-secondary,#f5f5f5)"><thead><tr><th></th><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>
+  <tr class="kb-row" onclick="toggleKB('doc-hr-policies','docs-hr-policies')" style="cursor:pointer">
+    <td class="expand-icon">▶</td><td>kb-hr-policies</td><td>Company Policies</td><td>5</td><td>60</td></tr>
+  <tr id="docs-hr-policies" class="doc-detail" style="display:none"><td colspan="5">
+    <table style="width:100%;margin:0"><thead><tr><th>Doc ID</th><th>Title</th><th>Chunks</th><th>Classification</th><th>Created</th></tr></thead><tbody>
+      <tr><td>doc-006</td><td>Leave Policy 2026</td><td>18</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-08</td></tr>
+      <tr><td>doc-007</td><td>Employee Handbook</td><td>42</td><td><span class="tag tag-confidential">confidential</span></td><td>2026-07-05</td></tr>
+    </tbody></table>
+  </td></tr>
+  </tbody></table>
+</td></tr>
+</tbody></table>
+<script>
+function toggleDD(kbId) {
+  var el = document.getElementById(kbId);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+}
+function toggleKB(docId) {
+  var el = document.getElementById(docId);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+<style>
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:0.75rem;font-weight:500}
+.tag-internal{background:var(--yellow-bg,#fef3c7);color:var(--yellow-fg,#92400e)}
+.tag-confidential{background:var(--red-bg,#fee2e2);color:var(--red-fg,#991b1b)}
+.tag-restricted{background:var(--purple-bg,#e9d5ff);color:var(--purple-fg,#581c87)}
+.expand-icon{width:20px;text-align:center;font-size:0.75rem;color:var(--text-tertiary,#8b8d91)}
+.kb-detail td{padding:0!important}
+.kb-detail table td,.doc-detail table td{padding:6px 8px!important}
+.doc-detail td{padding:0!important}
+.hint{font-size:0.81rem;color:var(--text-tertiary,#8b8d91)}
+</style>
+</main></body></html>
