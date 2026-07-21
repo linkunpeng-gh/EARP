@@ -1,12 +1,17 @@
 <!DOCTYPE html>
-2|<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Admin Login"><title>Login — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;510;590&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
-<body style="display:flex;align-items:center;justify-content:center;min-height:100vh">
-<div style="width:360px;padding:2rem;border:1px solid var(--border-standard);border-radius:8px">
-<h2 style="text-align:center"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> EARP Admin</h2>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Login"><title>Login — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span><nav><a href="../index.html">Overview</a><a href="sessions.html">Sessions</a><a href="capabilities.html">Capabilities</a><a href="plan.html">Plan &amp; Invoke</a><a href="knowledge.html">Knowledge</a><a href="conversations.html">Conversations</a><a href="stream.html">Streaming</a><a href="audit.html">Audit</a></nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<main>
+<div style="max-width:380px;margin:4rem auto;padding:2rem;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);box-shadow:var(--shadow-card)">
+<h2 style="text-align:center;margin-bottom:1.5rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1.2em;height:1.2em;color:var(--accent);vertical-align:-0.2em"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> EARP Admin</h2>
 <!-- TODO: wire to backend JWT auth -->
-<form><label>Tenant ID <input type="text" placeholder="tenant-demo" value="tenant-demo"></label>
-<label>User ID <input type="text" placeholder="u1" value="u1"></label>
-<label>Role ID <input type="text" placeholder="r1" value="r1"></label>
-<button type="submit" style="width:100%">Login</button></form>
-<p style="text-align:center;font-size:0.85rem;opacity:0.5;margin-top:1rem">dev: EARP_AUTH_STRATEGY=dev-skip</p>
-</div></body></html>
+<div style="display:flex;flex-direction:column;gap:0.75rem">
+<label style="font-size:0.81rem;color:var(--text-tertiary)">Tenant ID <input type="text" placeholder="tenant-demo" value="tenant-demo"></label>
+<label style="font-size:0.81rem;color:var(--text-tertiary)">User ID <input type="text" placeholder="u1" value="u1"></label>
+<label style="font-size:0.81rem;color:var(--text-tertiary)">Role ID <input type="text" placeholder="r1" value="r1"></label>
+<button class="primary" style="width:100%;margin-top:0.5rem">Login</button>
+</div>
+<p style="text-align:center;font-size:0.75rem;color:var(--text-quaternary);margin-top:1.25rem">dev mode: EARP_AUTH_STRATEGY=dev-skip</p>
+</div>
+</main></body></html>

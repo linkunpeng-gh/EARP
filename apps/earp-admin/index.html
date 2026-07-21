@@ -1,68 +1,53 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="description" content="EARP Enterprise AI Runtime Platform — Admin Dashboard">
 <title>EARP Admin — Dashboard</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;510;590&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/admin.css">
 </head>
 <body>
-<a href="#main" class="skip-link">Skip to content</a>
 
-<aside id="sidebar">
+<header>
   <span class="brand">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-    EARP Admin
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    EARP
   </span>
-  <nav aria-label="Main navigation">
-    <ul>
-      <li><a href="index.html" class="active" aria-current="page">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-        Dashboard</a></li>
-      <li><a href="pages/sessions.html">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        Sessions</a></li>
-      <li><a href="pages/capabilities.html">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        Capabilities</a></li>
-      <li><a href="pages/plan.html">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/></svg>
-        Plan &amp; Invoke</a></li>
-      <li><a href="pages/knowledge.html">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-        Knowledge Base</a></li>
-      <li><a href="pages/conversations.html">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        Conversations</a></li>
-      <li><a href="pages/stream.html">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        Streaming</a></li>
-      <li><a href="pages/audit.html">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        Audit Logs</a></li>
-      <li><a href="pages/login.html" class="nav-login">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        Login</a></li>
-    </ul>
+  <nav>
+    <a href="index.html" class="active" aria-current="page">Overview</a>
+    <a href="pages/sessions.html">Sessions</a>
+    <a href="pages/capabilities.html">Capabilities</a>
+    <a href="pages/plan.html">Plan &amp; Invoke</a>
+    <a href="pages/knowledge.html">Knowledge</a>
+    <a href="pages/conversations.html">Conversations</a>
+    <a href="pages/stream.html">Streaming</a>
+    <a href="pages/audit.html">Audit</a>
   </nav>
-  <div class="version">v0.2 — Linear Dark</div>
-</aside>
+  <div class="meta">tenant-demo · <a href="pages/login.html">Admin</a></div>
+</header>
 
-<main id="main">
-  <h2>Dashboard</h2>
-  <!-- TODO: replace with live data from API -->
-  <div class="stats">
-    <div class="stat-card"><div class="num">12</div>Sessions</div>
-    <div class="stat-card"><div class="num">47</div>Executions</div>
-    <div class="stat-card"><div class="num">5</div>Capabilities</div>
-    <div class="stat-card"><div class="num">89</div>Audit Events</div>
+<main>
+  <div class="page-title">
+    <div><h2>Enterprise AI Runtime Platform</h2><p class="page-subtitle" style="margin-bottom:0">Manage sessions, capabilities, and LLM workflows</p></div>
+    <div><a href="pages/sessions.html" class="btn secondary">New Session</a> <a href="pages/plan.html" class="btn">Plan Intent</a></div>
   </div>
+
+  <!-- TODO: replace with live data -->
+  <div class="stats">
+    <div class="stat-card" style="display:flex;flex-direction:column;align-items:center"><div class="num">12</div><div class="label">Sessions</div></div>
+    <div class="stat-card" style="display:flex;flex-direction:column;align-items:center"><div class="num">47</div><div class="label">Executions</div></div>
+    <div class="stat-card" style="display:flex;flex-direction:column;align-items:center"><div class="num">5</div><div class="label">Capabilities</div></div>
+    <div class="stat-card" style="display:flex;flex-direction:column;align-items:center"><div class="num">89</div><div class="label">Audit Events</div></div>
+  </div>
+
   <h3>Quick Actions</h3>
-  <a href="pages/sessions.html" role="button">New Session</a>
-  <a href="pages/plan.html" role="button" class="primary">Plan Intent</a>
+  <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));">
+    <a href="pages/plan.html" style="text-decoration:none;color:inherit"><div class="stat-card" style="text-align:left;cursor:pointer;transition:box-shadow 0.15s"><strong>🧠 Plan Intent</strong><br><span style="font-size:0.81rem;color:var(--text-tertiary)">Convert natural language into executable steps</span></div></a>
+    <a href="pages/sessions.html" style="text-decoration:none;color:inherit"><div class="stat-card" style="text-align:left;cursor:pointer;transition:box-shadow 0.15s"><strong>📋 New Session</strong><br><span style="font-size:0.81rem;color:var(--text-tertiary)">Create a new execution session</span></div></a>
+    <a href="pages/capabilities.html" style="text-decoration:none;color:inherit"><div class="stat-card" style="text-align:left;cursor:pointer;transition:box-shadow 0.15s"><strong>🔧 Register Capability</strong><br><span style="font-size:0.81rem;color:var(--text-tertiary)">Add a new capability to the registry</span></div></a>
+    <a href="pages/audit.html" style="text-decoration:none;color:inherit"><div class="stat-card" style="text-align:left;cursor:pointer;transition:box-shadow 0.15s"><strong>📜 View Audit Logs</strong><br><span style="font-size:0.81rem;color:var(--text-tertiary)">Check execution history and compliance</span></div></a>
+  </div>
 </main>
-</body>
-</html>
+</body></html>
