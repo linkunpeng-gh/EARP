@@ -1,7 +1,20 @@
 <!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Login"><title>Login — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
 <body>
-<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span><nav><a href="../index.html">Overview</a><a href="sessions.html">Sessions</a><a href="capabilities.html">Capabilities</a><a href="plan.html">Plan &amp; Invoke</a><a href="knowledge.html">Knowledge</a><a href="conversations.html">Conversations</a><a href="stream.html">Streaming</a><a href="audit.html">Audit</a></nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>              <nav>
+    <a href="../index.html">Overview</a>
+    <div class="nav-group nav-dropdown">
+      <a href="audit.html">治理</a>
+      <div class="dropdown-menu">
+        <a href="audit.html" data-nav="audit">Audit Logs</a>
+        <a href="roles.html" class="disabled">Roles &amp; Permissions</a>
+        <a href="org-units.html" class="disabled">Organization</a>
+        <a href="tenants.html" class="disabled">Tenant Management</a>
+        <a href="policy.html" class="disabled">Policy Center</a>
+        <a href="observability.html" class="disabled">Observability</a>
+      </div>
+    </div>
+  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
 <main>
 <div style="max-width:380px;margin:4rem auto;padding:2rem;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);box-shadow:var(--shadow-card)">
 <h2 style="text-align:center;margin-bottom:1.5rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1.2em;height:1.2em;color:var(--accent);vertical-align:-0.2em"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> EARP Admin</h2>

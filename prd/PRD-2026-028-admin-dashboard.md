@@ -292,44 +292,110 @@ Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回
 - 管理员上传产品文档，使 LLM 能基于文档回答问题
 - 开发者测试搜索功能：输入查询 → 检查返回的 chunk 是否相关
 - 监控文档索引状态：哪些文档已分块/嵌入完成
+- 按 Data Domain 过滤知识库和文档，查看 DD → KB → 文档的从属关系；创建/编辑/删除 KB
 
 **参数/元素**:
 
 | 元素 | 类型 | 说明 |
 |:---|:---|:---|
+| Data Domain 下拉 | 筛选器 | 按 Data Domain 过滤 KB 和文档列表。选项: all / equipment_data / hr_data / corporate_data。切换后两个表同步过滤 |
 | Search 输入框 | 筛选器 | 文本输入。调用 `POST /knowledge/search` 执行语义搜索 |
 | Search 按钮 | 操作 | 触发搜索，显示匹配的 chunk 列表（含相关度分数） |
+| + New KB 按钮 | 操作 | 打开 KB 创建表单。Save 后调用 `POST /knowledge/bases` |
+| KB 创建/编辑表单 | 表单 | 行内表单面板。字段: KB name / Description / Data Domain。Edit 模式预填 |
+| KB 表格 | 数据展示 | 列: KB ID / Name / Data Domain(标签) / Documents / Chunks / Created / Actions(Edit+Del)。点击 KB 名称可过滤到该 KB 下的文档列表 |
+| Edit 按钮(每行) | 操作 | 打开 KB 编辑表单，预填当前值 |
+| Del 按钮(每行) | 操作 | 确认对话框后调用 `DELETE /knowledge/bases/{kb_id}` |
+| 文档表格 | 数据展示 | 列: Doc ID / Title / Knowledge Base / Data Domain(标签) / Classification(下拉编辑器，可修改) / Chunks / Status |
+| Classification 下拉编辑器 | 表单(行内) | 每篇文档的 data_classification 支持行内修改。下拉选项: public / internal / confidential / restricted。修改后立即生效，受 domain 天花板约束（不可高于所属域的分类等级）。降级操作（如 confidential→internal）影响文档可见范围扩大，需确认对话框 |
 | Document title 输入框 | 表单 | 文档标题 |
 | Content 文本域 | 表单 | 文档正文内容 |
+| Upload Data Domain 下拉 | 表单 | 指定上传文档的归属 Data Domain（决定继承哪个域的 data_classification 治理边界）|
 | Upload 按钮 | 操作 | 调用 `POST /knowledge/documents` 上传文档。后端自动分块 + 嵌入 → 写入 `documents` + `chunks` 表 |
-| 表格 | 数据展示 | 列: ID / Title / Chunks / Status。Status: `indexing`（处理中）/ `indexed`（已完成） |
 
 **API**:
-- `POST /knowledge/documents {title: "...", content: "..."}` → 返回 `{document_id: "doc-001"}`
-- `POST /knowledge/search {query: "...", top_k: 10}` → 返回 `[{chunk_id, content, score}]`
+- `POST /knowledge/documents {title: "...", content: "...", data_domain_id: "equipment_data"}` → 返回 `{document_id: "doc-001"}`
+- `POST /knowledge/search {query: "...", top_k: 10}` → 返回 `[{chunk_id, content, score, data_domain_id}]`
 
 ---
 ### 6.6 Data Domains (`pages/data-domains.html`) — v2.1 新增
 
-**用途**: 管理 EARP 的数据域——查看所有 Data Domain、管理域配置、查看与 Business Domain 的映射关系。
+**用途**: 管理 EARP 的数据域——查看所有 Data Domain、钻取域下的 KB 和文档、配置角色访问权限。
 
 **角色**: 平台开发者和知识管理员。
 
 **场景**:
 - 知识管理员注册新的 Data Domain（如 "设备数据"）并关联到 Business Domain
-- 管理员查看当前有哪些 Data Domain、各域的文档数量和分类等级
-- 调整 Data Domain 与 Business Domain 的映射关系
+- 管理员查看当前有哪些 Data Domain、各域的 KB 数量和文档总量
+- 点击展开 DD → KB → 文档的三层钻取，查看每个 DD 下有哪些 KB、每个 KB 下有哪些文档
+- 为每个 DD 配置哪些角色可以访问、以及各自的最高数据分类等级
 
 **参数/元素**:
 
 | 元素 | 类型 | 说明 |
 |:---|:---|:---|
-| 表格 | 数据展示 | 列: ID / Name / Classification / Owner / Mapped Business Domains / Document Count |
+| 表格 | 数据展示 | 列: (展开箭头) / ID / Name / Classification(标签) / Owner / Mapped BD / KB Count / Doc Count / Role Access(含按钮) / Status |
+| 展开箭头 ▶ | 交互 | 点击 DD 行展开其下的 KB 列表（子表格）；点击 KB 行展开其下的文档列表。形成 DD → KB → 文档的三层钻取 |
+| Role Access 按钮 | 交互 | 点击展开角色权限配置面板，显示当前有哪些角色可以访问该 DD |
+| max_classification 下拉 | 表单 | 每个角色-DD 对可单独设置最高分类等级（public / internal / confidential / restricted）。等级链为包含关系：高等级自动覆盖低等级 |
+| Grant Access 下拉+按钮 | 操作 | 选择角色 + 点击 Grant Access → 为该角色授予该 DD 的访问权限（默认 internal）|
+| Revoke 按钮 | 操作 | 收回某角色对该 DD 的访问权限。从 `roles.data_domain_access` 中移除对应条目 |
 | + New Domain 按钮 | 操作 | 打开创建表单（name, classification, owner, mapped BD）|
-| View 链接 | 操作 | 展开查看该域下的所有知识资产（文档/词条/实体）|
 | 筛选器 | 下拉 | 按 data_classification 过滤（all / public / internal / confidential / restricted）|
 
-**API**: `GET /admin/api/data-domains`（新增 admin API，admin permission required）
+**访问等级定义**:
+
+| 等级 | 含义 | 应用场景示例 |
+|:----|:-----|:------------|
+| public | 完全公开，不涉及企业机密 | 官网产品手册、已公开发布的白皮书 |
+| internal | 企业内部可用，不宜对外公开 | 内部操作规范、部门周报、请假流程（默认等级）|
+| confidential | 敏感，仅限于特定岗位 | 安全审计报告、员工绩效、安全隐患列表 |
+| restricted | 最高机密，仅限少数人 | 法务合规审查、纪律处分档案、商业秘密图纸 |
+
+等级是包含关系：`restricted` 可看所有等级，`confidential` 可看 public+internal+confidential，以此类推。
+
+### 双层分类模型
+
+Data Domain 和 Document 各有 `data_classification`，但含义不同、层级不同：
+
+```
+data_domains.data_classification        ← 域的天花板上限（"这个域最多能装什么等级的文档"）
+    ↓ 约束
+documents.data_classification           ← 文档的实际等级（"这篇文档的敏感程度"）
+```
+
+关系：`document.data_classification ≤ data_domain.data_classification`——文档等级不能超过所属域的天花板。
+
+| 域 | 域天花板 | 文档示例 | 合规 |
+|:---|:--------|:--------|:----:|
+| Equipment Data(confidential) | confidential | 维护手册 → internal | ✅ |
+| Equipment Data(confidential) | confidential | 安全审计 → confidential | ✅ 等于天花板 |
+| Equipment Data(confidential) | confidential | 并购尽调 → restricted | ❌ 被拒绝 |
+| HR Policies(confidential) | confidential | 请假流程 → internal | ✅ |
+| Corporate Standards(internal) | internal | 公司价值观 → public | ✅ |
+| Corporate Standards(internal) | internal | 内部审计报告 → confidential | ❌ 被拒绝 |
+
+### 完整授权过滤链
+
+用户请求一篇文档时，经过三层过滤：
+
+```
+1. Data Domain 授权（角色级）
+   └── Role.data_domain_access 中是否有该域？无 → 返回空
+
+2. 文档等级 ≤ 角色在该域的最高等级（文档级）
+   └── document.data_classification ≤ role.max_classification？否 → 跳过
+       等级链：public(0) < internal(1) < confidential(2) < restricted(3)
+
+3. 文档的角色白名单（文档级，向后兼容）
+   └── Document.accessible_roles 包含当前 role？无 → 跳过
+```
+
+三层都通过 = 返回文档给用户。任何一层失败 = 静默过滤（不报错，不影响其他层的结果）。
+- `GET /admin/api/data-domains`（列表，含 KB 和文档的聚合计数）
+- `POST /admin/api/data-domains`（创建新域）
+- `GET /admin/api/roles/{role_id}/data-domain-access`（查询角色 DD 权限）
+- `PUT /admin/api/roles/{role_id}/data-domain-access`（更新角色 DD 权限）
 
 ---
 

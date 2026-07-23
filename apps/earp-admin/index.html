@@ -15,16 +15,24 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
     EARP
   </span>
-  <nav>
+    <nav>
     <a href="index.html" class="active" aria-current="page">Overview</a>
-    <a href="pages/sessions.html">Sessions</a>
-    <a href="pages/capabilities.html">Capabilities</a>
-    <a href="pages/plan.html">Plan &amp; Invoke</a>
-    <a href="pages/knowledge.html">Knowledge</a>
-    <a href="pages/data-domains.html">Data Domains</a>
-    <a href="pages/conversations.html">Conversations</a>
-    <a href="pages/stream.html">Streaming</a>
-    <a href="pages/audit.html">Audit</a>
+    <div class="nav-group"><a href="pages/sessions.html" data-nav="sessions">运行时</a></div>
+    <div class="nav-group"><a href="pages/plan.html" data-nav="plan">推理</a></div>
+    <div class="nav-group"><a href="pages/capabilities.html" data-nav="capabilities">能力</a></div>
+    <div class="nav-group"><a href="pages/knowledge.html" data-nav="knowledge">知识</a></div>
+    <div class="nav-group"><a href="pages/conversations.html" data-nav="conversations">对话</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="pages/audit.html">治理</a>
+      <div class="dropdown-menu">
+        <a href="pages/audit.html" data-nav="audit">Audit Logs</a>
+        <a href="pages/roles.html" class="disabled">Roles &amp; Permissions</a>
+        <a href="pages/org-units.html" class="disabled">Organization</a>
+        <a href="pages/tenants.html" class="disabled">Tenant Management</a>
+        <a href="pages/policy.html" class="disabled">Policy Center</a>
+        <a href="pages/observability.html" class="disabled">Observability</a>
+      </div>
+    </div>
   </nav>
   <div class="meta">tenant-demo · <a href="pages/login.html">Admin</a></div>
 </header>
@@ -37,18 +45,18 @@
 
   <!-- TODO: replace with live data -->
   <div class="stats">
-    <div class="stat-card" style="display:flex;flex-direction:column;align-items:center"><div class="num">12</div><div class="label">Sessions</div></div>
-    <div class="stat-card" style="display:flex;flex-direction:column;align-items:center"><div class="num">47</div><div class="label">Executions</div></div>
-    <div class="stat-card" style="display:flex;flex-direction:column;align-items:center"><div class="num">5</div><div class="label">Capabilities</div></div>
-    <div class="stat-card" style="display:flex;flex-direction:column;align-items:center"><div class="num">89</div><div class="label">Audit Events</div></div>
+    <a href="pages/sessions.html" class="stat-card-link"><div class="stat-card"><div class="stat-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div><div class="num">12</div><div class="label">Sessions</div></div></a>
+    <a href="pages/audit.html" class="stat-card-link"><div class="stat-card"><div class="stat-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div><div class="num">47</div><div class="label">Executions</div></div></a>
+    <a href="pages/capabilities.html" class="stat-card-link"><div class="stat-card"><div class="stat-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div><div class="num">5</div><div class="label">Capabilities</div></div></a>
+    <a href="pages/audit.html" class="stat-card-link"><div class="stat-card"><div class="stat-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div><div class="num">89</div><div class="label">Audit Events</div></div></a>
   </div>
 
   <h3>Quick Actions</h3>
   <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));">
-    <a href="pages/plan.html" style="text-decoration:none;color:inherit"><div class="stat-card" style="text-align:left;cursor:pointer;transition:box-shadow 0.15s"><strong>🧠 Plan Intent</strong><br><span style="font-size:0.81rem;color:var(--text-tertiary)">Convert natural language into executable steps</span></div></a>
-    <a href="pages/sessions.html" style="text-decoration:none;color:inherit"><div class="stat-card" style="text-align:left;cursor:pointer;transition:box-shadow 0.15s"><strong>📋 New Session</strong><br><span style="font-size:0.81rem;color:var(--text-tertiary)">Create a new execution session</span></div></a>
-    <a href="pages/capabilities.html" style="text-decoration:none;color:inherit"><div class="stat-card" style="text-align:left;cursor:pointer;transition:box-shadow 0.15s"><strong>🔧 Register Capability</strong><br><span style="font-size:0.81rem;color:var(--text-tertiary)">Add a new capability to the registry</span></div></a>
-    <a href="pages/audit.html" style="text-decoration:none;color:inherit"><div class="stat-card" style="text-align:left;cursor:pointer;transition:box-shadow 0.15s"><strong>📜 View Audit Logs</strong><br><span style="font-size:0.81rem;color:var(--text-tertiary)">Check execution history and compliance</span></div></a>
+    <a href="pages/plan.html" class="stat-card-link"><div class="stat-card" style="text-align:left"><div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1rem;height:1rem;color:var(--accent)"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/></svg><strong>Plan Intent</strong></div><span style="font-size:0.81rem;color:var(--text-tertiary)">Convert natural language into executable steps</span></div></a>
+    <a href="pages/sessions.html" class="stat-card-link"><div class="stat-card" style="text-align:left"><div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1rem;height:1rem;color:var(--accent)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><strong>New Session</strong></div><span style="font-size:0.81rem;color:var(--text-tertiary)">Create a new execution session</span></div></a>
+    <a href="pages/capabilities.html" class="stat-card-link"><div class="stat-card" style="text-align:left"><div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1rem;height:1rem;color:var(--accent)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><strong>Register Capability</strong></div><span style="font-size:0.81rem;color:var(--text-tertiary)">Add a new capability to the registry</span></div></a>
+    <a href="pages/audit.html" class="stat-card-link"><div class="stat-card" style="text-align:left"><div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1rem;height:1rem;color:var(--accent)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><strong>View Audit Logs</strong></div><span style="font-size:0.81rem;color:var(--text-tertiary)">Check execution history and compliance</span></div></a>
   </div>
 </main>
 </body></html>

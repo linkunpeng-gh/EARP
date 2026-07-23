@@ -16,7 +16,9 @@
 
 | # | 域 | 功能 |
 |:--|:---|:-----|
-| 1 | KB | Document 入库: POST /knowledge/documents — 创建 document 行(knowledge_base_id/content) |
+| 1 | KB | Document 入库: POST /knowledge/documents（创建文档，含 data_classification 字段）
+- `PUT /knowledge/documents/{doc_id}`（更新文档信息，含 data_classification——需验证 ≤ 所属域天花板。降级操作写入审计事件） — 创建 document 行(knowledge_base_id/content/data_classification)。
+  classification 约束：document.data_classification ≤ data_domain.data_classification（文档等级不能超过所属域的天花板）。违反时返回 422 |
 | 2 | KB | Chunk 分块: langchain-text-splitters(MIT依赖), RecursiveCharacterTextSplitter, chunk_size=1000/overlap=200 |
 | 3 | KB | Chunk 嵌入: pgvector embedding(1536d), INSERT chunks 行(embedding+document_id+content) |
 | 4 | KB | pgvector 检索: POST /knowledge/search — text→embedding→cosine_similarity→top_k=5
@@ -40,6 +42,8 @@
 | US-04 | 检索异常(embedding 服务不可用)→RETRIEVAL_FAILED 事件+stderr |
 | US-05 | 创建 conversation→POST messages(role=user, content="hello")→201 |
 | US-06 | GET /conversations/{id}/messages→按创建时间顺序返回, RLS 隔离 |
+| US-07 | 上传文档时 data_classification 超过所属域天花板→422 拒绝 |
+| US-08 | 修改文档 classification（如 confidential → internal）→ PUT 200 + 审计事件记录降级操作。修改后角色 max_classification="internal" 的用户可以看到该文档 |, 不写入 documents 表 |
 
 ---
 
@@ -53,6 +57,8 @@
 | AC-04 | RETRIEVAL_FAILED 事件含 error message | pytest |
 | AC-05 | 创建 conversation→POST message→201; GET→按序返回 | pytest |
 | AC-06 | 跨租户消息不可见(RLS) | pytest |
+| AC-09 | 修改文档 classification 后重新检索→新等级下的角色可见性生效（如: internal→confidential 后 max=internal 的角色不再返回该文档） | pytest |
+| AC-08 | 文档 classification 过滤：设备工程师角色对 equipment_data 域的 max_classification="internal" → 搜索时只返回该域下 internal(含)以下的文档, confidential 文档被静默过滤 | pytest |
 | AC-07 | Data Domain 过滤生效：角色 R1 只对 equipment_data 域有权限 → 跨域查询时只返回该域的 chunks（未分配 DD 的 KB 不受影响） | pytest |
 
 ---

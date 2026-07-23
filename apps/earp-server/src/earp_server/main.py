@@ -34,7 +34,7 @@ from earp_server.knowledge.record_manager import cleanup_old_chunks, is_unchange
 from earp_server.knowledge.search_service import search_chunks
 from earp_server.planner.task_planner import SimpleTaskPlanner
 from earp_server.runtime.invoke import router as invoke_router
-from earp_server.runtime.session_service import close_session, create_session, get_session
+from earp_server.runtime.session_service import close_session, create_session, get_session, list_sessions
 from earp_server.schemas.sessions import SessionCreateRequest, SessionResponse
 
 APP_TITLE = "EARP Server"
@@ -164,6 +164,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def close_session_endpoint(session_id: str, req: Request) -> dict[str, str]:
         await close_session(req.app.state.engine, session_id, req.state.tenant_id)
         return {"status": "closed"}
+
+    @app.get("/v1/sessions", tags=["sessions"])
+    async def list_sessions_endpoint(
+        req: Request,
+        status: str | None = None,
+        user_id: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        items, total = await list_sessions(
+            req.app.state.engine, req.state.tenant_id,
+            status=status, user_id=user_id, page=page, page_size=page_size,
+        )
+        return {"items": [i.model_dump() for i in items], "total": total, "page": page, "page_size": page_size}
+
+
 
     app.include_router(invoke_router)
 

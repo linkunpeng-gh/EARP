@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Test Retrieval"><title>Test Retrieval — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>  <nav>
+    <a href="../index.html">Overview</a>
+    <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
+    <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
+    <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
+    <div class="nav-group"><a href="knowledge.html" data-nav="knowledge">知识</a></div>
+    <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="audit.html">治理</a>
+      <div class="dropdown-menu">
+        <a href="audit.html" data-nav="audit">Audit Logs</a>
+        <a href="roles.html" class="disabled">Roles &amp; Permissions</a>
+        <a href="org-units.html" class="disabled">Organization</a>
+        <a href="tenants.html" class="disabled">Tenant Management</a>
+        <a href="policy.html" class="disabled">Policy Center</a>
+        <a href="observability.html" class="disabled">Observability</a>
+      </div>
+    </div>
+  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+
+<main>
+
+<p class="breadcrumb"><a href="knowledge.html">&larr; Back to Knowledge Base</a></p>
+
+<div class="page-title"><div><h2>Test Retrieval</h2><p class="page-subtitle">Test semantic search recall against a KB or Data Domain</p></div></div>
+
+<div class="tr-layout">
+
+  <!-- Left: Query Input + History -->
+  <div class="tr-left">
+
+    <div class="panel" style="margin-bottom:1rem">
+      <h3 style="font-size:0.81rem;margin-bottom:0.5rem">Search Query</h3>
+      <textarea id="search-query" rows="4" placeholder="Enter text to search for in the knowledge base..." style="width:100%;font-family:inherit;font-size:0.81rem;resize:vertical;min-height:80px"></textarea>
+      <div style="margin-top:0.5rem;display:flex;gap:0.5rem">
+        <button class="primary" onclick="doSearch()" style="flex:1">Search</button>
+        <button class="btn-outline btn-sm" onclick="clearAll()">Clear</button>
+      </div>
+    </div>
+
+    <!-- Search History -->
+    <div class="panel">
+      <h3 style="font-size:0.81rem;margin-bottom:0.5rem">History</h3>
+      <div id="history-list">
+        <p style="font-size:0.75rem;color:var(--text-quaternary);padding:0.5rem 0">No searches yet.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right: Scope + Settings + Results -->
+  <div class="tr-right">
+
+    <!-- Scope selector -->
+    <div class="toolbar" style="margin-bottom:0.75rem">
+      <label style="font-size:0.81rem;color:var(--text-secondary);white-space:nowrap">Scope:</label>
+      <select id="scope-type" onchange="onScopeChange()" style="width:auto">
+        <option value="kb">Knowledge Base</option>
+        <option value="dd">Data Domain</option>
+      </select>
+      <select id="scope-kb" style="flex:1">
+        <option value="">Select KB...</option>
+        <option value="kb-eq-manuals">Equipment Manuals</option>
+        <option value="kb-eq-alarms">Alarm Thresholds</option>
+        <option value="kb-hr-policies">Company Policies</option>
+      </select>
+      <select id="scope-dd" style="flex:1;display:none">
+        <option value="">Select DD...</option>
+        <option value="equipment_data">Equipment Data</option>
+        <option value="hr_data">HR Policies</option>
+        <option value="corporate_data">Corporate Standards</option>
+      </select>
+    </div>
+
+    <!-- Settings bar -->
+    <div class="kb-info-bar" id="settings-bar" style="display:none;font-size:0.75rem">
+      <span>Mode: <strong id="set-mode">vector</strong></span>
+      <span>Top-K: <strong id="set-topk">5</strong></span>
+      <span>Threshold: <strong id="set-threshold">0.0</strong></span>
+      <span>Index: <strong id="set-index">high_quality</strong></span>
+    </div>
+
+    <!-- Results -->
+    <div class="panel" id="results-area" style="display:none">
+      <div id="results-tbody"></div>
+      <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-quaternary)" id="results-count"></div>
+    </div>
+
+    <!-- Empty state -->
+    <p class="kb-empty" id="search-empty">Enter a query, select a scope, and click <strong>Search</strong> to see retrieved chunks.</p>
+
+  </div>
+</div>
+
+</main>
+
+<script src="../js/app.js"></script>
+<script>
+// ── Demo results ──
+var demoResults = [
+  {chunk_id:'chk-001', content:'CNC machines require regular calibration every 30 days to maintain tolerance within 0.01mm. Failure to calibrate may result in product defects and safety hazards.', score:0.92, doc:'CNC Operation Manual v3'},
+  {chunk_id:'chk-003', content:'Temperature sensors should be checked weekly; deviation greater than 2°C requires immediate recalibration by certified technician.', score:0.87, doc:'Maintenance Schedule 2026'},
+  {chunk_id:'chk-007', content:'All safety inspections must be documented and signed off by the shift supervisor before operations can resume. Digital logs are stored in the EHS system.', score:0.81, doc:'Safety Guidelines'},
+  {chunk_id:'chk-012', content:'Pressure alarm thresholds: high pressure exceeding 120 PSI triggers auto-shutdown sequence; low pressure below 40 PSI triggers warning notification to maintenance team.', score:0.74, doc:'Pressure Alarm Settings'},
+  {chunk_id:'chk-005', content:'Quarterly preventive maintenance schedule includes belt tension inspection, lubrication of all moving parts, and comprehensive electrical safety verification.', score:0.68, doc:'Maintenance Schedule 2026'},
+];
+
+// ── History ──
+var searchHistory = [];
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', function() {
+  var params = new URLSearchParams(location.search);
+  var kb = params.get('kb');
+  var dd = params.get('dd');
+  if (kb) { document.getElementById('scope-kb').value = kb; }
+  else if (dd) { document.getElementById('scope-type').value = 'dd'; document.getElementById('scope-dd').value = dd; onScopeChange(); }
+  renderHistory();
+});
+
+function onScopeChange() {
+  var type = document.getElementById('scope-type').value;
+  document.getElementById('scope-kb').style.display = type === 'kb' ? '' : 'none';
+  document.getElementById('scope-dd').style.display = type === 'dd' ? '' : 'none';
+}
+
+function getScope() {
+  var type = document.getElementById('scope-type').value;
+  if (type === 'kb') return {type:'kb', value: document.getElementById('scope-kb').value};
+  return {type:'dd', value: document.getElementById('scope-dd').value};
+}
+
+function doSearch() {
+  var q = document.getElementById('search-query').value.trim();
+  if (!q) { alert('Enter a query'); return; }
+  var scope = getScope();
+  if (!scope.value) { alert('Select a scope'); return; }
+
+  document.getElementById('search-empty').style.display = 'none';
+  document.getElementById('results-area').style.display = '';
+  document.getElementById('settings-bar').style.display = 'flex';
+
+  document.getElementById('set-mode').textContent = 'vector';
+  document.getElementById('set-topk').textContent = '5';
+  document.getElementById('set-threshold').textContent = '0.0';
+  document.getElementById('set-index').textContent = 'high_quality';
+
+  // Filter demo results (simple keyword match)
+  var words = q.toLowerCase().split(/\s+/);
+  var filtered = demoResults.filter(function(r) {
+    return words.some(function(w) { return r.content.toLowerCase().includes(w); });
+  });
+  if (filtered.length === 0) filtered = demoResults.slice(0, 3);
+
+  // Render results as cards
+  var container = document.getElementById('results-tbody');
+  container.innerHTML = filtered.map(function(r, i) {
+    return '<div class="result-card">'
+      + '<div class="result-card-header">'
+        + '<span style="font-weight:600;color:var(--text-primary)">#' + (i+1) + ' ' + r.chunk_id + '</span>'
+        + '<span class="tag tag-green" style="margin-left:auto">' + r.score.toFixed(3) + '</span>'
+      + '</div>'
+      + '<div class="result-card-body">' + r.content + '</div>'
+      + '<div class="result-card-footer">📄 ' + r.doc + '</div>'
+      + '</div>';
+  }).join('');
+
+  document.getElementById('results-count').textContent =
+    filtered.length + ' results — ' + scope.type + ': ' + scope.value;
+
+  // Save to history
+  searchHistory.unshift({query: q, scope: scope, results: filtered.length, time: new Date()});
+  if (searchHistory.length > 20) searchHistory = searchHistory.slice(0, 20);
+  renderHistory();
+}
+
+function renderHistory() {
+  var list = document.getElementById('history-list');
+  if (searchHistory.length === 0) {
+    list.innerHTML = '<p style="font-size:0.75rem;color:var(--text-quaternary);padding:0.5rem 0">No searches yet.</p>';
+    return;
+  }
+  list.innerHTML = searchHistory.map(function(h, i) {
+    var timeStr = h.time.toLocaleTimeString();
+    return '<div class="history-item" onclick="replaySearch(' + i + ')" style="cursor:pointer;padding:0.35rem 0.4rem;border-radius:4px;margin-bottom:2px">'
+      + '<div style="font-size:0.81rem;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + h.query + '</div>'
+      + '<div style="font-size:0.69rem;color:var(--text-quaternary);display:flex;gap:0.5rem">'
+        + '<span>' + h.scope.type + ': ' + h.scope.value + '</span>'
+        + '<span>' + h.results + ' results</span>'
+        + '<span>' + timeStr + '</span>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function replaySearch(index) {
+  var h = searchHistory[index];
+  document.getElementById('search-query').value = h.query;
+  if (h.scope.type === 'kb') {
+    document.getElementById('scope-type').value = 'kb';
+    document.getElementById('scope-kb').value = h.scope.value;
+    onScopeChange();
+  } else {
+    document.getElementById('scope-type').value = 'dd';
+    document.getElementById('scope-dd').value = h.scope.value;
+    onScopeChange();
+  }
+  doSearch();
+}
+
+function clearAll() {
+  document.getElementById('search-query').value = '';
+  document.getElementById('results-area').style.display = 'none';
+  document.getElementById('settings-bar').style.display = 'none';
+  document.getElementById('search-empty').style.display = 'block';
+}
+</script>
+
+<style>
+/* ── Test Retrieval: Left-right layout ── */
+.tr-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (max-width: 768px) {
+  .tr-layout { grid-template-columns: 1fr; }
+}
+.tr-left { position: sticky; top: 72px; }
+
+/* ── Result cards ── */
+.result-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+}
+.result-card-header {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-surface);
+  font-size: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.result-card-body {
+  padding: 0.6rem;
+  font-size: 0.81rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.result-card-footer {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.69rem;
+  color: var(--text-quaternary);
+  border-top: 1px solid var(--border-subtle);
+}
+</style>
+</body></html>

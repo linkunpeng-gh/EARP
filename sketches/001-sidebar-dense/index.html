@@ -51,7 +51,8 @@ pre{background:var(--bg-surface);padding:0.75rem;border-radius:var(--radius-md);
     <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Sessions</a></li>
     <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Capabilities</a></li>
     <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="15.5"/><polyline points="22 8.5 12 15.5 2 8.5"/></svg>Plan &amp; Invoke</a></li>
-    <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Knowledge Base</a></li>
+    <li><a href="#" onclick="return showPage('knowledge')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Knowledge Base</a></li>
+    <li><a href="#" onclick="return showPage('datadomains')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0-4 10 14.5 14.5 0 0 0 4 10 14.5 14.5 0 0 0 4-10 14.5 14.5 0 0 0-4-10z"/></svg>Data Domains</a></li>
     <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Conversations</a></li>
     <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Streaming</a></li>
     <li><a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Audit Logs</a></li>
@@ -59,6 +60,7 @@ pre{background:var(--bg-surface);padding:0.75rem;border-radius:var(--radius-md);
   <div class="version">v0.2 · tenant-demo</div>
 </aside>
 <main>
+<section id="page-dashboard" class="page-section">
   <h2>Dashboard</h2>
   <div class="quick-actions">
     <a href="#" role="button">+ New Session</a>
@@ -76,5 +78,116 @@ pre{background:var(--bg-surface);padding:0.75rem;border-radius:var(--radius-md);
   <tr><td>sess-def456</td><td>u2</td><td>closed</td><td>2026-07-20 09:30</td></tr>
   <tr><td>sess-ghi789</td><td>u1</td><td><span class="status-active">● active</span></td><td>2026-07-19 14:20</td></tr></tbody></table>
   <div class="pagination"><a href="#">← Prev</a><span>1 of 1</span><a href="#">Next →</a></div>
+
+<section id="page-knowledge" class="page-section" style="display:none">
+  <h2>Knowledge Base</h2>
+  <div style="display:flex;gap:8px;margin-bottom:16px">
+    <select style="background:rgba(255,255,255,0.02);padding:4px 8px;border-radius:4px;border:1px solid var(--border-standard);color:var(--text-secondary);font-size:0.81rem">
+      <option>All Data Domains</option><option>Equipment Data</option><option>HR Policies</option>
+    </select>
+    <input placeholder="Search documents..." style="flex:1;background:rgba(255,255,255,0.02);padding:4px 8px;border-radius:4px;border:1px solid var(--border-standard);color:var(--text-secondary)">
+    <button style="padding:4px 12px;border-radius:4px;border:1px solid var(--border-standard);background:rgba(255,255,255,0.02);color:var(--text-secondary);cursor:pointer">Search</button>
+    <button class="primary" style="margin-left:auto">+ New KB</button>
+  </div>
+  <div style="display:flex;gap:16px">
+    <div style="flex:0 0 240px;background:rgba(255,255,255,0.02);border:1px solid var(--border-standard);border-radius:8px;padding:12px">
+      <div style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:8px">Knowledge Bases</div>
+      <div class="kb-card" style="padding:8px 10px;border:1px solid var(--accent);border-radius:6px;margin-bottom:4px;outline:2px solid var(--accent);outline-offset:-1px">
+        <div style="font-size:0.81rem;font-weight:510">Equipment Manuals</div>
+        <div style="font-size:0.75rem;color:var(--text-tertiary)">equipment_data · 8 docs</div>
+      </div>
+      <div class="kb-card" style="padding:8px 10px;border:1px solid var(--border-standard);border-radius:6px;margin-bottom:4px">
+        <div style="font-size:0.81rem;font-weight:510">Alarm Thresholds</div>
+        <div style="font-size:0.75rem;color:var(--text-tertiary)">equipment_data · 4 docs</div>
+      </div>
+      <div class="kb-card" style="padding:8px 10px;border:1px solid var(--border-standard);border-radius:6px">
+        <div style="font-size:0.81rem;font-weight:510">Company Policies</div>
+        <div style="font-size:0.75rem;color:var(--text-tertiary)">hr_data · 5 docs</div>
+      </div>
+    </div>
+    <div style="flex:1;background:rgba(255,255,255,0.02);border:1px solid var(--border-standard);border-radius:8px;padding:12px">
+      <div style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:8px">Documents — Equipment Manuals (equipment_data)</div>
+      <div style="display:flex;gap:6px;margin-bottom:10px;padding:8px;background:rgba(255,255,255,0.02);border-radius:4px">
+        <input placeholder="Title" style="flex:2;background:rgba(255,255,255,0.02);padding:4px 8px;border:1px solid var(--border-standard);border-radius:4px">
+        <input placeholder="Content" style="flex:3;background:rgba(255,255,255,0.02);padding:4px 8px;border:1px solid var(--border-standard);border-radius:4px">
+        <select style="background:rgba(255,255,255,0.02);padding:4px 8px;border:1px solid var(--border-standard);border-radius:4px;color:var(--text-secondary)"><option>internal</option><option>confidential</option></select>
+        <button class="primary" style="padding:4px 12px">Upload</button>
+      </div>
+      <table style="width:100%"><thead><tr><th>Doc ID</th><th>Title</th><th>DD</th><th>Classification</th><th>Chunks</th><th>Status</th></tr></thead>
+      <tbody><tr><td>doc-001</td><td>CNC Operation Manual v3</td><td>equipment_data</td><td><span style="color:var(--accent-text)">[internal ▼]</span></td><td>24</td><td>indexed</td></tr>
+      <tr><td>doc-002</td><td>Maintenance Schedule</td><td>equipment_data</td><td><span style="color:var(--accent-text)">[internal ▼]</span></td><td>15</td><td>indexed</td></tr>
+      <tr><td>doc-003</td><td>Safety Guidelines</td><td>equipment_data</td><td><span style="color:var(--accent-text)">[confidential ▼]</span></td><td>8</td><td>indexed</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+</section>
+
+<section id="page-datadomains" class="page-section" style="display:none">
+  <h2>Data Domains</h2>
+  <div style="display:flex;gap:8px;margin-bottom:16px">
+    <select style="background:rgba(255,255,255,0.02);padding:4px 8px;border-radius:4px;border:1px solid var(--border-standard);color:var(--text-secondary);font-size:0.81rem">
+      <option>All classifications</option><option>Internal</option><option>Confidential</option>
+    </select>
+    <input placeholder="Search domains..." style="flex:1;background:rgba(255,255,255,0.02);padding:4px 8px;border-radius:4px;border:1px solid var(--border-standard);color:var(--text-secondary)">
+    <button style="padding:4px 12px;border-radius:4px;border:1px solid var(--border-standard);background:rgba(255,255,255,0.02);color:var(--text-secondary);cursor:pointer">Search</button>
+    <button class="primary" style="margin-left:auto">+ New Domain</button>
+  </div>
+  <div style="display:flex;gap:16px">
+    <div style="flex:0 0 240px;background:rgba(255,255,255,0.02);border:1px solid var(--border-standard);border-radius:8px;padding:12px">
+      <div style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:8px">Data Domains</div>
+      <div class="dd-card" style="padding:8px 10px;border:1px solid var(--accent);border-radius:6px;margin-bottom:4px;outline:2px solid var(--accent);outline-offset:-1px">
+        <div style="font-size:0.81rem;font-weight:510">Equipment Data</div>
+        <div style="font-size:0.75rem;color:var(--text-tertiary)">internal · 2 KB · 12 docs</div>
+      </div>
+      <div class="dd-card" style="padding:8px 10px;border:1px solid var(--border-standard);border-radius:6px;margin-bottom:4px">
+        <div style="font-size:0.81rem;font-weight:510">HR Policies</div>
+        <div style="font-size:0.75rem;color:var(--text-tertiary)">confidential · 1 KB · 5 docs</div>
+      </div>
+      <div class="dd-card" style="padding:8px 10px;border:1px solid var(--border-standard);border-radius:6px">
+        <div style="font-size:0.81rem;font-weight:510">Corporate Standards</div>
+        <div style="font-size:0.75rem;color:var(--text-tertiary)">internal · 2 KB · 8 docs</div>
+      </div>
+    </div>
+    <div style="flex:1;background:rgba(255,255,255,0.02);border:1px solid var(--border-standard);border-radius:8px;padding:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div><div style="font-weight:510">Equipment Data</div><div style="font-size:0.75rem;color:var(--text-tertiary)">Owner: equipment-team · Mapped BD: Equipment</div></div>
+        <span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;background:rgba(94,106,210,0.1);color:var(--accent-text)">internal</span>
+      </div>
+      <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border-standard);border-radius:6px;padding:12px;margin-bottom:12px">
+        <div style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:8px">Knowledge Bases (2 KBs)</div>
+        <table style="width:100%"><thead><tr><th>KB ID</th><th>Name</th><th>Docs</th></tr></thead>
+        <tbody><tr><td>kb-eq-manuals</td><td>Equipment Manuals</td><td>8</td></tr>
+        <tr><td>kb-eq-alarms</td><td>Alarm Thresholds</td><td>4</td></tr></tbody></table>
+      </div>
+      <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border-standard);border-radius:6px;padding:12px">
+        <div style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:8px">Role Access (3 roles)</div>
+        <table style="width:100%"><thead><tr><th>Role</th><th>Max Classification</th><th></th></tr></thead>
+        <tbody><tr><td>设备工程师</td><td><span style="color:var(--accent-text)">[internal ▼]</span></td><td><button style="padding:2px 8px;font-size:0.75rem;background:rgba(255,255,255,0.02);border:1px solid var(--border-standard);border-radius:4px;cursor:pointer">Revoke</button></td></tr>
+        <tr><td>设备管理员</td><td><span style="color:var(--accent-text)">[confidential ▼]</span></td><td><button style="padding:2px 8px;font-size:0.75rem;background:rgba(255,255,255,0.02);border:1px solid var(--border-standard);border-radius:4px;cursor:pointer">Revoke</button></td></tr></tbody></table>
+        <div style="display:flex;gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-standard)">
+          <select style="flex:1;background:rgba(255,255,255,0.02);padding:4px 8px;border:1px solid var(--border-standard);border-radius:4px;color:var(--text-secondary)"><option>Grant access to a role...</option></select>
+          <button class="primary" style="padding:4px 12px">Grant</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</section>
+
+<script>
+function showPage(name) {
+  document.querySelectorAll('.page-section').forEach(function(s) { s.style.display = 'none'; });
+  var el = document.getElementById('page-' + name);
+  if (el) el.style.display = 'block';
+  return false;
+}
+document.querySelectorAll('.nav a').forEach(function(a) {
+  a.addEventListener('click', function() {
+    document.querySelectorAll('.nav a').forEach(function(n) { n.classList.remove('active'); });
+    this.classList.add('active');
+  });
+});
+</script>
+
 </main>
 </body></html>

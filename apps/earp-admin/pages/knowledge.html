@@ -1,63 +1,380 @@
 <!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Knowledge Base"><title>Knowledge Base — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
 <body>
-<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span><nav><a href="../index.html">Overview</a><a href="sessions.html">Sessions</a><a href="capabilities.html">Capabilities</a><a href="plan.html">Plan &amp; Invoke</a><a href="knowledge.html" class="active" aria-current="page">Knowledge</a><a href="data-domains.html">Data Domains</a><a href="conversations.html">Conversations</a><a href="stream.html">Streaming</a><a href="audit.html">Audit</a></nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>  <nav>
+    <a href="../index.html">Overview</a>
+    <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
+    <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
+    <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
+    <div class="nav-group"><a href="knowledge.html" data-nav="knowledge" class="active" aria-current="page">知识</a></div>
+    <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="audit.html">治理</a>
+      <div class="dropdown-menu">
+        <a href="audit.html" data-nav="audit">Audit Logs</a>
+        <a href="roles.html" class="disabled">Roles &amp; Permissions</a>
+        <a href="org-units.html" class="disabled">Organization</a>
+        <a href="tenants.html" class="disabled">Tenant Management</a>
+        <a href="policy.html" class="disabled">Policy Center</a>
+        <a href="observability.html" class="disabled">Observability</a>
+      </div>
+    </div>
+  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+
 <main>
-<div class="page-title"><div><h2>Knowledge Base</h2><p class="page-subtitle">Upload documents and search with semantic embeddings</p></div></div>
-<div class="toolbar">
-  <select id="dd-filter" style="width:auto" onchange="filterByDomain()">
-    <option value="">All Data Domains</option>
-    <option value="equipment_data">Equipment Data</option>
-    <option value="hr_data">HR Policies</option>
-    <option value="corporate_data">Corporate Standards</option>
-  </select>
-  <input placeholder="Search..." style="flex:1;margin-left:8px"><button>Search</button>
+
+<div class="page-title"><div><h2>Knowledge Base</h2><p class="page-subtitle">Manage knowledge bases and documents · <a href="data-domains.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">Data Domains →</a></p></div></div>
+
+<div class="kb-layout">
+
+  <!-- Left: KB List -->
+  <aside class="kb-list-panel">
+    <h3>Knowledge Bases</h3>
+    <div class="kb-list-filter">
+      <select id="dd-filter" onchange="renderKBList()">
+        <option value="">All Data Domains</option>
+        <option value="equipment_data">Equipment Data</option>
+        <option value="hr_data">HR Policies</option>
+        <option value="corporate_data">Corporate Standards</option>
+      </select>
+    </div>
+    <div id="kb-list"></div>
+    <button class="kb-list-new" onclick="showKBModal()">+ New KB</button>
+  </aside>
+
+  <!-- Right: Workspace -->
+  <div id="kb-workspace">
+    <p class="kb-empty" id="kb-empty">Select a Knowledge Base from the left panel to view and upload documents.</p>
+    <div id="kb-workspace-content" style="display:none">
+
+      <!-- KB info bar -->
+      <div class="kb-info-bar">
+        <span class="kb-info-name" id="kb-info-name">—</span>
+        <span class="kb-info-meta" id="kb-info-meta">—</span>
+      </div>
+
+      <!-- Upload: select local file → add to KB -->
+      <div class="upload-bar">
+        <select id="upload-class" style="width:auto">
+          <option value="internal">internal</option>
+          <option value="confidential">confidential</option>
+          <option value="restricted">restricted</option>
+        </select>
+        <span id="upload-file-info" style="flex:1;font-size:0.81rem;color:var(--text-quaternary);min-width:120px">No file selected</span>
+        <input type="file" id="upload-file" accept=".txt,.md,.csv,.json,.html" onchange="onFileSelected()" style="display:none">
+        <button class="secondary" onclick="document.getElementById('upload-file').click()">Choose File</button>
+        <button class="primary" id="upload-btn" onclick="uploadDoc()" disabled>Upload</button>
+      </div>
+
+      <!-- Doc table -->
+      <table id="doc-table">
+        <thead><tr><th>Doc ID</th><th>Title</th><th>Classification</th><th>Chunks</th><th>Status</th><th></th></tr></thead>
+        <tbody id="doc-tbody"></tbody>
+      </table>
+
+      <!-- Test Retrieval -->
+      <div style="margin-top:1rem">
+        <button class="secondary" onclick="goTestRetrieval()">Test Retrieval →</button>
+      </div>
+
+    </div>
+  </div>
 </div>
-<div class="toolbar"><input placeholder="Document title" style="flex:1"><textarea placeholder="Content" rows="3" style="width:100%"></textarea>
-  <select id="upload-dd" style="width:auto"><option value="">Data Domain</option><option value="equipment_data">Equipment Data</option><option value="hr_data">HR Policies</option></select>
-  <button class="primary">Upload</button>
-</div>
-<h3>Knowledge Bases</h3>
-<table id="kb-table"><thead><tr><th>KB ID</th><th>Name</th><th>Data Domain</th><th>Documents</th><th>Chunks</th><th>Created</th></tr></thead><tbody>
-<tr class="kb-summary" data-dd="equipment_data"><td>kb-eq-manuals</td><td><a href="#" onclick="return showDocs('equipment-manuals')">Equipment Manuals</a></td><td><span class="tag tag-internal">equipment_data</span></td><td>8</td><td>120</td><td>2026-07-10</td></tr>
-<tr class="kb-summary" data-dd="equipment_data"><td>kb-eq-alarms</td><td><a href="#" onclick="return showDocs('alarm-thresholds')">Alarm Thresholds</a></td><td><span class="tag tag-internal">equipment_data</span></td><td>4</td><td>45</td><td>2026-07-09</td></tr>
-<tr class="kb-summary" data-dd="hr_data"><td>kb-hr-policies</td><td><a href="#" onclick="return showDocs('hr-policies')">Company Policies</a></td><td><span class="tag tag-confidential">hr_data</span></td><td>5</td><td>60</td><td>2026-07-05</td></tr>
-</tbody></table>
-<h3>Documents <span class="hint" style="font-weight:400">Click a KB name to see its documents</span></h3>
-<table id="doc-table"><thead><tr><th>Doc ID</th><th>Title</th><th>Knowledge Base</th><th>Data Domain</th><th>Classification</th><th>Chunks</th><th>Status</th></tr></thead><tbody id="doc-tbody">
-<tr data-dd="equipment_data"><td>doc-001</td><td>CNC Operation Manual v3</td><td>Equipment Manuals</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-internal">internal</span></td><td>24</td><td>indexed</td></tr>
-<tr data-dd="equipment_data"><td>doc-002</td><td>Maintenance Schedule 2026</td><td>Equipment Manuals</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-internal">internal</span></td><td>15</td><td>indexed</td></tr>
-<tr data-dd="equipment_data"><td>doc-003</td><td>Safety Guidelines</td><td>Equipment Manuals</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-confidential">confidential</span></td><td>8</td><td>indexed</td></tr>
-<tr data-dd="equipment_data"><td>doc-004</td><td>Temperature Threshold Guide</td><td>Alarm Thresholds</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-internal">internal</span></td><td>12</td><td>indexed</td></tr>
-<tr data-dd="equipment_data"><td>doc-005</td><td>Pressure Alarm Settings</td><td>Alarm Thresholds</td><td><span class="tag tag-internal">equipment_data</span></td><td><span class="tag tag-internal">internal</span></td><td>10</td><td>indexed</td></tr>
-<tr data-dd="hr_data"><td>doc-006</td><td>Leave Policy 2026</td><td>Company Policies</td><td><span class="tag tag-confidential">hr_data</span></td><td><span class="tag tag-internal">internal</span></td><td>18</td><td>indexed</td></tr>
-<tr data-dd="hr_data"><td>doc-007</td><td>Employee Handbook</td><td>Company Policies</td><td><span class="tag tag-confidential">hr_data</span></td><td><span class="tag tag-confidential">confidential</span></td><td>42</td><td>indexed</td></tr>
-</tbody></table>
+
+</main>
+
+<script src="../js/app.js"></script>
 <script>
-function filterByDomain() {
+// ── Demo data ──
+var kbData = {
+  'kb-eq-manuals': {
+    name: 'Equipment Manuals', desc: '设备操作手册与维护文档集合，涵盖CNC、温控及安全检查相关技术文档',
+    dd: 'equipment_data', chunk_size: 1000, overlap: 200, separators: '\n\n,\n,., ,', model: 'bge-m3',
+    mode: 'vector', top_k: 5, threshold: 0.0, index: 'high_quality',
+    docs: [
+      {id:'doc-001',title:'CNC Operation Manual v3',cls:'internal',chunks:24,status:'indexed'},
+      {id:'doc-002',title:'Maintenance Schedule 2026',cls:'internal',chunks:15,status:'indexed'},
+      {id:'doc-003',title:'Safety Guidelines',cls:'confidential',chunks:8,status:'indexed'},
+    ]
+  },
+  'kb-eq-alarms': {
+    name: 'Alarm Thresholds', desc: '设备报警阈值配置文档，包含温度、压力报警参数设定',
+    dd: 'equipment_data', chunk_size: 1000, overlap: 200, separators: '\n\n,\n,., ,', model: 'bge-m3',
+    mode: 'hybrid', top_k: 10, threshold: 0.0, index: 'high_quality',
+    docs: [
+      {id:'doc-004',title:'Temperature Threshold Guide',cls:'internal',chunks:12,status:'indexed'},
+      {id:'doc-005',title:'Pressure Alarm Settings',cls:'internal',chunks:10,status:'indexed'},
+    ]
+  },
+  'kb-hr-policies': {
+    name: 'Company Policies', desc: '企业人事政策与员工手册，包括考勤、休假及员工行为规范',
+    dd: 'hr_data', chunk_size: 1500, overlap: 300, separators: '\n\n,\n', model: 'text-embedding-3-small',
+    mode: 'vector', top_k: 5, threshold: 0.0, index: 'high_quality',
+    docs: [
+      {id:'doc-006',title:'Leave Policy 2026',cls:'internal',chunks:18,status:'indexed'},
+      {id:'doc-007',title:'Employee Handbook',cls:'confidential',chunks:42,status:'indexed'},
+    ]
+  },
+};
+
+var state = { selectedKB: null };
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', function() {
+  renderKBList();
+});
+
+// ── KB List ──
+function renderKBList() {
   var dd = document.getElementById('dd-filter').value;
-  document.querySelectorAll('.kb-summary').forEach(function(r) {
-    r.style.display = !dd || r.getAttribute('data-dd') === dd ? '' : 'none';
-  });
-  document.querySelectorAll('#doc-tbody tr').forEach(function(r) {
-    r.style.display = !dd || r.getAttribute('data-dd') === dd ? '' : 'none';
-  });
+  var list = document.getElementById('kb-list');
+  var items = [];
+  for (var id in kbData) {
+    var kb = kbData[id];
+    if (dd && kb.dd !== dd) continue;
+    items.push({id: id, kb: kb});
+  }
+  if (items.length === 0) {
+    list.innerHTML = '<p style="font-size:0.75rem;color:var(--text-quaternary);padding:0.5rem">No KB found.</p>';
+    return;
+  }
+  list.innerHTML = items.map(function(item) {
+    var active = state.selectedKB === item.id ? ' active' : '';
+    return '<div class="kb-list-item' + active + '" onclick="selectKB(\'' + item.id + '\')">'
+      + '<span class="kb-name">' + item.id + '</span>'
+      + '<span class="tag tag-accent" style="font-size:0.65rem;flex-shrink:0">' + item.kb.dd + '</span>'
+      + '<span class="kb-count">' + item.kb.docs.length + ' docs</span>'
+      + '<span class="kb-actions">'
+        + '<button class="kb-act-btn" onclick="event.stopPropagation();editKB(\'' + item.id + '\')" title="Config">⚙️</button>'
+        + '<button class="kb-act-btn del" onclick="event.stopPropagation();deleteKB(\'' + item.id + '\')" title="Delete">🗑</button>'
+      + '</span>'
+      + '</div>';
+  }).join('');
 }
-function showDocs(kbName) {
-  document.querySelectorAll('#doc-tbody tr').forEach(function(r) {
-    var shouldShow = false;
-    if (kbName === 'equipment-manuals') shouldShow = r.cells[2].textContent === 'Equipment Manuals';
-    else if (kbName === 'alarm-thresholds') shouldShow = r.cells[2].textContent === 'Alarm Thresholds';
-    else if (kbName === 'hr-policies') shouldShow = r.cells[2].textContent === 'Company Policies';
-    r.style.display = shouldShow ? '' : 'none';
+
+function selectKB(id) {
+  state.selectedKB = id;
+  renderKBList();
+  showWorkspace(id);
+}
+
+function showWorkspace(id) {
+  var kb = kbData[id];
+  if (!kb) {
+    document.getElementById('kb-empty').style.display = 'block';
+    document.getElementById('kb-workspace-content').style.display = 'none';
+    return;
+  }
+  document.getElementById('kb-empty').style.display = 'none';
+  document.getElementById('kb-workspace-content').style.display = '';
+  document.getElementById('kb-info-name').textContent = kb.name;
+  var totalChunks = kb.docs.reduce(function(s,d){return s+d.chunks;},0);
+  document.getElementById('kb-info-meta').innerHTML =
+    '<span class="tag tag-accent">' + kb.dd + '</span> · '
+    + kb.docs.length + ' docs · ' + totalChunks + ' chunks'
+    + (kb.desc ? ' · <span title="' + kb.desc + '" style="color:var(--text-quaternary)">' + kb.desc.substring(0,40) + '...</span>' : '');
+  renderDocTable(kb);
+}
+
+function renderDocTable(kb) {
+  var tbody = document.getElementById('doc-tbody');
+  if (kb.docs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-quaternary);padding:2rem">No documents yet. Upload one above.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = kb.docs.map(function(d) {
+    var clsOpts = ['public','internal','confidential','restricted'].map(function(c){
+      return '<option value="' + c + '"' + (d.cls===c?' selected':'') + '>' + c + '</option>';
+    }).join('');
+    return '<tr>'
+      + '<td><code>' + d.id + '</code></td>'
+      + '<td>' + d.title + '</td>'
+      + '<td><select class="cls-editor" onchange="changeCls(this,\'' + d.id + '\')">' + clsOpts + '</select></td>'
+      + '<td>' + d.chunks + '</td>'
+      + '<td>' + (d.status==='indexed'?'✅ indexed':'⏳ processing') + '</td>'
+      + '<td><a href="doc-config.html?doc=' + d.id + '" class="btn-sm" title="Chunk config" style="text-decoration:none">⚙️</a></td>'
+      + '</tr>';
+  }).join('');
+}
+
+// ── KB CRUD ──
+function showKBModal(editId) {
+  var modal = document.getElementById('kb-modal');
+  var title = document.getElementById('kb-modal-title');
+  if (!modal) { createKBModal(); modal = document.getElementById('kb-modal'); title = document.getElementById('kb-modal-title'); }
+  if (editId) {
+    title.textContent = 'Edit KB';
+    document.getElementById('kb-modal-id').value = editId;
+    var kb = kbData[editId];
+    document.getElementById('kb-name').value = kb.name;
+    document.getElementById('kb-desc').value = kb.desc || '';
+    document.getElementById('kb-dd').value = kb.dd;
+    document.getElementById('kb-chunk-size').value = kb.chunk_size;
+    document.getElementById('kb-overlap').value = kb.overlap;
+    document.getElementById('kb-separators').value = kb.separators;
+    document.getElementById('kb-model').value = kb.model;
+    document.getElementById('kb-mode').value = kb.mode;
+    document.getElementById('kb-topk').value = kb.top_k;
+    document.getElementById('kb-threshold').value = kb.threshold;
+    document.getElementById('kb-index').value = kb.index;
+  } else {
+    title.textContent = 'Create Knowledge Base';
+    document.getElementById('kb-modal-id').value = '';
+    document.getElementById('kb-name').value = '';
+    document.getElementById('kb-desc').value = '';
+    document.getElementById('kb-dd').value = '';
+    document.getElementById('kb-chunk-size').value = '1000';
+    document.getElementById('kb-overlap').value = '200';
+    document.getElementById('kb-separators').value = '\\n\\n,\\n,., ,';
+    document.getElementById('kb-model').value = 'bge-m3';
+    document.getElementById('kb-mode').value = 'vector';
+    document.getElementById('kb-topk').value = '5';
+    document.getElementById('kb-threshold').value = '0.0';
+    document.getElementById('kb-index').value = 'high_quality';
+  }
+  modal.style.display = 'flex';
+}
+
+function hideKBModal() { document.getElementById('kb-modal').style.display = 'none'; }
+
+function saveKB() {
+  var name = document.getElementById('kb-name').value.trim();
+  if (!name) { alert('Name required'); return; }
+  var editId = document.getElementById('kb-modal-id').value;
+  var kb = {
+    name: name, desc: document.getElementById('kb-desc').value.trim(),
+    dd: document.getElementById('kb-dd').value,
+    chunk_size: parseInt(document.getElementById('kb-chunk-size').value),
+    overlap: parseInt(document.getElementById('kb-overlap').value),
+    separators: document.getElementById('kb-separators').value,
+    model: document.getElementById('kb-model').value,
+    mode: document.getElementById('kb-mode').value,
+    top_k: parseInt(document.getElementById('kb-topk').value),
+    threshold: parseFloat(document.getElementById('kb-threshold').value),
+    index: document.getElementById('kb-index').value,
+    docs: editId && kbData[editId] ? kbData[editId].docs : [],
+  };
+  var id = editId || ('kb-' + name.toLowerCase().replace(/[^a-z0-9]+/g,'-').substring(0,20));
+  kbData[id] = kb;
+  if (!editId) state.selectedKB = id;
+  hideKBModal();
+  renderKBList();
+  showWorkspace(state.selectedKB);
+}
+
+function editKB(id) { showKBModal(id); }
+
+function deleteKB(id) {
+  if (!confirm('Delete KB "' + kbData[id].name + '" and all its documents? This cannot be undone.')) return;
+  delete kbData[id];
+  if (state.selectedKB === id) state.selectedKB = null;
+  renderKBList();
+  showWorkspace(null);
+}
+
+function createKBModal() {
+  var html = '<div id="kb-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideKBModal()">'
+    + '<div class="modal"><h4 id="kb-modal-title">Create Knowledge Base</h4>'
+    + '<input type="hidden" id="kb-modal-id">'
+    + '<div class="form-row"><label>Name</label><input id="kb-name" placeholder="KB name"></div>'
+    + '<div class="form-row"><label>Description</label><textarea id="kb-desc" rows="2" placeholder="Describe this KB\'s content — used for indexing and discovery"></textarea></div>'
+    + '<div class="form-row"><label>Data Domain</label><select id="kb-dd"><option value="">Select...</option>'
+    + '<option value="equipment_data">Equipment Data</option><option value="hr_data">HR Policies</option>'
+    + '<option value="corporate_data">Corporate Standards</option></select></div>'
+    + '<div class="form-section"><div class="form-section-title">Chunking</div>'
+    + '<div class="form-row"><label>Chunk Size</label><select id="kb-chunk-size">'
+    + '<option value="500">500</option><option value="1000" selected>1000</option>'
+    + '<option value="1500">1500</option><option value="2000">2000</option></select>'
+    + '<span style="font-size:0.75rem;color:var(--text-tertiary)">chars</span></div>'
+    + '<div class="form-row"><label>Overlap</label><select id="kb-overlap">'
+    + '<option value="100">100</option><option value="200" selected>200</option>'
+    + '<option value="300">300</option></select>'
+    + '<span style="font-size:0.75rem;color:var(--text-tertiary)">chars</span></div>'
+    + '<div class="form-row"><label>Separators</label><input id="kb-separators" value="\\n\\n,\\n,., ,">'
+    + '<span style="font-size:0.69rem;color:var(--text-quaternary)">comma-sep</span></div>'
+    + '<div class="form-row"><label>Model</label><select id="kb-model">'
+    + '<option value="bge-m3" selected>bge-m3 (1024d)</option>'
+    + '<option value="text-embedding-3-small">OpenAI text-embedding-3 (1536d)</option></select></div>'
+    + '</div>'
+    + '<div class="form-section"><div class="form-section-title">Retrieval Defaults</div>'
+    + '<div class="form-row"><label>Mode</label><select id="kb-mode">'
+    + '<option value="vector" selected>Vector Search</option><option value="hybrid">Hybrid</option></select></div>'
+    + '<div class="form-row"><label>Top-K</label><select id="kb-topk">'
+    + '<option value="3">3</option><option value="5" selected>5</option>'
+    + '<option value="10">10</option><option value="20">20</option></select></div>'
+    + '<div class="form-row"><label>Threshold</label>'
+    + '<input id="kb-threshold" type="number" min="0" max="1" step="0.05" value="0.0" style="width:80px">'
+    + '<span style="font-size:0.75rem;color:var(--text-tertiary)">0.0 = no filter</span></div>'
+    + '<div class="form-row"><label>Index</label><select id="kb-index">'
+    + '<option value="high_quality" selected>High Quality</option>'
+    + '<option value="economy">Economy</option></select></div>'
+    + '</div>'
+    + '<div class="form-actions"><button class="primary" onclick="saveKB()">Save</button>'
+    + '<button class="btn-sm" onclick="hideKBModal()">Cancel</button></div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// ── Upload ──
+var selectedFileContent = null;
+var selectedFileName = null;
+
+function onFileSelected() {
+  var file = document.getElementById('upload-file').files[0];
+  if (!file) {
+    document.getElementById('upload-file-info').textContent = 'No file selected';
+    document.getElementById('upload-btn').disabled = true;
+    selectedFileContent = null;
+    selectedFileName = null;
+    return;
+  }
+  selectedFileName = file.name;
+  document.getElementById('upload-file-info').textContent = file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    selectedFileContent = e.target.result;
+    document.getElementById('upload-btn').disabled = false;
+  };
+  reader.readAsText(file);
+}
+
+function uploadDoc() {
+  if (!selectedFileContent) { alert('Select a file first'); return; }
+  if (!state.selectedKB) { alert('Select a KB first'); return; }
+  var cls = document.getElementById('upload-class').value;
+  var docId = 'doc-' + Date.now().toString(36);
+  kbData[state.selectedKB].docs.push({
+    id: docId,
+    title: selectedFileName,
+    cls: cls,
+    chunks: Math.floor(selectedFileContent.length / 500) || 1,
+    status: 'indexed'
   });
-  return false;
+  // Reset
+  document.getElementById('upload-file').value = '';
+  document.getElementById('upload-file-info').textContent = 'No file selected';
+  document.getElementById('upload-btn').disabled = true;
+  selectedFileContent = null;
+  selectedFileName = null;
+  renderDocTable(kbData[state.selectedKB]);
+  renderKBList();
+}
+
+function changeCls(sel, docId) {
+  if (!confirm('Change classification to ' + sel.value + '?')) return;
+  var kb = kbData[state.selectedKB];
+  if (!kb) return;
+  var doc = kb.docs.find(function(d){return d.id===docId;});
+  if (doc) doc.cls = sel.value;
+}
+
+// ── Test Retrieval ──
+function goTestRetrieval() {
+  var url = 'test-retrieval.html';
+  if (state.selectedKB) url += '?kb=' + state.selectedKB;
+  else if (document.getElementById('dd-filter').value) url += '?dd=' + document.getElementById('dd-filter').value;
+  window.location.href = url;
 }
 </script>
-<style>
-.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:0.75rem;font-weight:500}
-.tag-internal{background:var(--yellow-bg,#fef3c7);color:var(--yellow-fg,#92400e)}
-.tag-confidential{background:var(--red-bg,#fee2e2);color:var(--red-fg,#991b1b)}
-.hint{font-size:0.81rem;color:var(--text-tertiary,#8b8d91)}
-</style>
-</main></body></html>
+</body></html>

@@ -1,13 +1,155 @@
 <!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Sessions"><title>Sessions — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
 <body>
-<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span><nav><a href="../index.html">Overview</a><a href="sessions.html" class="active" aria-current="page">Sessions</a><a href="capabilities.html">Capabilities</a><a href="plan.html">Plan &amp; Invoke</a><a href="knowledge.html">Knowledge</a><a href="data-domains.html">Data Domains</a><a href="conversations.html">Conversations</a><a href="stream.html">Streaming</a><a href="audit.html">Audit</a></nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>  <nav>
+    <a href="../index.html">Overview</a>
+    <div class="nav-group"><a href="sessions.html" data-nav="sessions" class="active" aria-current="page">运行时</a></div>
+    <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
+    <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
+    <div class="nav-group"><a href="knowledge.html" data-nav="knowledge">知识</a></div>
+    <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="audit.html">治理</a>
+      <div class="dropdown-menu">
+        <a href="audit.html" data-nav="audit">Audit Logs</a>
+        <a href="roles.html" class="disabled">Roles &amp; Permissions</a>
+        <a href="org-units.html" class="disabled">Organization</a>
+        <a href="tenants.html" class="disabled">Tenant Management</a>
+        <a href="policy.html" class="disabled">Policy Center</a>
+        <a href="observability.html" class="disabled">Observability</a>
+      </div>
+    </div>
+  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+
 <main>
-<div class="page-title"><div><h2>Sessions</h2><p class="page-subtitle">Manage execution sessions — create, filter, and close</p></div><div><button class="secondary">+ New Session</button></div></div>
-<!-- TODO: live data -->
-<div class="toolbar"><select><option>all</option><option>active</option><option>closed</option></select><input placeholder="User ID" style="width:140px"><button>Search</button></div>
-<table><thead><tr><th>Session ID</th><th>User</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>
-<tr><td>sess-abc123</td><td>u1</td><td><span class="status-active">● active</span></td><td>2026-07-21 10:00</td><td><a href="#" style="color:var(--accent-text)">View</a></td></tr>
-<tr><td>sess-def456</td><td>u2</td><td>closed</td><td>2026-07-20 09:30</td><td><a href="#" style="color:var(--accent-text)">View</a></td></tr></tbody></table>
-<div class="pagination"><a href="#">← Prev</a><span>Page 1 of 1</span><a href="#">Next →</a></div>
-</main></body></html>
+<div class="page-title"><div><h2>Sessions</h2><p class="page-subtitle">Execution archive — monitor session status and diagnose failures</p></div></div>
+
+<!-- Status overview -->
+<div class="stats-bar" id="stats-bar">
+  <div class="stat-item">🟢 <span class="stat-count" id="stat-active">0</span> active</div>
+  <div class="stat-item">✅ <span class="stat-count" id="stat-completed">0</span> completed</div>
+  <div class="stat-item">❌ <span class="stat-count" id="stat-failed">0</span> failed</div>
+  <div class="stat-item">🚫 <span class="stat-count" id="stat-denied">0</span> denied</div>
+  <div class="stat-item">⏰ <span class="stat-count" id="stat-expired">0</span> expired</div>
+</div>
+
+<!-- Filters -->
+<div class="toolbar">
+  <select id="status-filter" onchange="currentPage=1;loadSessions()">
+    <option value="failed" selected>failed</option>
+    <option value="">all</option>
+    <option value="active">active</option>
+    <option value="completed">completed</option>
+    <option value="denied">denied</option>
+    <option value="expired">expired</option>
+  </select>
+  <input id="user-filter" placeholder="User ID" style="width:140px">
+  <button onclick="currentPage=1;loadSessions()">Search</button>
+</div>
+
+<!-- Session list -->
+<table>
+  <thead><tr><th>Session ID</th><th>User</th><th>Role</th><th>Status</th><th>Created</th></tr></thead>
+  <tbody id="sessions-tbody"></tbody>
+</table>
+
+<div class="pagination" id="sessions-pagination" style="display:none">
+  <a href="#" onclick="event.preventDefault();prevPage()">← Prev</a>
+  <span id="page-info">Page 1 of 1</span>
+  <a href="#" onclick="event.preventDefault();nextPage()">Next →</a>
+</div>
+
+</main>
+
+<script src="../js/app.js"></script>
+<script>
+var currentPage = 1;
+
+// Demo sessions covering all 5 statuses
+var demoSessions = [
+  {session_id:'sess-abc123',user_id:'u1',role_id:'r1',status:'active',summary:'2/3 steps completed · 1.2s ago',created_at:'2026-07-22 15:10'},
+  {session_id:'sess-def456',user_id:'u2',role_id:'r1',status:'completed',summary:'3 steps, all successful · 2.1s',created_at:'2026-07-22 14:55'},
+  {session_id:'sess-ghi789',user_id:'u1',role_id:'r1',status:'failed',summary:'Step 2: cap-query-users timeout after 30s',error:'InvokeError: cap-query-users did not respond within 30s\n  at step_runner.py:87\n  capability: cap-query-users\n  input: {"limit": 5}',created_at:'2026-07-22 14:30'},
+  {session_id:'sess-jkl012',user_id:'u3',role_id:'r2',status:'denied',summary:'Role market_analyst lacks permission: finance:*',error:'PolicyDenied: required permission "finance:read" not in role permissions\n  role: market_analyst\n  permissions: ["marketing:read","report:read"]\n  capability: query-finance-ledger',created_at:'2026-07-22 12:00'},
+  {session_id:'sess-mno345',user_id:'u1',role_id:'r1',status:'expired',summary:'Session expired at 2026-07-22 08:00',created_at:'2026-07-21 10:00'},
+];
+
+function statusTag(s) {
+  var map = {active:'tag-active',completed:'tag-completed',failed:'tag-failed',denied:'tag-denied',expired:'tag-expired'};
+  var cls = map[s.status] || 'tag-accent';
+  return '<span class="tag ' + cls + '">' + s.status + '</span>';
+}
+
+function statusIcon(s) {
+  var map = {active:'🔵',completed:'✅',failed:'❌',denied:'🚫',expired:'⏰'};
+  return map[s.status] || '●';
+}
+
+function loadSessions() {
+  var tbody = document.getElementById('sessions-tbody');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-quaternary);padding:2rem">Loading...</td></tr>';
+
+  var status = document.getElementById('status-filter').value;
+  var userId = document.getElementById('user-filter').value.trim().toLowerCase();
+
+  // Filter demo data
+  var filtered = demoSessions.filter(function(s) {
+    if (status && s.status !== status) return false;
+    if (userId && s.user_id.indexOf(userId) === -1) return false;
+    return true;
+  });
+
+  // Paginate
+  var pageSize = 20;
+  var totalPages = Math.ceil(filtered.length / pageSize) || 1;
+  if (currentPage > totalPages) currentPage = totalPages;
+  var page = filtered.slice((currentPage-1)*pageSize, currentPage*pageSize);
+
+  if (page.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-quaternary);padding:2rem">No sessions found.</td></tr>';
+    document.getElementById('sessions-pagination').style.display = 'none';
+    updateStats(filtered);
+    return;
+  }
+
+  document.getElementById('sessions-pagination').style.display = 'flex';
+  document.getElementById('page-info').textContent = 'Page ' + currentPage + ' of ' + totalPages;
+
+  tbody.innerHTML = page.map(function(s) {
+    var hasError = s.error ? ' onclick="toggleExpand(this)"' : '';
+    return '<tr class="session-row"' + hasError + '>'
+      + '<td><code>' + s.session_id + '</code></td>'
+      + '<td>' + s.user_id + '</td>'
+      + '<td>' + s.role_id + '</td>'
+      + '<td>' + statusTag(s) + '</td>'
+      + '<td style="font-size:0.75rem;color:var(--text-tertiary)">' + s.created_at + '</td>'
+      + '</tr>'
+      + '<tr class="session-expand' + (hasError?'':'') + '"><td colspan="5">'
+        + statusIcon(s) + ' ' + s.summary
+        + (s.error ? '<br><div class="error-detail">' + s.error + '</div>' : '')
+      + '</td></tr>';
+  }).join('');
+
+  updateStats(filtered);
+}
+
+function toggleExpand(row) {
+  var expand = row.nextElementSibling;
+  if (expand && expand.classList.contains('session-expand')) {
+    expand.classList.toggle('visible');
+  }
+}
+
+function updateStats(items) {
+  ['active','completed','failed','denied','expired'].forEach(function(st) {
+    var count = items.filter(function(s){return s.status===st;}).length;
+    document.getElementById('stat-' + st).textContent = count;
+  });
+}
+
+function prevPage() { if (currentPage > 1) { currentPage--; loadSessions(); } }
+function nextPage() { currentPage++; loadSessions(); }
+
+document.addEventListener('DOMContentLoaded', loadSessions);
+</script>
+</body></html>

@@ -21,10 +21,17 @@ async def search_chunks(
     data_domain_ids: list[str] | None = None,
     eventbus: EventBus | None = None,
     *,
-    embedding_dim: int = 1024,
+    embedding_dim: int | None = None,
 ) -> list[dict]:
     """Cosine similarity search over chunks, filtered by data_domain + accessible_roles."""
     embedding_str = f"[{', '.join(str(x) for x in query_embedding)}]"
+    # Resolve embedding dimension from provider if not explicitly passed
+    if embedding_dim is None:
+        try:
+            from earp_server.infra.ext.ext_embedding import embedding_dim as get_dim
+            embedding_dim = get_dim()
+        except RuntimeError:
+            embedding_dim = 1024  # fallback
     conditions = ["c.tenant_id = :tid"]
     params: dict = {"qemb": embedding_str, "qemb2": embedding_str, "tid": tenant_id, "rid": role_id, "lim": top_k}
 

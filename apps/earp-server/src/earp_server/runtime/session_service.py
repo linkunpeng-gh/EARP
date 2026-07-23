@@ -51,6 +51,60 @@ async def get_session(engine: AsyncEngine, session_id: str, tenant_id: str) -> S
     )
 
 
+
+
+async def list_sessions(
+    engine: AsyncEngine,
+    tenant_id: str,
+    *,
+    status: str | None = None,
+    user_id: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[SessionResponse], int]:
+    """List sessions for a tenant with optional filters and pagination."""
+    conditions = ["s.tenant_id = :tid"]
+    params: dict[str, Any] = {"tid": tenant_id}
+    if status:
+        conditions.append("s.status = :status")
+        params["status"] = status
+    if user_id:
+        conditions.append("s.user_id = :user_id")
+        params["user_id"] = user_id
+    where = " AND ".join(conditions)
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+
+        # Count
+        count_row = await conn.execute(
+            text(f"SELECT COUNT(*) FROM sessions s WHERE {where}"),
+            params,
+        )
+        total = count_row.scalar() or 0
+
+        # List
+        offset = (page - 1) * page_size
+        rows = await conn.execute(
+            text(
+                f"SELECT s.session_id, s.tenant_id, s.user_id, s.status, s.created_at "
+                f"FROM sessions s WHERE {where} "
+                f"ORDER BY s.created_at DESC LIMIT :limit OFFSET :offset"
+            ),
+            {**params, "limit": page_size, "offset": offset},
+        )
+        items = [
+            SessionResponse(
+                session_id=r.session_id,
+                tenant_id=r.tenant_id,
+                user_id=r.user_id,
+                status=r.status,
+            )
+            for r in rows
+        ]
+    return items, total
+
+
 async def close_session(engine: AsyncEngine, session_id: str, tenant_id: str) -> None:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))

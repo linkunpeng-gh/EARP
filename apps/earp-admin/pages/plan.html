@@ -1,14 +1,279 @@
 <!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Plan & Invoke"><title>Plan & Invoke — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
 <body>
-<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span><nav><a href="../index.html">Overview</a><a href="sessions.html">Sessions</a><a href="capabilities.html">Capabilities</a><a href="plan.html" class="active" aria-current="page">Plan &amp; Invoke</a><a href="knowledge.html">Knowledge</a><a href="data-domains.html">Data Domains</a><a href="conversations.html">Conversations</a><a href="stream.html">Streaming</a><a href="audit.html">Audit</a></nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>  <nav>
+    <a href="../index.html">Overview</a>
+    <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
+    <div class="nav-group"><a href="plan.html" data-nav="plan" class="active" aria-current="page">推理</a></div>
+    <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
+    <div class="nav-group"><a href="knowledge.html" data-nav="knowledge">知识</a></div>
+    <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="audit.html">治理</a>
+      <div class="dropdown-menu">
+        <a href="audit.html" data-nav="audit">Audit Logs</a>
+        <a href="roles.html" class="disabled">Roles &amp; Permissions</a>
+        <a href="org-units.html" class="disabled">Organization</a>
+        <a href="tenants.html" class="disabled">Tenant Management</a>
+        <a href="policy.html" class="disabled">Policy Center</a>
+        <a href="observability.html" class="disabled">Observability</a>
+      </div>
+    </div>
+  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+
 <main>
-<div class="page-title"><div><h2>Plan &amp; Invoke</h2><p class="page-subtitle">Convert intent to executable steps, then invoke</p></div></div>
-<!-- TODO: live data -->
-<div class="toolbar"><input placeholder="Intent (e.g. echo hello)" value="echo hello" style="flex:1"><button class="primary">Plan</button></div>
-<div class="toolbar"><select><option>sess-abc123 (active)</option><option>+ New Session</option></select></div>
-<details open><summary>Session Context</summary><pre style="font-size:0.81rem;margin-top:0.5rem">status: active | user: u1 | role: r1 | created: 2026-07-21 10:00</pre></details>
-<h3>Steps</h3>
-<table><thead><tr><th>#</th><th>Capability</th><th>Input</th><th></th></tr></thead><tbody><tr><td>1</td><td>cap-demo-echo</td><td><code>{"msg":"hello"}</code></td><td><button>Invoke</button></td></tr></tbody></table>
-<h3>Result</h3><pre><code>{"echo": {"message": "hello"}}</code></pre>
-</main></body></html>
+
+<div class="plan-layout">
+
+  <!-- Left: History Panel -->
+  <aside class="history-panel">
+    <h3>History</h3>
+    <div id="history-list"></div>
+    <button class="history-new-btn" onclick="newSession()">+ New Session</button>
+  </aside>
+
+  <!-- Right: Debug Area -->
+  <div>
+
+    <!-- Session Context -->
+    <div class="session-context" id="session-ctx" style="display:none">
+      <span><span class="sc-label">Session</span> <span class="sc-id" id="sc-id">—</span></span>
+      <span><span class="sc-label">Status</span> <span id="sc-status">—</span></span>
+      <span><span class="sc-label">User</span> <span id="sc-user">—</span></span>
+      <span><span class="sc-label">Role</span> <span id="sc-role">—</span></span>
+      <span><span class="sc-label">Last Plan</span> <span id="sc-last-plan">—</span></span>
+    </div>
+
+    <!-- Intent + Plan -->
+    <div class="toolbar">
+      <input id="intent-input" placeholder="Intent (e.g. echo hello)" style="flex:1" onkeydown="if(event.key==='Enter')doPlan()">
+      <button id="plan-btn" class="primary" onclick="doPlan()">Plan</button>
+    </div>
+
+    <!-- Error Banner -->
+    <div class="error-banner" id="error-banner"></div>
+
+    <!-- Steps -->
+    <h3>Steps</h3>
+    <p class="plan-empty" id="plan-empty">Enter an intent and click <strong>Plan</strong> to generate steps.</p>
+    <table id="steps-table" style="display:none">
+      <thead><tr><th>#</th><th>Capability</th><th>Input</th><th></th></tr></thead>
+      <tbody id="steps-tbody"></tbody>
+    </table>
+
+  </div>
+</div>
+
+</main>
+
+<script src="../js/app.js"></script>
+<script>
+// ── State ──
+var state = {
+  currentSessionId: null,
+  sessions: [],
+  steps: [],
+  planLoading: false,
+};
+
+// ── Demo data (fallback when API unavailable) ──
+var demoSessions = [
+  {id:'sess-abc123',status:'active',user_id:'u1',role_id:'r1',created_at:'2026-07-21T10:00:00Z',
+   last_plan_intent:'echo hello',last_plan_steps:2},
+  {id:'sess-def456',status:'active',user_id:'u2',role_id:'r1',created_at:'2026-07-20T09:30:00Z',
+   last_plan_intent:'query all users',last_plan_steps:1},
+  {id:'sess-ghi789',status:'active',user_id:'u1',role_id:'r2',created_at:'2026-07-22T08:00:00Z',
+   last_plan_intent:'send email to admin',last_plan_steps:3},
+];
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', function() {
+  loadHistory();
+});
+
+// ── History ──
+function loadHistory() {
+  // Try real API first, fall back to demo data
+  state.sessions = demoSessions;
+  renderHistory();
+  if (state.sessions.length > 0 && !state.currentSessionId) {
+    selectSession(state.sessions[0].id);
+  }
+}
+
+function renderHistory() {
+  var list = document.getElementById('history-list');
+  if (state.sessions.length === 0) {
+    list.innerHTML = '<p class="plan-empty" style="padding:1rem">No sessions yet.</p>';
+    return;
+  }
+  list.innerHTML = state.sessions.map(function(s) {
+    var active = s.id === state.currentSessionId ? ' active' : '';
+    var summary = s.last_plan_intent || 'No plan yet';
+    var steps = s.last_plan_steps ? s.last_plan_steps + ' steps' : '';
+    return '<div class="history-item' + active + '" onclick="selectSession(\'' + s.id + '\')">'
+      + '<div class="hi-id">' + s.id + '</div>'
+      + '<div class="hi-summary">' + summary + '</div>'
+      + '<div class="hi-meta"><span>' + steps + '</span></div>'
+      + '</div>';
+  }).join('');
+}
+
+function selectSession(id) {
+  state.currentSessionId = id;
+  state.steps = [];
+  renderHistory();
+  renderSteps();
+  var s = demoSessions.find(function(x){return x.id===id;});
+  updateSessionCtx(s);
+}
+
+function newSession() {
+  state.currentSessionId = null;
+  state.steps = [];
+  renderHistory();
+  renderSteps();
+  updateSessionCtx(null);
+  hideError();
+}
+
+function updateSessionCtx(s) {
+  var ctx = document.getElementById('session-ctx');
+  if (!s) {
+    ctx.style.display = 'none';
+    return;
+  }
+  ctx.style.display = 'flex';
+  document.getElementById('sc-id').textContent = s.id;
+  document.getElementById('sc-status').innerHTML = s.status === 'active'
+    ? '<span class="status-active">● active</span>' : s.status;
+  document.getElementById('sc-user').textContent = s.user_id;
+  document.getElementById('sc-role').textContent = s.role_id;
+  document.getElementById('sc-last-plan').textContent = s.last_plan_intent
+    ? s.last_plan_intent + ' (' + s.last_plan_steps + ' steps)' : '—';
+}
+
+// ── Plan ──
+function doPlan() {
+  var intent = document.getElementById('intent-input').value.trim();
+  if (!intent) return;
+
+  // Auto-create session if needed
+  if (!state.currentSessionId) {
+    var newId = 'sess-' + Date.now().toString(36);
+    var newSession = {
+      id: newId, status: 'active', user_id: 'u1', role_id: 'r1',
+      created_at: new Date().toISOString(), last_plan_intent: null, last_plan_steps: null
+    };
+    state.currentSessionId = newId;
+    demoSessions.unshift(newSession);
+    renderHistory();
+    updateSessionCtx(newSession);
+  }
+
+  setPlanLoading(true);
+  hideError();
+
+  // Simulate Plan API call (replace with EARP.fetchJSON in Phase 2)
+  setTimeout(function() {
+    var demoSteps = [
+      {step_id:1, capability_id:'cap-demo-echo', input:{msg:intent}},
+      {step_id:2, capability_id:'cap-query-users', input:{limit:5}},
+    ];
+    state.steps = demoSteps;
+
+    var s = demoSessions.find(function(x){return x.id===state.currentSessionId;});
+    if (s) {
+      s.last_plan_intent = intent;
+      s.last_plan_steps = demoSteps.length;
+    }
+
+    setPlanLoading(false);
+    renderSteps();
+    renderHistory();
+    updateSessionCtx(s);
+  }, 800);
+}
+
+function setPlanLoading(loading) {
+  state.planLoading = loading;
+  var btn = document.getElementById('plan-btn');
+  if (loading) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Planning...';
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Plan';
+  }
+}
+
+// ── Steps ──
+function renderSteps() {
+  var tbody = document.getElementById('steps-tbody');
+  var table = document.getElementById('steps-table');
+  var empty = document.getElementById('plan-empty');
+
+  if (!state.steps || state.steps.length === 0) {
+    table.style.display = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+  table.style.display = '';
+  empty.style.display = 'none';
+
+  tbody.innerHTML = state.steps.map(function(s, i) {
+    var inputStr = JSON.stringify(s.input);
+    var loadingAttr = s.loading ? ' disabled' : '';
+    var btnHtml = s.loading
+      ? '<span class="spinner"></span>Invoking...' : 'Invoke';
+    var resultHtml = '';
+    if (s.result) {
+      resultHtml = '<tr class="step-result-row"><td colspan="4">'
+        + '<div class="step-result expanded success">✅ ' + JSON.stringify(s.result, null, 2) + '</div>'
+        + '</td></tr>';
+    } else if (s.error) {
+      resultHtml = '<tr class="step-result-row"><td colspan="4">'
+        + '<div class="step-result expanded error">❌ ' + s.error + '</div>'
+        + '</td></tr>';
+    }
+    return '<tr>'
+      + '<td>' + (i+1) + '</td>'
+      + '<td><code>' + s.capability_id + '</code></td>'
+      + '<td><code>' + inputStr.substring(0, 60) + (inputStr.length>60?'...':'') + '</code></td>'
+      + '<td><button class="btn-sm" onclick="doInvoke(' + i + ')"' + loadingAttr + '>' + btnHtml + '</button></td>'
+      + '</tr>' + resultHtml;
+  }).join('');
+}
+
+// ── Invoke ──
+function doInvoke(index) {
+  var step = state.steps[index];
+  step.loading = true;
+  step.result = null;
+  step.error = null;
+  renderSteps();
+
+  // Simulate Invoke (replace with EARP.fetchJSON in Phase 2)
+  setTimeout(function() {
+    step.loading = false;
+    if (index % 3 !== 0) {
+      step.result = {echo: {message: 'Processed: ' + JSON.stringify(step.input)}};
+    } else {
+      step.error = 'Invoke failed: timeout after 30s';
+    }
+    renderSteps();
+  }, 600);
+}
+
+// ── Error ──
+function showError(msg) {
+  var el = document.getElementById('error-banner');
+  el.textContent = msg;
+  el.classList.add('visible');
+}
+function hideError() {
+  var el = document.getElementById('error-banner');
+  el.classList.remove('visible');
+}
+</script>
+</body></html>

@@ -1,75 +1,224 @@
 <!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Data Domains"><title>Data Domains — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
 <body>
-<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span><nav><a href="../index.html">Overview</a><a href="sessions.html">Sessions</a><a href="capabilities.html">Capabilities</a><a href="plan.html">Plan &amp; Invoke</a><a href="knowledge.html">Knowledge</a><a href="data-domains.html" class="active" aria-current="page">Data Domains</a><a href="conversations.html">Conversations</a><a href="stream.html">Streaming</a><a href="audit.html">Audit</a></nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>              <nav>
+    <a href="../index.html">Overview</a>
+    <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
+    <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
+    <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
+    <div class="nav-group"><a href="knowledge.html" data-nav="knowledge">知识</a></div>
+    <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="audit.html">治理</a>
+      <div class="dropdown-menu">
+        <a href="audit.html" data-nav="audit">Audit Logs</a>
+        <a href="roles.html" class="disabled">Roles &amp; Permissions</a>
+        <a href="org-units.html" class="disabled">Organization</a>
+        <a href="tenants.html" class="disabled">Tenant Management</a>
+        <a href="policy.html" class="disabled">Policy Center</a>
+        <a href="observability.html" class="disabled">Observability</a>
+      </div>
+    </div>
+  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
 <main>
-<div class="page-title"><div><h2>Data Domains</h2><p class="page-subtitle">Manage enterprise data domains — knowledge classification and access boundaries</p></div></div>
-<div class="toolbar">
-  <select style="width:auto"><option value="">All classifications</option><option value="public">Public</option><option value="internal">Internal</option><option value="confidential">Confidential</option><option value="restricted">Restricted</option></select>
-  <button class="primary" style="margin-left:auto">+ New Domain</button>
+<div class="page-title"><div><h2>Data Domains</h2><p class="page-subtitle">Manage governance boundaries — KB membership and role access</p></div></div>
+
+<div class="toolbar" style="margin-bottom:16px">
+  <select id="class-filter" style="width:auto" onchange="filterByClass()">
+    <option value="">All classifications</option>
+    <option value="public">Public</option>
+    <option value="internal">Internal</option>
+    <option value="confidential">Confidential</option>
+    <option value="restricted">Restricted</option>
+  </select>
+  <input id="dd-search" placeholder="Search domains..." style="flex:1;margin:0 8px">
+  <button onclick="filterByClass()">Search</button>
+  <button class="primary" style="margin-left:8px" onclick="showDdModal()">+ New Domain</button>
 </div>
-<div class="toolbar"><input placeholder="Search domains..." style="flex:1"><button>Search</button></div>
-<h3>Data Domains <span class="hint" style="font-weight:400">Click a row to expand Knowledge Bases &amp; Documents</span></h3>
-<table id="dd-table"><thead><tr><th></th><th>ID</th><th>Name</th><th>Classification</th><th>Owner</th><th>Mapped BD</th><th>Knowledge Bases</th><th>Docs</th><th>Status</th></tr></thead><tbody>
-<tr class="dd-row" onclick="toggleDD('dd-equipment','kb-equipment')" style="cursor:pointer">
-  <td class="expand-icon">▶</td><td>equipment_data</td><td>Equipment Data</td><td><span class="tag tag-internal">internal</span></td><td>equipment-team</td><td>Equipment</td><td>2</td><td>12</td><td>active</td></tr>
-<tr id="kb-equipment" class="kb-detail" style="display:none"><td colspan="9">
-  <table style="width:100%;margin:0;background:var(--bg-secondary,#f5f5f5)"><thead><tr><th></th><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>
-  <tr class="kb-row" onclick="toggleKB('doc-equipment-manuals','docs-equipment-manuals')" style="cursor:pointer">
-    <td class="expand-icon">▶</td><td>kb-eq-manuals</td><td>Equipment Manuals</td><td>8</td><td>120</td></tr>
-  <tr id="docs-equipment-manuals" class="doc-detail" style="display:none"><td colspan="5">
-    <table style="width:100%;margin:0"><thead><tr><th>Doc ID</th><th>Title</th><th>Chunks</th><th>Classification</th><th>Created</th></tr></thead><tbody>
-      <tr><td>doc-001</td><td>CNC Operation Manual v3</td><td>24</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-15</td></tr>
-      <tr><td>doc-002</td><td>Maintenance Schedule 2026</td><td>15</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-14</td></tr>
-      <tr><td>doc-003</td><td>Safety Guidelines</td><td>8</td><td><span class="tag tag-confidential">confidential</span></td><td>2026-07-10</td></tr>
-    </tbody></table>
-  </td></tr>
-  <tr class="kb-row" onclick="toggleKB('doc-alarm-thresholds','docs-alarm-thresholds')" style="cursor:pointer">
-    <td class="expand-icon">▶</td><td>kb-eq-alarms</td><td>Alarm Thresholds</td><td>4</td><td>45</td></tr>
-  <tr id="docs-alarm-thresholds" class="doc-detail" style="display:none"><td colspan="5">
-    <table style="width:100%;margin:0"><thead><tr><th>Doc ID</th><th>Title</th><th>Chunks</th><th>Classification</th><th>Created</th></tr></thead><tbody>
-      <tr><td>doc-004</td><td>Temperature Threshold Guide</td><td>12</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-12</td></tr>
-      <tr><td>doc-005</td><td>Pressure Alarm Settings</td><td>10</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-11</td></tr>
-    </tbody></table>
-  </td></tr>
-  </tbody></table>
-</td></tr>
-<tr class="dd-row" onclick="toggleDD('dd-hr','kb-hr')" style="cursor:pointer">
-  <td class="expand-icon">▶</td><td>hr_data</td><td>HR Policies</td><td><span class="tag tag-confidential">confidential</span></td><td>hr-team</td><td>HR</td><td>1</td><td>5</td><td>active</td></tr>
-<tr id="kb-hr" class="kb-detail" style="display:none"><td colspan="9">
-  <table style="width:100%;margin:0;background:var(--bg-secondary,#f5f5f5)"><thead><tr><th></th><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>
-  <tr class="kb-row" onclick="toggleKB('doc-hr-policies','docs-hr-policies')" style="cursor:pointer">
-    <td class="expand-icon">▶</td><td>kb-hr-policies</td><td>Company Policies</td><td>5</td><td>60</td></tr>
-  <tr id="docs-hr-policies" class="doc-detail" style="display:none"><td colspan="5">
-    <table style="width:100%;margin:0"><thead><tr><th>Doc ID</th><th>Title</th><th>Chunks</th><th>Classification</th><th>Created</th></tr></thead><tbody>
-      <tr><td>doc-006</td><td>Leave Policy 2026</td><td>18</td><td><span class="tag tag-internal">internal</span></td><td>2026-07-08</td></tr>
-      <tr><td>doc-007</td><td>Employee Handbook</td><td>42</td><td><span class="tag tag-confidential">confidential</span></td><td>2026-07-05</td></tr>
-    </tbody></table>
-  </td></tr>
-  </tbody></table>
-</td></tr>
-</tbody></table>
+
+<!-- Two-column layout -->
+<div class="dd-layout">
+  <!-- Left: DD list -->
+  <div class="dd-list-panel">
+    <h4 style="margin:0 0 8px;font-size:0.87rem;color:var(--text-secondary,#6b6e75)">Data Domains</h4>
+    <div class="dd-list" id="dd-list">
+      <div class="dd-card" data-class="internal" onclick="selectDd('equipment_data')">
+        <input type="radio" name="dd-sel" style="display:none">
+        <div class="dd-card-name">Equipment Data</div>
+        <div class="dd-card-meta">
+          <span class="tag tag-internal">internal</span>
+          <span class="dd-card-count">2 KB · 12 docs</span>
+        </div>
+      </div>
+      <div class="dd-card" data-class="confidential" onclick="selectDd('hr_data')">
+        <input type="radio" name="dd-sel" style="display:none">
+        <div class="dd-card-name">HR Policies</div>
+        <div class="dd-card-meta">
+          <span class="tag tag-confidential">confidential</span>
+          <span class="dd-card-count">1 KB · 5 docs</span>
+        </div>
+      </div>
+      <div class="dd-card" data-class="internal" onclick="selectDd('corporate_data')">
+        <input type="radio" name="dd-sel" style="display:none">
+        <div class="dd-card-name">Corporate Standards</div>
+        <div class="dd-card-meta">
+          <span class="tag tag-internal">internal</span>
+          <span class="dd-card-count">2 KB · 8 docs</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: detail panel -->
+  <div class="dd-detail-panel" id="dd-detail">
+    <div class="dd-detail-empty">
+      <p style="color:var(--text-tertiary,#8b8d91);margin:0">Select a Data Domain from the left panel to view details.</p>
+    </div>
+
+    <!-- equipment_data detail (hidden by default) -->
+    <div id="detail-equipment_data" class="dd-detail-content" style="display:none">
+      <div class="dd-detail-header">
+        <div><h3 style="margin:0;font-size:1.1rem">Equipment Data</h3>
+          <p style="margin:4px 0 0;font-size:0.81rem;color:var(--text-tertiary,#8b8d91)">Owner: equipment-team · Mapped BD: Equipment</p></div>
+        <div><span class="tag tag-internal" style="font-size:0.81rem;padding:2px 10px">internal</span></div>
+      </div>
+
+      <!-- KB membership -->
+      <div class="section-card">
+        <div class="section-header">
+          <h4 style="margin:0;font-size:0.87rem">Knowledge Bases <span style="font-weight:400;color:var(--text-tertiary)">(2 KBs)</span></h4>
+          <button class="btn-sm" onclick="alert('Add KB to Equipment Data domain')">+ Attach KB</button>
+        </div>
+        <table><thead><tr><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>
+          <tr><td>kb-eq-manuals</td><td><a href="../pages/knowledge.html">Equipment Manuals</a></td><td>8</td><td>120</td></tr>
+          <tr><td>kb-eq-alarms</td><td><a href="../pages/knowledge.html">Alarm Thresholds</a></td><td>4</td><td>45</td></tr>
+        </tbody></table>
+      </div>
+
+      <!-- Role Access -->
+      <div class="section-card">
+        <div class="section-header">
+          <h4 style="margin:0;font-size:0.87rem">Role Access <span style="font-weight:400;color:var(--text-tertiary)">(3 roles)</span></h4>
+        </div>
+        <table id="access-table-equipment"><thead><tr><th>Role</th><th>Max Classification</th><th></th></tr></thead><tbody>
+          <tr><td>设备工程师</td><td><select><option>public</option><option selected>internal</option><option>confidential</option><option>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
+          <tr><td>设备管理员</td><td><select><option>public</option><option>internal</option><option selected>confidential</option><option>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
+          <tr><td>运维人员</td><td><select><option>public</option><option selected>internal</option><option>confidential</option><option>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
+        </tbody></table>
+        <div class="grant-row">
+          <select style="flex:1"><option value="">Grant access to a role...</option><option>产线操作员</option><option>质量工程师</option><option>安全审计员</option></select>
+          <select style="width:auto;margin:0 4px"><option value="public">public</option>
+    <option value="internal">internal</option><option value="confidential">confidential</option><option value="restricted">restricted</option></select>
+          <button class="btn-sm primary" onclick="grantAccess(this)">Grant</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- hr_data detail (hidden by default) -->
+    <div id="detail-hr_data" class="dd-detail-content" style="display:none">
+      <div class="dd-detail-header">
+        <div><h3 style="margin:0;font-size:1.1rem">HR Policies</h3>
+          <p style="margin:4px 0 0;font-size:0.81rem;color:var(--text-tertiary,#8b8d91)">Owner: hr-team · Mapped BD: HR</p></div>
+        <div><span class="tag tag-confidential" style="font-size:0.81rem;padding:2px 10px">confidential</span></div>
+      </div>
+      <div class="section-card">
+        <div class="section-header">
+          <h4 style="margin:0;font-size:0.87rem">Knowledge Bases <span style="font-weight:400;color:var(--text-tertiary)">(1 KB)</span></h4>
+          <button class="btn-sm" onclick="alert('Add KB to HR Policies domain')">+ Attach KB</button>
+        </div>
+        <table><thead><tr><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>
+          <tr><td>kb-hr-policies</td><td><a href="../pages/knowledge.html">Company Policies</a></td><td>5</td><td>60</td></tr>
+        </tbody></table>
+      </div>
+      <div class="section-card">
+        <div class="section-header">
+          <h4 style="margin:0;font-size:0.87rem">Role Access <span style="font-weight:400;color:var(--text-tertiary)">(2 roles)</span></h4>
+        </div>
+        <table id="access-table-hr"><thead><tr><th>Role</th><th>Max Classification</th><th></th></tr></thead><tbody>
+          <tr><td>HR 经理</td><td><select><option>public</option><option>internal</option><option>confidential</option><option selected>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
+          <tr><td>HR 专员</td><td><select><option>public</option><option selected>internal</option><option>confidential</option><option>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
+        </tbody></table>
+        <div class="grant-row">
+          <select style="flex:1"><option value="">Grant access to a role...</option><option>财务分析员</option><option>法务合规</option><option>部门主管</option></select>
+          <select style="width:auto;margin:0 4px"><option value="public">public</option>
+    <option value="internal">internal</option><option value="confidential">confidential</option><option value="restricted">restricted</option></select>
+          <button class="btn-sm primary" onclick="grantAccess(this)">Grant</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal for create/edit domain -->
+<div id="dd-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideDdModal()">
+  <div class="modal">
+    <h4 id="dd-modal-title">Create Data Domain</h4>
+    <div class="form-row"><label>Name</label><input id="dd-modal-name" placeholder="Domain name" style="flex:1"></div>
+    <div class="form-row"><label>Description</label><input id="dd-modal-desc" placeholder="Optional description" style="flex:1"></div>
+    <div class="form-row"><label>Classification</label><select id="dd-modal-class" style="flex:1"><option value="public">public</option>
+    <option value="internal">internal</option><option value="confidential">confidential</option><option value="restricted">restricted</option></select></div>
+    <div class="form-row"><label>Owner</label><input id="dd-modal-owner" placeholder="Team or individual" style="flex:1"></div>
+    <div class="form-row"><label>Mapped BD</label><input id="dd-modal-bd" placeholder="e.g. Equipment, HR" style="flex:1"></div>
+    <div class="form-actions"><button class="primary" onclick="saveDd()">Save</button> <button class="btn-sm" onclick="hideDdModal()">Cancel</button></div>
+  </div>
+</div>
+
 <script>
-function toggleDD(kbId) {
-  var el = document.getElementById(kbId);
-  if (!el) return;
-  el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+function filterByClass() {
+  var cl = document.getElementById('class-filter').value;
+  var q = document.getElementById('dd-search').value.trim().toLowerCase();
+  document.querySelectorAll('.dd-card').forEach(function(c) {
+    var matchClass = !cl || c.getAttribute('data-class') === cl;
+    var matchSearch = !q || c.querySelector('.dd-card-name').textContent.toLowerCase().includes(q);
+    c.style.display = (matchClass && matchSearch) ? '' : 'none';
+  });
 }
-function toggleKB(docId) {
-  var el = document.getElementById(docId);
-  if (!el) return;
-  el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+
+function selectDd(id) {
+  document.querySelectorAll('.dd-card').forEach(function(c) { c.classList.remove('selected'); });
+  event.currentTarget.classList.add('selected');
+
+  document.querySelectorAll('.dd-detail-content').forEach(function(d) { d.style.display = 'none'; });
+  document.querySelectorAll('.dd-detail-empty').forEach(function(d) { d.style.display = 'none'; });
+  var detail = document.getElementById('detail-' + id);
+  if (detail) detail.style.display = 'block';
 }
+
+function showDdModal() { document.getElementById('dd-modal').style.display='flex'; document.getElementById('dd-modal-title').textContent='Create Data Domain'; document.getElementById('dd-modal-name').value=''; document.getElementById('dd-modal-desc').value=''; document.getElementById('dd-modal-class').value='internal'; document.getElementById('dd-modal-owner').value=''; document.getElementById('dd-modal-bd').value=''; }
+function hideDdModal() { document.getElementById('dd-modal').style.display='none'; }
+function saveDd() { var n=document.getElementById('dd-modal-name'); if(!n.value.trim()){alert('Name required');return} alert('Created Data Domain: '+n.value.trim()); hideDdModal(); }
+function revokeAccess(btn) { if(confirm('Revoke access for this role?')) btn.closest('tr').remove(); }
+function grantAccess(btn) { var sel=btn.parentElement.querySelector('select'); if(!sel.value){alert('Select a role');return} alert('Granted: '+sel.value); }
 </script>
+
 <style>
+.dd-layout{display:flex;gap:20px;align-items:flex-start}
+.dd-list-panel{flex:0 0 280px;background:var(--bg,#fff);border:1px solid var(--border,#e5e7eb);border-radius:8px;padding:12px}
+.dd-list{display:flex;flex-direction:column;gap:6px}
+.dd-card{padding:10px 12px;border:1px solid var(--border,#e5e7eb);border-radius:6px;cursor:pointer;transition:border-color 0.15s}
+.dd-card:hover{border-color:var(--accent,#5b5fc7)}
+.dd-card.selected{background:var(--bg-secondary,#f5f5f5);border-color:var(--accent,#5b5fc7);outline:2px solid var(--accent,#5b5fc7);outline-offset:-1px}
+.dd-card-name{font-weight:500;font-size:0.87rem;margin-bottom:4px}
+.dd-card-meta{display:flex;align-items:center;gap:8px}
+.dd-card-count{font-size:0.75rem;color:var(--text-tertiary,#8b8d91)}
+.dd-detail-panel{flex:1;min-height:300px}
+.dd-detail-empty{display:flex;align-items:center;justify-content:center;height:200px;background:var(--bg,#fff);border:1px dashed var(--border,#e5e7eb);border-radius:8px}
+.dd-detail-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
+.grant-row{display:flex;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border,#e5e7eb)}
+.section-card{background:var(--bg,#fff);border:1px solid var(--border,#e5e7eb);border-radius:8px;padding:16px;margin-bottom:12px}
+.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:0.75rem;font-weight:500}
 .tag-internal{background:var(--yellow-bg,#fef3c7);color:var(--yellow-fg,#92400e)}
 .tag-confidential{background:var(--red-bg,#fee2e2);color:var(--red-fg,#991b1b)}
 .tag-restricted{background:var(--purple-bg,#e9d5ff);color:var(--purple-fg,#581c87)}
-.expand-icon{width:20px;text-align:center;font-size:0.75rem;color:var(--text-tertiary,#8b8d91)}
-.kb-detail td{padding:0!important}
-.kb-detail table td,.doc-detail table td{padding:6px 8px!important}
-.doc-detail td{padding:0!important}
-.hint{font-size:0.81rem;color:var(--text-tertiary,#8b8d91)}
+.btn-sm{padding:2px 8px;font-size:0.75rem;border:1px solid var(--border,#e5e7eb);border-radius:4px;background:var(--bg,#fff);cursor:pointer}
+.btn-sm.primary{background:var(--accent,#5b5fc7);color:#fff;border-color:var(--accent,#5b5fc7)}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:100;display:flex;align-items:center;justify-content:center}
+.modal{background:var(--bg,#fff);border-radius:10px;padding:24px;min-width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.15)}
+.modal h4{margin:0 0 16px}
+.form-row{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.form-row label{min-width:100px;font-size:0.87rem;font-weight:500;color:var(--text-secondary,#6b6e75)}
+.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+@media(max-width:900px){.dd-layout{flex-direction:column}.dd-list-panel{flex:none}}
 </style>
 </main></body></html>

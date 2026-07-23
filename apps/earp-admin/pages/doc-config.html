@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Document Chunk Config"><title>Chunk Config — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>              <nav>
+    <a href="../index.html">Overview</a>
+    <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
+    <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
+    <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
+    <div class="nav-group"><a href="knowledge.html" data-nav="knowledge">知识</a></div>
+    <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="audit.html">治理</a>
+      <div class="dropdown-menu">
+        <a href="audit.html" data-nav="audit">Audit Logs</a>
+        <a href="roles.html" class="disabled">Roles &amp; Permissions</a>
+        <a href="org-units.html" class="disabled">Organization</a>
+        <a href="tenants.html" class="disabled">Tenant Management</a>
+        <a href="policy.html" class="disabled">Policy Center</a>
+        <a href="observability.html" class="disabled">Observability</a>
+      </div>
+    </div>
+  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<main>
+<!-- Breadcrumb -->
+<p class="breadcrumb"><a href="knowledge.html">&larr; Back to Knowledge Base</a></p>
+
+<!-- Document info bar -->
+<div class="doc-header">
+  <div class="doc-header-left">
+    <h2 id="doc-title">CNC Operation Manual v3</h2>
+    <div class="doc-meta-bar">
+      <span><span class="tag tag-accent" id="doc-id-label">doc-001</span></span>
+      <span class="meta-sep">|</span>
+      <span>KB: <strong id="doc-kb-label">Equipment Manuals</strong></span>
+      <span class="meta-sep">|</span>
+      <span>DD: <span id="doc-dd-label" class="tag tag-accent">equipment_data</span></span>
+      <span class="meta-sep">|</span>
+      <span>Classification: <strong id="doc-cls-label">internal</strong></span>
+      <span class="meta-sep">|</span>
+      <span>Chunks: <strong id="doc-chunks-count">24</strong></span>
+      <span class="meta-sep">|</span>
+      <span id="doc-embed-status"><span class="tag tag-green">indexed</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- Two-column layout -->
+<div class="config-layout">
+  <!-- Left: Chunk Settings -->
+  <div class="config-settings-panel">
+    <h3 class="config-section-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1em;height:1em"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+      Chunk Settings
+    </h3>
+
+    <!-- Chunk Mode Toggle -->
+    <div class="mode-toggle" role="tablist">
+      <button class="mode-btn active" data-mode="auto" onclick="setMode('auto')">Automatic</button>
+      <button class="mode-btn" data-mode="custom" onclick="setMode('custom')">Custom</button>
+    </div>
+    <p class="mode-desc" id="mode-desc">Use default chunk settings (recommended for most documents).</p>
+
+    <!-- Custom settings (shown when Custom mode) -->
+    <div id="custom-settings" style="display:none">
+      <!-- Chunk Size -->
+      <div class="setting-group">
+        <div class="setting-label-row">
+          <label class="setting-label">Chunk Size</label>
+          <span class="setting-value"><input type="number" id="chunk-size-input" value="1000" min="100" max="4000" step="50" class="num-input" oninput="syncSlider('chunk')"> chars</span>
+        </div>
+        <input type="range" id="chunk-size-slider" min="100" max="4000" step="50" value="1000" class="range-slider" oninput="syncInput('chunk')">
+        <div class="range-labels"><span>100</span><span>2000</span><span>4000</span></div>
+      </div>
+
+      <!-- Overlap -->
+      <div class="setting-group">
+        <div class="setting-label-row">
+          <label class="setting-label">Overlap</label>
+          <span class="setting-value"><input type="number" id="overlap-input" value="200" min="0" max="500" step="10" class="num-input" oninput="syncSlider('overlap')"> chars</span>
+        </div>
+        <input type="range" id="overlap-slider" min="0" max="500" step="10" value="200" class="range-slider" oninput="syncInput('overlap')">
+        <div class="range-labels"><span>0</span><span>250</span><span>500</span></div>
+      </div>
+
+      <!-- Separators -->
+      <div class="setting-group">
+        <label class="setting-label">Separators</label>
+        <div class="separator-tags" id="separator-tags">
+          <span class="sep-tag" data-sep="\n\n">\n\n<button class="sep-remove" onclick="removeSep(this)">&times;</button></span>
+          <span class="sep-tag" data-sep="\n">\n<button class="sep-remove" onclick="removeSep(this)">&times;</button></span>
+          <span class="sep-tag" data-sep=".">.<button class="sep-remove" onclick="removeSep(this)">&times;</button></span>
+          <span class="sep-tag" data-sep=" ">(space)<button class="sep-remove" onclick="removeSep(this)">&times;</button></span>
+          <div class="sep-add-row">
+            <input id="sep-input" placeholder="Add separator..." style="width:120px;font-size:0.75rem">
+            <button class="btn-sm" onclick="addSep()">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preprocessing -->
+      <div class="setting-group">
+        <label class="setting-label">Preprocessing</label>
+        <div class="preproc-list">
+          <label class="preproc-item"><input type="checkbox" checked> Replace consecutive spaces &amp; newlines</label>
+          <label class="preproc-item"><input type="checkbox"> Remove URLs and email addresses</label>
+          <label class="preproc-item"><input type="checkbox"> Remove non-ASCII characters</label>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ── Post-Processing (后处理) ── -->
+    <div class="setting-panel" style="margin-top:1.5rem">
+      <h3 class="config-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1em;height:1em"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Post-Processing
+      </h3>
+      <p class="mode-desc">Configure how chunks are identified and cleaned after splitting.</p>
+
+      <!-- Paragraph Identifier -->
+      <div class="setting-group">
+        <label class="setting-label">Paragraph Identifier</label>
+        <div class="para-id-options">
+          <label class="para-id-btn" data-value="auto">
+            <input type="radio" name="para-id" value="auto" checked onchange="setParaId('auto')">
+            <span>Auto-detect</span>
+          </label>
+          <label class="para-id-btn" data-value="double-newline">
+            <input type="radio" name="para-id" value="double-newline" onchange="setParaId('double-newline')">
+            <span>Double newline (\n\n)</span>
+          </label>
+          <label class="para-id-btn" data-value="single-newline">
+            <input type="radio" name="para-id" value="single-newline" onchange="setParaId('single-newline')">
+            <span>Single newline (\n)</span>
+          </label>
+          <label class="para-id-btn" data-value="custom">
+            <input type="radio" name="para-id" value="custom" onchange="setParaId('custom')">
+            <span>Custom regex</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Additional Separators -->
+      <div class="setting-group">
+        <label class="setting-label">Additional Separators</label>
+        <div class="sep-add-row" style="display:flex;gap:0.35rem;align-items:center;flex-wrap:wrap">
+          <span class="sep-tag" data-sep="\n\n">\n\n<button class="sep-remove" onclick="removeSep(this)">&times;</button></span>
+          <span class="sep-tag" data-sep="\n">\n<button class="sep-remove" onclick="removeSep(this)">&times;</button></span>
+          <span class="sep-tag" data-sep=".">.<button class="sep-remove" onclick="removeSep(this)">&times;</button></span>
+          <span class="sep-tag" data-sep=" ">(space)<button class="sep-remove" onclick="removeSep(this)">&times;</button></span>
+          <input id="post-sep-input" placeholder="Add separator..." style="width:130px;font-size:0.75rem">
+          <button class="btn-sm" onclick="addPostSep()">+</button>
+        </div>
+      </div>
+
+      <!-- Replacement Options -->
+      <div class="setting-group">
+        <label class="setting-label">Replace</label>
+        <div class="replace-options">
+          <label class="replace-item"><input type="checkbox" id="rep-urls"> Replace URLs with <code>[url]</code></label>
+          <label class="replace-item"><input type="checkbox" id="rep-emails"> Replace emails with <code>[email]</code></label>
+          <label class="replace-item"><input type="checkbox" id="rep-ips"> Replace IP addresses with <code>[ip]</code></label>
+        </div>
+      </div>
+
+      <!-- Pre-processing -->
+      <div class="setting-group">
+        <label class="setting-label">Cleaning</label>
+        <div class="replace-options">
+          <label class="replace-item"><input type="checkbox" checked id="clean-spaces"> Replace consecutive spaces &amp; newlines</label>
+          <label class="replace-item"><input type="checkbox" id="clean-tabs"> Replace tabs with spaces</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Right: Chunk Preview -->
+  <div class="config-preview-panel">
+    <div class="config-section-title">
+      <h3>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1em;height:1em"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        Chunk Preview
+      </h3>
+      <span class="preview-summary" id="preview-summary">Preview to see chunk breakdown</span>
+    </div>
+
+    <div id="chunk-preview-area" style="flex:1;display:flex;flex-direction:column">
+      <div class="empty-state" id="preview-empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 7h8"/><path d="M8 12h8"/><path d="M8 17h4"/></svg>
+        <p>Click <strong>Preview</strong> to see how the document splits into chunks.</p>
+      </div>
+      <div id="chunk-list" style="display:none"></div>
+      <div id="preview-pagination" class="preview-pagination" style="display:none">
+        <button class="btn-sm" id="page-prev" onclick="changePage(-1)">← Prev</button>
+        <span id="page-indicator">1 / 1</span>
+        <button class="btn-sm" id="page-next" onclick="changePage(1)">Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="action-bar-bottom">
+    <button class="primary" onclick="saveAndReembed()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:0.9em;height:0.9em"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Save &amp; Re-embed
+    </button>
+    <button class="secondary" onclick="previewChunks()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:0.9em;height:0.9em"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      Preview
+    </button>
+    <button class="secondary" onclick="resetToDefaults()">Reset</button>
+  </div>
+</main>
+<script src="../js/doc-config.js"></script>
+
+</body></html>
