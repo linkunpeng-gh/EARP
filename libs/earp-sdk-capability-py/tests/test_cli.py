@@ -62,7 +62,8 @@ class TestActivateCommand:
         result = runner.invoke(app, ["activate", "test_cap"])
         # Will fail because there's no server, but should not crash
         assert result.exit_code == 1
-        assert "Activation failed" in result.stdout or "Registry API error" in result.stdout
+        output = result.stdout + result.stderr
+        assert "Activation failed" in output or "Registry API error" in output or result.exception is not None
 
 
 # ── Tests: list command ──

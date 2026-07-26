@@ -107,6 +107,9 @@ def register(
     except (RegistryError, httpx.HTTPError) as e:
         console.print(f"❌ [red]Registration failed[/red]: {e}")
         raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"❌ [red]Registration failed[/red]: {e}")
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -132,6 +135,9 @@ def activate(
             f"v{result.version} [dim]({result.status})[/dim]"
         )
     except (RegistryError, httpx.HTTPError) as e:
+        console.print(f"❌ [red]Activation failed[/red]: {e}")
+        raise typer.Exit(code=1)
+    except Exception as e:
         console.print(f"❌ [red]Activation failed[/red]: {e}")
         raise typer.Exit(code=1)
 
