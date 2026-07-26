@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.infra.db import build_session_factory, tenant_session
 
-TENANT_TABLE_COUNT = 24
+TENANT_TABLE_COUNT = 27  # baseline(24) + 0005(2) + 0006(1)
 
 
 @pytest.fixture(scope="module")
