@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 
+import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -103,7 +104,7 @@ def register(
             f"✅ [green]Registered[/green] [bold]{result.capability_id}[/bold] "
             f"v{result.version} [dim]({result.status})[/dim]"
         )
-    except RegistryError as e:
+    except (RegistryError, httpx.HTTPError) as e:
         console.print(f"❌ [red]Registration failed[/red]: {e}")
         raise typer.Exit(code=1)
 
@@ -130,7 +131,7 @@ def activate(
             f"✅ [green]Activated[/green] [bold]{result.capability_id}[/bold] "
             f"v{result.version} [dim]({result.status})[/dim]"
         )
-    except RegistryError as e:
+    except (RegistryError, httpx.HTTPError) as e:
         console.print(f"❌ [red]Activation failed[/red]: {e}")
         raise typer.Exit(code=1)
 
