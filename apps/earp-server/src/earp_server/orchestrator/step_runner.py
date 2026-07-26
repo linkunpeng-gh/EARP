@@ -76,7 +76,11 @@ class StepRunner:
         return await connector.execute(step.capability_call)
 
     async def stream(
-        self, step: Step, *, ctx: InvokeContext | None = None, llm: LLMConnector | None = None,
+        self,
+        step: Step,
+        *,
+        ctx: InvokeContext | None = None,
+        llm: LLMConnector | None = None,
     ) -> AsyncGenerator[StepEvent, None]:
         """M8: token-by-token streaming execution.
 
@@ -85,7 +89,12 @@ class StepRunner:
         """
         if ctx is None:
             ctx = InvokeContext(
-                tenant_id="", execution_id="", session_id="", user_id="", role_id="", step=step,
+                tenant_id="",
+                execution_id="",
+                session_id="",
+                user_id="",
+                role_id="",
+                step=step,
             )
         step_id = step.step_id
         yield StepEvent(event_type="step_started", step_id=step_id)
@@ -103,12 +112,14 @@ class StepRunner:
                         data={"token": token.token, "index": token.index},
                     )
                 yield StepEvent(
-                    event_type="step_completed", step_id=step_id,
+                    event_type="step_completed",
+                    step_id=step_id,
                     data={"status": "completed"},
                 )
             except Exception as e:
                 yield StepEvent(
-                    event_type="step_failed", step_id=step_id,
+                    event_type="step_failed",
+                    step_id=step_id,
                     data={"error": str(e)},
                 )
             return
@@ -118,12 +129,14 @@ class StepRunner:
             result = await self._execute_step(step, ctx)
             checkpoint_id = uuid.uuid4().hex
             yield StepEvent(
-                event_type="step_completed", step_id=step_id,
+                event_type="step_completed",
+                step_id=step_id,
                 data={"result": result, "checkpoint_id": checkpoint_id},
             )
         except Exception as e:
             yield StepEvent(
-                event_type="step_failed", step_id=step_id,
+                event_type="step_failed",
+                step_id=step_id,
                 data={"error": str(e)},
             )
 

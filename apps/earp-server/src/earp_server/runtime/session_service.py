@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -49,8 +50,6 @@ async def get_session(engine: AsyncEngine, session_id: str, tenant_id: str) -> S
         user_id=result.user_id,
         status=result.status,
     )
-
-
 
 
 async def list_sessions(

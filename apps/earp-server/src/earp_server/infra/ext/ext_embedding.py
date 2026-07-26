@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 class EmbeddingProvider(abc.ABC):
     """Abstract embedding provider. Subclass must implement _embed()."""
 
-    name: ClassVar[str] = ""       # provider key, e.g. "ollama"
-    dim: ClassVar[int] = 1024      # output dimension
+    name: ClassVar[str] = ""  # provider key, e.g. "ollama"
+    dim: ClassVar[int] = 1024  # output dimension
 
     @abc.abstractmethod
     async def _embed(self, texts: list[str]) -> list[list[float]]:

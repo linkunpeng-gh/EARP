@@ -54,7 +54,9 @@ async def bind_policy(
 
 
 async def get_policies_for_role(
-    engine: AsyncEngine, tenant_id: str, role_id: str,
+    engine: AsyncEngine,
+    tenant_id: str,
+    role_id: str,
 ) -> list[dict]:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))

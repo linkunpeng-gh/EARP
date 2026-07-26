@@ -97,8 +97,10 @@ class MultiStepExecutor:
                 state.current_step_index = i
                 state.completed_steps = [r.step_id for r in results if r.status == "completed"]
                 await self._checkpoint.write(
-                    execution_id=ctx.execution_id, session_id=ctx.session_id,
-                    tenant_id=ctx.tenant_id, state={
+                    execution_id=ctx.execution_id,
+                    session_id=ctx.session_id,
+                    tenant_id=ctx.tenant_id,
+                    state={
                         "status": ExecutionStatus.INTERRUPTED,
                         "current_step_index": i,
                         "completed_step_ids": state.completed_steps,
@@ -115,15 +117,21 @@ class MultiStepExecutor:
             if result.status == "completed":
                 # M12: register compensation for rollback
                 if step.compensate_call:
+
                     async def _compensate(ctx_dict: dict) -> None:
                         from earp_server.connector import Connector
+
                         connector = Connector()
                         await connector.execute(ctx_dict.get("compensate_call", {}))
 
-                    saga.register(step.step_id, _compensate, {
-                        "compensate_call": step.compensate_call,
-                        "step_id": step.step_id,
-                    })
+                    saga.register(
+                        step.step_id,
+                        _compensate,
+                        {
+                            "compensate_call": step.compensate_call,
+                            "step_id": step.step_id,
+                        },
+                    )
                     # Track which steps have compensations registered
                     state.completed_steps.append(step.step_id)
 
@@ -146,7 +154,8 @@ class MultiStepExecutor:
                 if saga.count > 0:
                     logger.info(
                         "MultiStepExecutor: step %s failed, rolling back %d completed steps",
-                        step.step_id, saga.count,
+                        step.step_id,
+                        saga.count,
                     )
                     await saga.rollback()
                     state.status = ExecutionStatus.ROLLED_BACK
@@ -169,6 +178,7 @@ class MultiStepExecutor:
     async def _get_completed_count(self, tenant_id: str, checkpoint_id: str) -> int:
         """Return the number of steps that were completed in a previous run."""
         from sqlalchemy import text
+
         async with self._checkpoint._engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
             row = await conn.execute(

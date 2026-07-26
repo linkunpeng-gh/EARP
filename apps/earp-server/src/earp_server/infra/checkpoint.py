@@ -56,8 +56,15 @@ class CheckpointStore:
         return checkpoint_id
 
     async def write_writes(
-        self, thread_id: str, checkpoint_ns: str, checkpoint_id: str, tenant_id: str,
-        task_id: str, task_path: str, channel: str, value: bytes,
+        self,
+        thread_id: str,
+        checkpoint_ns: str,
+        checkpoint_id: str,
+        tenant_id: str,
+        task_id: str,
+        task_path: str,
+        channel: str,
+        value: bytes,
     ) -> None:
         """M5: write a pending write entry to checkpoint_writes table."""
         async with self._engine.connect() as conn:
@@ -69,8 +76,14 @@ class CheckpointStore:
                     "VALUES (:tid, :ns, :cid, :tenant, :task, :path, :ch, 'default', :val)"
                 ),
                 {
-                    "tid": thread_id, "ns": checkpoint_ns, "cid": checkpoint_id, "tenant": tenant_id,
-                    "task": task_id, "path": task_path, "ch": channel, "val": value,
+                    "tid": thread_id,
+                    "ns": checkpoint_ns,
+                    "cid": checkpoint_id,
+                    "tenant": tenant_id,
+                    "task": task_id,
+                    "path": task_path,
+                    "ch": channel,
+                    "val": value,
                 },
             )
             await conn.commit()

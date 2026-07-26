@@ -11,10 +11,7 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from earp_server.infra.ext.ext_embedding import (
-    get_embedding_provider,
-    embedding_dim,
-)
+from earp_server.infra.ext.ext_embedding import get_embedding_provider
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +61,7 @@ async def embed_chunks(
     emb_iter = iter(all_embeddings)
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        for cid, text_content in zip(chunk_ids, texts):
+        for cid, _text_content in zip(chunk_ids, texts, strict=False):
             if cid not in chunk_map:
                 continue
             emb = next(emb_iter)

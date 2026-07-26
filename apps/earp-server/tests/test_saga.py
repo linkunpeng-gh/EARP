@@ -37,8 +37,12 @@ class TestSagaCompensation:
             )
             steps = [step1, step2]
             ctx = InvokeContext(
-                tenant_id="t1", execution_id=_uid("exec-"), session_id=_uid("sess-"),
-                user_id="u1", role_id="r1", step=step1,
+                tenant_id="t1",
+                execution_id=_uid("exec-"),
+                session_id=_uid("sess-"),
+                user_id="u1",
+                role_id="r1",
+                step=step1,
             )
 
             results, state = await executor.execute(steps, ctx, layers=[])
@@ -62,8 +66,12 @@ class TestSagaCompensation:
                 capability_call={"adapter_type": "nonexistent.fail", "input": {}},
             )
             ctx = InvokeContext(
-                tenant_id="t1", execution_id=_uid("exec-"), session_id=_uid("sess-"),
-                user_id="u1", role_id="r1", step=step1,
+                tenant_id="t1",
+                execution_id=_uid("exec-"),
+                session_id=_uid("sess-"),
+                user_id="u1",
+                role_id="r1",
+                step=step1,
             )
 
             results, state = await executor.execute([step1], ctx, layers=[])
@@ -89,8 +97,12 @@ class TestSagaCompensation:
                 compensate_call={"adapter_type": "demo.echo", "input": {"msg": "undo-b"}},
             )
             ctx = InvokeContext(
-                tenant_id="t1", execution_id=_uid("exec-"), session_id=_uid("sess-"),
-                user_id="u1", role_id="r1", step=step1,
+                tenant_id="t1",
+                execution_id=_uid("exec-"),
+                session_id=_uid("sess-"),
+                user_id="u1",
+                role_id="r1",
+                step=step1,
             )
 
             results, state = await executor.execute([step1, step2], ctx, layers=[])
@@ -116,8 +128,12 @@ class TestNoCompensateCall:
                 capability_call={"adapter_type": "demo.echo", "input": {"msg": "test"}},
             )
             ctx = InvokeContext(
-                tenant_id="t1", execution_id=_uid("exec-"), session_id=_uid("sess-"),
-                user_id="u1", role_id="r1", step=step,
+                tenant_id="t1",
+                execution_id=_uid("exec-"),
+                session_id=_uid("sess-"),
+                user_id="u1",
+                role_id="r1",
+                step=step,
             )
 
             results, state = await executor.execute([step], ctx, layers=[])

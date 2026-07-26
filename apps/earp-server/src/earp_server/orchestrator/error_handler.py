@@ -9,9 +9,9 @@ from typing import Any
 
 
 class ErrorMode(StrEnum):
-    FAIL = "fail"       # raise and stop the Plan
+    FAIL = "fail"  # raise and stop the Plan
     SWALLOW = "swallow"  # skip this step, continue with next
-    CUSTOM = "custom"    # call custom handler
+    CUSTOM = "custom"  # call custom handler
 
 
 @dataclass

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # ── AuditLayer ────────────────────────────────────────────────────────────────
 
+
 class AuditLayer:
     def __init__(self, bus: EventBus) -> None:
         self._bus = bus
@@ -63,6 +64,7 @@ class AuditLayer:
 
 
 # ── PolicyLayer (M2) ──────────────────────────────────────────────────────────
+
 
 class PolicyLayer:
     """M2: RBAC permissions check (before_step) + data_scope filtering (after_step).
@@ -112,10 +114,7 @@ class PolicyLayer:
         async with self._engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
             row = await conn.execute(
-                text(
-                    "SELECT required_permissions FROM business_capabilities "
-                    "WHERE capability_id = :cid"
-                ),
+                text("SELECT required_permissions FROM business_capabilities WHERE capability_id = :cid"),
                 {"cid": capability_id},
             )
             result = row.fetchone()

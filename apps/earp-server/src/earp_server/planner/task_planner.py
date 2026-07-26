@@ -87,5 +87,5 @@ def _cap_id_to_adapter(capability_id: str) -> str:
     # Replace last "-" → ".": "demo-echo" → "demo.echo"
     idx = rest.rfind("-")
     if idx != -1:
-        return f"{rest[:idx]}.{rest[idx + 1:]}"
+        return f"{rest[:idx]}.{rest[idx + 1 :]}"
     return rest

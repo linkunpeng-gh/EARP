@@ -64,8 +64,10 @@ class PluginRegistry:
                 continue
             try:
                 import importlib.util
+
                 spec = importlib.util.spec_from_file_location(
-                    f"earp_plugin_{py_file.stem}", str(py_file),
+                    f"earp_plugin_{py_file.stem}",
+                    str(py_file),
                 )
                 if spec is None or spec.loader is None:
                     continue
@@ -115,7 +117,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             method = getattr(instance, req.method, None)
             if method is None:
                 raise HTTPException(
-                    status_code=400, detail=f"method not found: {req.method}",
+                    status_code=400,
+                    detail=f"method not found: {req.method}",
                 )
             if asyncio.iscoroutinefunction(method):
                 result = await asyncio.wait_for(method(**req.params), timeout=req.timeout_seconds)

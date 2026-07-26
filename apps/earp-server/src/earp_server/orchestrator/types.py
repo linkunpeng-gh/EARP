@@ -38,6 +38,7 @@ class StepEvent:
 @dataclass
 class TokenEvent:
     """Streaming token event — yielded by LLMConnector.stream()."""
+
     token: str
     step_id: str = ""
     index: int = 0

@@ -22,7 +22,8 @@ TENANT = "tenant-demo"  # register_demo in lifespan registers under this tenant
 def _token(sub="u1", tenant_id=TENANT, role_id="r1") -> str:
     return jwt.encode(
         {"sub": sub, "tenant_id": tenant_id, "role_id": role_id, "exp": 9999999999},
-        DEV_SECRET, algorithm="HS256",
+        DEV_SECRET,
+        algorithm="HS256",
     )
 
 

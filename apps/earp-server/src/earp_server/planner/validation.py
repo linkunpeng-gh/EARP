@@ -25,13 +25,9 @@ def validate_plan(steps: list[Step]) -> None:
         raise PlanValidationError("plan is empty")
 
     if len(steps) > MAX_PLAN_DEPTH:
-        raise PlanValidationError(
-            f"plan depth {len(steps)} exceeds max {MAX_PLAN_DEPTH}"
-        )
+        raise PlanValidationError(f"plan depth {len(steps)} exceeds max {MAX_PLAN_DEPTH}")
 
     for step in steps:
         capability_id = step.capability_call.get("capability_id", "")
         if not capability_id:
-            raise PlanValidationError(
-                f"step {step.step_id}: missing capability_id (ERR-PL-VALIDATION-001)"
-            )
+            raise PlanValidationError(f"step {step.step_id}: missing capability_id (ERR-PL-VALIDATION-001)")

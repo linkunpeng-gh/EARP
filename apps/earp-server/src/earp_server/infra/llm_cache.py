@@ -32,8 +32,11 @@ class LLMCache:
             return True
         try:
             import redis.asyncio as aioredis
+
             self._redis = aioredis.Redis(
-                host=self._redis_host, port=self._redis_port, socket_connect_timeout=2,
+                host=self._redis_host,
+                port=self._redis_port,
+                socket_connect_timeout=2,
             )
             await self._redis.ping()
             logger.info("LLMCache: connected to Redis %s:%d", self._redis_host, self._redis_port)

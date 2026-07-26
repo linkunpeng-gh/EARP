@@ -79,9 +79,7 @@ def _build_plan_system_prompt(capabilities: list[dict[str, Any]] | None = None) 
         'with exactly this structure: {"steps": [{"capability_id": "...", "input": {...}}]}. '
     )
     if capabilities:
-        cap_list = ", ".join(
-            f"{c['name']} ({c['capability_id']})" for c in capabilities
-        )
+        cap_list = ", ".join(f"{c['name']} ({c['capability_id']})" for c in capabilities)
         base += f"Available capabilities: {cap_list}. "
     else:
         base += (
@@ -128,7 +126,10 @@ class LLMConnector:
     tracer: LangfuseTracer | None = None
 
     async def _call_ollama(
-        self, prompt: str, *, capabilities: list[dict[str, Any]] | None = None,
+        self,
+        prompt: str,
+        *,
+        capabilities: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Call Ollama /api/chat with JSON format, return parsed steps."""
         system = _build_plan_system_prompt(capabilities)
@@ -182,7 +183,11 @@ class LLMConnector:
         return steps
 
     async def plan(
-        self, prompt: str, *, tools: list[dict] | None = None, capabilities: list[dict[str, Any]] | None = None,
+        self,
+        prompt: str,
+        *,
+        tools: list[dict] | None = None,
+        capabilities: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate a Plan via LLM with structured output + cache.
 
@@ -204,13 +209,17 @@ class LLMConnector:
         else:
             try:
                 import time
+
                 t0 = time.monotonic()
                 steps = await self._call_ollama(prompt, capabilities=capabilities)
                 latency_ms = int((time.monotonic() - t0) * 1000)
                 if self.tracer:
                     self.tracer.trace_llm(
-                        "plan", self._model, prompt[:200],
-                        output=json.dumps(steps)[:500], latency_ms=latency_ms,
+                        "plan",
+                        self._model,
+                        prompt[:200],
+                        output=json.dumps(steps)[:500],
+                        latency_ms=latency_ms,
                         usage={"output_tokens": len(json.dumps(steps).split())},
                     )
                 # Validate: capability_ids must exist in provided capabilities list
@@ -220,7 +229,8 @@ class LLMConnector:
                         cid = s.get("capability_id", "")
                         if cid not in valid_ids:
                             logger.warning(
-                                "LLMConnector.plan: unknown capability_id %r, discarding step", cid,
+                                "LLMConnector.plan: unknown capability_id %r, discarding step",
+                                cid,
                             )
                     steps = [s for s in steps if s.get("capability_id", "") in valid_ids]
                     if not steps:
@@ -233,15 +243,21 @@ class LLMConnector:
                 logger.warning("LLMConnector.plan: Ollama failed, falling back to RuleIntentPlanner")
                 if self.tracer:
                     self.tracer.trace_llm(
-                        "plan", self._model, prompt[:200],
-                        error="Ollama failed — fell back to RuleIntentPlanner", latency_ms=0,
+                        "plan",
+                        self._model,
+                        prompt[:200],
+                        error="Ollama failed — fell back to RuleIntentPlanner",
+                        latency_ms=0,
                     )
             except Exception:
                 logger.exception("LLMConnector.plan: unexpected error, falling back")
                 if self.tracer:
                     self.tracer.trace_llm(
-                        "plan", self._model, prompt[:200],
-                        error="unexpected error", latency_ms=0,
+                        "plan",
+                        self._model,
+                        prompt[:200],
+                        error="unexpected error",
+                        latency_ms=0,
                     )
 
         # 3. Fallback: RuleIntentPlanner

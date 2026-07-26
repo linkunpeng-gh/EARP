@@ -88,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Phase 2: LLM cache + structured output via Ollama
         llm_connector = LLMConnector(cfg, rate_limiter=app.state.rate_limiter)
         from earp_server.infra.llm_cache import LLMCache
+
         llm_cache = LLMCache(ttl=cfg.llm_cache_ttl)
         llm_connector.cache = llm_cache
         # M15: Langfuse observability tracer
@@ -174,12 +175,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         page_size: int = 20,
     ) -> dict[str, Any]:
         items, total = await list_sessions(
-            req.app.state.engine, req.state.tenant_id,
-            status=status, user_id=user_id, page=page, page_size=page_size,
+            req.app.state.engine,
+            req.state.tenant_id,
+            status=status,
+            user_id=user_id,
+            page=page,
+            page_size=page_size,
         )
         return {"items": [i.model_dump() for i in items], "total": total, "page": page, "page_size": page_size}
-
-
 
     app.include_router(invoke_router)
 
@@ -192,8 +195,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/capabilities", tags=["capabilities"])
     async def discover_capabilities_endpoint(q: str | None = None, req: Request = None) -> list[dict[str, Any]]:
         return await discover(
-            req.app.state.engine, req.state.tenant_id,
-            role_id=req.state.role_id, query=q, settings=req.app.state.settings,
+            req.app.state.engine,
+            req.state.tenant_id,
+            role_id=req.state.role_id,
+            query=q,
+            settings=req.app.state.settings,
         )
 
     # ── Planner ──
@@ -212,6 +218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/intents", tags=["planner"])
     async def list_intents_endpoint() -> list[str]:
         from earp_server.planner.business_dictionary import RuleIntentPlanner
+
         return RuleIntentPlanner().list_intents()
 
     # ── Knowledge Base ──
@@ -219,13 +226,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def upload_document(req_body: DocUpload, req: Request) -> dict[str, Any]:
         engine = req.app.state.engine
         tenant_id = req.state.tenant_id
-        doc = await create_document(engine, tenant_id, req_body.knowledge_base_id,
-                                     req_body.content, req_body.title)
+        doc = await create_document(engine, tenant_id, req_body.knowledge_base_id, req_body.content, req_body.title)
         if await is_unchanged(engine, tenant_id, doc["document_id"], doc["content_hash"]):
             return {"document_id": doc["document_id"], "status": "unchanged", "chunks": 0}
         await cleanup_old_chunks(engine, tenant_id, doc["document_id"])
-        chunk_ids = await create_chunks(engine, tenant_id, doc["document_id"],
-                                         req_body.content, doc["content_hash"])
+        chunk_ids = await create_chunks(engine, tenant_id, doc["document_id"], req_body.content, doc["content_hash"])
         await embed_chunks(engine, tenant_id, chunk_ids, req.app.state.settings)
         return {"document_id": doc["document_id"], "status": "indexed", "chunks": len(chunk_ids)}
 
@@ -234,9 +239,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = req.app.state.engine
         bus = req.app.state.eventbus
         q_emb = await embed_query(req_body.query, req.app.state.settings)
-        return await search_chunks(engine, req.state.tenant_id, q_emb,
-                                    req.state.role_id, req_body.top_k, bus,
-                                    embedding_dim=req.app.state.settings.embedding_dim)
+        return await search_chunks(
+            engine,
+            req.state.tenant_id,
+            q_emb,
+            req.state.role_id,
+            req_body.top_k,
+            bus,
+            embedding_dim=req.app.state.settings.embedding_dim,
+        )
 
     # ── Streaming (M8) ──
     @app.post(
@@ -267,19 +278,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ── Conversation ──
     @app.post("/conversations", status_code=201, tags=["conversations"])
     async def create_conv(req_body: ConvCreate, req: Request) -> dict[str, Any]:
-        return await create_conversation(req.app.state.engine, req.state.tenant_id,
-                                          req.state.user_id, req_body.title)
+        return await create_conversation(req.app.state.engine, req.state.tenant_id, req.state.user_id, req_body.title)
 
     @app.post("/conversations/{conv_id}/messages", status_code=201, tags=["conversations"])
     async def add_msg(conv_id: str, req_body: MsgAdd, req: Request) -> dict[str, Any]:
-        return await add_message(req.app.state.engine, req.state.tenant_id,
-                                  conv_id, req_body.role, req_body.content, req.state.user_id)
+        return await add_message(
+            req.app.state.engine, req.state.tenant_id, conv_id, req_body.role, req_body.content, req.state.user_id
+        )
 
     @app.get("/conversations/{conv_id}/messages", tags=["conversations"])
-    async def list_msgs(conv_id: str, limit: int = 50, offset: int = 0,
-                         req: Request = None) -> list[dict[str, Any]]:
-        return await get_messages(req.app.state.engine, req.state.tenant_id,
-                                   conv_id, limit, offset)
+    async def list_msgs(conv_id: str, limit: int = 50, offset: int = 0, req: Request = None) -> list[dict[str, Any]]:
+        return await get_messages(req.app.state.engine, req.state.tenant_id, conv_id, limit, offset)
 
     # ── WebSocket ──
     from earp_server.gateway.websocket_gateway import ws_endpoint

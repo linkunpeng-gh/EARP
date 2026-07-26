@@ -29,6 +29,7 @@ async def search_chunks(
     if embedding_dim is None:
         try:
             from earp_server.infra.ext.ext_embedding import embedding_dim as get_dim
+
             embedding_dim = get_dim()
         except RuntimeError:
             embedding_dim = 1024  # fallback

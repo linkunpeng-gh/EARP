@@ -23,11 +23,19 @@ async def create_document(
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         await conn.execute(
             text(
-                "INSERT INTO documents (document_id, tenant_id, knowledge_base_id, title, content, content_hash, data_classification) "
+                "INSERT INTO documents "
+                "(document_id, tenant_id, knowledge_base_id, title, content, content_hash, data_classification) "
                 "VALUES (:did, :tid, :kid, :title, :content, :chash, :dclass)"
             ),
-            {"did": document_id, "tid": tenant_id, "kid": knowledge_base_id, "title": title,
-             "content": content, "chash": content_hash, "dclass": data_classification},
+            {
+                "did": document_id,
+                "tid": tenant_id,
+                "kid": knowledge_base_id,
+                "title": title,
+                "content": content,
+                "chash": content_hash,
+                "dclass": data_classification,
+            },
         )
         await conn.commit()
     return {"document_id": document_id, "content_hash": content_hash}

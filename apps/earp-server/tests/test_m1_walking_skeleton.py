@@ -20,8 +20,10 @@ DEV_SECRET = "earp-dev-secret-change-in-production"
 def _token(sub="u1", tenant_id="t1", role_id="r1") -> str:
     return jwt.encode(
         {"sub": sub, "tenant_id": tenant_id, "role_id": role_id, "exp": 9999999999},
-        DEV_SECRET, algorithm="HS256",
+        DEV_SECRET,
+        algorithm="HS256",
     )
+
 
 AUTH = {"Authorization": f"Bearer {_token()}"}
 BASE_URL = "http://test"
@@ -49,8 +51,9 @@ def test_session_crud_and_close(migrated: str, app_url: str) -> None:
         assert resp.status_code == 200
         assert resp.json()["status"] == "closed"
 
-        resp = c.post(f"/v1/sessions/{sid}/invoke",
-                       json={"capability_id": "cap-nonexistent", "input": {}}, headers=AUTH)
+        resp = c.post(
+            f"/v1/sessions/{sid}/invoke", json={"capability_id": "cap-nonexistent", "input": {}}, headers=AUTH
+        )
         assert resp.status_code == 400
 
 
@@ -58,15 +61,14 @@ def test_input_guard_and_capability_discover(migrated: str, app_url: str) -> Non
     """AC-10/11: capability discovery + InputGuard."""
     app = create_app(Settings(database_url=app_url, app_env="test"))
     with TestClient(app) as c:
-        resp = c.post("/v1/sessions",
-                       json={"user_id": "u1", "tenant_id": "t1", "role_id": "r1",
-                             "metadata": {"q": "UNION SELECT 1=1"}},
-                       headers=AUTH)
+        resp = c.post(
+            "/v1/sessions",
+            json={"user_id": "u1", "tenant_id": "t1", "role_id": "r1", "metadata": {"q": "UNION SELECT 1=1"}},
+            headers=AUTH,
+        )
         assert resp.status_code == 400
 
-        resp = c.post("/v1/sessions",
-                       json={"user_id": "u1", "tenant_id": "t1", "role_id": "r1"},
-                       headers=AUTH)
+        resp = c.post("/v1/sessions", json={"user_id": "u1", "tenant_id": "t1", "role_id": "r1"}, headers=AUTH)
         assert resp.status_code == 201
 
         # AC-10: capability discover filtered by role — covered in M2 RBAC scenarios.
@@ -115,8 +117,12 @@ class TestStepRunnerInterface:
             },
         )
         ctx = InvokeContext(
-            tenant_id="t1", execution_id="e1", session_id="s1",
-            user_id="u1", role_id="r1", step=step,
+            tenant_id="t1",
+            execution_id="e1",
+            session_id="s1",
+            user_id="u1",
+            role_id="r1",
+            step=step,
         )
         events = []
         async for event_obj in StepRunner(MagicMock()).stream(step, ctx=ctx, llm=mock_llm):

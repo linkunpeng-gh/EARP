@@ -165,6 +165,7 @@ async def discover(
 
 # ── Redis Token Bucket Rate Limiter ───────────────────────────────────────────
 
+
 class TokenBucketRateLimiter:
     """Per-tenant token bucket rate limiter backed by Redis.
 

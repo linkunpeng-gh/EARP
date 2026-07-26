@@ -4,6 +4,7 @@ M3: Rule-based Data Domain routing alongside existing Business Domain routing.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

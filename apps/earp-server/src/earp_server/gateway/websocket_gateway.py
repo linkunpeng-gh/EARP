@@ -24,6 +24,7 @@ async def ws_endpoint(websocket: WebSocket, session_id: str, token: str = "") ->
     # M6 Phase 1: JWT validation via ?token=<jwt> query parameter
     if token:
         from earp_server.gateway.auth import JWTMiddleware
+
         try:
             _ = jwt.decode(token, JWTMiddleware.DEV_SECRET, algorithms=["HS256"])
         except Exception:

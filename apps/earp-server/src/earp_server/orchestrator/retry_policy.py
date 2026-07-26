@@ -15,10 +15,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RetryPolicy:
     """Temporal-compatible retry policy (4 standard parameters)."""
-    initial_interval: float = 1.0   # seconds before first retry
+
+    initial_interval: float = 1.0  # seconds before first retry
     backoff_coefficient: float = 2.0  # multiplier for each subsequent retry
-    max_attempts: int = 3            # total attempts (1 initial + N-1 retries)
-    max_interval: float = 60.0       # cap on retry interval
+    max_attempts: int = 3  # total attempts (1 initial + N-1 retries)
+    max_interval: float = 60.0  # cap on retry interval
 
     def interval_for_attempt(self, attempt: int) -> float:
         """Calculate wait time for the Nth retry attempt (1-indexed after failure)."""

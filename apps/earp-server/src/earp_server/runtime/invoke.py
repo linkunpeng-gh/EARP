@@ -59,8 +59,10 @@ async def invoke(session_id: str, request_invoke: InvokeRequest, request: Reques
         raise HTTPException(status_code=400, detail="Session is closed")
 
     caps = await discover(
-        engine, ctx.tenant_id,
-        query=request_invoke.capability_id, settings=request.app.state.settings,
+        engine,
+        ctx.tenant_id,
+        query=request_invoke.capability_id,
+        settings=request.app.state.settings,
     )
     cap = next((c for c in caps if c["capability_id"] == request_invoke.capability_id), None)
     if cap is None:
@@ -96,9 +98,7 @@ async def invoke(session_id: str, request_invoke: InvokeRequest, request: Reques
         role_id=ctx.role_id,
         step=step,
     )
-    result = await runner.invoke(
-        step, layers=[AuditLayer(bus), PolicyLayer(engine, bus)], ctx=ctx_
-    )
+    result = await runner.invoke(step, layers=[AuditLayer(bus), PolicyLayer(engine, bus)], ctx=ctx_)
 
     exec_status = "completed" if result.status == "completed" else "failed"
     async with engine.connect() as conn:

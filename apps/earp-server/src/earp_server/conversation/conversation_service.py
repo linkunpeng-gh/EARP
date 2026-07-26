@@ -24,7 +24,12 @@ async def create_conversation(engine: AsyncEngine, tenant_id: str, user_id: str,
 
 
 async def add_message(
-    engine: AsyncEngine, tenant_id: str, conversation_id: str, role: str, content: str, user_id: str,
+    engine: AsyncEngine,
+    tenant_id: str,
+    conversation_id: str,
+    role: str,
+    content: str,
+    user_id: str,
 ) -> dict:
     msg_id = f"msg-{uuid.uuid4().hex[:12]}"
     async with engine.connect() as conn:
@@ -41,7 +46,11 @@ async def add_message(
 
 
 async def get_messages(
-    engine: AsyncEngine, tenant_id: str, conversation_id: str, limit: int = 50, offset: int = 0,
+    engine: AsyncEngine,
+    tenant_id: str,
+    conversation_id: str,
+    limit: int = 50,
+    offset: int = 0,
 ) -> list[dict]:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))

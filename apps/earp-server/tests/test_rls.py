@@ -94,13 +94,30 @@ async def test_empty_tenant_id_rejected(app_engine: AsyncEngine) -> None:
 async def test_full_table_rls_matrix(app_engine: AsyncEngine) -> None:
     """P0-3: all 24 tenant-scoped tables enforce cross-tenant isolation (SELECT+UPDATE+DELETE)."""
     tables = [
-        "org_units", "users", "roles", "service_accounts", "tenant_account_joins",
-        "sessions", "executions", "checkpoints", "checkpoint_blobs", "checkpoint_writes",
-        "business_capabilities", "capability_calls", "connector_bindings",
-        "policies", "policy_bindings", "audit_logs",
-        "encrypted_credentials", "api_keys",
-        "knowledge_bases", "documents", "chunks",
-        "conversations", "messages", "connector_configs",
+        "org_units",
+        "users",
+        "roles",
+        "service_accounts",
+        "tenant_account_joins",
+        "sessions",
+        "executions",
+        "checkpoints",
+        "checkpoint_blobs",
+        "checkpoint_writes",
+        "business_capabilities",
+        "capability_calls",
+        "connector_bindings",
+        "policies",
+        "policy_bindings",
+        "audit_logs",
+        "encrypted_credentials",
+        "api_keys",
+        "knowledge_bases",
+        "documents",
+        "chunks",
+        "conversations",
+        "messages",
+        "connector_configs",
     ]
     async with tenant_session(app_engine, "rls-t1") as session:
         for table in tables:
@@ -116,9 +133,7 @@ async def test_full_table_rls_matrix(app_engine: AsyncEngine) -> None:
             )
             assert updated.rowcount == 0, f"{table}: UPDATE must affect 0 rows"
             # DELETE must affect 0 rows (cross-tenant write blocked by RLS)
-            deleted = await session.execute(
-                text(f"DELETE FROM {table} WHERE tenant_id = 'rls-t1'")
-            )
+            deleted = await session.execute(text(f"DELETE FROM {table} WHERE tenant_id = 'rls-t1'"))
             assert deleted.rowcount == 0, f"{table}: DELETE must affect 0 rows"
 
 

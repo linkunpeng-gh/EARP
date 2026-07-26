@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # Langfuse SDK is optional — import fails gracefully if not installed.
 try:
     from langfuse import Langfuse as _LangfuseClient
+
     _HAS_LANGFUSE = True
 except ImportError:
     _HAS_LANGFUSE = False
@@ -27,9 +28,7 @@ class LangfuseTracer:
     """Langfuse tracing wrapper. No-op when keys are not configured."""
 
     def __init__(self, settings: Settings) -> None:
-        self._enabled = bool(
-            _HAS_LANGFUSE and settings.langfuse_public_key and settings.langfuse_secret_key
-        )
+        self._enabled = bool(_HAS_LANGFUSE and settings.langfuse_public_key and settings.langfuse_secret_key)
         if self._enabled:
             self._client = _LangfuseClient(
                 public_key=settings.langfuse_public_key,
@@ -91,7 +90,8 @@ class LangfuseTracer:
                 model=model,
                 input=input_texts,
                 usage={"input_tokens": sum(len(t.split()) for t in input_texts)},
-                metadata={"error": error, "latency_ms": latency_ms, "batch_size": len(input_texts)} if error
+                metadata={"error": error, "latency_ms": latency_ms, "batch_size": len(input_texts)}
+                if error
                 else {"latency_ms": latency_ms, "batch_size": len(input_texts)},
             )
         except Exception:

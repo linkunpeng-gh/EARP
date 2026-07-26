@@ -29,7 +29,7 @@ DEFAULT_RULES = {
 
 
 def apply_preprocessing(text: str, rules: list[dict]) -> str:
-    for rule in (rules or []):
+    for rule in rules or []:
         if not rule.get("enabled"):
             continue
         rid = rule["id"]
@@ -37,6 +37,7 @@ def apply_preprocessing(text: str, rules: list[dict]) -> str:
             text = " ".join(text.split())
         elif rid == "remove_urls_emails":
             import re
+
             text = re.sub(r"https?://\S+|www\.\S+|\S+@\S+\.\S+", "", text)
     return text
 
@@ -64,12 +65,9 @@ def build_preview(content: str, rules: dict | None = None) -> list[dict]:
     """Return chunk preview without persisting. Returns [{index, content_preview, char_count}, ...]."""
     rules = rules or DEFAULT_RULES
     seg = rules.get("segmentation", DEFAULT_RULES["segmentation"])
-    text = apply_preprocessing(content, rules.get("pre_processing_rules", []))
-    chunks = split_text(text, seg["separator"], seg["max_tokens"], seg["chunk_overlap"])
-    return [
-        {"index": i, "content_preview": c[:120], "char_count": len(c)}
-        for i, c in enumerate(chunks[:10])
-    ]
+    processed = apply_preprocessing(content, rules.get("pre_processing_rules", []))
+    chunks = split_text(processed, seg["separator"], seg["max_tokens"], seg["chunk_overlap"])
+    return [{"index": i, "content_preview": c[:120], "char_count": len(c)} for i, c in enumerate(chunks[:10])]
 
 
 async def create_chunks(
@@ -83,8 +81,8 @@ async def create_chunks(
     rules = rules or DEFAULT_RULES
     seg = rules.get("segmentation", DEFAULT_RULES["segmentation"])
 
-    text = apply_preprocessing(content, rules.get("pre_processing_rules", []))
-    texts = split_text(text, seg["separator"], seg["max_tokens"], seg["chunk_overlap"])
+    processed = apply_preprocessing(content, rules.get("pre_processing_rules", []))
+    texts = split_text(processed, seg["separator"], seg["max_tokens"], seg["chunk_overlap"])
 
     chunk_ids = []
     async with engine.connect() as conn:
@@ -97,8 +95,14 @@ async def create_chunks(
                     "INSERT INTO chunks (chunk_id, tenant_id, document_id, chunk_index, "
                     "content, content_hash) VALUES (:cid, :tid, :did, :idx, :content, :chash)"
                 ),
-                {"cid": chunk_id, "tid": tenant_id, "did": document_id, "idx": i,
-                 "content": chunk_text, "chash": chunk_hash},
+                {
+                    "cid": chunk_id,
+                    "tid": tenant_id,
+                    "did": document_id,
+                    "idx": i,
+                    "content": chunk_text,
+                    "chash": chunk_hash,
+                },
             )
             chunk_ids.append(chunk_id)
         await conn.commit()

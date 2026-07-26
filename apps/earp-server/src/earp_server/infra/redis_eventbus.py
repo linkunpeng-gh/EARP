@@ -34,6 +34,7 @@ class RedisStreamsEventBus:
             return self._redis_available
         try:
             import redis.asyncio as aioredis
+
             self._redis = aioredis.Redis(host=self._host, port=self._port, socket_connect_timeout=2)
             await self._redis.ping()
             # create consumer group (idempotent via MKSTREAM)
@@ -88,10 +89,12 @@ class RedisStreamsEventBus:
             if ok and self._redis:
                 break
             if attempt < max_retries:
-                wait_s = min(2 ** attempt, 30)
+                wait_s = min(2**attempt, 30)
                 logger.warning(
                     "RedisStreamsEventBus: Redis unavailable (attempt %d/%d), retrying in %ds",
-                    attempt, max_retries, wait_s,
+                    attempt,
+                    max_retries,
+                    wait_s,
                 )
                 await asyncio.sleep(wait_s)
         else:
@@ -103,7 +106,11 @@ class RedisStreamsEventBus:
         while True:
             try:
                 messages = await self._redis.xreadgroup(
-                    GROUP_NAME, CONSUMER_NAME, {STREAM_KEY: ">"}, count=10, block=1000,
+                    GROUP_NAME,
+                    CONSUMER_NAME,
+                    {STREAM_KEY: ">"},
+                    count=10,
+                    block=1000,
                 )
                 for _stream, entries in messages:
                     for entry_id, fields in entries:
