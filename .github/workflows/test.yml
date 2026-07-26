@@ -51,9 +51,10 @@ jobs:
           pip install -e libs/earp-sdk-connector-py
           pip install -e libs/earp-sdk-runtime-py
           pip install -e libs/earp-sdk-plugin-py
+          pip install -e libs/earp-sdk-capability-py
       - name: Run full test suite
         run: |
-          python -m pytest libs/earp-sdk-core-py/tests/ libs/earp-sdk-connector-py/tests/ libs/earp-sdk-runtime-py/tests/ libs/earp-sdk-plugin-py/tests/ -v --tb=short
+          python -m pytest libs/earp-sdk-core-py/tests/ libs/earp-sdk-connector-py/tests/ libs/earp-sdk-runtime-py/tests/ libs/earp-sdk-plugin-py/tests/ libs/earp-sdk-capability-py/tests/ -v --tb=short
 
   validate-refs:
     needs: test
