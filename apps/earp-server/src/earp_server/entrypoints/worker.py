@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import signal
 
@@ -32,10 +31,15 @@ async def _run() -> int:
         await stop.wait()
         logger.info("worker stopping (signal)")
         worker.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await worker
+        try:
+            await asyncio.wait_for(worker, timeout=3)
+        except (asyncio.CancelledError, TimeoutError):
+            pass
     finally:
-        await queue.close()
+        try:
+            await asyncio.wait_for(queue.close(), timeout=2)
+        except TimeoutError:
+            logger.warning("queue.close() timed out")
     return 0
 
 

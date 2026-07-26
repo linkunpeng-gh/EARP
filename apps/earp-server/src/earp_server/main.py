@@ -104,21 +104,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if cfg.app_env in ("dev", "test"):
             try:
                 await register_demo(app.state.engine, "tenant-demo")
+                # test mode: also register an empty-perms version for e2e tests
+                if cfg.app_env == "test":
+                    async with app.state.engine.connect() as conn:
+                        await conn.exec_driver_sql("SET LOCAL earp.tenant_id = 'tenant-demo'")
+                        await conn.exec_driver_sql(
+                            "INSERT INTO business_capabilities "
+                            "(capability_id, tenant_id, domain, name, type, "
+                            "input_schema, output_schema, required_permissions, version) "
+                            "VALUES ('cap-demo-echo', 'tenant-demo', 'demo', 'echo', 'query', "
+                            "'{}', '{}', '{}', '1.0.0') "
+                            "ON CONFLICT (capability_id) DO UPDATE SET required_permissions = '{}'"
+                        )
+                        await conn.commit()
             except Exception:
                 logger.warning("register_demo failed, continuing")
-            # test mode: also register an empty-perms version for e2e tests
-            if cfg.app_env == "test":
-                async with app.state.engine.connect() as conn:
-                    await conn.exec_driver_sql("SET LOCAL earp.tenant_id = 'tenant-demo'")
-                    await conn.exec_driver_sql(
-                        "INSERT INTO business_capabilities "
-                        "(capability_id, tenant_id, domain, name, type, "
-                        "input_schema, output_schema, required_permissions, version) "
-                        "VALUES ('cap-demo-echo', 'tenant-demo', 'demo', 'echo', 'query', "
-                        "'{}', '{}', '{}', '1.0.0') "
-                        "ON CONFLICT (capability_id) DO UPDATE SET required_permissions = '{}'"
-                    )
-                    await conn.commit()
         try:
             yield
         finally:
