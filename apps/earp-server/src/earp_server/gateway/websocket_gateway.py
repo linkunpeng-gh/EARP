@@ -23,10 +23,10 @@ async def ws_endpoint(websocket: WebSocket, session_id: str, token: str = "") ->
     """WebSocket streaming endpoint with optional JWT auth via query param."""
     # M6 Phase 1: JWT validation via ?token=<jwt> query parameter
     if token:
-        from earp_server.gateway.auth import JWTMiddleware
+        from earp_server.gateway.auth import DEV_SECRET
 
         try:
-            _ = jwt.decode(token, JWTMiddleware.DEV_SECRET, algorithms=["HS256"])
+            _ = jwt.decode(token, DEV_SECRET, algorithms=["HS256"])
         except Exception:
             await websocket.close(code=4001, reason="invalid token")
             return

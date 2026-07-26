@@ -9,6 +9,7 @@ Start: make plugin-daemon
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import signal
 from pathlib import Path
@@ -113,14 +114,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"plugin not found: {req.plugin_name}")
 
         try:
-            instance = plugin_cls()
+            instance = plugin_cls()  # type: ignore[abstract]
             method = getattr(instance, req.method, None)
             if method is None:
                 raise HTTPException(
                     status_code=400,
                     detail=f"method not found: {req.method}",
                 )
-            if asyncio.iscoroutinefunction(method):
+            if inspect.iscoroutinefunction(method):
                 result = await asyncio.wait_for(method(**req.params), timeout=req.timeout_seconds)
             else:
                 # Sync method: run in thread pool to avoid blocking event loop

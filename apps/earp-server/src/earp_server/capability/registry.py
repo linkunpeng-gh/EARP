@@ -88,7 +88,7 @@ async def discover(
             from earp_server.knowledge.embedding_service import embed_query
 
             try:
-                q_emb = await embed_query(query, settings)
+                q_emb = await embed_query(query)
                 emb_str = f"[{', '.join(str(x) for x in q_emb)}]"
                 if role_id:
                     rows = await conn.execute(
@@ -192,13 +192,13 @@ class TokenBucketRateLimiter:
 
     async def is_allowed(self, tenant_id: str) -> bool:
         await self._ensure_redis()
-        if self._redis is False:
+        if not self._redis:
             return True  # pass-through on Redis failure
         key = f"rate:{tenant_id}:{int(time.time())}"
         try:
-            count = await self._redis.incr(key)
+            count = await self._redis.incr(key)  # type: ignore[union-attr]
             if count == 1:
-                await self._redis.expire(key, 2)
+                await self._redis.expire(key, 2)  # type: ignore[union-attr]
             return count <= self._rps
         except Exception:
             logger.warning("Redis rate-limit check failed", exc_info=True)

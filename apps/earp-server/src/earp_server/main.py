@@ -93,11 +93,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         llm_connector.cache = llm_cache
         # M15: Langfuse observability tracer
         from earp_server.infra.langfuse_tracer import LangfuseTracer
-        from earp_server.knowledge.embedding_service import set_tracer
 
         tracer = LangfuseTracer(cfg)
         llm_connector.tracer = tracer
-        set_tracer(tracer)
         app.state.planner = SimpleTaskPlanner(llm=llm_connector)
         if cfg.app_env in ("dev", "test"):
             # in-process audit: subscribe handler to local EventBus
@@ -193,7 +191,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"capability_id": "cap-demo-echo", "status": "registered"}
 
     @app.get("/capabilities", tags=["capabilities"])
-    async def discover_capabilities_endpoint(q: str | None = None, req: Request = None) -> list[dict[str, Any]]:
+    async def discover_capabilities_endpoint(q: str | None = None, req: Request = None) -> list[dict[str, Any]]:  # type: ignore[assignment]
         return await discover(
             req.app.state.engine,
             req.state.tenant_id,
@@ -231,14 +229,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return {"document_id": doc["document_id"], "status": "unchanged", "chunks": 0}
         await cleanup_old_chunks(engine, tenant_id, doc["document_id"])
         chunk_ids = await create_chunks(engine, tenant_id, doc["document_id"], req_body.content, doc["content_hash"])
-        await embed_chunks(engine, tenant_id, chunk_ids, req.app.state.settings)
+        await embed_chunks(engine, tenant_id, chunk_ids)
         return {"document_id": doc["document_id"], "status": "indexed", "chunks": len(chunk_ids)}
 
     @app.post("/knowledge/search", tags=["knowledge"])
     async def search_knowledge(req_body: SearchQuery, req: Request) -> list[dict[str, Any]]:
         engine = req.app.state.engine
         bus = req.app.state.eventbus
-        q_emb = await embed_query(req_body.query, req.app.state.settings)
+        q_emb = await embed_query(req_body.query)
         return await search_chunks(
             engine,
             req.state.tenant_id,
@@ -287,7 +285,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.get("/conversations/{conv_id}/messages", tags=["conversations"])
-    async def list_msgs(conv_id: str, limit: int = 50, offset: int = 0, req: Request = None) -> list[dict[str, Any]]:
+    async def list_msgs(conv_id: str, limit: int = 50, offset: int = 0, req: Request = None) -> list[dict[str, Any]]:  # type: ignore[assignment]
         return await get_messages(req.app.state.engine, req.state.tenant_id, conv_id, limit, offset)
 
     # ── WebSocket ──

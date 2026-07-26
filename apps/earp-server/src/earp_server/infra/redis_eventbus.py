@@ -66,7 +66,7 @@ class RedisStreamsEventBus:
                     "data": json.dumps(event.data),
                     "time": event.time,
                 }
-                await self._redis.xadd(STREAM_KEY, payload, maxlen=10000)
+                await self._redis.xadd(STREAM_KEY, payload, maxlen=10000)  # type: ignore[arg-type]
             except Exception:
                 logger.warning("RedisStreamsEventBus: xadd failed, falling back to in-process")
                 self._fallback.publish(event)
@@ -105,14 +105,14 @@ class RedisStreamsEventBus:
             return
         while True:
             try:
-                messages = await self._redis.xreadgroup(
+                messages = await self._redis.xreadgroup(  # type: ignore[union-attr]
                     GROUP_NAME,
                     CONSUMER_NAME,
                     {STREAM_KEY: ">"},
                     count=10,
                     block=1000,
                 )
-                for _stream, entries in messages:
+                for _stream, entries in messages:  # type: ignore[union-attr, reportGeneralTypeIssues]
                     for entry_id, fields in entries:
                         event = CloudEvent(
                             type=fields.get(b"type", b"").decode(),

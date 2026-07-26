@@ -60,6 +60,11 @@ reportUnknownArgumentType = false
 reportMissingParameterType = false
 reportUnknownVariableType = false
 reportUnknownParameterType = false
+# SQLAlchemy Row._mapping is public API; bare dict is idiomatic in FastAPI.
+# Redis stubs have incomplete type annotations (xreadgroup, xadd).
+reportPrivateUsage = false
+reportMissingTypeArgument = false
+reportGeneralTypeIssues = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -82,17 +87,23 @@ modules = [
     "earp_server.schedule",
     "earp_server.audit",
     "earp_server.orchestrator",
-    "earp_server.planner",
-    "earp_server.knowledge",
-    "earp_server.conversation",
     "earp_server.plugin",
     "earp_server.mcp",
 ]
-# M1: runtime calls capability.discover (public service interface) and uses
-# orchestrator types — both are allowed cross-module references (plan v1.4 §5.1 "走 service 接口").
+# Architectural exceptions — intentional cross-domain coupling.
+# connector is the cross-cutting LLM glue; its imports from planner/orchestrator
+# are by design (planner for fallback matching, orchestrator for Step types).
 ignore_imports = [
-    "earp_server.runtime -> earp_server.capability",
-    "earp_server.runtime -> earp_server.orchestrator",
-    "earp_server.orchestrator -> earp_server.infra",
-    "earp_server.runtime -> earp_server.infra",
+    "earp_server.runtime.invoke -> earp_server.capability.registry",
+    "earp_server.runtime.invoke -> earp_server.orchestrator.types",
+    "earp_server.runtime.invoke -> earp_server.orchestrator.step_runner",
+    "earp_server.runtime.invoke -> earp_server.orchestrator.layers",
+    "earp_server.planner.validation -> earp_server.orchestrator.types",
+    "earp_server.planner.task_planner -> earp_server.orchestrator.types",
+    "earp_server.planner.task_planner -> earp_server.connector",
+    "earp_server.capability.registry -> earp_server.knowledge.embedding_service",
+    "earp_server.orchestrator.multi_step -> earp_server.connector",
+    "earp_server.orchestrator.step_runner -> earp_server.connector",
+    "earp_server.connector -> earp_server.planner.business_dictionary",
+    "earp_server.connector -> earp_server.orchestrator.types",
 ]

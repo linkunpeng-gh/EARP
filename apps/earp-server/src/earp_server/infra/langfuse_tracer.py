@@ -16,21 +16,22 @@ from earp_server.config import Settings
 logger = logging.getLogger(__name__)
 
 # Langfuse SDK is optional — import fails gracefully if not installed.
+_has_langfuse = False
 try:
-    from langfuse import Langfuse as _LangfuseClient
+    from langfuse import Langfuse as _LangfuseClient  # type: ignore[assignment]
 
-    _HAS_LANGFUSE = True
+    _has_langfuse = True
 except ImportError:
-    _HAS_LANGFUSE = False
+    _LangfuseClient = None  # type: ignore[assignment]
 
 
 class LangfuseTracer:
     """Langfuse tracing wrapper. No-op when keys are not configured."""
 
     def __init__(self, settings: Settings) -> None:
-        self._enabled = bool(_HAS_LANGFUSE and settings.langfuse_public_key and settings.langfuse_secret_key)
-        if self._enabled:
-            self._client = _LangfuseClient(
+        self._enabled = bool(_has_langfuse and settings.langfuse_public_key and settings.langfuse_secret_key)
+        if self._enabled and _LangfuseClient is not None:
+            self._client = _LangfuseClient(  # type: ignore[misc]
                 public_key=settings.langfuse_public_key,
                 secret_key=settings.langfuse_secret_key,
                 host=settings.langfuse_host,
@@ -60,8 +61,8 @@ class LangfuseTracer:
         if not self._enabled or not self._client:
             return
         try:
-            trace = self._client.trace(name=name, metadata=metadata)
-            trace.generation(
+            trace = self._client.trace(name=name, metadata=metadata)  # type: ignore[union-attr]
+            trace.generation(  # type: ignore[union-attr]
                 name=f"{name}-gen",
                 model=model,
                 input=prompt,
@@ -84,8 +85,8 @@ class LangfuseTracer:
         if not self._enabled or not self._client:
             return
         try:
-            trace = self._client.trace(name="embedding")
-            trace.generation(
+            trace = self._client.trace(name="embedding")  # type: ignore[union-attr]
+            trace.generation(  # type: ignore[union-attr]
                 name="embedding-gen",
                 model=model,
                 input=input_texts,
