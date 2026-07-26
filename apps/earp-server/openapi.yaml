@@ -524,6 +524,57 @@ paths:
       tags:
       - streaming
   /v1/sessions:
+    get:
+      operationId: list_sessions_endpoint_v1_sessions_get
+      parameters:
+      - in: query
+        name: status
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - in: query
+        name: user_id
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User Id
+      - in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          title: Page
+          type: integer
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          default: 20
+          title: Page Size
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response List Sessions Endpoint V1 Sessions Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Sessions Endpoint
+      tags:
+      - sessions
     post:
       operationId: create_session_endpoint_v1_sessions_post
       requestBody:
