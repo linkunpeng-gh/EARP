@@ -54,7 +54,10 @@ jobs:
           pip install -e libs/earp-sdk-capability-py
       - name: Run full test suite
         run: |
-          python -m pytest libs/earp-sdk-core-py/tests/ libs/earp-sdk-connector-py/tests/ libs/earp-sdk-runtime-py/tests/ libs/earp-sdk-plugin-py/tests/ libs/earp-sdk-capability-py/tests/ -v --tb=short
+          for sdk in libs/earp-sdk-core-py libs/earp-sdk-connector-py libs/earp-sdk-runtime-py libs/earp-sdk-plugin-py libs/earp-sdk-capability-py; do
+            echo "=== $sdk ==="
+            python -m pytest "$sdk/tests/" -v --tb=short
+          done
 
   validate-refs:
     needs: test
