@@ -12,8 +12,25 @@
 .config-panel .cfg-field { margin-bottom: 1rem; }
 .config-panel input[type=text], .config-panel select, .config-panel textarea { width: 100%; }
 .config-panel textarea { resize: vertical; min-height: 110px; }
-.kb-check { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-secondary); padding: 0.2rem 0; cursor: pointer; }
-.kb-check input { width: 14px; height: 14px; accent-color: var(--accent); }
+/* KB 绑定：已绑定标签 + 添加弹窗 */
+.bound-kbs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.45rem; min-height: 28px; }
+.bound-tag {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.76rem; color: var(--text-secondary);
+  background: var(--bg-surface); border: 1px solid var(--border-standard);
+  border-radius: 4px; padding: 2px 8px;
+}
+.bound-tag .bt-dd { color: var(--text-quaternary); font-size: 0.68rem; }
+.bound-tag .bt-x { border: none; background: none; cursor: pointer; color: var(--text-quaternary); font-size: 0.8rem; padding: 0; line-height: 1; }
+.bound-tag .bt-x:hover { color: var(--red); }
+.bound-empty { font-size: 0.72rem; color: var(--text-quaternary); padding: 4px 0; }
+.kb-picker-dd { font-size: 0.72rem; font-weight: 600; color: var(--text-tertiary); margin: 0.55rem 0 0.25rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.kb-picker-row { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.3rem 0.4rem; border-radius: 4px; font-size: 0.8rem; }
+.kb-picker-row:hover { background: var(--bg-surface); }
+.kb-picker-row label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; color: var(--text-secondary); flex: 1; }
+.kb-picker-row input { width: 14px; height: 14px; accent-color: var(--accent); }
+.kb-picker-row .already { font-size: 0.68rem; color: var(--text-quaternary); }
+.kb-picker-body { max-height: 340px; overflow-y: auto; margin: 0.5rem 0; }
 .cfg-note { font-size: 0.7rem; color: var(--text-quaternary); margin-top: 0.3rem; }
 .cfg-inline { display: flex; gap: 0.5rem; align-items: center; }
 .cfg-inline select { flex: 1; }
@@ -73,8 +90,9 @@
       <button class="btn-sm" style="margin-top:0.35rem" onclick="resetPrompt()">↺ 重置默认模板</button>
     </div>
     <div class="cfg-field">
-      <label class="cfg-label">知识库绑定（全不选 = 全租户自动路由）</label>
-      <div id="cfg-kbs" style="max-height:180px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.6rem"></div>
+      <label class="cfg-label">知识库绑定（空 = 全租户自动路由）</label>
+      <div id="bound-kbs" class="bound-kbs"></div>
+      <button class="btn-sm" onclick="showKBPicker()" id="kb-add-btn">＋ 添加知识库</button>
     </div>
     <div class="cfg-field">
       <label class="cfg-label">检索参数</label>
@@ -125,7 +143,7 @@
 <script>
 // ── Chat 智能体编排页（设计 §5.2）：左配置 / 右调试预览 ──
 var DEFAULT_PROMPT = '你是企业知识库智能助手。请基于提供的资料准确回答用户问题；资料不足时明确说明，不要编造。回答用中文，简洁清晰。';
-var state = { app: null, kbs: [], models: [], convId: null, streaming: false, promptTouched: false };
+var state = { app: null, kbs: [], models: [], convId: null, streaming: false, promptTouched: false, kbScope: [], ddNames: {} };
 
 var appId = new URLSearchParams(location.search).get('app') || '';
 
@@ -143,7 +161,14 @@ async function loadApp() {
 }
 
 async function loadKBs() {
-  try { state.kbs = await EARP.fetchJSON('/knowledge/bases'); } catch (e) { state.kbs = []; }
+  try {
+    state.kbs = await EARP.fetchJSON('/knowledge/bases');
+  } catch (e) { state.kbs = []; }
+  try {
+    var dds = await EARP.fetchJSON('/api/data-domains');
+    state.ddNames = {};
+    dds.forEach(function (d) { state.ddNames[d.data_domain_id] = d.name; });
+  } catch (e) { /* 保持空映射 */ }
 }
 
 async function loadModels() {
@@ -178,27 +203,98 @@ function renderConfig() {
   document.getElementById('cfg-threshold').value = ret.threshold != null ? ret.threshold : 0.0;
   document.getElementById('cfg-turns').value = String(a.context_turns || 6);
 
-  var scope = a.kb_scope || [];
-  document.getElementById('cfg-kbs').innerHTML = state.kbs.length
-    ? state.kbs.map(function (kb) {
-        var on = scope.indexOf(kb.knowledge_base_id) >= 0;
-        return '<label class="kb-check"><input type="checkbox" value="' + kb.knowledge_base_id + '"' + (on ? ' checked' : '') + '>'
-          + esc(kb.name || kb.knowledge_base_id) + '</label>';
-      }).join('')
-    : '<div class="cfg-note">暂无知识库（请先在知识中心创建）</div>';
+  state.kbScope = (a.kb_scope || []).slice();
+  renderBoundKBs();
   document.getElementById('publish-btn').disabled = a.status === 'published';
   document.getElementById('publish-btn').textContent = a.status === 'published' ? '已发布' : '发布';
 }
 
+// ── KB 绑定：已绑定标签 + 添加弹窗（按 DD 分组）──
+function kbName(id) {
+  var kb = state.kbs.find(function (k) { return k.knowledge_base_id === id; });
+  return kb ? (kb.name || id) : id;
+}
+
+function kbDD(id) {
+  var kb = state.kbs.find(function (k) { return k.knowledge_base_id === id; });
+  return kb && kb.data_domain_id ? kb.data_domain_id : '';
+}
+
+function renderBoundKBs() {
+  var el = document.getElementById('bound-kbs');
+  if (!state.kbScope.length) {
+    el.innerHTML = '<span class="bound-empty">未绑定 — 全租户自动路由</span>';
+    return;
+  }
+  el.innerHTML = state.kbScope.map(function (id) {
+    var dd = kbDD(id);
+    return '<span class="bound-tag">' + esc(kbName(id))
+      + (dd ? '<span class="bt-dd">' + esc(state.ddNames[dd] || dd) + '</span>' : '')
+      + '<button class="bt-x" onclick="removeBoundKB(\'' + id + '\')" title="移除">✕</button></span>';
+  }).join('');
+}
+
+function removeBoundKB(id) {
+  state.kbScope = state.kbScope.filter(function (x) { return x !== id; });
+  renderBoundKBs();
+}
+
+function showKBPicker() {
+  var modal = document.getElementById('kb-picker-modal');
+  if (!modal) { createKBPickerModal(); modal = document.getElementById('kb-picker-modal'); }
+  // 按 DD 分组渲染（未分配 DD 归「未分配」）
+  var groups = {};
+  state.kbs.forEach(function (kb) {
+    var dd = kb.data_domain_id || '__none__';
+    (groups[dd] = groups[dd] || []).push(kb);
+  });
+  var html = '';
+  Object.keys(groups).sort().forEach(function (dd) {
+    var ddLabel = dd === '__none__' ? '未分配数据域' : (state.ddNames[dd] || dd);
+    html += '<div class="kb-picker-dd">' + esc(ddLabel) + '</div>';
+    groups[dd].forEach(function (kb) {
+      var bound = state.kbScope.indexOf(kb.knowledge_base_id) >= 0;
+      html += '<div class="kb-picker-row">'
+        + '<label><input type="checkbox" class="kb-pick" value="' + kb.knowledge_base_id + '"' + (bound ? ' checked disabled' : '') + '>'
+        + esc(kb.name || kb.knowledge_base_id) + '</label>'
+        + (bound ? '<span class="already">已添加</span>' : '')
+        + '</div>';
+    });
+  });
+  document.getElementById('kb-picker-body').innerHTML = html || '<div class="kb-empty">暂无知识库（请先在知识中心创建）</div>';
+  modal.style.display = 'flex';
+}
+
+function hideKBPicker() { document.getElementById('kb-picker-modal').style.display = 'none'; }
+
+function createKBPickerModal() {
+  var html = '<div id="kb-picker-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideKBPicker()">'
+    + '<div class="modal" style="min-width:420px"><h4>添加知识库</h4>'
+    + '<p style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:0.25rem">按数据域分组选择要绑定的知识库；已添加项置灰。</p>'
+    + '<div class="kb-picker-body" id="kb-picker-body"></div>'
+    + '<div class="form-actions"><button class="primary" onclick="confirmKBPicker()">添加选中</button>'
+    + '<button class="btn-sm" onclick="hideKBPicker()">取消</button></div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function confirmKBPicker() {
+  var picked = [];
+  document.querySelectorAll('#kb-picker-body .kb-pick:checked').forEach(function (el) { picked.push(el.value); });
+  picked.forEach(function (id) {
+    if (state.kbScope.indexOf(id) < 0) state.kbScope.push(id);
+  });
+  hideKBPicker();
+  renderBoundKBs();
+}
+
 function collectConfig() {
-  var kbScope = [];
-  document.querySelectorAll('#cfg-kbs input:checked').forEach(function (el) { kbScope.push(el.value); });
   return {
     name: document.getElementById('cfg-name').value.trim(),
     description: document.getElementById('cfg-desc').value.trim(),
     system_prompt: document.getElementById('cfg-prompt').value.trim(),
     model_config_id: document.getElementById('cfg-model').value || null,
-    kb_scope: kbScope,
+    kb_scope: state.kbScope.slice(),
     retrieval: {
       mode: document.getElementById('cfg-mode').value,
       top_k: parseInt(document.getElementById('cfg-topk').value, 10) || 5,
