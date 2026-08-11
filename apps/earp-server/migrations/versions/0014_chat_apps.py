@@ -61,6 +61,9 @@ def upgrade() -> None:
         "CREATE POLICY tenant_isolation ON chat_apps "
         "USING (tenant_id = current_setting('earp.tenant_id', true))"
     )
+    # earp_app 授权：queue_schema.apply() 的 GRANT ALL TABLES 仅在启动时覆盖当时存在的表
+    # —— 新表必须在此显式授权，否则 dev 升级路径（无 queue_schema）会 permission denied
+    op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON chat_apps TO earp_app")
 
 
 def downgrade() -> None:
