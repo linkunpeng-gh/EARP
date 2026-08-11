@@ -9,6 +9,25 @@
 .edit-top .spacer { flex: 1; }
 .config-panel { background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 1.1rem; box-shadow: var(--shadow-card); }
 .config-panel .cfg-label { display: block; font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); margin-bottom: 0.3rem; }
+/* 参数帮助小 tip（hover 查看） */
+.cfg-tip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--bg-surface); border: 1px solid var(--border-standard);
+  color: var(--text-quaternary); font-size: 0.62rem; cursor: help;
+  position: relative; flex-shrink: 0; margin-left: 0.25rem;
+  vertical-align: middle;
+}
+.cfg-tip:hover { color: var(--accent); border-color: var(--accent); }
+.cfg-tip .tip-pop {
+  display: none; position: absolute; z-index: 40;
+  left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%);
+  width: 230px; padding: 0.5rem 0.65rem;
+  background: var(--text-primary); color: #fff;
+  border-radius: 6px; font-size: 0.72rem; font-weight: 400; line-height: 1.55;
+  box-shadow: var(--shadow-elevated); text-align: left; white-space: normal;
+}
+.cfg-tip:hover .tip-pop { display: block; }
 .config-panel .cfg-field { margin-bottom: 1rem; }
 .config-panel input[type=text], .config-panel select, .config-panel textarea { width: 100%; }
 .config-panel textarea { resize: vertical; min-height: 110px; }
@@ -72,64 +91,67 @@
   <!-- 左：配置 -->
   <div class="config-panel">
     <div class="cfg-field">
-      <label class="cfg-label">名称</label>
+      <label class="cfg-label">名称 <span class="cfg-tip">?<span class="tip-pop">智能体名称，展示在卡片列表与应用中心。必填，建议简短直白（如「财务制度助手」）。</span></span></label>
       <input type="text" id="cfg-name">
     </div>
     <div class="cfg-field">
-      <label class="cfg-label">描述</label>
+      <label class="cfg-label">描述 <span class="cfg-tip">?<span class="tip-pop">用途说明，展示在卡片与应用中心，帮助使用者了解这个智能体能做什么。</span></span></label>
       <input type="text" id="cfg-desc">
     </div>
     <div class="cfg-field">
-      <label class="cfg-label">大模型（空 = 系统默认）</label>
+      <label class="cfg-label">大模型 <span class="cfg-tip">?<span class="tip-pop">回答生成用的 LLM（来自模型配置中心）。空 = 系统默认，解析顺序：本应用 → 系统默认(llm) → 环境配置。</span></span></label>
       <select id="cfg-model"><option value="">系统默认</option></select>
-      <div class="cfg-note">三级解析：本应用 → 系统默认(llm) → 环境配置</div>
     </div>
     <div class="cfg-field">
-      <label class="cfg-label">系统提示词（人设/风格；引用规则自动追加）</label>
+      <label class="cfg-label">系统提示词 <span class="cfg-tip">?<span class="tip-pop">人设/风格/边界（如「你是财务部助手，回答简洁」）。引用标注 [1][2]、只基于资料回答等结构规则会自动追加，不可修改。</span></span></label>
       <textarea id="cfg-prompt"></textarea>
       <button class="btn-sm" style="margin-top:0.35rem" onclick="resetPrompt()">↺ 重置默认模板</button>
     </div>
     <div class="cfg-field">
-      <label class="cfg-label">知识库绑定（空 = 全租户自动路由）</label>
+      <label class="cfg-label">知识库绑定 <span class="cfg-tip">?<span class="tip-pop">限定检索范围。空 = 全租户自动路由（按问题语义路由到最相关的数据域/知识库）；绑定后只在这些知识库内检索。</span></span></label>
       <div id="bound-kbs" class="bound-kbs"></div>
       <button class="btn-sm" onclick="showKBPicker()" id="kb-add-btn">＋ 添加知识库</button>
     </div>
     <div class="cfg-field">
       <label class="cfg-label">检索参数</label>
-      <div class="cfg-inline" style="margin-bottom:0.4rem">
-        <select id="cfg-mode">
+      <div style="margin-bottom:0.5rem">
+        <label class="cfg-label" style="margin-bottom:0.2rem">检索方式 <span class="cfg-tip">?<span class="tip-pop">混合 = 向量语义 + 关键词精确命中融合（推荐，兼顾语义与术语）；向量 = 仅语义相似度（对术语/编号敏感度低）。</span></span></label>
+        <select id="cfg-mode" style="width:100%">
           <option value="hybrid">混合检索</option>
           <option value="vector">向量检索</option>
         </select>
-        <select id="cfg-topk">
+      </div>
+      <div style="margin-bottom:0.5rem">
+        <label class="cfg-label" style="margin-bottom:0.2rem">TopK <span class="cfg-tip">?<span class="tip-pop">每次检索返回的片段数。越大信息越全但噪音越多、LLM 上下文越长；知识问答一般 3~10。</span></span></label>
+        <select id="cfg-topk" style="width:100%">
           <option value="3">TopK 3</option><option value="5" selected>TopK 5</option>
           <option value="10">TopK 10</option><option value="20">TopK 20</option>
         </select>
       </div>
       <div class="cfg-inline">
-        <label class="cfg-label" style="margin:0;white-space:nowrap">相似度阈值</label>
+        <label class="cfg-label" style="margin:0;white-space:nowrap">相似度阈值 <span class="cfg-tip">?<span class="tip-pop">过滤低置信的向量命中（相似度低于阈值不返回）。0 = 不过滤；建议 0.3~0.5（bge-m3 相关片段通常 0.5+）。仅影响向量路，关键词精确命中不受限。</span></span></label>
         <input type="number" id="cfg-threshold" min="0" max="1" step="0.05" value="0.0" style="width:80px">
       </div>
     </div>
     <div class="cfg-field">
       <label class="cfg-label">生成参数（LLM 推理）</label>
       <div class="cfg-inline" style="margin-bottom:0.5rem">
-        <label class="cfg-label" style="margin:0;white-space:nowrap">温度</label>
+        <label class="cfg-label" style="margin:0;white-space:nowrap">温度 <span class="cfg-tip">?<span class="tip-pop">回答随机性。越低越确定（事实问答建议 0.3~0.7，避免编造），越高越发散创新。</span></span></label>
         <input type="range" id="cfg-temperature" min="0" max="2" step="0.1" value="0.7" style="flex:1" oninput="document.getElementById('cfg-temperature-v').textContent=this.value">
         <span id="cfg-temperature-v" style="width:2.2rem;text-align:right;font-size:0.75rem;color:var(--text-tertiary)">0.7</span>
       </div>
       <div class="cfg-inline" style="margin-bottom:0.5rem">
-        <label class="cfg-label" style="margin:0;white-space:nowrap">Top P</label>
+        <label class="cfg-label" style="margin:0;white-space:nowrap">Top P <span class="cfg-tip">?<span class="tip-pop">核采样：只从累计概率达 top_p 的候选词中采样。0.9 为常用值；与温度协同，一般保持默认。</span></span></label>
         <input type="range" id="cfg-topp" min="0" max="1" step="0.05" value="0.9" style="flex:1" oninput="document.getElementById('cfg-topp-v').textContent=this.value">
         <span id="cfg-topp-v" style="width:2.2rem;text-align:right;font-size:0.75rem;color:var(--text-tertiary)">0.9</span>
       </div>
       <div class="cfg-inline">
-        <label class="cfg-label" style="margin:0;white-space:nowrap">Max Tokens</label>
+        <label class="cfg-label" style="margin:0;white-space:nowrap">Max Tokens <span class="cfg-tip">?<span class="tip-pop">回答最大生成长度（Ollama num_predict）。知识问答一般 512~2048；过长会截断。</span></span></label>
         <input type="number" id="cfg-maxtokens" min="128" max="8192" step="128" value="1024" style="width:90px">
       </div>
     </div>
     <div class="cfg-field">
-      <label class="cfg-label">多轮上下文轮数</label>
+      <label class="cfg-label">多轮上下文轮数 <span class="cfg-tip">?<span class="tip-pop">LLM 能看到的最近对话轮数（按 user+assistant 配对）。越多追问指代消解越强，但上下文 token 越长。</span></span></label>
       <select id="cfg-turns">
         <option value="2">2 轮</option><option value="4">4 轮</option>
         <option value="6" selected>6 轮</option><option value="10">10 轮</option>
