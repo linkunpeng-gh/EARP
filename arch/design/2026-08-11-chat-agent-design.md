@@ -69,7 +69,7 @@ CREATE INDEX ix_chat_apps_tenant ON chat_apps (tenant_id, created_at);
 
 ALTER TABLE messages ADD COLUMN citations JSONB;   -- 引用数组：见 4.3
 ALTER TABLE conversations ADD COLUMN chat_app_id VARCHAR(64) NULL
-    REFERENCES chat_apps (chat_app_id);              -- CP1：会话归属（二期应用形态/会话隔离直接可用）
+    REFERENCES chat_apps (chat_app_id) ON DELETE SET NULL;  -- CP1+N1：会话归属；app 删除保留对话日志
 ```
 
 ### 4.2 端点
@@ -131,7 +131,7 @@ data: {"type":"error","message":"…"}     # LLM/embedding 不可用等
 ### 4.6 权限 / 审计 / 架构合规
 
 - chat_apps 走 RLS 租户隔离；检索链路沿用现有 role 过滤
-- 审计事件：chat_app 创建 / 修改 / 删除 / 发布 → 类型 **`earp.chat_app.created / updated / deleted / published`**（F2）；main.py 增加 `earp.chat_app.*` 订阅（audit handler 通用，写 audit_logs）
+- 审计事件：chat_app 创建 / 修改 / 删除 / 发布 → 类型 **`earp.chat_app.created / updated / deleted / published`**（F2）；**entrypoints/audit.py** 增加 `earp.chat_app.*` 订阅（N2：audit 进程订阅，handler 通用写 audit_logs；RedisStreamsEventBus 生产路径同处）
 - 测试对话落库 conversations/messages（对话日志与审计可追溯），不单独发审计事件
 - import-linter：conversation → `knowledge.embedding_service` / `knowledge.search_service` / `knowledge.routing` / `connector` 加 ignore_imports 条目（注明原因：chat 为 RAG 编排层）
 - OpenAPI 基线同步（仓库惯例）
@@ -205,7 +205,7 @@ data: {"type":"error","message":"…"}     # LLM/embedding 不可用等
 
 | 用例 | 验证点 |
 |---|---|
-| chat_apps CRUD | 创建（draft）/列表（RLS）/更新/删除 |
+| chat_apps CRUD | 创建（draft）/列表（RLS）/更新/删除；**chat_app_id 归属写入会话（N2-③）+ 删除含会话 app 时对话日志保留（ON DELETE SET NULL）** |
 | 发布状态机 | draft→published；编辑已发布→回 draft；发布写审计 |
 | 链路闭环 | 会话创建→用户消息落库→检索→流式→助手消息+citations 落库 |
 | 检索范围 | kb_scope=[] 软路由；限定 KB 生效；无权限 KB 静默过滤 |
