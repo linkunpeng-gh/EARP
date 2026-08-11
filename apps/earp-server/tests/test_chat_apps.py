@@ -97,6 +97,16 @@ async def test_update_validation(app_engine: AsyncEngine) -> None:
     upd = await svc.update_chat_app(app_engine, tid, "u1", aid, {"system_prompt": None, "context_turns": 3})
     assert upd is not None and upd["context_turns"] == 3 and upd["system_prompt"]
 
+    # generation 参数：超范围 clamp（temperature 0-2 / top_p 0-1 / max_tokens 128-8192）
+    upd2 = await svc.update_chat_app(
+        app_engine, tid, "u1", aid,
+        {"generation": {"temperature": 5, "top_p": -1, "max_tokens": 10}},
+    )
+    assert upd2 is not None
+    assert upd2["generation"]["temperature"] == 2.0
+    assert upd2["generation"]["top_p"] == 0.0
+    assert upd2["generation"]["max_tokens"] == 128
+
 
 async def test_rls_cross_tenant_isolation(app_engine: AsyncEngine) -> None:
     tid = "ca-t4"

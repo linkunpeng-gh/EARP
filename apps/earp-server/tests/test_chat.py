@@ -64,8 +64,9 @@ class FakeLLM:
         self.error = error
         self.calls: list[tuple[str, list, str]] = []
 
-    async def chat_stream(self, system, history, query):
+    async def chat_stream(self, system, history, query, **kwargs):
         self.calls.append((system, history, query))
+        self.last_kwargs = kwargs
         if self.error:
             raise ConnectorError(self.error)
         for i, t in enumerate(self.tokens):
@@ -195,6 +196,11 @@ async def test_chat_full_flow_with_citations(migrated: str, app_url: str, monkey
 
     llm = FakeLLM(tokens=("报销标准", "500元"))
     events = await _collect(engine, tid, "u1", "r-all", app, "报销标准是什么", llm=llm)
+
+    # 生成参数传递（app.generation → chat_stream）
+    assert llm.last_kwargs["temperature"] == 0.7
+    assert llm.last_kwargs["top_p"] == 0.9
+    assert llm.last_kwargs["max_tokens"] == 1024
 
     tokens = [e["content"] for e in events if e["type"] == "token"]
     assert tokens == ["报销标准", "500元"]

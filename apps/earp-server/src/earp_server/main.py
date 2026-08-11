@@ -273,6 +273,7 @@ class ChatAppUpdate(BaseModel):
     system_prompt: str | None = None
     kb_scope: list[str] | None = None
     retrieval: dict[str, Any] | None = None
+    generation: dict[str, Any] | None = None
     model_config_id: str | None = None
     context_turns: int | None = None
 

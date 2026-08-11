@@ -112,6 +112,23 @@
       </div>
     </div>
     <div class="cfg-field">
+      <label class="cfg-label">生成参数（LLM 推理）</label>
+      <div class="cfg-inline" style="margin-bottom:0.5rem">
+        <label class="cfg-label" style="margin:0;white-space:nowrap">温度</label>
+        <input type="range" id="cfg-temperature" min="0" max="2" step="0.1" value="0.7" style="flex:1" oninput="document.getElementById('cfg-temperature-v').textContent=this.value">
+        <span id="cfg-temperature-v" style="width:2.2rem;text-align:right;font-size:0.75rem;color:var(--text-tertiary)">0.7</span>
+      </div>
+      <div class="cfg-inline" style="margin-bottom:0.5rem">
+        <label class="cfg-label" style="margin:0;white-space:nowrap">Top P</label>
+        <input type="range" id="cfg-topp" min="0" max="1" step="0.05" value="0.9" style="flex:1" oninput="document.getElementById('cfg-topp-v').textContent=this.value">
+        <span id="cfg-topp-v" style="width:2.2rem;text-align:right;font-size:0.75rem;color:var(--text-tertiary)">0.9</span>
+      </div>
+      <div class="cfg-inline">
+        <label class="cfg-label" style="margin:0;white-space:nowrap">Max Tokens</label>
+        <input type="number" id="cfg-maxtokens" min="128" max="8192" step="128" value="1024" style="width:90px">
+      </div>
+    </div>
+    <div class="cfg-field">
       <label class="cfg-label">多轮上下文轮数</label>
       <select id="cfg-turns">
         <option value="2">2 轮</option><option value="4">4 轮</option>
@@ -202,6 +219,13 @@ function renderConfig() {
   document.getElementById('cfg-topk').value = String(ret.top_k || 5);
   document.getElementById('cfg-threshold').value = ret.threshold != null ? ret.threshold : 0.0;
   document.getElementById('cfg-turns').value = String(a.context_turns || 6);
+
+  var gen = a.generation || {};
+  document.getElementById('cfg-temperature').value = gen.temperature != null ? gen.temperature : 0.7;
+  document.getElementById('cfg-temperature-v').textContent = gen.temperature != null ? gen.temperature : 0.7;
+  document.getElementById('cfg-topp').value = gen.top_p != null ? gen.top_p : 0.9;
+  document.getElementById('cfg-topp-v').textContent = gen.top_p != null ? gen.top_p : 0.9;
+  document.getElementById('cfg-maxtokens').value = gen.max_tokens || 1024;
 
   state.kbScope = (a.kb_scope || []).slice();
   renderBoundKBs();
@@ -299,6 +323,11 @@ function collectConfig() {
       mode: document.getElementById('cfg-mode').value,
       top_k: parseInt(document.getElementById('cfg-topk').value, 10) || 5,
       threshold: parseFloat(document.getElementById('cfg-threshold').value) || 0.0,
+    },
+    generation: {
+      temperature: parseFloat(document.getElementById('cfg-temperature').value) || 0.7,
+      top_p: parseFloat(document.getElementById('cfg-topp').value) || 0.9,
+      max_tokens: parseInt(document.getElementById('cfg-maxtokens').value, 10) || 1024,
     },
     context_turns: parseInt(document.getElementById('cfg-turns').value, 10) || 6,
   };

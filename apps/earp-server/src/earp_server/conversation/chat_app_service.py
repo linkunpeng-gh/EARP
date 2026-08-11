@@ -22,6 +22,7 @@ from earp_server.infra.eventbus import CloudEvent
 
 _VALID_MODES = ("vector", "hybrid")
 _DEFAULT_RETRIEVAL = {"mode": "hybrid", "top_k": 5, "threshold": 0.0}
+_DEFAULT_GENERATION = {"temperature": 0.7, "top_p": 0.9, "max_tokens": 1024}
 _STATUSES = ("draft", "published")
 _UPDATABLE = (
     "name",
@@ -29,6 +30,7 @@ _UPDATABLE = (
     "system_prompt",
     "kb_scope",
     "retrieval",
+    "generation",
     "model_config_id",
     "context_turns",
 )
@@ -86,10 +88,20 @@ def _jsonb(v):
     return v
 
 
+def _validate_generation(generation: dict[str, Any] | None) -> dict[str, Any]:
+    """生成参数校验：temperature 0-2 / top_p 0-1 / max_tokens 128-8192（Ollama options 对齐）。"""
+    g = {**_DEFAULT_GENERATION, **(generation or {})}
+    g["temperature"] = max(0.0, min(2.0, float(g.get("temperature", 0.7))))
+    g["top_p"] = max(0.0, min(1.0, float(g.get("top_p", 0.9))))
+    g["max_tokens"] = max(128, min(8192, int(g.get("max_tokens", 1024))))
+    return g
+
+
 def _row_to_dict(row) -> dict[str, Any]:
     d = dict(row._mapping)
     d["kb_scope"] = _jsonb(d.get("kb_scope")) or []
     d["retrieval"] = _jsonb(d.get("retrieval")) or dict(_DEFAULT_RETRIEVAL)
+    d["generation"] = _jsonb(d.get("generation")) or dict(_DEFAULT_GENERATION)
     return d
 
 
@@ -183,6 +195,11 @@ async def update_chat_app(
             val = json.dumps(val)
             sets.append("retrieval = :retrieval")
             params["retrieval"] = val
+        elif key == "generation":
+            val = _validate_generation(val)
+            val = json.dumps(val)
+            sets.append("generation = :generation")
+            params["generation"] = val
         elif key == "kb_scope":
             if not isinstance(val, list) or not all(isinstance(x, str) for x in val):
                 raise ValueError("kb_scope must be a list of KB ids")

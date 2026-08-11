@@ -66,6 +66,12 @@ components:
           - type: string
           - type: 'null'
           title: Description
+        generation:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Generation
         kb_scope:
           anyOf:
           - items:

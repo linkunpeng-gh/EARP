@@ -288,9 +288,17 @@ async def chat_sse(
             else base_llm
         )
 
-        # ⑧ 流式生成
+        # ⑧ 流式生成（应用级生成参数：temperature/top_p/max_tokens）
+        gen = app.get("generation") or {}
         answer_parts: list[str] = []
-        async for ev in chat_llm.chat_stream(system, history, user_content):
+        async for ev in chat_llm.chat_stream(
+            system,
+            history,
+            user_content,
+            temperature=gen.get("temperature", 0.7),
+            top_p=gen.get("top_p", 0.9),
+            max_tokens=gen.get("max_tokens"),
+        ):
             tok = ev.token
             if tok:
                 answer_parts.append(tok)

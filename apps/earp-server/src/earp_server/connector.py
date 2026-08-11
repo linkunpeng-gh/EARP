@@ -284,7 +284,14 @@ class LLMConnector:
         """
         return await self.plan(prompt)
 
-    async def _stream_messages(self, messages: list[dict[str, str]]) -> AsyncGenerator[TokenEvent, None]:
+    async def _stream_messages(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        max_tokens: int | None = None,
+    ) -> AsyncGenerator[TokenEvent, None]:
         """Stream tokens for a full message list from /api/chat with stream=true.
 
         Uses model_override (DB model_configs, PRD-2026-031) when configured:
@@ -299,11 +306,16 @@ class LLMConnector:
         headers = {}
         if self._api_key and self._provider != "ollama":
             headers["Authorization"] = f"Bearer {self._api_key}"
+        options: dict[str, Any] = {"temperature": temperature}
+        if top_p is not None:
+            options["top_p"] = top_p
+        if max_tokens:
+            options["num_predict"] = max_tokens  # Ollama num_predict = max_tokens
         payload = {
             "model": self._model,
             "messages": messages,
             "stream": True,
-            "options": {"temperature": 0.7},
+            "options": options,
         }
         index = 0
         try:
@@ -345,13 +357,18 @@ class LLMConnector:
         system: str,
         history: list[dict[str, str]],
         query: str,
+        *,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[TokenEvent, None]:
         """RAG chat streaming — full message list (system + history + current query).
 
         history: [{"role": "user"|"assistant", "content": ...}]（最近 N 对，已配对）
+        temperature/top_p/max_tokens: 应用级生成参数（chat_apps.generation）
         """
         messages = [{"role": "system", "content": system}]
         messages.extend(history)
         messages.append({"role": "user", "content": query})
-        async for ev in self._stream_messages(messages):
+        async for ev in self._stream_messages(messages, temperature=temperature, top_p=top_p, max_tokens=max_tokens):
             yield ev
