@@ -2,10 +2,12 @@
 
 ## EARP 知识中心规范
 
-**文档编号：L2-02-KNOWLEDGE**
-**版本：v1.1**
-**定位：L2 — 平台规范。本文定义 Knowledge Center 的契约，负责企业知识的建模、存储、检索与注入。**
-**依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-01-runtime/runtime-specification.md**
+**文档编号：L2-02-KNOWLEDGE**  
+**版本：v1.2**  
+**定位：L2 — 平台规范。本文定义 Knowledge Center 的契约，负责企业知识的建模、存储、检索与注入。**  
+**依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-01-runtime/runtime-specification.md, L2-11 knowledge-base-specification v1.1（双层访问模型）**
+
+> **v1.2 变更（2026-08-07）**：第四章 Ontology 重构为 TBox/ABox 双层（实体类型 kind、三种数据源模式、Compiled Truth/Timeline/Enrichment、capability_entity_map）；新增 §4.6 数据中台对接（EARP 聚焦知识资产）；§3.4 检索权限对齐双层模型。实现细节见 arch/design/2026-08-07-ontology-layer-design.md。
 
 > **v1.1 变更（2026-07-18）**：§3.3 "MUST: 异步处理（Celery 任务）" 改为 "MUST: 异步处理（任务队列）"——队列实现选型属 L3 实现细节，不入规范层（tech-stack-analysis-v1 评审 P0-1 修复；当前选型见 arch/design/tech-stack-analysis-v1.md D6）。
 
@@ -147,33 +149,113 @@ MUST: 检索接口支持 data_domain 参数，按域过滤检索空间（v2.1 �
 SHOULD: 支持多 Data Domain 并行检索（跨域查询）
 ```
 
+> **v1.2**：检索权限为双层模型——data_domain 过滤 + data_classification 天花板 + 行级角色，见 L2-11 knowledge-base-specification v1.1 §2.1.1。
+
 ---
 
-# 第四章：Ontology
+# 第四章：Ontology（v1.2 重构为 TBox / ABox 双层）
 
-## 4.1 对象定义
-
-```
-MUST: Ontology 包含
-  - entity_id:       string    — 对象标识
-  - name:            string    — 中文名称
-  - domain:          string    — 所属业务领域
-  - data_domain:     string    — 所属 Data Domain（v2.1 新增，MUST）
-  - attributes:      list      — 属性（SHOULD）
-  - relationships:   list      — 关系（SHOULD）
-
-MUST: Relationship 包含
-  - target_entity:   string
-  - relation_type:   "has" | "belongs_to" | "connects_to" | "depends_on"
-  - cardinality:     "1:1" | "1:N" | "N:M"
-```
-
-## 4.2 演进
+## 4.1 TBox — 本体层（抽象实体类型 + 关系类型）
 
 ```
-Phase 1: 对象目录 + 关系表（PostgreSQL）
-Phase 2: 属性扩展（PostgreSQL + JSONB）
-Phase 3: 图推理（图数据库 + Graph RAG）
+MUST: 实体类型（entity_type）包含
+  - entity_type_id:  string       — 全局唯一
+  - name:            string       — 中文名称
+  - kind:            "object" | "concept" | "metric"（v1.2 新增）
+  - description:     string       — 业务描述
+  - data_domain_id:  string       — 所属 Data Domain（MUST，实体类型是知识资产）
+  - attributes:      JSONSchema   — 属性定义（SHOULD）
+  - status:          "draft" | "active" | "deprecated"
+
+MUST: 关系类型（relation_type）包含
+  - relation_type_id: string       — 全局唯一
+  - name:             string       — 业务动词（manufactured_by / maintained_by…）
+  - source_type:      string       — 源实体类型
+  - target_type:      string       — 目标实体类型
+  - cardinality:      "1:1" | "1:N" | "N:M"
+  - status:           "active" | "deprecated"
+
+MUST: 实体类型归属 Data Domain，不直接归属 Business Domain
+  （BD 通过 Capability 关联：Capability 属 BD，经 capability_entity_map 操作实体类型）
+SHOULD: 关系类型贴近业务动词，而非泛化的 "关联"
+MAY: 关系可携带执行约束（parallel_allowed / transaction_boundary，与 L2-03 Capability Graph 同构）
+```
+
+## 4.2 ABox — 数据层（实例 + 事实，三种来源模式）
+
+```
+MUST: 实体实例（entity）包含
+  - entity_id:        string    — EARP 生成，全局唯一
+  - entity_type_id:   string    — 引用 TBox 类型
+  - name:             string    — 显示名
+  - business_code:    string    — 业务编码属性（设备编码/供应商代码），可重复
+  - attributes:       JSONB     — 实例属性
+  - source_mode:      "virtual" | "synced" | "extracted"（v1.2 新增）
+  - source_ref:       string    — 来源引用（connector 配置 / 导入批次 / 文档 ID）
+  - data_domain_id:   string    — 继承分类等级
+  - status:           "active" | "deprecated" | "merged"
+
+MUST: 事实（fact，三元组）包含
+  - fact_id / source_entity_id / relation_type_id / target_entity_id
+  - confidence:       FLOAT     — 规则导入=1.0，LLM 抽取<1.0
+  - source_ref:       string    — 证据引用（文档/导入批次/capability_call_id）
+  - valid_from / valid_to       — valid_to=NULL=当前有效
+  - status:           "active" | "superseded" | "revoked"
+
+ABox 三种来源模式（v1.2 新增）：
+  virtual   — 不存数据，经 Connector 实时取数（已有系统/指标 API）
+  synced    — 同步外部数据副本（主数据，定时/CDC）
+  extracted — EARP 物理存储（文档 LLM 抽取 + 人工审核）
+
+MUST: 查询按 source_mode 分派（extracted/synced 读表，virtual 经 Connector 实时取数）
+MUST: 实例/事实权限 = DD classification 天花板 + 行级角色（同 L2-11 双层模型）
+```
+
+## 4.3 知识积累机制（v1.2 新增）
+
+```
+MUST: 实体事实档案（Compiled Truth）
+  - 高频实体预合成事实档案（entity_id / profile JSONB / compiled_at / profile_version）
+  - 检索直接命中档案，替代多次图遍历
+  - 触发：事实变更时增量重编译 + 定时巡检
+SHOULD: 实体时间线（Timeline）
+  - audit_logs / executions / capability_calls 回填实体行为历史（event_type / payload / occurred_at）
+SHOULD: Enrichment 定时任务
+  - 热度统计 → 指导增量填充优先级；失效事实清理；档案重编译
+```
+
+## 4.4 Capability 关联（v1.2 新增）
+
+```
+MUST: capability_entity_map — Capability ↔ 实体类型显式关联
+  - capability_id / entity_type_id / operation（read|write|both）/ status
+MUST: Resolution Engine 可用该映射反查收窄候选集（Planner spec §5.1.5）
+MUST: 调用权限（BD 维度）与数据查看权限（DD 维度）独立校验
+```
+
+## 4.5 演进
+
+```
+Phase 1: 对象目录 + 关系表（PostgreSQL）              ← 已完成（v1.1 及之前）
+Phase 2: TBox/ABox 双层 + 三种来源模式 + 知识积累机制   ← 本设计（2026-08-07）
+Phase 3: 图推理（图数据库 + Graph RAG，仅多跳场景）
+```
+
+## 4.6 数据中台对接（v1.2 新增）
+
+```
+战略定位：EARP 与数据中台分工——
+  数据中台：数据抽取 / 清洗 / 建模 / 治理 / 指标计算 / API 开放（数据资产）
+  EARP：    语义层 / 非结构化知识抽取 / 知识检索推理（知识资产）
+
+对接方式（ABox 数据源）：
+  指标平台 API → metric 类型（virtual，经 Connector）
+  数仓结果表   → synced 实体（同步副本）
+  主数据 MDM   → virtual / synced 实体
+  数据服务 API → virtual 实体（实时）
+
+MUST: EARP 不重复建设数据整理（ETL / 数仓 / 指标计算归数据中台）
+MUST: 无中台场景兜底——CSV / 文件导入（extracted / synced）仍支持
 ```
 
 ---

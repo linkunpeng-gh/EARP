@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Login"><title>Login — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Login"><title>Login — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
 <body>
 <header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>              <nav>
     <a href="../index.html">Overview</a>
@@ -14,17 +14,68 @@
         <a href="observability.html" class="disabled">Observability</a>
       </div>
     </div>
-  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+  </nav><div class="meta"><a href="models.html" class="model-link" title="模型配置">⚙️</a> tenant-demo · <a href="login.html">Admin</a></div></header>
 <main>
 <div style="max-width:380px;margin:4rem auto;padding:2rem;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);box-shadow:var(--shadow-card)">
 <h2 style="text-align:center;margin-bottom:1.5rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:1.2em;height:1.2em;color:var(--accent);vertical-align:-0.2em"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> EARP Admin</h2>
-<!-- TODO: wire to backend JWT auth -->
 <div style="display:flex;flex-direction:column;gap:0.75rem">
-<label style="font-size:0.81rem;color:var(--text-tertiary)">Tenant ID <input type="text" placeholder="tenant-demo" value="tenant-demo"></label>
-<label style="font-size:0.81rem;color:var(--text-tertiary)">User ID <input type="text" placeholder="u1" value="u1"></label>
-<label style="font-size:0.81rem;color:var(--text-tertiary)">Role ID <input type="text" placeholder="r1" value="r1"></label>
-<button class="primary" style="width:100%;margin-top:0.5rem">Login</button>
+<label style="font-size:0.81rem;color:var(--text-tertiary)">Tenant ID <input id="login-tenant" type="text" placeholder="tenant-demo" value="tenant-demo"></label>
+<label style="font-size:0.81rem;color:var(--text-tertiary)">User ID <input id="login-user" type="text" placeholder="u1" value="u1"></label>
+<label style="font-size:0.81rem;color:var(--text-tertiary)">Role ID <input id="login-role" type="text" placeholder="r1" value="r1"></label>
+<button class="primary" id="login-btn" style="width:100%;margin-top:0.5rem" onclick="doLogin()">Login</button>
+<div id="login-error" style="display:none;font-size:0.75rem;color:var(--red,#dc2626);background:var(--red-bg,#fee2e2);padding:0.5rem 0.75rem;border-radius:4px"></div>
 </div>
-<p style="text-align:center;font-size:0.75rem;color:var(--text-quaternary);margin-top:1.25rem">dev mode: EARP_AUTH_STRATEGY=dev-skip</p>
+<p style="text-align:center;font-size:0.75rem;color:var(--text-quaternary);margin-top:1.25rem">dev login: issues a JWT via POST /auth/login (seed identities: tenant-demo / u1 / r1)</p>
 </div>
-</main></body></html>
+</main>
+<script src="../js/app.js"></script>
+<script>
+// Wire to backend JWT auth: POST /auth/login -> store token -> dashboard.
+async function doLogin() {
+  var tenantId = document.getElementById('login-tenant').value.trim();
+  var userId = document.getElementById('login-user').value.trim();
+  var roleId = document.getElementById('login-role').value.trim();
+  var errEl = document.getElementById('login-error');
+  var btn = document.getElementById('login-btn');
+  if (!tenantId || !userId || !roleId) {
+    showLoginError(errEl, 'All three fields are required');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Logging in...';
+  try {
+    var res = await fetch(EARP.apiBase + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant_id: tenantId, user_id: userId, role_id: roleId }),
+    });
+    var data = await res.json().catch(function() { return {}; });
+    if (!res.ok) {
+      showLoginError(errEl, (data.detail || res.status + ' ' + res.statusText));
+      return;
+    }
+    localStorage.setItem('earp_token', data.token);
+    window.location.href = '../index.html';
+  } catch (e) {
+    showLoginError(errEl, 'Network error: ' + e.message + ' — ensure the API is reachable at ' + EARP.apiBase + '/auth/login');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Login';
+  }
+}
+
+function showLoginError(el, msg) {
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Enter key submits
+  ['login-tenant', 'login-user', 'login-role'].forEach(function(id) {
+    document.getElementById(id).addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') doLogin();
+    });
+  });
+});
+</script>
+</body></html>

@@ -34,12 +34,25 @@ async def add_message(
     msg_id = f"msg-{uuid.uuid4().hex[:12]}"
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        # messages.seq is NOT NULL without default — compute next sequence for the conversation
+        row = await conn.execute(
+            text("SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE conversation_id = :cid"),
+            {"cid": conversation_id},
+        )
+        next_seq = row.scalar()
         await conn.execute(
             text(
-                "INSERT INTO messages (message_id, tenant_id, conversation_id, role, content, user_id) "
-                "VALUES (:mid, :tid, :cid, :role, :content, :uid)"
+                "INSERT INTO messages (message_id, tenant_id, conversation_id, seq, role, content) "
+                "VALUES (:mid, :tid, :cid, :seq, :role, :content)"
             ),
-            {"mid": msg_id, "tid": tenant_id, "cid": conversation_id, "role": role, "content": content, "uid": user_id},
+            {
+                "mid": msg_id,
+                "tid": tenant_id,
+                "cid": conversation_id,
+                "seq": next_seq,
+                "role": role,
+                "content": content,
+            },
         )
         await conn.commit()
     return {"message_id": msg_id}
@@ -56,8 +69,8 @@ async def get_messages(
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         rows = await conn.execute(
             text(
-                "SELECT message_id, role, content, user_id, created_at FROM messages "
-                "WHERE conversation_id = :cid ORDER BY created_at LIMIT :lim OFFSET :off"
+                "SELECT message_id, seq, role, content, created_at FROM messages "
+                "WHERE conversation_id = :cid ORDER BY seq LIMIT :lim OFFSET :off"
             ),
             {"cid": conversation_id, "lim": limit, "off": offset},
         )

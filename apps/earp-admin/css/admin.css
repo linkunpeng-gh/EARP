@@ -59,7 +59,10 @@ header nav a:hover { color: var(--text-primary); }
 header nav a.active, header nav a[aria-current] {
   color: var(--text-primary); border-bottom-color: var(--accent);
 }
-header .meta { font-size: 0.75rem; color: var(--text-quaternary); display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+header 
+.model-link{margin-right:8px;text-decoration:none;font-size:0.9rem;opacity:0.75;transition:opacity 0.15s}
+.model-link:hover{opacity:1}
+.meta { font-size: 0.75rem; color: var(--text-quaternary); display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
 header .meta a { color: var(--accent-text); text-decoration: none; font-weight: 500; }
 /* Nav divider between groups */
 .nav-divider { width: 1px; height: 20px; background: var(--border-subtle); flex-shrink: 0; margin: 0 0.25rem; }
@@ -490,9 +493,9 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   width: 100%; font-size: 0.75rem; padding: 0.3rem 0.5rem;
 }
 .kb-list-item {
-  display: flex; align-items: center; gap: 0.4rem;
-  padding: 0.45rem 0.5rem; border-radius: var(--radius-md);
-  cursor: pointer; margin-bottom: 0.2rem;
+  display: flex; flex-direction: column; gap: 0.15rem;
+  padding: 0.5rem 0.55rem; border-radius: var(--radius-md);
+  cursor: pointer; margin-bottom: 0.25rem;
   transition: background 0.1s; border: 1px solid transparent;
   font-size: 0.81rem;
 }
@@ -501,15 +504,24 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   background: var(--accent-light); border-color: var(--accent);
 }
 .kb-list-item .kb-name {
-  flex: 1; font-weight: 500; color: var(--text-primary);
-  font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+  font-weight: 600; color: var(--text-primary);
+  font-family: inherit; font-size: 0.95rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kb-list-item .kb-meta {
+  display: flex; align-items: center; gap: 0.4rem;
+  min-width: 0;
+}
+.kb-list-item .kb-dd-tag {
+  font-size: 0.66rem; color: var(--text-quaternary);
+  background: var(--bg-surface); border: 1px solid var(--border-subtle);
+  border-radius: 4px; padding: 1px 6px; flex-shrink: 0; white-space: nowrap;
 }
 .kb-list-item .kb-count {
   font-size: 0.69rem; color: var(--text-quaternary); flex-shrink: 0;
 }
 .kb-list-item .kb-actions {
-  display: none; gap: 2px; flex-shrink: 0;
+  display: none; gap: 2px; flex-shrink: 0; margin-left: auto;
 }
 .kb-list-item:hover .kb-actions { display: flex; }
 .kb-list-item .kb-act-btn {

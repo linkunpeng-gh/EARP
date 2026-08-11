@@ -1,3 +1,5 @@
+> **2026-08-07 修订**：页面清单补充 Test Retrieval（独立召回测试页）；§6.3 Capabilities 对齐四类型正交模型（capability_type + source_type）；§6.5 检索升级三层；§6.6 扩展实体类型管理（TBox）。配套 PRD-2026-030（Ontology Layer）。
+
 # PRD-2026-028: Web Admin Dashboard
 
 **版本**: v1.7 (页面功能说明)
@@ -58,11 +60,12 @@ apps/earp-admin/
 | 3 | Capabilities | `/admin/capabilities` | `GET /capabilities`, `POST /capabilities` |
 | 4 | Plan & Invoke | `/admin/plan` | `POST /plan` → `POST /v1/sessions/{id}/invoke` |
 | 5 | Knowledge Base | `/admin/knowledge` | `POST /knowledge/documents`, `POST /knowledge/search` |
-| 6 | Data Domains | `/admin/data-domains` | `GET /admin/api/data-domains`（新增 admin API） |
-| 7 | Conversation | `/admin/conversations` | `POST /conversations`, `POST /conversations/{id}/messages` |
-| 8 | Streaming | `/admin/stream` | `POST /stream/invoke` → SSE |
-| 9 | Audit Logs | `/admin/audit` | `GET /admin/api/audit-logs?page=&event_type=&tenant_id=` |
-| 10 | Langfuse | `/admin/observability` | iframe `{EARP_LANGFUSE_HOST}` (通过环境变量配置，默认 `http://localhost:3000`) |
+| 6 | Test Retrieval | `/admin/test-retrieval` | `GET /v1/ontology/search`, `POST /knowledge/search`（独立召回测试页，2026-08-07 补充） |
+| 7 | Data Domains | `/admin/data-domains` | `GET /api/data-domains` + `/v1/ontology/entity-types`（含实体类型管理） |
+| 8 | Conversation | `/admin/conversations` | `POST /conversations`, `POST /conversations/{id}/messages` |
+| 9 | Streaming | `/admin/stream` | `POST /stream/invoke` → SSE |
+| 10 | Audit Logs | `/admin/audit` | `GET /admin/api/audit-logs?page=&event_type=&tenant_id=` |
+| 11 | Langfuse | `/admin/observability` | iframe `{EARP_LANGFUSE_HOST}` (通过环境变量配置，默认 `http://localhost:3000`) |
 
 ---
 
@@ -77,10 +80,10 @@ apps/earp-admin/
 | Knowledge Base | `POST /knowledge/documents`, `POST /knowledge/search` | 否 |
 | Conversation | `POST /conversations`, `POST /conversations/{id}/messages`, `GET /conversations/{id}/messages` | 否 |
 | Streaming | `POST /stream/invoke` | 否 |
-| Data Domains | `GET /admin/api/data-domains`（列表）| **需要新端点** |
+| Data Domains | `GET /api/data-domains`（列表）| **需要新端点** |
 | Audit | `GET /admin/api/audit-logs?page=&event_type=&tenant_id=` | **需要新端点** |
 
-**新增端点**: 3 个 (`GET /v1/sessions` 列表 + `GET /admin/api/data-domains` + `GET /admin/api/audit-logs`)
+**新增端点**: 3 个 (`GET /v1/sessions` 列表 + `GET /api/data-domains` + `GET /admin/api/audit-logs`)
 
 ### 四-B、API 设计约定
 
@@ -95,7 +98,7 @@ apps/earp-admin/
 - 认证：除 JWT 外，可附加 admin role 检查（`admin` permission required）
 - 速率限制：1000 req/min（高于 v1 API 的 100 req/min）
 - 未来扩展：用户管理、租户管理、系统配置等管理功能统一放在此前缀下
-- `GET /admin/api/audit-logs` 为首个 admin API；`GET /admin/api/data-domains` 为第二个（v2.1 新增）`
+- `GET /admin/api/audit-logs` 为首个 admin API；`GET /api/data-domains` 为第二个（v2.1 新增）`
 
 ---
 
@@ -247,9 +250,10 @@ Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回
 | Discover 按钮 | 操作 | 调用 `GET /capabilities?query=` 执行语义/关键字搜索。无 query 时返回所有 Capability |
 | + Register Demo 按钮 | 操作 | 调用 `POST /capabilities` 注册一个 demo 能力（`cap-demo-echo`）。生产环境替换为注册表单 |
 | 表格 | 数据展示 | 列: ID / Domain / Name / Type / Version |
-| Type 列 | 标签 | 显示 Capability 类型: `query`（查询）、`action`（操作）、`llm`（LLM 调用） |
+| Type 列 | 标签 | 显示 capability_type（`query`/`command`，操作语义）+ source_type（`skill`/`mcp`/`workflow`/`restful`，来源形态）双标签（2026-08-07 修订，对齐四类型设计：arch/design/2026-07-22-capability-four-types-design.md） |
+| 注册向导 | 操作 | 按 source_type 四类向导：skill（代码内建）/ mcp（连接 server + tool 发现）/ workflow（选已发布流程 + 暴露参数）/ restful（OpenAPI 导入或手动）→ 每类选 capability_type（restful 默认 GET→query、POST/PUT/DELETE→command，可手动覆盖）→ 配置权限 + 关联实体类型（capability_entity_map） |
 
-**API**: `GET /capabilities?query=echo&role_id=r1`（已有端点，含 pgvector 语义搜索 + role 过滤）
+**API**: `GET /capabilities?query=echo&role_id=r1`（已有端点，含 pgvector 语义搜索 + role 过滤）；`POST /v1/ontology/capabilities/{capability_id}/entities`（实体类型关联，PRD-2026-030）
 
 ---
 
@@ -300,7 +304,7 @@ Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回
 |:---|:---|:---|
 | Data Domain 下拉 | 筛选器 | 按 Data Domain 过滤 KB 和文档列表。选项: all / equipment_data / hr_data / corporate_data。切换后两个表同步过滤 |
 | Search 输入框 | 筛选器 | 文本输入。调用 `POST /knowledge/search` 执行语义搜索 |
-| Search 按钮 | 操作 | 触发搜索，显示匹配的 chunk 列表（含相关度分数） |
+| Search 按钮 | 操作 | 触发三层检索（PRD-2026-030）：实体通道 + 图谱导航 + 向量检索，多源结果显示来源标签（profile/graph/chunk） |
 | + New KB 按钮 | 操作 | 打开 KB 创建表单。Save 后调用 `POST /knowledge/bases` |
 | KB 创建/编辑表单 | 表单 | 行内表单面板。字段: KB name / Description / Data Domain。Edit 模式预填 |
 | KB 表格 | 数据展示 | 列: KB ID / Name / Data Domain(标签) / Documents / Chunks / Created / Actions(Edit+Del)。点击 KB 名称可过滤到该 KB 下的文档列表 |
@@ -316,6 +320,7 @@ Session Context 可折叠区域：展开后显示 `GET /v1/sessions/{id}` 返回
 **API**:
 - `POST /knowledge/documents {title: "...", content: "...", data_domain_id: "equipment_data"}` → 返回 `{document_id: "doc-001"}`
 - `POST /knowledge/search {query: "...", top_k: 10}` → 返回 `[{chunk_id, content, score, data_domain_id}]`
+- `GET /v1/ontology/search` → 三层检索（实体 + 图谱 + 向量，PRD-2026-030）
 
 ---
 ### 6.6 Data Domains (`pages/data-domains.html`) — v2.1 新增
@@ -392,10 +397,12 @@ documents.data_classification           ← 文档的实际等级（"这篇文�
 ```
 
 三层都通过 = 返回文档给用户。任何一层失败 = 静默过滤（不报错，不影响其他层的结果）。
-- `GET /admin/api/data-domains`（列表，含 KB 和文档的聚合计数）
-- `POST /admin/api/data-domains`（创建新域）
+- `GET /api/data-domains`（列表，含 KB 和文档的聚合计数）
+- `POST /api/data-domains`（创建新域）
 - `GET /admin/api/roles/{role_id}/data-domain-access`（查询角色 DD 权限）
 - `PUT /admin/api/roles/{role_id}/data-domain-access`（更新角色 DD 权限）
+- `GET/POST /v1/ontology/entity-types`（实体类型 TBox 管理：kind/attributes/owner/status，PRD-2026-030 M4）
+- `POST /v1/ontology/entity-types/{id}/deprecate`（废弃，需审批，写 audit）
 
 ---
 

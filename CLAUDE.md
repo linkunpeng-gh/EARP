@@ -12,31 +12,7 @@ The repo is a **monorepo** containing the backend server (FastAPI modular monoli
 
 All commands assume you're in the relevant app/lib directory.
 
-### earp-server (`apps/earp-server/`)
-
-| Task | Command |
-|------|---------|
-| Start PostgreSQL + Valkey + MinIO + Langfuse | `make db-up` (Docker) |
-| Run migrations | `make migrate` |
-| Start API server (dev, with reload) | `make dev` |
-| Start API server (production) | `make api` |
-| Start task worker | `make audit-worker` (or `uv run python -m earp_server.entrypoints.worker`) |
-| Start audit worker (Redis Streams consumer) | `make audit-worker` |
-| Start plugin daemon | `make plugin-daemon` |
-| Start scheduler | `uv run python -m earp_server.entrypoints.scheduler` |
-| Run tests (excludes RBAC scenarios) | `make test` |
-| Run e2e test only | `make e2e` |
-| Run a single test file | `uv run pytest tests/test_m1_walking_skeleton.py -v` |
-| Run a single test function | `uv run pytest tests/test_m1_walking_skeleton.py::test_create_session -v` |
-| Lint + format + type-check | `make lint` |
-| Export OpenAPI spec | `make openapi` |
-| Review DB migration SQL | `make squawk` |
-
-Database URL env vars (see `Makefile`):
-- `EARP_DATABASE_URL` — default `postgresql+psycopg://earp_app:earp_app@localhost:5433/earp`
-- `EARP_MIGRATION_DATABASE_URL` — default `postgresql+psycopg://postgres:postgres@localhost:5433/earp`
-
-Tests use **testcontainers** — a pgvector/pg16 container is auto-started per test session. No local DB needed.
+Commands are in the `Makefile` — run `make help` or read the file for available targets. Standard pytest invocations apply; all other commands are Makefile targets.
 
 ### SDK libraries (`libs/`)
 
@@ -53,18 +29,7 @@ Each has its own `pyproject.toml`, `.venv`, and `tests/`. Run tests: `uv run pyt
 
 ### High-Level Structure
 
-```
-apps/earp-server/    — Main backend: FastAPI modular monolith
-apps/earp-admin/     — Admin web console (vanilla HTML/JS/CSS)
-apps/earp-user/      — End-user web app (vanilla HTML/JS/CSS)
-libs/                — Python SDKs (5 packages)
-arch/                — Architecture docs (L0 philosophy → L3 detailed design)
-rules/               — Development rules for the agentic development workflow
-prd/                 — Product requirement documents
-tasks/               — Task definitions for agent-driven development
-sketches/            — Design sketches
-scripts/             — Deployment/CI scripts
-```
+The directory layout is discoverable via `ls` — key areas listed below for quick reference.
 
 ### `earp-server` Modular Monolith
 
@@ -138,27 +103,9 @@ Two implementations behind the same interface:
 
 Events follow CloudEvents 1.0 format. Audit handlers subscribe to `earp.execution.*` patterns.
 
-### Tech Stack
+Dependencies and tooling are declared in `pyproject.toml`.
 
-- Python 3.12+, FastAPI, SQLAlchemy 2.0 (async), Alembic
-- PostgreSQL 16 + pgvector extension
-- Procrastinate (task queue, PostgreSQL-backed)
-- Redis/Valkey (event bus, caching)
-- Ollama (local LLM serving — `bge-m3:latest` for embeddings, `qwen3.6:35b` for chat)
-- Langfuse (LLM observability)
-- MinIO (object storage)
-- testcontainers-python (integration tests)
-- ruff (lint + format), pyright (type checking, strict mode)
-- import-linter (architectural dependency enforcement)
-- uv (package management)
-
-### Infrastructure Services (docker compose)
-
-`docker compose up -d` starts:
-- PostgreSQL 16 + pgvector on port **5433**
-- Valkey 8 on port **6380**
-- MinIO on ports **9000** (API) / **9001** (console)
-- Langfuse on port **3000** (if configured)
+Infrastructure services are defined in `docker-compose.yml`.
 
 ### Key Conventions
 

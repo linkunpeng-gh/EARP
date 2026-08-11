@@ -225,8 +225,10 @@ MUST: 路由输出为 Data Domain 列表（支持多域并行检索）
 
 Planner → Knowledge Center
   输入：Goal + Data Domain
-  输出：KnowledgeResult（匹配文档 / 词条 / 实体）
+  输出：KnowledgeResult（匹配文档 / 词条 / 实体 / ABox 事实）
 ```
+
+> **v1.1 更新（2026-08-07）**：KnowledgeResult 的检索为三层流水线——Ontology 导航（TBox 关系链 → ABox 事实）+ vector 检索（文档 chunks）+ keyword（BM25）。DD 路由（空间裁剪）在前，Ontology 导航（语义线索）并行，详见 arch/design/2026-08-07-ontology-layer-design.md §7。
 
 ### 5.1.3 路由判别逻辑
 
@@ -246,6 +248,25 @@ SHOULD: 纯知识模式跳过 Execution Runtime，直接返回 Knowledge Center 
 MUST: Data Domain 路由失败时（如无可匹配域），不阻塞 Business Domain 路由
 MUST: 当两条路由均失败时，返回 LLM 自身知识作为最低兜底
 ```
+
+### 5.1.5 实体识别与候选收窄（v1.1 新增）
+
+Intent Parsing 的实体提取（§3.1）产出的实体，用于两处：
+
+```
+1. Data Domain 路由辅助：
+   实体类型（entity_types.kind）→ 所属 Data Domain → 辅助 DD 路由判定
+
+2. Capability 候选收窄（经 capability_entity_map 反查）：
+   Intent 实体识别（"CNC-01 高温报警" → equipment 实例 + alarm 意图）
+   → capability_entity_map 反查可操作该实体类型的 Capability
+   → 候选集从全库缩小到几类 → 再交 Resolution Engine 语义匹配
+
+MUST: 实体识别结果不阻塞路由——识别失败时走原有全库语义匹配
+MUST: capability_entity_map 反查结果作为 Resolution Engine 的候选集输入，不替代语义匹配
+```
+
+> capability_entity_map 定义见 arch/design/2026-08-07-ontology-layer-design.md §3.3 / §5。
 
 ## 5.2 Capability Discovery
 

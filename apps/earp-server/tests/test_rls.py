@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.infra.db import build_session_factory, tenant_session
 
-TENANT_TABLE_COUNT = 27  # baseline(24) + 0005(2) + 0006(1)
+TENANT_TABLE_COUNT = 36  # baseline(24) + 0005(2) + 0006(1) + 0008(7 ontology) + 0009(2 model)
 
 
 @pytest.fixture(scope="module")
@@ -44,13 +44,13 @@ async def test_cross_tenant_isolation_on_four_tables(app_engine: AsyncEngine) ->
         )
         await session.execute(
             text(
-                "INSERT INTO knowledge_bases (kb_id, tenant_id, name) "
+                "INSERT INTO knowledge_bases (knowledge_base_id, tenant_id, name) "
                 "VALUES ('rls-kb1', 'rls-t1', 'kb') ON CONFLICT DO NOTHING"
             )
         )
         await session.execute(
             text(
-                "INSERT INTO documents (doc_id, tenant_id, kb_id, name) "
+                "INSERT INTO documents (document_id, tenant_id, knowledge_base_id, name) "
                 "VALUES ('rls-d1', 'rls-t1', 'rls-kb1', 'doc') ON CONFLICT DO NOTHING"
             )
         )

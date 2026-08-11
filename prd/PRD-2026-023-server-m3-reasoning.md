@@ -2,6 +2,8 @@
 
 ## M3 — Reasoning 最小版
 
+> **v1.1 修订（2026-08-07）**：#7 补实体识别 + capability_entity_map 候选收窄（planner-spec v1.1 §5.1.5）；对齐 PRD-2026-030（Ontology Layer）M2。
+
 | 字段 | 值 |
 |------|-----|
 | **PRD ID** | PRD-2026-023 |
@@ -22,6 +24,7 @@
 | 4 | Connector | LLMConnector 接口定稿——五挂点一次定义：rate_limiter / cache / bind_tools / with_structured_output / 流式开关。M3 仅实现 rate_limiter（Redis 已有）和 structured_output 约束 Plan schema；其余挂点留 Phase 2/3 |
 | 5 | Connector | Plan 产出用 Pydantic schema 约束（`Plan = list[Step]`），LLM 返回非法 JSON → ERR-PL-VALIDATION-001 |
 | 6 | Connector | LLM 不可用降级路径：Rule Planner 兜底（Business Dictionary 匹配 + template Step） |
+| 7 | Planner | 实体识别 → capability_entity_map 反查收窄候选集（planner-spec v1.1 §5.1.5；PRD-2026-030 M2 依赖）——Intent 含实体时，Resolution 候选集先经反查收窄再语义匹配；识别失败回退全库（不阻塞） |
 
 ---
 
@@ -39,6 +42,7 @@
 | US-05 | Plan 深度超过 max_depth=5 → Plan Validation 拒绝 | 深度 |
 | US-06 | LLMConnector.plan(prompt) → 调用 LLM → 解析 Pydantic Plan → 校验 → 返回 Plan | 正常 |
 | US-07 | 用户发送纯知识意图（如"休假政策"）→ Domain Routing → 无 Business Domain 匹配 → 走 Data Domain → Knowledge Center 检索 → 直接返回结果（跳过 Execution Runtime） | 知识 |
+| US-08 | 意图含实体（"CNC-01 高温报警"）→ 实体识别 → capability_entity_map 反查 → 候选 Capability 收窄为可操作 equipment 实体类型的列表 | 增强 |
 
 ---
 
@@ -54,6 +58,7 @@
 | AC-06 | LLMConnector.plan() 返回合法 Plan schema | pytest |
 | AC-07 | "query users" → Rule Planner 同时评估 Business Domain 和 Data Domain，两条路径互不阻塞 | pytest |
 | AC-08 | "休假政策"（纯知识意图）→ 不走 Business Domain，只走 Data Domain → 直接返回 Knowledge Center 结果（不创建 Execution） | pytest |
+| AC-09 | 意图含实体 → 反查收窄生效（候选集含且仅含可操作该实体类型的 Capability）；无实体 → 回退全库语义匹配不报错 | pytest |
 
 ---
 
@@ -65,6 +70,7 @@
 | L1 §8.2 | ERR-PL-VALIDATION-001 | ✅ |
 | L1 §8.5 | LLM 不可用降级路径 | ✅ |
 | Capability v1.4 | required_permissions | ✅ (M2 已落地) |
+| planner-spec v1.1 §5.1.5 | 实体识别 + 候选收窄（本 PRD #7） | ✅ |
 | M1 StepRunner | invoke(Step) 接口 | ✅ (产出 Plan=Step[]) |
 
 ---

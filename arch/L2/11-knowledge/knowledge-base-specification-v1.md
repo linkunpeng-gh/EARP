@@ -1,11 +1,13 @@
-# Knowledge Base Specification v1.0
+# Knowledge Base Specification v1.1
 
 ## EARP 知识库规范
 
 **文档编号：L2-11-KNOWLEDGE**  
-**版本：v1.0**  
-**定位：L2 — 平台规范。定义 EARP 的知识库管理——Document/Chunk 结构、RAG 检索、角色级访问控制。**  
+**版本：v1.1**  
+**定位：L2 — 平台规范。定义 EARP 的知识库管理——Document/Chunk 结构、RAG 检索、双层访问控制（data_classification 天花板 + 角色级行权限）。**  
 **依赖：L1/data-architecture-v1.md (Knowledge 域), L2-07-TENANT v1.2, L2-05-POLICY v1.1**
+
+> **v1.1 变更（2026-08-07）**：新增 §2.1.1 双层访问模型——data_classification（Data Domain 天花板）与 accessible_roles（文档级角色）两层叠加；与本体层设计（arch/design/2026-08-07-ontology-layer-design.md §8）对齐。
 
 > **v1.0 新建**：KnowledgeBase/Document/Chunk 数据模型；RAG 检索流程；角色级文档访问控制（默认封闭原则）。
 
@@ -55,6 +57,27 @@ MUST: 默认封闭 — Document 创建时 accessible_roles 默认为 [创建者�
 MUST: 空数组 [] = 管理员显式确认"对所有角色开放"
 MUST: 检索时按当前角色过滤 — 市场角色不可检索财务文档
 ```
+
+### 2.1.1 双层访问模型（v1.1 新增）
+
+知识访问控制为**两层叠加（取交集）**：
+
+```
+第一层 — data_classification 天花板（Data Domain 级，全局约束）
+  Document 归属的 DD 有 data_classification（public/internal/confidential/restricted）
+  → 用户角色须通过 Policy Center 分类授权，分类不够则后续层再开放也看不到
+
+第二层 — accessible_roles 行级（Document 级，精确粒度）
+  Document.accessible_roles 精确到文档
+  → 默认封闭：创建者角色
+
+过滤规则（两层叠加）：
+  WHERE tenant_id = ?
+    AND role 可访问该文档所属 Data Domain（classification 天花板）
+    AND (accessible_roles @> ARRAY[current_role] OR accessible_roles = '{}')
+```
+
+> 本体层（实体/事实/档案）沿用同一模型：实体继承 DD 的 data_classification（天花板）+ 行级角色控制，见 arch/design/2026-08-07-ontology-layer-design.md §8。
 
 ## 2.2 访问控制规则
 

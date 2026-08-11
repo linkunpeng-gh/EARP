@@ -8,7 +8,7 @@ from alembic import command
 
 from tests.conftest import alembic_config
 
-EXPECTED_TABLES = 28  # tenants(1) + baseline(24) + 0005(2: data_domains, bddm_map) + 0006(1: dataset_process_rules)
+EXPECTED_TABLES = 37  # tenants(1) + baseline(24) + 0005(2) + 0006(1) + 0008(7 ontology) + 0009(2 model)
 
 
 @pytest.fixture(scope="module")
@@ -50,8 +50,9 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
         row = conn.execute("SELECT count(*) FROM users").fetchone()
         assert row is not None and int(row[0]) == 1  # superuser bypasses RLS
 
-    command.downgrade(cfg, "-1")
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 1  # downgrades 0006→0005, -1 table
+    command.downgrade(cfg, "-2")
+    # head=0011: -2 回退 0011(列) + 0010(列)，均不建/删表 → 表数不变
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES
 
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES

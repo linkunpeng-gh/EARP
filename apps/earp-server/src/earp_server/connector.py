@@ -103,9 +103,16 @@ class LLMConnector:
         self,
         settings: Settings,
         rate_limiter=None,
+        model_override: dict | None = None,
     ) -> None:
+        """model_override: {provider, model_name, base_url, api_key, ...} from DB model_config
+        (PRD-2026-031) — DB 优先，env 兜底。"""
         self._settings = settings
-        self._model = settings.ollama_chat_model
+        self._model_override = model_override or {}
+        self._provider = self._model_override.get("provider") or "ollama"
+        self._model = self._model_override.get("model_name") or settings.ollama_chat_model
+        self._base_url = self._model_override.get("base_url") or settings.ollama_base_url
+        self._api_key = self._model_override.get("api_key") or ""
         self._rate_limiter = rate_limiter
         # Phase 2: wired
         self._cache: LLMCache | None = None  # set via .cache setter
@@ -133,7 +140,7 @@ class LLMConnector:
     ) -> list[dict[str, Any]]:
         """Call Ollama /api/chat with JSON format, return parsed steps."""
         system = _build_plan_system_prompt(capabilities)
-        url = f"{self._settings.ollama_base_url}/api/chat"
+        url = f"{self._base_url}/api/chat"
         payload = {
             "model": self._model,
             "messages": [

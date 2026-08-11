@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Model Config"><title>模型配置 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>  <nav>
+    <a href="../index.html">Overview</a>
+    <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
+    <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
+    <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="knowledge.html" data-nav="knowledge">知识</a>
+      <div class="dropdown-menu">
+        <a href="data-domains.html" data-nav="data-domains">数据域</a>
+        <a href="knowledge.html" data-nav="knowledge">知识库</a>
+        <a href="test-retrieval.html" data-nav="test-retrieval">召回测试</a>
+      </div>
+    </div>
+    <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="audit.html">治理</a>
+      <div class="dropdown-menu">
+        <a href="audit.html" data-nav="audit">Audit Logs</a>
+        <a href="roles.html" class="disabled">Roles &amp; Permissions</a>
+        <a href="org-units.html" class="disabled">Organization</a>
+        <a href="tenants.html" class="disabled">Tenant Management</a>
+        <a href="policy.html" class="disabled">Policy Center</a>
+        <a href="observability.html" class="disabled">Observability</a>
+      </div>
+    </div>
+  </nav><div class="meta"><a href="models.html" class="model-link" title="模型配置">⚙️</a> tenant-demo · <a href="login.html">Admin</a></div></header>
+<main>
+<div class="page-title"><div><h2>模型配置</h2><p class="page-subtitle">Model providers · 默认模型 · 凭证管理（PRD-2026-031）</p></div></div>
+
+<!-- 默认模型设置 -->
+<div class="section-card" style="margin-bottom:16px">
+  <div class="section-header"><h4 style="margin:0;font-size:0.87rem">默认模型</h4>
+    <button class="btn-sm primary" onclick="saveDefaults()">保存默认</button></div>
+  <div class="form-row"><label>推理模型 (LLM)</label>
+    <select id="def-llm" style="flex:1"><option value="">— 使用环境变量默认 —</option></select>
+    <button class="btn-sm" onclick="testDefault('llm')">测试</button></div>
+  <div class="form-row"><label>嵌入模型 (Embedding)</label>
+    <select id="def-embedding" style="flex:1"><option value="">— 使用环境变量默认 —</option></select>
+    <button class="btn-sm" onclick="testDefault('embedding')">测试</button></div>
+  <div class="form-row"><label>重排序 (Rerank)</label>
+    <select id="def-rerank" style="flex:1"><option value="">— 未配置（Phase 2）—</option></select>
+    <button class="btn-sm" onclick="testDefault('rerank')">测试</button></div>
+  <p id="default-msg" style="font-size:0.78rem;color:var(--text-tertiary,#8b8d91);margin:8px 0 0"></p>
+</div>
+
+<!-- 模型配置列表 -->
+<div class="section-card">
+  <div class="section-header"><h4 style="margin:0;font-size:0.87rem">模型配置 <span id="cfg-count" style="font-weight:400;color:var(--text-tertiary)"></span></h4>
+    <button class="btn-sm primary" onclick="showAddModal()">+ 添加模型</button></div>
+  <table><thead><tr><th>Provider</th><th>Type</th><th>Model</th><th>凭证</th><th>状态</th><th>操作</th></tr></thead>
+  <tbody id="cfg-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text-tertiary,#8b8d91);padding:2rem">Loading...</td></tr></tbody></table>
+</div>
+
+<!-- 添加模型模态框 -->
+<div id="add-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideAddModal()">
+  <div class="modal">
+    <h4>添加模型</h4>
+    <div class="form-row"><label>Provider</label>
+      <select id="add-provider" style="flex:1" onchange="onProviderChange()"></select></div>
+    <div class="form-row"><label>Type</label>
+      <select id="add-type" style="flex:1"><option value="llm">LLM 推理</option><option value="embedding">Embedding 嵌入</option><option value="rerank">Rerank（Phase 2）</option></select></div>
+    <div class="form-row"><label>Model Name</label><input id="add-name" placeholder="qwen3.6:35b / bge-m3:latest / gpt-4o" style="flex:1"></div>
+    <div id="cred-fields"></div>
+    <div class="form-actions">
+      <button class="primary" onclick="saveModel()">保存</button>
+      <button class="btn-sm" onclick="hideAddModal()">取消</button></div>
+  </div>
+</div>
+
+<script src="../js/app.js"></script>
+<script>
+// ── State (PRD-2026-031) ──
+var state = { providers: [], configs: [], defaults: {} };
+var typeLabels = { llm: 'LLM', embedding: 'Embedding', rerank: 'Rerank' };
+
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  try {
+    state.providers = await EARP.fetchJSON('/api/model-providers');
+    state.configs = await EARP.fetchJSON('/api/model-configs');
+    state.defaults = await EARP.fetchJSON('/api/system-model-settings');
+  } catch (e) { alert('加载失败: ' + e.message); }
+  renderDefaults();
+  renderConfigs();
+}
+
+function fillSelect(id, items, selected) {
+  var sel = document.getElementById(id);
+  sel.innerHTML = items.map(function(it) {
+    var s = it.value === selected ? ' selected' : '';
+    return '<option value="' + it.value + '"' + s + '>' + it.label + '</option>';
+  }).join('');
+}
+
+function renderDefaults() {
+  ['llm', 'embedding', 'rerank'].forEach(function(t) {
+    var items = state.configs.filter(function(c) { return c.model_type === t; })
+      .map(function(c) { return { value: c.config_id, label: c.provider + ' · ' + c.model_name }; });
+    var cur = state.defaults[t] ? state.defaults[t].model_config_id : '';
+    fillSelect('def-' + t, items, cur);
+  });
+}
+
+async function saveDefaults() {
+  var body = {};
+  ['llm', 'embedding', 'rerank'].forEach(function(t) {
+    var v = document.getElementById('def-' + t).value;
+    if (v) body[t] = v;
+  });
+  try {
+    var res = await EARP.fetchJSON('/api/system-model-settings', { method: 'PUT', body: JSON.stringify(body) });
+    document.getElementById('default-msg').textContent = '已保存: ' + JSON.stringify(res);
+  } catch (e) { document.getElementById('default-msg').textContent = '保存失败: ' + e.message; }
+}
+
+async function testDefault(t) {
+  var v = document.getElementById('def-' + t).value;
+  if (!v) { alert('先选择模型'); return; }
+  var res = await EARP.fetchJSON('/api/model-configs/' + v + '/test', { method: 'POST' });
+  alert((res.ok ? '✅ ' : '❌ ') + res.detail);
+}
+
+function renderConfigs() {
+  var tbody = document.getElementById('cfg-tbody');
+  document.getElementById('cfg-count').textContent = '(' + state.configs.length + ')';
+  if (state.configs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-tertiary,#8b8d91);padding:2rem">无模型配置 — 使用环境变量默认。点击「+ 添加模型」配置。</td></tr>';
+    return;
+  }
+  tbody.innerHTML = state.configs.map(function(c) {
+    var isDef = state.defaults[c.model_type] && state.defaults[c.model_type].model_config_id === c.config_id;
+    return '<tr>'
+      + '<td>' + c.provider + '</td>'
+      + '<td>' + (typeLabels[c.model_type] || c.model_type) + '</td>'
+      + '<td><code>' + c.model_name + '</code></td>'
+      + '<td><span class="tag tag-internal">已加密</span></td>'
+      + '<td>' + (isDef ? '<span class="tag tag-accent">默认</span>' : (c.enabled ? '✅' : '⏸')) + '</td>'
+      + '<td><button class="btn-sm" onclick="testConfig(\'' + c.config_id + '\')">测试</button> '
+      + '<button class="btn-sm" onclick="deleteConfig(\'' + c.config_id + '\')">🗑</button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+async function testConfig(id) {
+  var res = await EARP.fetchJSON('/api/model-configs/' + id + '/test', { method: 'POST' });
+  alert((res.ok ? '✅ ' : '❌ ') + res.detail);
+}
+
+async function deleteConfig(id) {
+  if (!confirm('删除该模型配置？')) return;
+  try {
+    await EARP.fetchJSON('/api/model-configs/' + id, { method: 'DELETE' });
+    state.configs = await EARP.fetchJSON('/api/model-configs');
+    renderConfigs(); renderDefaults();
+  } catch (e) { alert('删除失败: ' + e.message); }
+}
+
+// ── Add model ──
+function showAddModal() {
+  var sel = document.getElementById('add-provider');
+  sel.innerHTML = state.providers.map(function(p) {
+    return '<option value="' + p.provider + '">' + p.name + ' (' + p.provider + ')</option>';
+  }).join('');
+  document.getElementById('add-type').value = 'llm';
+  document.getElementById('add-name').value = '';
+  onProviderChange();
+  document.getElementById('add-modal').style.display = 'flex';
+}
+function hideAddModal() { document.getElementById('add-modal').style.display = 'none'; }
+
+function onProviderChange() {
+  var prov = document.getElementById('add-provider').value;
+  var p = state.providers.find(function(x) { return x.provider === prov; });
+  if (!p) return;
+  var type = document.getElementById('add-type').value;
+  document.getElementById('add-name').placeholder = (p.default_models && p.default_models[type]) || 'model name';
+  var wrap = document.getElementById('cred-fields');
+  wrap.innerHTML = (p.credential_schema || []).map(function(f) {
+    var def = f.default ? ' value="' + f.default + '"' : '';
+    return '<div class="form-row"><label>' + f.key + '</label>'
+      + '<input id="cred-' + f.key + '" placeholder="' + (f.required ? 'required' : 'optional') + '"' + def + ' style="flex:1"'
+      + (f.type === 'secret' ? ' type="password"' : '') + '></div>';
+  }).join('');
+}
+
+async function saveModel() {
+  var provider = document.getElementById('add-provider').value;
+  var type = document.getElementById('add-type').value;
+  var name = document.getElementById('add-name').value.trim();
+  if (!name) { alert('Model name required'); return; }
+  var p = state.providers.find(function(x) { return x.provider === provider; });
+  var creds = {};
+  (p.credential_schema || []).forEach(function(f) {
+    var el = document.getElementById('cred-' + f.key);
+    if (el && el.value) creds[f.key] = el.value;
+  });
+  try {
+    await EARP.fetchJSON('/api/model-configs', {
+      method: 'POST',
+      body: JSON.stringify({ provider: provider, model_type: type, model_name: name, credentials: creds }),
+    });
+    hideAddModal();
+    state.configs = await EARP.fetchJSON('/api/model-configs');
+    renderConfigs(); renderDefaults();
+  } catch (e) { alert('保存失败: ' + e.message); }
+}
+</script>
+</main></body></html>

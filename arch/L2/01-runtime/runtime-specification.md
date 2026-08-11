@@ -3,9 +3,11 @@
 ## EARP 运行时规范
 
 **文档编号：L2-01-RUNTIME**
-**版本：v1.3**
+**版本：v1.4**
 **定位：L2 — 平台规范。本文定义 Runtime 核心层的契约，所有上层模块（Planner、Workflow、Agent）必须遵守此规范。**  
 **依赖：L0/design-philosophy.md, L1/architecture-v5.md, L1.5/concept-model-v1.3.md, L2-05-OBSERVATION v1.1**
+
+> **v1.4 变更（2026-08-07）**：附录 A 明确 Memory 与 ABox 的边界——ABox（实体/事实/档案）属于 Knowledge，不属于 Memory；与本体层设计（arch/design/2026-08-07-ontology-layer-design.md）对齐。
 
 > **v1.3 变更**：§4.1 新增 Replanning 状态；§4.2 新增 3 条 Replanning 转换路径和 3 个事件；进入 Replanning 时同 Execution 内其他在途并行 Step 保持等待（不取消）
 
@@ -828,6 +830,8 @@ SPI: FeedbackHandler
 
 Memory 是 Runtime 的**经验存储层**，服务于 Planner 和 Agent。Memory 与 Knowledge 的边界：Memory 存储执行经验（运行时产生的临时或半持久数据），Knowledge 存储企业知识（经过验证的结构化数据）。
 
+> **v1.4 补充（2026-08-07）**：ABox（实体/事实/事实档案，见 knowledge-center-spec v1.2 第四章）属于 **Knowledge**——企业知识事实，持久、治理、可审计。Semantic Memory（Phase 3）仅记录**运行时经验**（调用模式、用户偏好、反思结果），与 ABox 分离存储，分界同 v2.1 Memory vs Knowledge。
+
 ## A.1 分层定义
 
 | 层级 | 存储内容 | 存储介质 | TTL | Phase |
@@ -891,6 +895,12 @@ MUST: Agent 不直接写入 Working Memory（由 Execution Runtime 负责）
 ```
 
 ---
+
+# 附录 B：v1.3 → v1.4 变更记录
+
+| 变更 | 类型 | 说明 | 章节 |
+|------|------|------|------|
+| Memory vs ABox 边界 | 新增 | 明确 ABox（实体/事实/档案）属于 Knowledge 不属于 Memory；Semantic Memory 仅存运行时经验 | 附录 A |
 
 # 附录 B：v1.2 → v1.3 变更记录
 

@@ -3,6 +3,7 @@
 - 日期: 2026-07-22
 - 状态: draft
 - 关联文档: `arch/design/2026-07-22-permission-design-principles.md`
+- **2026-08-07 修订**：`query/command` 与四类型改为正交并存（评审对齐，见 §2）
 
 ## 1. 背景与目标
 
@@ -19,7 +20,24 @@
 | `workflow` | 工作流发布 | 已发布的 EARP 工作流 | 一个 workflow = 一个 Capability |
 | `restful` | REST API 直连 | OpenAPI 导入或手动配置 | 一个 endpoint = 一个 Capability |
 
-**去掉 `query`/`command`**：操作性质由类型 + 权限 + approval_required 三要素体现。
+**`query`/`command` 与四类型正交并存（2026-08-07 修订）**：
+
+```
+capability_type（操作语义，CQRS 根基不变）:  query | command
+    —— 有无副作用 → 决定审批 / 审计级别 / 事务 / 补偿路径（L0 P5 / ADR-002）
+
+source_type（来源形态，本设计新增）:        skill | mcp | workflow | restful
+    —— 能力从哪来、如何实现
+```
+
+两者是**正交维度，不是替代关系**：一个 source_type 可以承载任意 capability_type。**配置权限时先定操作语义**：
+
+| 来源形态 | 判定规则 | 示例 |
+|---|---|---|
+| skill | 看实现是否有副作用 | `query_equipment_alarm`=query，`start_equipment`=command |
+| mcp | 按 tool 操作性质（读写）判定 | `list_tools` 内查询类 tool=query，写入类=command |
+| workflow | 看流程是否有状态变更，与 approval_required 联动 | 报表生成（无副作用）=query，工单审批流=command |
+| restful | **默认按 method 映射**：GET→query，POST/PUT/DELETE/PATCH→command，可手动覆盖 | `GET /sales`=query 不审批，`POST /orders`=command 必经审批 |
 
 ## 3. 统一权限模型
 
@@ -41,6 +59,7 @@ Capability
 | name | 名称 | ✅ |
 | description | 描述（给 LLM 用于意图匹配） | ✅ |
 | domain | Business Domain 归属 | ✅ |
+| capability_type | query / command（操作语义，CQRS） | ✅ |
 | input_schema | 输入参数 JSONSchema | ✅ |
 | output_schema | 返回值结构 | ✅ |
 | version | 版本号 | 默认 1.0.0 |
@@ -63,6 +82,7 @@ Capability
 | timeout | 调用超时 | 默认 30s |
 | sse_read_timeout | SSE 读取超时 | 默认 60s |
 | identity_mode | 是否转发用户身份 | 默认 off |
+| capability_type | query / command，按 tool 操作性质判定 | ✅ |
 | permissions | OrgUnit OR Role | ✅ |
 | tools | 连接后自动发现的 tool 列表 | 管理员勾选注册 |
 
@@ -78,6 +98,7 @@ Capability
 | workflow_id | 关联的工作流 ID | ✅ |
 | exposed_params | 暴露给 LLM 的参数（从输入中选） | ✅ |
 | output_schema | 返回值结构 | ✅ |
+| capability_type | query / command，与 approval_required 联动 | ✅ |
 | approval_required | 是否需要审批 | 默认 false |
 | permissions | OrgUnit OR Role | ✅ |
 
@@ -96,6 +117,7 @@ Capability
 | body_template | 请求体模板 | POST/PUT 时 |
 | auth_type | none/api_key_header/api_key_query/bearer | 默认 none |
 | api_key | auth 非 none 时 | — |
+| capability_type | query / command，默认按 method 映射（GET→query，POST/PUT/DELETE→command），可手动覆盖 | ✅ |
 | input_schema | 输入参数 | ✅ |
 | output_schema | 返回值结构 | ✅ |
 | timeout | 超时 | 默认 30s |
@@ -133,8 +155,8 @@ Capability
 
 | 变更 | 说明 |
 |---|---|
-| `business_capabilities.type` | CHECK 约束从 `('query','command')` 改为 `('skill','mcp','workflow','restful')` |
-| `business_capabilities` | 新增 `permission_type`（org_unit/role）、`accessible_org_units`、`accessible_roles`、`config` JSONB |
+| `business_capabilities.type` | **保留** `('query','command')`——操作语义，CQRS 根基不变（2026-08-07 修订） |
+| `business_capabilities` | 新增 `source_type`（skill/mcp/workflow/restful，来源形态）、`permission_type`（org_unit/role）、`accessible_org_units`、`accessible_roles`、`config` JSONB |
 | 新增表 | `mcp_connections`（server_url/auth/transport）、`capability_permissions` |
 
 ## 7. 下一步

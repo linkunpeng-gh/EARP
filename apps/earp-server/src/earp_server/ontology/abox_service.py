@@ -1,0 +1,291 @@
+"""Ontology ABox service — entity/fact CRUD + lookup + graph traversal + profile.
+
+PRD-2026-030 M1. Native-SQL style, RLS via SET LOCAL. Compiled Truth profile
+aggregation is rule-based in M1 (summary/key_facts/related_entities/stats).
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+
+async def upsert_entity(
+    engine: AsyncEngine,
+    tenant_id: str,
+    entity_type_id: str,
+    name: str,
+    *,
+    entity_id: str | None = None,
+    business_code: str | None = None,
+    attributes: dict | None = None,
+    source_mode: str = "extracted",
+    source_ref: str | None = None,
+    data_domain_id: str | None = None,
+) -> dict:
+    """Idempotent upsert keyed by (tenant, entity_type, business_code) when code given;
+    otherwise keyed by entity_id. business_code NULL → always insert new entity.
+    """
+    eid = entity_id or f"ent-{uuid.uuid4().hex[:12]}"
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        if business_code:
+            # find existing row by (entity_type, business_code) and merge
+            existing = await conn.execute(
+                text(
+                    "SELECT entity_id FROM entities "
+                    "WHERE tenant_id = :tid AND entity_type_id = :et AND business_code = :code "
+                    "AND status = 'active'"
+                ),
+                {"tid": tenant_id, "et": entity_type_id, "code": business_code},
+            )
+            row = existing.fetchone()
+            if row is not None:
+                eid = row.entity_id
+                await conn.execute(
+                    text(
+                        "UPDATE entities SET name = :name, attributes = :attrs, "
+                        "data_domain_id = COALESCE(:dd, data_domain_id), updated_at = now() "
+                        "WHERE entity_id = :eid"
+                    ),
+                    {"name": name, "attrs": json.dumps(attributes or {}), "dd": data_domain_id, "eid": eid},
+                )
+                await conn.commit()
+                return {"entity_id": eid, "merged": True}
+
+        await conn.execute(
+            text(
+                "INSERT INTO entities "
+                "(entity_id, tenant_id, entity_type_id, name, business_code, attributes, "
+                "source_mode, source_ref, data_domain_id) "
+                "VALUES (:eid, :tid, :et, :name, :code, :attrs, :sm, :ref, :dd)"
+            ),
+            {
+                "eid": eid,
+                "tid": tenant_id,
+                "et": entity_type_id,
+                "name": name,
+                "code": business_code,
+                "attrs": json.dumps(attributes or {}),
+                "sm": source_mode,
+                "ref": source_ref,
+                "dd": data_domain_id,
+            },
+        )
+        await conn.commit()
+    return {"entity_id": eid, "merged": False}
+
+
+async def get_entity(engine: AsyncEngine, tenant_id: str, entity_id: str) -> dict | None:
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text("SELECT * FROM entities WHERE entity_id = :eid AND status = 'active'"),
+            {"eid": entity_id},
+        )
+        r = row.fetchone()
+        return dict(r._mapping) if r else None
+
+
+async def lookup_entities(
+    engine: AsyncEngine,
+    tenant_id: str,
+    query: str,
+    *,
+    entity_type_ids: list[str] | None = None,
+    data_domain_ids: list[str] | None = None,
+    top_k: int = 5,
+) -> list[dict]:
+    """Name / business_code prefix match with data-domain filter (双层权限由调用方按 DD 评估)."""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        sql = (
+            "SELECT entity_id, entity_type_id, name, business_code, attributes, source_mode, data_domain_id "
+            "FROM entities WHERE tenant_id = :tid AND status = 'active' "
+            "AND (name ILIKE :pat OR business_code ILIKE :pat)"
+        )
+        params: dict = {"tid": tenant_id, "pat": f"%{query}%"}
+        if entity_type_ids:
+            sql += " AND entity_type_id = ANY(:ets)"
+            params["ets"] = entity_type_ids
+        if data_domain_ids:
+            sql += " AND data_domain_id = ANY(:dds)"
+            params["dds"] = data_domain_ids
+        sql += f" ORDER BY name LIMIT {int(top_k)}"
+        rows = await conn.execute(text(sql), params)
+        return [dict(r._mapping) for r in rows.fetchall()]
+
+
+async def add_fact(
+    engine: AsyncEngine,
+    tenant_id: str,
+    source_entity_id: str,
+    relation_type_id: str,
+    target_entity_id: str,
+    *,
+    confidence: float = 1.0,
+    source_ref: str | None = None,
+    fact_id: str | None = None,
+) -> dict:
+    fid = fact_id or f"fact-{uuid.uuid4().hex[:12]}"
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        await conn.execute(
+            text(
+                "INSERT INTO facts "
+                "(fact_id, tenant_id, source_entity_id, relation_type_id, target_entity_id, confidence, source_ref) "
+                "VALUES (:fid, :tid, :src, :rel, :tgt, :conf, :ref)"
+            ),
+            {
+                "fid": fid,
+                "tid": tenant_id,
+                "src": source_entity_id,
+                "rel": relation_type_id,
+                "tgt": target_entity_id,
+                "conf": confidence,
+                "ref": source_ref,
+            },
+        )
+        await conn.commit()
+    return {"fact_id": fid, "status": "active"}
+
+
+async def revoke_fact(engine: AsyncEngine, tenant_id: str, fact_id: str, reason: str = "") -> dict | None:
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        result = await conn.execute(
+            text("UPDATE facts SET status = 'revoked' WHERE fact_id = :fid RETURNING fact_id, status"),
+            {"fid": fact_id},
+        )
+        await conn.commit()
+        r = result.fetchone()
+        return dict(r._mapping) if r else None
+
+
+async def graph_query(
+    engine: AsyncEngine,
+    tenant_id: str,
+    entity_id: str,
+    max_hops: int = 3,
+) -> list[dict]:
+    """Recursive CTE traversal (≤ max_hops, cycle-protected via visited path).
+
+    Returns rows {depth, relation_type_id, source_entity_id, target_entity_id,
+    target_name, target_type} for active (valid_to IS NULL) facts.
+    """
+    sql = text(
+        """
+        WITH RECURSIVE hops AS (
+            SELECT 1 AS depth, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                   CAST(f.target_entity_id AS TEXT) AS path
+            FROM facts f
+            WHERE f.tenant_id = :tid AND f.source_entity_id = :eid
+              AND f.status = 'active' AND f.valid_to IS NULL
+            UNION ALL
+            SELECT h.depth + 1, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                   h.path || ',' || f.target_entity_id
+            FROM hops h
+            JOIN facts f ON f.source_entity_id = h.target_entity_id
+                AND f.tenant_id = :tid AND f.status = 'active' AND f.valid_to IS NULL
+            WHERE h.depth < :max_hops
+              AND position(f.target_entity_id in h.path) = 0
+        )
+        SELECT h.depth, h.relation_type_id, h.source_entity_id, h.target_entity_id,
+               e.name AS target_name, e.entity_type_id AS target_type
+        FROM hops h
+        LEFT JOIN entities e ON e.entity_id = h.target_entity_id AND e.tenant_id = :tid
+        ORDER BY h.depth, h.target_entity_id
+        """
+    )
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        rows = await conn.execute(sql, {"tid": tenant_id, "eid": entity_id, "max_hops": max_hops})
+        return [dict(r._mapping) for r in rows.fetchall()]
+
+
+async def compile_profile(engine: AsyncEngine, tenant_id: str, entity_id: str) -> dict | None:
+    """Rule-based Compiled Truth: aggregate entity + active facts + recent timeline."""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        entity_row = await conn.execute(
+            text("SELECT * FROM entities WHERE entity_id = :eid AND status = 'active'"),
+            {"eid": entity_id},
+        )
+        e = entity_row.fetchone()
+        if e is None:
+            return None
+
+        facts_rows = await conn.execute(
+            text(
+                "SELECT r.name AS relation, t.name AS target_name, t.entity_type_id AS target_type "
+                "FROM facts f JOIN relation_types r ON r.relation_type_id = f.relation_type_id "
+                "JOIN entities t ON t.entity_id = f.target_entity_id "
+                "WHERE f.source_entity_id = :eid AND f.status = 'active' AND f.valid_to IS NULL"
+            ),
+            {"eid": entity_id},
+        )
+        key_facts = [dict(r._mapping) for r in facts_rows.fetchall()]
+
+        rel_rows = await conn.execute(
+            text(
+                "SELECT DISTINCT entity_type_id FROM entities "
+                "WHERE entity_id IN (SELECT target_entity_id FROM facts "
+                "WHERE source_entity_id = :eid AND status = 'active' AND valid_to IS NULL)"
+            ),
+            {"eid": entity_id},
+        )
+        related_types = [r.entity_type_id for r in rel_rows.fetchall()]
+
+        timeline_rows = await conn.execute(
+            text(
+                "SELECT event_type, occurred_at FROM entity_timeline "
+                "WHERE entity_id = :eid ORDER BY occurred_at DESC LIMIT 20"
+            ),
+            {"eid": entity_id},
+        )
+        recent_events = [dict(r._mapping) for r in timeline_rows.fetchall()]
+
+    profile = {
+        "entity_id": entity_id,
+        "entity_type": e.entity_type_id,
+        "name": e.name,
+        "summary": None,  # LLM-generated summary deferred to M2 (rule aggregation only)
+        "key_facts": key_facts,
+        "related_types": related_types,
+        "stats": {"fact_count": len(key_facts), "recent_events": len(recent_events)},
+    }
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        result = await conn.execute(
+            text(
+                "INSERT INTO entity_profiles (entity_profile_id, tenant_id, entity_id, profile, profile_version) "
+                "VALUES (:pid, :tid, :eid, :prof, 1) "
+                "ON CONFLICT (entity_id) DO UPDATE SET profile = EXCLUDED.profile, "
+                "profile_version = entity_profiles.profile_version + 1, compiled_at = now() "
+                "RETURNING entity_id, profile_version, compiled_at"
+            ),
+            {
+                "pid": f"prof-{uuid.uuid4().hex[:12]}",
+                "tid": tenant_id,
+                "eid": entity_id,
+                "prof": json.dumps(profile, default=str),
+            },
+        )
+        await conn.commit()
+        r = result.fetchone()
+        return {"entity_id": r.entity_id, "profile_version": r.profile_version, "profile": profile}
+
+
+async def get_entity_profile(engine: AsyncEngine, tenant_id: str, entity_id: str) -> dict | None:
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text("SELECT entity_id, profile, profile_version, compiled_at FROM entity_profiles WHERE entity_id = :eid"),
+            {"eid": entity_id},
+        )
+        r = row.fetchone()
+        return dict(r._mapping) if r else None
