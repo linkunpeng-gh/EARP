@@ -143,6 +143,31 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 最近会话（2026-08-11）— 后台导航改版第一期已实施（纯前端）
+
+> 设计：`arch/design/2026-08-11-admin-navigation-redesign.md`（8 项决策 + 蓝图 + 分期，本会话实施第一期）
+
+**会话主线**：一级菜单 + 左侧抽屉导航框架；已有页面归位（知识/能力/治理/监控点亮）；首页重构（快捷入口 + 最近操作）；「规划中」统一占位页；治理中心 disabled 统一改「规划中」口径。纯 earp-admin 前端，后端 API 未动。
+
+**关键产出**：
+- `js/nav.js`（新增）：共享导航壳——8 个一级菜单（首页/工作台/知识中心/能力中心/应用中心/插件中心/治理中心/运行监控）+ 按 `data-section` 渲染左抽屉 + 规划中 roadmap 数据（`window.EARP_NAV`）；页面只需 `<body data-base data-section data-sub>` + 空 `<header>`，运行时自动注入 header/drawer/`.app-shell` 包裹，file:// 与 /admin/ 挂载均可用（相对链接）
+- `pages/planned.html`（新增）：通用「规划中」占位页（?section=&item= 参数化，显示 phase/priority/roadmap 说明/同域已实现入口），不假装有功能
+- `index.html` 重构：实时统计（KB/数据域/能力/模型配置/Sessions，API 不可用回退示例值并标注「离线」）+ 快捷入口 8 卡 + 最近操作（/v1/sessions 实时流水）
+- 14 个页面全部挂接：剥离旧顶栏/下拉菜单硬编码导航（每页 -30 行死代码），body 上下文属性归位；login 走 `data-nav="none"` 极简头
+- 页面归位：知识中心（数据域/知识库/召回测试）、能力中心（能力注册/推理测试/流式推理/模型配置，连接器规划中）、治理中心（Audit 已实现，Roles/Org/Tenants/Policy 规划中）、运行监控（Sessions 执行/对话日志）
+- 孤儿页修复：stream.html（原无入口）新增抽屉项「流式推理」；models.html 从 ⚙️ 图标升级为抽屉项「模型配置」；doc-seg.html 无 doc_id 时自动跳回知识库（抽屉「分段配置」入口不落空）
+- 样式：抽屉/首页快捷卡/规划中卡片/响应式（<900px 隐藏抽屉）；移除废弃 dropdown 样式
+- 验证：node --check + 自建 DOM stub 冒烟测试（`apps/earp-admin/test-nav-smoke.cjs` / `test-planned-smoke.cjs`，6+4 场景全绿）+ 静态服务 200 全通
+
+**实施说明（对设计的落地决策与后续调整）**：
+1. 蓝图「运行监控」与「治理中心」均列 Audit（决策 #3 观测三件套）→ 初版两处抽屉均指向 audit.html；**按 PM 反馈已去掉运行监控下的「审计」子项**（Audit 仅留在治理中心）
+2. 蓝图「推理测试」单入口 → 拆为「推理测试（plan.html）+ 流式推理（stream.html）」两项，解决 stream 孤儿页问题（决策 #4：plan/stream 均为能力调试工具）
+3. 「分段配置」初版作为抽屉项指向 doc-seg.html；**按 PM 反馈已从抽屉去掉**（doc-seg/doc-config 仍可从知识库文档行 ✂️ 进入，页面 data-sub 归入「知识库」高亮）
+
+**下一步（沿用 2026-08-11 优先级表）**：P1 问答链路（chat 落地 + 引用溯源，P7 并入）→ P2 ontology 接入软路由 → …；导航二期（知识资产看板首页聚合接口）随 P1 后推进
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 规划中"><title>规划中 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body data-base=".." data-nav="full">
+<header id="app-header"></header>
+<main>
+  <div class="page-title"><div><h2 id="p-title">规划中</h2><p class="page-subtitle" id="p-sub">功能已定稿但尚未实现，点击即占位页（显示 roadmap 与关联优先级）</p></div></div>
+  <div class="planned-banner">
+    <svg class="pb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="10"/></svg>
+    <div><h3 id="pb-title">规划中</h3><p id="pb-desc">不假装有功能 —— 该入口将随 roadmap 逐一点亮。</p></div>
+    <span class="pb-phase" id="pb-phase">规划中</span>
+  </div>
+  <p class="roadmap-hint" id="p-hint">已定稿 roadmap（见 arch/design/2026-08-11-admin-navigation-redesign.md）：</p>
+  <div class="roadmap-grid" id="p-grid"></div>
+  <h3 style="margin-top:1.75rem" id="p-implemented-title">已实现（本域）</h3>
+  <p id="p-implemented" class="roadmap-hint"></p>
+</main>
+<script src="../js/app.js"></script>
+<script src="../js/nav.js"></script>
+<script>
+(function () {
+  var nav = window.EARP_NAV;
+  var q = new URLSearchParams(location.search);
+  var sectionId = q.get('section') || '';
+  var itemId = q.get('item') || '';
+  if (!sectionId) { sectionId = 'workspace'; document.body.dataset.section = 'workspace'; }
+  if (!itemId) document.body.dataset.sub = sectionId + '-overview';
+
+  var section = nav.SECTIONS.filter(function (s) { return s.id === sectionId; })[0];
+  var sectionLabel = section ? section.label : '工作台';
+
+  function hrefOf(p) { return nav.href(document.body.dataset.base || '..', p); }
+
+  function renderSingle() {
+    var info = nav.PLANNED[sectionId + '/' + itemId];
+    if (!info) { renderOverview(); return; }
+    document.title = info.label + ' — 规划中 — EARP';
+    document.getElementById('p-title').textContent = info.label;
+    document.getElementById('pb-title').textContent = info.label + ' · 规划中';
+    document.getElementById('pb-phase').textContent = info.phase + (info.priority && info.priority !== '—' ? ' · ' + info.priority : '');
+    document.getElementById('p-sub').textContent = sectionLabel + ' → ' + info.label + '（未实现）';
+    document.getElementById('p-hint').style.display = 'none';
+    var cards = [];
+    if (info.desc) {
+      cards.push('<div class="roadmap-card"><div class="rd-label">' + nav.icon('workspace') + ' <span>规划说明</span></div>'
+        + '<div class="rd-desc">' + nav.esc(info.desc) + '</div>'
+        + '<div class="rd-related">' + relatedHtml(info) + '</div></div>');
+    }
+    document.getElementById('p-grid').innerHTML = cards.join('') || '<p class="roadmap-hint">暂无详情。</p>';
+    document.getElementById('p-implemented-title').textContent = '同域入口';
+    renderImplemented();
+  }
+
+  function relatedHtml(info) {
+    return (info.related || []).map(function (r) {
+      return '<a href="' + hrefOf(r[1]) + '">' + nav.esc(r[0]) + ' →</a>';
+    }).join('');
+  }
+
+  function renderOverview() {
+    document.title = sectionLabel + ' — 规划中 — EARP';
+    document.getElementById('p-title').textContent = sectionLabel;
+    document.getElementById('pb-title').textContent = sectionLabel + ' · 规划中';
+    document.getElementById('pb-phase').textContent = '规划中';
+    var planned = (nav.DRAWERS[sectionId] || []).filter(function (it) { return it.planned; });
+    document.getElementById('p-grid').innerHTML = planned.map(function (it) {
+      var info = nav.PLANNED[it.planned] || {};
+      return '<a class="roadmap-card" style="text-decoration:none;color:inherit;display:block;cursor:pointer" href="'
+        + hrefOf('{b}/pages/planned.html?section=' + sectionId + '&item=' + it.sub) + '">'
+        + '<div class="rd-label">' + nav.icon('workspace') + ' <span>' + nav.esc(it.label) + '</span>'
+        + '<span class="rd-priority">' + nav.esc(info.priority || '规划中') + '</span></div>'
+        + '<div class="rd-desc">' + nav.esc(info.desc || '') + '</div>'
+        + '<div class="rd-related">' + relatedHtml(info) + '</div></a>';
+    }).join('') || '<p class="roadmap-hint">该域暂无规划中项。</p>';
+    renderImplemented();
+  }
+
+  function renderImplemented() {
+    var done = (nav.DRAWERS[sectionId] || []).filter(function (it) { return !it.planned && it.path; });
+    var el = document.getElementById('p-implemented');
+    if (!done.length) { el.textContent = '暂无已实现入口。'; return; }
+    el.innerHTML = done.map(function (it) {
+      return '<a href="' + hrefOf(it.path) + '" style="color:var(--accent-text);text-decoration:none;margin-right:1rem">✓ ' + nav.esc(it.label) + ' →</a>';
+    }).join('');
+  }
+
+  if (itemId) renderSingle(); else renderOverview();
+})();
+</script>
+</body></html>

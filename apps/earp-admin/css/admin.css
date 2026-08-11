@@ -54,14 +54,15 @@ header nav a {
   font-size: 0.81rem; font-weight: 500; color: var(--text-tertiary);
   text-decoration: none; padding: 1rem 0; border-bottom: 2px solid transparent;
   transition: color 0.15s, border-color 0.15s; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 0.3rem;
 }
+header nav a svg { width: 0.95em; height: 0.95em; opacity: 0.7; }
 header nav a:hover { color: var(--text-primary); }
+header nav a:hover svg { opacity: 1; }
 header nav a.active, header nav a[aria-current] {
   color: var(--text-primary); border-bottom-color: var(--accent);
 }
-header 
-.model-link{margin-right:8px;text-decoration:none;font-size:0.9rem;opacity:0.75;transition:opacity 0.15s}
-.model-link:hover{opacity:1}
+header nav a.active svg { color: var(--accent); opacity: 1; }
 .meta { font-size: 0.75rem; color: var(--text-quaternary); display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
 header .meta a { color: var(--accent-text); text-decoration: none; font-weight: 500; }
 /* Nav divider between groups */
@@ -297,53 +298,54 @@ pre {
 .action-bar-bottom { display: flex; gap: 0.75rem; justify-content: flex-end; padding: 1rem 0; border-top: 1px solid var(--border-subtle); margin-top: 1rem; }
 .action-bar-bottom button { display: flex; align-items: center; gap: 0.35rem; }
 
-/* ── Navigation Groups (L2 domain-based) ── */
-.nav-group {
-  position: relative;
+/* ── App shell: 左侧抽屉 + 内容 (2026-08-11 nav redesign) ── */
+.app-shell {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  max-width: 1440px;
+  margin: 0 auto;
+  min-height: calc(100vh - 56px);
 }
-.nav-group > a {
-  font-size: 0.81rem; font-weight: 500; color: var(--text-tertiary);
-  text-decoration: none; padding: 1rem 0; border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s; white-space: nowrap;
+.app-drawer {
+  width: 208px;
+  flex-shrink: 0;
+  padding: 1.25rem 0.75rem 2rem;
+  position: sticky;
+  top: 56px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-root);
 }
-.nav-group > a:hover { color: var(--text-primary); }
-.nav-group > a.active,
-.nav-group > a[aria-current] {
-  color: var(--text-primary); border-bottom-color: var(--accent);
+.app-shell main {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
 }
-
-/* ── Dropdown ── */
-.nav-dropdown > a::after {
-  content: ' ▾';
-  font-size: 0.65rem;
-  vertical-align: middle;
+.drawer-section-title {
+  font-size: 0.7rem; font-weight: 600; color: var(--text-tertiary);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 0.5rem; padding: 0 0.6rem;
 }
-.dropdown-menu {
-  display: none;
-  position: absolute; top: 100%; left: 0;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-elevated);
-  min-width: 200px; padding: 0.35rem 0;
-  z-index: 20;
+.drawer-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;
+  padding: 0.45rem 0.6rem; margin-bottom: 2px; border-radius: var(--radius-md);
+  font-size: 0.81rem; color: var(--text-secondary); text-decoration: none;
+  border: 1px solid transparent; transition: background 0.12s, color 0.12s;
 }
-.nav-dropdown:hover .dropdown-menu,
-.nav-dropdown:focus-within .dropdown-menu {
-  display: block;
+.drawer-item:hover { background: var(--bg-panel); color: var(--text-primary); }
+.drawer-item.active {
+  background: var(--accent-light); color: var(--accent); font-weight: 500;
+  border-color: rgba(94, 106, 210, 0.2);
 }
-.dropdown-menu a {
-  display: block; padding: 0.45rem 0.9rem;
-  font-size: 0.81rem; color: var(--text-secondary);
-  text-decoration: none; white-space: nowrap;
-  transition: background 0.1s;
+.drawer-item .planned-tag {
+  font-size: 0.62rem; color: var(--text-quaternary);
+  border: 1px dashed var(--border-standard); border-radius: 3px;
+  padding: 0 5px; flex-shrink: 0;
 }
-.dropdown-menu a:hover { background: var(--bg-surface); color: var(--text-primary); }
-.dropdown-menu a.active { color: var(--accent); font-weight: 500; }
-.dropdown-menu a.disabled {
-  color: var(--text-quaternary); cursor: not-allowed; pointer-events: none;
+@media (max-width: 900px) {
+  .app-drawer { display: none; }
 }
 
 /* ── Plan & Invoke: Two-column layout ── */
@@ -633,3 +635,78 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 }
 .stats-bar .stat-item { display: flex; align-items: center; gap: 0.35rem; }
 .stats-bar .stat-count { font-weight: 600; }
+
+/* ── 首页 (2026-08-11 nav redesign) ── */
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+.quick-card {
+  display: block; padding: 0.9rem 1rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  text-decoration: none; color: inherit;
+  transition: box-shadow 0.2s, transform 0.15s, border-color 0.15s;
+}
+.quick-card:hover {
+  box-shadow: var(--shadow-elevated); transform: translateY(-1px);
+  border-color: var(--border-standard);
+}
+.quick-card .qc-title {
+  font-size: 0.86rem; font-weight: 600; color: var(--text-primary);
+  display: flex; align-items: center; gap: 0.4rem;
+}
+.quick-card .qc-title svg { width: 0.95em; height: 0.95em; color: var(--accent); opacity: 0.85; }
+.quick-card .qc-desc { font-size: 0.74rem; color: var(--text-tertiary); margin-top: 0.25rem; }
+.quick-card .qc-planned { font-size: 0.68rem; color: var(--text-quaternary); margin-top: 0.25rem; }
+
+.home-banner {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  padding: 1.1rem 1.25rem; margin-bottom: 1.5rem;
+  background: linear-gradient(135deg, rgba(94,106,210,0.06), rgba(94,106,210,0.02));
+  border: 1px solid rgba(94,106,210,0.18); border-radius: var(--radius-lg);
+}
+.home-banner h2 { margin: 0; font-size: 1.25rem; }
+.home-banner p { font-size: 0.81rem; color: var(--text-tertiary); margin-top: 0.2rem; }
+.home-banner .banner-badge {
+  margin-left: auto; font-size: 0.68rem; color: var(--text-quaternary);
+  border: 1px dashed var(--border-standard); border-radius: 4px; padding: 2px 8px;
+}
+
+/* ── 规划中占位页 (2026-08-11 nav redesign) ── */
+.planned-banner {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 1rem 1.25rem; margin-bottom: 1.25rem;
+  background: var(--bg-panel); border: 1px dashed var(--border-standard);
+  border-radius: var(--radius-lg);
+}
+.planned-banner .pb-icon { width: 1.5rem; height: 1.5rem; color: var(--accent); opacity: 0.8; flex-shrink: 0; }
+.planned-banner h3 { margin: 0; font-size: 0.95rem; }
+.planned-banner p { font-size: 0.78rem; color: var(--text-tertiary); margin-top: 0.15rem; }
+.planned-banner .pb-phase {
+  margin-left: auto; font-size: 0.7rem; font-weight: 500;
+  background: var(--amber-bg); color: var(--amber);
+  border-radius: 4px; padding: 2px 9px; white-space: nowrap;
+}
+.roadmap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+.roadmap-card {
+  background: var(--bg-panel); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg); padding: 1.1rem 1.2rem;
+  box-shadow: var(--shadow-card);
+}
+.roadmap-card .rd-label { font-size: 0.86rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 0.45rem; }
+.roadmap-card .rd-label svg { width: 0.95em; height: 0.95em; color: var(--accent); }
+.roadmap-card .rd-priority { font-size: 0.68rem; font-weight: 500; color: var(--accent); background: var(--accent-light); border-radius: 4px; padding: 1px 7px; margin-left: auto; white-space: nowrap; }
+.roadmap-card .rd-desc { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.5rem; line-height: 1.55; }
+.roadmap-card .rd-related { margin-top: 0.7rem; font-size: 0.74rem; }
+.roadmap-card .rd-related a { color: var(--accent-text); text-decoration: none; margin-right: 0.6rem; }
+.roadmap-card .rd-related a:hover { text-decoration: underline; }
+.roadmap-hint { font-size: 0.74rem; color: var(--text-quaternary); margin-bottom: 0.75rem; }

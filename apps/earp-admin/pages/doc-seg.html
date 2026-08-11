@@ -1,21 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 文档分段设置"><title>分段设置 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
-<body>
-<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>  <nav>
-    <a href="../index.html">Overview</a>
-    <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
-    <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
-    <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
-    <div class="nav-group nav-dropdown">
-      <a href="knowledge.html" data-nav="knowledge" class="active" aria-current="page">知识</a>
-      <div class="dropdown-menu">
-        <a href="data-domains.html" data-nav="data-domains">数据域</a>
-        <a href="knowledge.html" data-nav="knowledge">知识库</a>
-        <a href="test-retrieval.html" data-nav="test-retrieval">召回测试</a>
-      </div>
-    </div>
-    <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
-  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+<body data-base=".." data-section="knowledge" data-sub="knowledge">
+<header id="app-header"></header>
 
 <main>
 <p class="breadcrumb"><a href="knowledge.html" id="back-kb-link">&larr; Back to Knowledge Base</a> <span id="crumb-doc" style="color:var(--text-quaternary)"></span></p>
@@ -69,12 +55,18 @@
 </main>
 
 <script src="../js/app.js"></script>
+<script src="../js/nav.js"></script>
 <script>
 var docId = new URLSearchParams(location.search).get('doc_id');
 var doc = null;
 
 document.addEventListener('DOMContentLoaded', function() {
-  if (!docId) { document.getElementById('page-sub').textContent = '缺少 doc_id 参数'; return; }
+  if (!docId) {
+    // 无 doc_id（如从左侧抽屉「分段配置」进入）→ 回知识库选文档（文档行内「分段设置」按钮会带 doc_id 进入）
+    document.getElementById('page-sub').textContent = '请先在知识库中选择文档…';
+    window.location.replace('knowledge.html');
+    return;
+  }
   loadDoc();
 });
 
