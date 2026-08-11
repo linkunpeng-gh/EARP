@@ -8,16 +8,22 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 
-async def create_conversation(engine: AsyncEngine, tenant_id: str, user_id: str, title: str = "") -> dict:
+async def create_conversation(
+    engine: AsyncEngine,
+    tenant_id: str,
+    user_id: str,
+    title: str = "",
+    chat_app_id: str | None = None,
+) -> dict:
     conv_id = f"conv-{uuid.uuid4().hex[:12]}"
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         await conn.execute(
             text(
-                "INSERT INTO conversations (conversation_id, tenant_id, user_id, title) "
-                "VALUES (:cid, :tid, :uid, :title)"
+                "INSERT INTO conversations (conversation_id, tenant_id, user_id, title, chat_app_id) "
+                "VALUES (:cid, :tid, :uid, :title, :app)"
             ),
-            {"cid": conv_id, "tid": tenant_id, "uid": user_id, "title": title},
+            {"cid": conv_id, "tid": tenant_id, "uid": user_id, "title": title, "app": chat_app_id},
         )
         await conn.commit()
     return {"conversation_id": conv_id}
@@ -69,9 +75,48 @@ async def get_messages(
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         rows = await conn.execute(
             text(
-                "SELECT message_id, seq, role, content, created_at FROM messages "
+                "SELECT message_id, seq, role, content, citations, created_at FROM messages "
                 "WHERE conversation_id = :cid ORDER BY seq LIMIT :lim OFFSET :off"
             ),
             {"cid": conversation_id, "lim": limit, "off": offset},
+        )
+        out = []
+        for r in rows:
+            d = dict(r._mapping)
+            # JSONB 防御反序列化（citations 引用数组）
+            if isinstance(d.get("citations"), str):
+                import json
+
+                try:
+                    d["citations"] = json.loads(d["citations"])
+                except (TypeError, ValueError):
+                    d["citations"] = None
+            out.append(d)
+        return out
+
+
+async def list_conversations(
+    engine: AsyncEngine,
+    tenant_id: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """Conversation list with message count + last message time.
+
+    P1 问答链路一期新增端点（设计 §4.2 Q1）——对话日志与二期应用形态的数据源。
+    """
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        rows = await conn.execute(
+            text(
+                "SELECT c.conversation_id, c.title, c.chat_app_id, c.user_id, c.created_at, "
+                "       count(m.message_id) AS message_count, max(m.created_at) AS last_message_at "
+                "FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.conversation_id "
+                "WHERE c.tenant_id = :tid "
+                "GROUP BY c.conversation_id, c.title, c.chat_app_id, c.user_id, c.created_at "
+                "ORDER BY COALESCE(max(m.created_at), c.created_at) DESC "
+                "LIMIT :lim OFFSET :off"
+            ),
+            {"tid": tenant_id, "lim": limit, "off": offset},
         )
         return [dict(r._mapping) for r in rows]

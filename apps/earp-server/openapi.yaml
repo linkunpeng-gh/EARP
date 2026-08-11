@@ -96,6 +96,21 @@ components:
           title: System Prompt
       title: ChatAppUpdate
       type: object
+    ChatRequest:
+      properties:
+        conversation_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Conversation Id
+        query:
+          minLength: 1
+          title: Query
+          type: string
+      required:
+      - query
+      title: ChatRequest
+      type: object
     ChunkPreviewRequest:
       properties:
         chunk_overlap:
@@ -1366,6 +1381,38 @@ paths:
       summary: Update Chat App Ep
       tags:
       - chat_apps
+  /chat_apps/{chat_app_id}/chat:
+    post:
+      description: SSE 流式对话：query → 检索 → LLM 生成 → 引用（设计 §4.3）。
+      operationId: chat_ep_chat_apps__chat_app_id__chat_post
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Chat Ep
+      tags:
+      - chat_apps
   /chat_apps/{chat_app_id}/publish:
     post:
       operationId: publish_chat_app_ep_chat_apps__chat_app_id__publish_post
@@ -1396,6 +1443,44 @@ paths:
       tags:
       - chat_apps
   /conversations:
+    get:
+      description: Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源。
+      operationId: list_conv_conversations_get
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          title: Limit
+          type: integer
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          title: Offset
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Conv Conversations Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Conv
+      tags:
+      - conversations
     post:
       operationId: create_conv_conversations_post
       requestBody:

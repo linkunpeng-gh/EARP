@@ -25,6 +25,7 @@ from earp_server.conversation.conversation_service import (
     add_message,
     create_conversation,
     get_messages,
+    list_conversations,
 )
 from earp_server.conversation.chat_app_service import (
     create_chat_app,
@@ -34,6 +35,7 @@ from earp_server.conversation.chat_app_service import (
     publish_chat_app,
     update_chat_app,
 )
+from earp_server.conversation.chat_service import chat_sse
 from earp_server.gateway.auth import JWTMiddleware, create_token
 from earp_server.gateway.input_guard import sanitize_body
 from earp_server.infra.db import build_engine, check_db
@@ -275,6 +277,11 @@ class ChatAppUpdate(BaseModel):
     context_turns: int | None = None
 
 
+class ChatRequest(BaseModel):
+    query: str = Field(min_length=1)
+    conversation_id: str | None = None
+
+
 class LoginRequest(BaseModel):
     tenant_id: str
     user_id: str
@@ -334,10 +341,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tracer = LangfuseTracer(cfg)
         llm_connector.tracer = tracer
         app.state.planner = SimpleTaskPlanner(llm=llm_connector)
+        app.state.llm = llm_connector  # P1 chat 链路直接使用（含 DB model_configs 解析）
         if cfg.app_env in ("dev", "test"):
             # in-process audit: subscribe handler to local EventBus
             # (prod uses independent audit worker process — see entrypoints/audit.py)
             app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
+            app.state.eventbus.subscribe("earp.chat_app.*", audit_handler_factory(app.state.engine))
         if cfg.app_env in ("dev", "test"):
             try:
                 # Seed demo tenant baseline: tenant/user/role/data-domains/capability.
@@ -1079,10 +1088,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="chat app not found")
         return app
 
+    @app.post("/chat_apps/{chat_app_id}/chat", tags=["chat_apps"])
+    async def chat_ep(chat_app_id: str, req_body: ChatRequest, req: Request) -> StreamingResponse:
+        """SSE 流式对话：query → 检索 → LLM 生成 → 引用（设计 §4.3）。"""
+        app = await get_chat_app(req.app.state.engine, req.state.tenant_id, chat_app_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="chat app not found")
+
+        async def gen():
+            async for line in chat_sse(
+                req.app.state.engine,
+                req.state.tenant_id,
+                req.state.user_id,
+                req.state.role_id,
+                app,
+                req_body.query,
+                req_body.conversation_id,
+                base_llm=req.app.state.llm,
+                settings=req.app.state.settings,
+                rate_limiter=req.app.state.rate_limiter,
+                embedding_dim=req.app.state.settings.embedding_dim,
+            ):
+                yield line
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
+
     # ── Conversation ──
     @app.post("/conversations", status_code=201, tags=["conversations"])
     async def create_conv(req_body: ConvCreate, req: Request) -> dict[str, Any]:
         return await create_conversation(req.app.state.engine, req.state.tenant_id, req.state.user_id, req_body.title)
+
+    @app.get("/conversations", tags=["conversations"])
+    async def list_conv(limit: int = 50, offset: int = 0, req: Request = None) -> list[dict[str, Any]]:  # type: ignore[assignment]
+        """Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源。"""
+        return await list_conversations(req.app.state.engine, req.state.tenant_id, limit, offset)
 
     @app.post("/conversations/{conv_id}/messages", status_code=201, tags=["conversations"])
     async def add_msg(conv_id: str, req_body: MsgAdd, req: Request) -> dict[str, Any]:
