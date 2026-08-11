@@ -340,3 +340,84 @@ async def test_chat_empty_query_rejected(app_engine: AsyncEngine) -> None:
     app = await _app(app_engine, "ch-empty")
     events = await _collect(app_engine, "ch-empty", "u1", "r-all", app, "   ")
     assert events == [{"type": "error", "message": "问题不能为空"}]
+
+
+# ── provider 协议：OpenAI 兼容（deepseek）流式 ──────────────────────────────
+async def test_chat_stream_openai_provider_protocol() -> None:
+    """openai 兼容 provider → /chat/completions + SSE 解析 + Bearer header（修复 404 bug）。"""
+    import httpx
+
+    from earp_server.config import Settings
+    from earp_server.connector import LLMConnector
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["headers"] = dict(request.headers)
+        captured["payload"] = request.read().decode()
+        # OpenAI SSE 流
+        body = (
+            'data: {"choices":[{"delta":{"content":"你"}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":"好"}}]}\n\n'
+            'data: {"choices":[{"delta":{}}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    llm = LLMConnector(
+        Settings(),
+        model_override={
+            "provider": "openai",
+            "model_name": "deepseek-v4-flash",
+            "base_url": "https://api.deepseek.com",
+            "api_key": "sk-test-123",
+        },
+        transport=httpx.MockTransport(handler),
+    )
+    tokens = []
+    async for ev in llm.chat_stream("你是助手", [], "报销标准", max_tokens=1024):
+        tokens.append(ev.token)
+
+    assert tokens == ["你", "好"]
+    assert captured["url"] == "https://api.deepseek.com/chat/completions"  # 非 /api/chat
+    assert captured["headers"]["authorization"] == "Bearer sk-test-123"
+    payload = json.loads(captured["payload"])
+    assert payload["stream"] is True and payload["model"] == "deepseek-v4-flash"
+    assert payload["temperature"] == 0.7 and payload["max_tokens"] == 1024
+    assert "options" not in payload  # OpenAI 协议顶层参数
+
+
+async def test_chat_stream_ollama_provider_keeps_ndjson() -> None:
+    """ollama provider 保持 /api/chat + options（NDJSON 不回归）。"""
+    import httpx
+
+    from earp_server.config import Settings
+    from earp_server.connector import LLMConnector
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["payload"] = request.read().decode()
+        body = (
+            '{"message":{"content":"好"}}\n'
+            '{"message":{"content":"的"}}\n'
+            '{"done":true}\n'
+        )
+        return httpx.Response(200, text=body, headers={"content-type": "application/x-ndjson"})
+
+    llm = LLMConnector(
+        Settings(),
+        model_override={"provider": "ollama", "model_name": "qwen2.5:1.5b", "base_url": "http://x:11434"},
+        transport=httpx.MockTransport(handler),
+    )
+    tokens = []
+    async for ev in llm.chat_stream("sys", [], "q", temperature=0.3, max_tokens=256):
+        tokens.append(ev.token)
+
+    assert tokens == ["好", "的"]
+    assert captured["url"] == "http://x:11434/api/chat"
+    payload = json.loads(captured["payload"])
+    assert payload["options"]["temperature"] == 0.3
+    assert payload["options"]["num_predict"] == 256

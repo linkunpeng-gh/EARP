@@ -104,15 +104,17 @@ class LLMConnector:
         settings: Settings,
         rate_limiter=None,
         model_override: dict | None = None,
+        transport=None,
     ) -> None:
         """model_override: {provider, model_name, base_url, api_key, ...} from DB model_config
-        (PRD-2026-031) — DB 优先，env 兜底。"""
+        (PRD-2026-031) — DB 优先，env 兜底。transport: httpx transport 注入（测试用 MockTransport）。"""
         self._settings = settings
         self._model_override = model_override or {}
         self._provider = self._model_override.get("provider") or "ollama"
         self._model = self._model_override.get("model_name") or settings.ollama_chat_model
         self._base_url = self._model_override.get("base_url") or settings.ollama_base_url
         self._api_key = self._model_override.get("api_key") or ""
+        self._transport = transport
         self._rate_limiter = rate_limiter
         # Phase 2: wired
         self._cache: LLMCache | None = None  # set via .cache setter
@@ -292,52 +294,82 @@ class LLMConnector:
         top_p: float = 0.9,
         max_tokens: int | None = None,
     ) -> AsyncGenerator[TokenEvent, None]:
-        """Stream tokens for a full message list from /api/chat with stream=true.
+        """Stream tokens for a full message list, provider-aware.
+
+        - ollama: POST {base_url}/api/chat（NDJSON 流，options.temperature/top_p/num_predict）
+        - openai 兼容（openai/deepseek 等）: POST {base_url}/chat/completions（SSE 流，
+          data: 前缀 + [DONE]，顶层 temperature/top_p/max_tokens + Authorization header）
 
         Uses model_override (DB model_configs, PRD-2026-031) when configured:
-        base_url/model from the override, api_key header for non-ollama providers.
-        Yields TokenEvent per token; handles Ollama NDJSON streaming.
+        base_url/model/api_key from the override. 修复：旧实现固定 Ollama 协议，
+        deepseek 等 provider 会打到 {base_url}/api/chat → 404。
         """
         from earp_server.orchestrator.types import TokenEvent
 
-        # FIX（评审已实证）：旧实现直接用 settings.ollama_base_url，忽略构造器算好的
-        # self._base_url（model_override）—— 统一改走 self._base_url
-        url = f"{self._base_url}/api/chat"
+        is_ollama = self._provider == "ollama"
+        base = self._base_url.rstrip("/")
+        url = f"{base}/api/chat" if is_ollama else f"{base}/chat/completions"
         headers = {}
-        if self._api_key and self._provider != "ollama":
+        if self._api_key and not is_ollama:
             headers["Authorization"] = f"Bearer {self._api_key}"
-        options: dict[str, Any] = {"temperature": temperature}
-        if top_p is not None:
-            options["top_p"] = top_p
-        if max_tokens:
-            options["num_predict"] = max_tokens  # Ollama num_predict = max_tokens
-        payload = {
-            "model": self._model,
-            "messages": messages,
-            "stream": True,
-            "options": options,
-        }
+
+        if is_ollama:
+            options: dict[str, Any] = {"temperature": temperature}
+            if top_p is not None:
+                options["top_p"] = top_p
+            if max_tokens:
+                options["num_predict"] = max_tokens  # Ollama num_predict = max_tokens
+            payload: dict[str, Any] = {"model": self._model, "messages": messages, "stream": True, "options": options}
+        else:
+            payload = {
+                "model": self._model,
+                "messages": messages,
+                "stream": True,
+                "temperature": temperature,
+                "top_p": top_p,
+            }
+            if max_tokens:
+                payload["max_tokens"] = max_tokens
+
         index = 0
         try:
-            async with httpx.AsyncClient(timeout=300) as client:
+            client_kw: dict[str, Any] = {"timeout": 300}
+            if self._transport is not None:
+                client_kw["transport"] = self._transport
+            async with httpx.AsyncClient(**client_kw) as client:
                 async with client.stream("POST", url, json=payload, headers=headers) as resp:
                     resp.raise_for_status()
                     async for line in resp.aiter_lines():
                         if not line:
                             continue
+                        data = line
+                        if not is_ollama:
+                            # OpenAI 兼容 SSE："data: {...}" / "data: [DONE]"
+                            if not data.startswith("data:"):
+                                continue
+                            data = data[5:].strip()
+                            if data == "[DONE]":
+                                break
                         try:
-                            chunk = json.loads(line)
+                            chunk = json.loads(data)
                         except json.JSONDecodeError:
                             continue
-                        if chunk.get("done"):
-                            break
-                        content = chunk.get("message", {}).get("content", "")
+                        if is_ollama:
+                            if chunk.get("done"):
+                                break
+                            content = chunk.get("message", {}).get("content", "")
+                        else:
+                            choices = chunk.get("choices") or []
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta") or {}
+                            content = delta.get("content", "")
                         if content:
                             yield TokenEvent(token=content, index=index)
                             index += 1
         except httpx.HTTPError as exc:
-            logger.error("LLMConnector.stream: Ollama streaming failed: %s", exc)
-            raise ConnectorError(f"Ollama streaming failed: {exc}") from exc
+            logger.error("LLMConnector.stream: streaming failed (provider=%s url=%s): %s", self._provider, url, exc)
+            raise ConnectorError(f"LLM streaming failed ({self._provider}): {exc}") from exc
 
     async def stream(self, prompt: str, *, system: str = "") -> AsyncGenerator[TokenEvent, None]:
         """Stream tokens from Ollama /api/chat with stream=true.
