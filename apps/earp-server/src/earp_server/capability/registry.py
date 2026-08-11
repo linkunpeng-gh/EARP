@@ -29,6 +29,26 @@ _DEMO_CAPABILITY = {
     "version": "1.0.0",
 }
 
+# Standard Data Domains — aligned with the admin UI hardcoded options
+# (knowledge.html / data-domains.html), planner business dictionary and
+# ontology TBox seeds. Seeded per-tenant by seed_demo_tenant().
+_STANDARD_DATA_DOMAINS: tuple[tuple[str, str], ...] = (
+    ("equipment_data", "设备数据"),
+    ("hr_data", "人事数据"),
+    ("corporate_data", "企业数据"),
+    ("production_data", "生产数据"),
+    ("supply_chain_data", "供应链数据"),
+    ("quality_data", "质量数据"),
+)
+
+# Demo role with permissions matching the Business Dictionary capabilities.
+_DEMO_ROLE = {
+    "role_id": "r1",
+    "name": "Admin",
+    "permissions": ["demo.echo", "query.users", "create.alarm", "query.alarms"],
+    "data_scope": "all",
+}
+
 
 async def register_demo(engine: AsyncEngine, tenant_id: str) -> None:
     async with engine.connect() as conn:
@@ -42,6 +62,65 @@ async def register_demo(engine: AsyncEngine, tenant_id: str) -> None:
             f"ON CONFLICT (capability_id) DO NOTHING"
         )
         await conn.commit()
+
+
+async def seed_demo_tenant(engine: AsyncEngine, tenant_id: str) -> None:
+    """Seed the demo tenant baseline: tenant, user, role, data domains, demo capability.
+
+    Idempotent (ON CONFLICT DO NOTHING) — safe to call at every startup.
+    Fixes dev debugging blockers:
+      - invoke 403: PolicyLayer found no role permissions (roles table empty)
+      - create KB 500: data_domains missing standard domain ids (FK violation)
+      - create conversation 500: conversations.user_id FK -> users table empty
+    """
+    async with engine.connect() as conn:
+        # tenants has no RLS (top-level table)
+        await conn.execute(
+            text(
+                "INSERT INTO tenants (tenant_id, name, status) VALUES (:tid, :name, 'active') "
+                "ON CONFLICT (tenant_id) DO NOTHING"
+            ),
+            {"tid": tenant_id, "name": "Demo Tenant"},
+        )
+        # users / roles / data_domains / business_capabilities are RLS-scoped
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        await conn.execute(
+            text(
+                "INSERT INTO users (user_id, tenant_id, name, email) "
+                "VALUES (:uid, :tid, 'Admin', 'admin@demo.local') "
+                "ON CONFLICT (user_id) DO NOTHING"
+            ),
+            {"uid": "u1", "tid": tenant_id},
+        )
+        # Admin role gets domain-wide access: seed data_domain_access with all
+        # active domains of this tenant (empty = no domain access, fail-closed).
+        dd_rows = await conn.execute(
+            text("SELECT data_domain_id FROM data_domains WHERE tenant_id = :tid AND status = 'active'"),
+            {"tid": tenant_id},
+        )
+        all_dd_access = [{"data_domain_id": r.data_domain_id} for r in dd_rows.fetchall()]
+        await conn.execute(
+            text(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
+                "VALUES (:rid, :tid, :name, :perms, :scope, :ddacc) "
+                "ON CONFLICT (role_id) DO NOTHING"
+            ),
+            {
+                "rid": _DEMO_ROLE["role_id"],
+                "tid": tenant_id,
+                "name": _DEMO_ROLE["name"],
+                "perms": _DEMO_ROLE["permissions"],
+                "scope": _DEMO_ROLE["data_scope"],
+                "ddacc": json.dumps(all_dd_access),
+            },
+        )
+        for dd_id, dd_name in _STANDARD_DATA_DOMAINS:
+            # NOTE: standard data domains are NOT auto-seeded anymore — they were
+            # dev scaffolding that polluted real tenants. Tenants create their own
+            # data domains via the UI. Kept as a no-op loop for backwards clarity.
+            pass
+        await conn.commit()
+    await register_demo(engine, tenant_id)
 
 
 async def list_for_planning(engine: AsyncEngine, tenant_id: str) -> list[dict[str, Any]]:

@@ -48,6 +48,13 @@ class IntentMatch:
     confidence: float = 1.0  # exact match = 1.0; M4+ supports fuzzy
 
 
+# ── Data Domain keyword routing ───────────────────────────────────────────────
+# planner-spec v1.1 §5.1.2 (PRD-2026-023 #1): Rule-based Data Domain routing.
+# The keyword table + match_data_domains now live in the knowledge domain
+# (knowledge/routing.py, 2026-08-09 会话决策 D-13) — data-domain vocabulary is
+# knowledge-domain knowledge; planner imports from there.
+
+
 class RuleIntentPlanner:
     """Resolve user intent to a capability call via Business Dictionary exact match."""
 

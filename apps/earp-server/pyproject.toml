@@ -19,6 +19,10 @@ dependencies = [
     "httpx>=0.27",
     "langchain-text-splitters>=1.1.2",
     "langfuse>=3.0",
+    "cryptography>=50.0.0",
+    "python-docx>=1.2.0",
+    "pypdf>=6.15.0",
+    "python-multipart>=0.0.32",
 ]
 
 [dependency-groups]
@@ -46,6 +50,8 @@ src = ["src", "tests", "spikes"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "ASYNC"]
+# B008: FastAPI idiom — File()/Form()/Depends() in argument defaults
+ignore = ["B008"]
 
 [tool.pyright]
 include = ["src"]
@@ -106,4 +112,5 @@ ignore_imports = [
     "earp_server.orchestrator.step_runner -> earp_server.connector",
     "earp_server.connector -> earp_server.planner.business_dictionary",
     "earp_server.connector -> earp_server.orchestrator.types",
+    "earp_server.planner.service -> earp_server.knowledge.routing",  # D-13: keyword table lives in knowledge domain
 ]

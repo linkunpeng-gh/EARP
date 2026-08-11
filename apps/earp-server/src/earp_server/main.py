@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import pathlib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from earp_server.admin.model_routes import router as model_routes_router
 from earp_server.audit.consumer import audit_handler_factory
-from earp_server.capability.registry import TokenBucketRateLimiter, discover, list_for_planning, register_demo
+from earp_server.capability.registry import TokenBucketRateLimiter, discover, list_for_planning, seed_demo_tenant
 from earp_server.config import Settings
 from earp_server.connector import LLMConnector
 from earp_server.conversation.conversation_service import (
@@ -21,17 +26,39 @@ from earp_server.conversation.conversation_service import (
     create_conversation,
     get_messages,
 )
-from earp_server.gateway.auth import JWTMiddleware
+from earp_server.gateway.auth import JWTMiddleware, create_token
 from earp_server.gateway.input_guard import sanitize_body
 from earp_server.infra.db import build_engine, check_db
 from earp_server.infra.eventbus import EventBus
 from earp_server.infra.ext import init_all
 from earp_server.infra.redis_eventbus import RedisStreamsEventBus
-from earp_server.knowledge.chunk_service import create_chunks
-from earp_server.knowledge.document_service import create_document
+from earp_server.knowledge.admin_service import (
+    DataDomainInUseError,
+    create_data_domain,
+    create_kb,
+    delete_data_domain,
+    delete_document,
+    delete_kb,
+    get_document_detail,
+    list_data_domains,
+    list_documents,
+    list_kbs,
+    reindex_document,
+    reindex_kb,
+    save_document_process_rule,
+    update_data_domain,
+    update_document_classification,
+    update_document_status,
+    update_kb,
+    update_kb_retrieval,
+)
+from earp_server.knowledge.chunk_service import build_preview, create_chunks, suggest_separators
+from earp_server.knowledge.document_service import create_document, find_duplicate, update_document_metadata
 from earp_server.knowledge.embedding_service import embed_chunks, embed_query
-from earp_server.knowledge.record_manager import cleanup_old_chunks, is_unchanged
+from earp_server.knowledge.file_parser import FileParseError, extract_text
+from earp_server.knowledge.routing import build_routing_index, route_debug, route_query
 from earp_server.knowledge.search_service import search_chunks
+from earp_server.ontology.routes import router as ontology_router
 from earp_server.planner.task_planner import SimpleTaskPlanner
 from earp_server.runtime.invoke import router as invoke_router
 from earp_server.runtime.session_service import close_session, create_session, get_session, list_sessions
@@ -50,11 +77,169 @@ class DocUpload(BaseModel):
     knowledge_base_id: str
     content: str
     title: str = ""
+    data_classification: str = "internal"
+    metadata: dict | None = None  # manual doc metadata (validated vs KB schema)
 
 
 class SearchQuery(BaseModel):
     query: str
     top_k: int = 5
+    knowledge_base_ids: list[str] | None = None
+    data_domain_ids: list[str] | None = None
+    threshold: float | None = None  # minimum cosine similarity (0..1)
+    mode: str = "vector"  # vector | hybrid
+    metadata_filters: dict | None = None  # JSONB containment on documents.metadata
+
+
+class MetadataUpdate(BaseModel):
+    metadata: dict
+
+
+class RoutingDebugRequest(BaseModel):
+    query: str
+    top_n: int = 3  # candidate DDs
+    top_k: int = 3  # candidate KBs
+
+
+class RoutingRebuildRequest(BaseModel):
+    data_domain_ids: list[str] | None = None  # None = all domains
+    knowledge_base_ids: list[str] | None = None
+
+
+class RoutingSuggestRequest(BaseModel):
+    data_domain_id: str
+
+
+async def _llm_suggest(engine, tenant_id: str, settings: Settings, prompt: str) -> str:
+    """AI-assist draft via the DB-configured default LLM (PRD-2026-031, env fallback).
+    Supports ollama (/api/chat) and openai (/chat/completions). Returns the
+    parsed JSON "description" field. 2026-08-09 C 决策: DB 模型优先。
+    """
+    import httpx
+
+    llm_cfg: dict = {}
+    try:
+        from earp_server.admin import model_service as _ms
+
+        llm_cfg = (await _ms.load_runtime_models(engine, tenant_id)).get("llm") or {}
+    except Exception:
+        logger.warning("_llm_suggest: load_runtime_models failed — env defaults", exc_info=True)
+    provider = llm_cfg.get("provider") or "ollama"
+    model_name = llm_cfg.get("model_name") or settings.ollama_chat_model
+    base_url = (llm_cfg.get("base_url") or settings.ollama_base_url).rstrip("/")
+    api_key = llm_cfg.get("api_key") or ""
+    system = "你是企业知识库的领域描述撰写助手。根据输入输出简洁准确的检索描述。"
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            if provider == "openai":
+                resp = await client.post(
+                    f"{base_url}/chat/completions",
+                    json={
+                        "model": model_name,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "response_format": {"type": "json_object"},
+                        "temperature": 0.3,
+                    },
+                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                )
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"]
+            else:  # ollama
+                resp = await client.post(
+                    f"{base_url}/api/chat",
+                    json={
+                        "model": model_name,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "format": "json",
+                        "stream": False,
+                        "options": {"temperature": 0.3},
+                    },
+                )
+                resp.raise_for_status()
+                content = resp.json()["message"]["content"]
+        return json.loads(content).get("description", "")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LLM 生成失败({provider}/{model_name}): {exc}") from exc
+
+
+class KBCreate(BaseModel):
+    name: str
+    data_domain_id: str | None = None
+    description: str | None = None
+    retrieval_model: dict | None = None  # {segmentation:{separator,max_tokens,chunk_overlap},
+    #  mode, top_k, score_threshold, model}
+    indexing_technique: str = "high_quality"  # high_quality | economy
+    metadata_schema: list[dict] | None = None  # [{"key":"department","type":"string",...}]
+    summary_text: str | None = None  # KB 检索摘要（空=自动聚合，非空=人工覆盖）
+
+
+class DocClassUpdate(BaseModel):
+    data_classification: str
+
+
+class DocStatusUpdate(BaseModel):
+    status: str  # active | disabled
+
+
+class DocProcessRule(BaseModel):
+    rules: dict  # {segmentation: {...}, pre_processing_rules: [...]}
+
+
+class ChunkPreviewRequest(BaseModel):
+    content: str
+    max_tokens: int = 1000
+    chunk_overlap: int = 200
+    separator: str = "\n\n"  # legacy single separator
+    separators: list[str] | None = None  # priority-ordered list (takes precedence)
+    remove_extra_spaces: bool = True
+
+
+class DocPreviewRequest(BaseModel):
+    """Doc preview: content is read server-side from the document row."""
+
+    max_tokens: int = 1000
+    chunk_overlap: int = 200
+    separator: str = "\n\n"
+    separators: list[str] | None = None
+    remove_extra_spaces: bool = True
+
+
+class KBRetrievalUpdate(BaseModel):
+    retrieval_model: dict | None = None
+    indexing_technique: str | None = None
+
+
+class KBUpdate(BaseModel):
+    """KB basic attributes edit."""
+
+    name: str | None = None
+    data_domain_id: str | None = None
+    description: str | None = None
+    indexing_technique: str | None = None
+    metadata_schema: list[dict] | None = None
+    summary_text: str | None = None
+
+
+class DataDomainUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    data_classification: str | None = None
+    owner: str | None = None
+    routing_description: str | None = None  # retrieval description (empty = auto)
+
+
+class DataDomainCreate(BaseModel):
+    data_domain_id: str
+    name: str
+    data_classification: str = "internal"
+    description: str | None = None
+    owner: str | None = None
 
 
 class ConvCreate(BaseModel):
@@ -64,6 +249,12 @@ class ConvCreate(BaseModel):
 class MsgAdd(BaseModel):
     role: str
     content: str
+
+
+class LoginRequest(BaseModel):
+    tenant_id: str
+    user_id: str
+    role_id: str
 
 
 class StreamRequest(BaseModel):
@@ -87,6 +278,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.rate_limiter = TokenBucketRateLimiter(rps=100)
         # Phase 2: LLM cache + structured output via Ollama
         llm_connector = LLMConnector(cfg, rate_limiter=app.state.rate_limiter)
+        # PRD-2026-031: DB-configured models take priority (env fallback inside connector)
+        try:
+            from earp_server.admin import model_service as _ms
+            from earp_server.infra.ext.ext_embedding import init_embedding_provider as _reinit_emb
+
+            runtime_models = await _ms.load_runtime_models(app.state.engine, "tenant-demo")
+            llm_config = runtime_models.get("llm")
+            if llm_config:
+                llm_connector = LLMConnector(cfg, rate_limiter=app.state.rate_limiter, model_override=llm_config)
+            emb = runtime_models.get("embedding")
+            if emb:
+                if emb["provider"] == "ollama":
+                    _reinit_emb(provider="ollama", ollama_base_url=emb.get("base_url"), ollama_model=emb["model_name"])
+                elif emb["provider"] == "openai":
+                    _reinit_emb(
+                        provider="openai",
+                        openai_api_key=emb.get("api_key"),
+                        openai_model=emb["model_name"],
+                        openai_base_url=emb.get("base_url") or "https://api.openai.com/v1",
+                    )
+        except Exception:
+            logger.warning("load_runtime_models failed — using env defaults", exc_info=True)
         from earp_server.infra.llm_cache import LLMCache
 
         llm_cache = LLMCache(ttl=cfg.llm_cache_ttl)
@@ -103,22 +316,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
         if cfg.app_env in ("dev", "test"):
             try:
-                await register_demo(app.state.engine, "tenant-demo")
-                # test mode: also register an empty-perms version for e2e tests
-                if cfg.app_env == "test":
-                    async with app.state.engine.connect() as conn:
-                        await conn.exec_driver_sql("SET LOCAL earp.tenant_id = 'tenant-demo'")
-                        await conn.exec_driver_sql(
-                            "INSERT INTO business_capabilities "
-                            "(capability_id, tenant_id, domain, name, type, "
-                            "input_schema, output_schema, required_permissions, version) "
-                            "VALUES ('cap-demo-echo', 'tenant-demo', 'demo', 'echo', 'query', "
-                            "'{}', '{}', '{}', '1.0.0') "
-                            "ON CONFLICT (capability_id) DO UPDATE SET required_permissions = '{}'"
-                        )
-                        await conn.commit()
+                # Seed demo tenant baseline: tenant/user/role/data-domains/capability.
+                # Fixes dev blockers: invoke 403 (empty roles), KB create 500 (missing
+                # data domains FK), conversation create 500 (empty users).
+                await seed_demo_tenant(app.state.engine, "tenant-demo")
             except Exception:
-                logger.warning("register_demo failed, continuing")
+                logger.warning("seed_demo_tenant failed, continuing")
         try:
             yield
         finally:
@@ -126,11 +329,77 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await app.state.engine.dispose()
 
     app = FastAPI(title=APP_TITLE, version=APP_VERSION, lifespan=lifespan)
+    # CORS must be added AFTER JWTMiddleware so it wraps it (Starlette LIFO) and
+    # handles preflight OPTIONS before JWT auth — otherwise cross-origin admin
+    # dashboard calls fail with "Failed to fetch" (no Access-Control-Allow-* headers).
+    # Dev/test: allow all origins. Prod: restrict via env (EARP_CORS_ORIGINS).
     app.add_middleware(JWTMiddleware)
+    _cors_origins = [o.strip() for o in cfg.cors_origins.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins if _cors_origins else ["*"],
+        allow_credentials=bool(_cors_origins),  # wildcard + credentials is illegal per CORS spec
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Admin dashboard static hosting (同源，apiBase='/' 直达 API)
+    _admin_dir = pathlib.Path(__file__).resolve().parents[3] / "earp-admin"
+    if _admin_dir.exists():
+        app.mount("/admin", StaticFiles(directory=str(_admin_dir), html=True), name="admin")
+
+    @app.middleware("http")
+    async def no_cache_admin_html(request: Request, call_next):
+        """Don't cache ANY admin static asset (HTML/CSS/JS) — dev pages change
+        frequently; stale caches caused users to see old layouts (KB list issues).
+        Dev only; prod should serve assets with proper caching."""
+        response = await call_next(request)
+        if request.url.path.startswith("/admin"):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
 
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # ── Dev/test login: issues a JWT for the admin dashboard ──
+    @app.post("/auth/login", tags=["auth"])
+    async def auth_login(req_body: LoginRequest, req: Request) -> dict[str, Any]:
+        """Dev/test convenience: tenant/user/role -> JWT. Disabled in prod.
+
+        Validates the identities exist (RLS-scoped for user/role) so the issued
+        token is guaranteed usable — a token with an unknown role_id would fail
+        PolicyLayer with a confusing 403 later.
+        """
+        from sqlalchemy import text
+
+        cfg = req.app.state.settings
+        if cfg.app_env == "prod":
+            raise HTTPException(status_code=404, detail="dev login endpoint disabled in prod")
+        engine = req.app.state.engine
+
+        async with engine.connect() as conn:
+            t = await conn.execute(text("SELECT 1 FROM tenants WHERE tenant_id = :tid"), {"tid": req_body.tenant_id})
+            if t.fetchone() is None:
+                raise HTTPException(status_code=404, detail=f"Tenant not found: {req_body.tenant_id}")
+        async with engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{req_body.tenant_id}'"))
+            r = await conn.execute(text("SELECT 1 FROM roles WHERE role_id = :rid"), {"rid": req_body.role_id})
+            if r.fetchone() is None:
+                raise HTTPException(status_code=404, detail=f"Role not found: {req_body.role_id}")
+            u = await conn.execute(text("SELECT 1 FROM users WHERE user_id = :uid"), {"uid": req_body.user_id})
+            if u.fetchone() is None:
+                raise HTTPException(status_code=404, detail=f"User not found: {req_body.user_id}")
+
+        token = create_token(sub=req_body.user_id, tenant_id=req_body.tenant_id, role_id=req_body.role_id)
+        return {
+            "token": token,
+            "token_type": "bearer",
+            "expires_in": 7 * 24 * 3600,
+            "tenant_id": req_body.tenant_id,
+            "user_id": req_body.user_id,
+            "role_id": req_body.role_id,
+        }
 
     @app.get("/ready")
     async def ready() -> Any:
@@ -183,11 +452,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"items": [i.model_dump() for i in items], "total": total, "page": page, "page_size": page_size}
 
     app.include_router(invoke_router)
+    app.include_router(ontology_router)
+    app.include_router(model_routes_router)
 
     # ── Capability Registry ──
     @app.post("/capabilities", status_code=201, tags=["capabilities"])
     async def register_capability_endpoint(req: Request) -> dict[str, str]:
-        await register_demo(req.app.state.engine, req.state.tenant_id)
+        await seed_demo_tenant(req.app.state.engine, req.state.tenant_id)
         return {"capability_id": "cap-demo-echo", "status": "registered"}
 
     @app.get("/capabilities", tags=["capabilities"])
@@ -207,6 +478,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         planner = req.app.state.planner
         # Phase 3 (M11): inject real capabilities into LLM system prompt
         caps = await list_for_planning(req.app.state.engine, req.state.tenant_id)
+        # M2 (PRD-2026-030): entity-aware candidate narrowing — intent 命中实体时收窄候选集
+        try:
+            from earp_server.ontology.search import resolve_with_entities
+
+            narrowed = await resolve_with_entities(req.app.state.engine, req.state.tenant_id, req_body.intent)
+            if narrowed:
+                nids = {c["capability_id"] for c in narrowed}
+                narrowed_caps = [c for c in caps if c["capability_id"] in nids]
+                if narrowed_caps:
+                    caps = narrowed_caps
+        except Exception:
+            pass  # 实体识别失败不阻塞规划（planner-spec §5.1.5 MUST NOT block）
         try:
             steps = await planner.plan(req_body.intent, capabilities=caps)
         except Exception as e:
@@ -220,32 +503,469 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return RuleIntentPlanner().list_intents()
 
     # ── Knowledge Base ──
+    async def _index_document(
+        engine, tenant_id: str, kb_id: str, content: str, title: str, classification: str, metadata: dict | None = None
+    ) -> dict[str, Any]:
+        """Shared ingestion: dedup → create doc → chunk (KB config) → embed.
+
+        After embedding, rebuilds the owning KB's summary embedding (doc titles
+        are part of the KB summary text) — routing write-time cascade (C-8).
+        """
+        from sqlalchemy import text as _text
+
+        content_hash = hashlib.md5(content.encode()).hexdigest()
+        dup = await find_duplicate(engine, tenant_id, kb_id, content_hash)
+        if dup:
+            return {"document_id": dup, "status": "unchanged", "chunks": 0}
+        doc = await create_document(engine, tenant_id, kb_id, content, title, classification, metadata=metadata)
+        # chunking params come from the KB's retrieval_model config (per-KB),
+        # falling back to global defaults when the KB has no config.
+        chunk_rules: dict | None = None
+        async with engine.connect() as conn:
+            await conn.execute(_text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+            row = await conn.execute(
+                _text("SELECT retrieval_model FROM knowledge_bases WHERE knowledge_base_id = :kid"),
+                {"kid": kb_id},
+            )
+            r = row.fetchone()
+            if r and r.retrieval_model and r.retrieval_model.get("segmentation"):
+                chunk_rules = {"segmentation": r.retrieval_model["segmentation"]}
+        chunk_ids = await create_chunks(engine, tenant_id, doc["document_id"], content, rules=chunk_rules)
+        await embed_chunks(engine, tenant_id, chunk_ids)
+        await build_routing_index(engine, tenant_id, kb_ids=[kb_id])
+        return {"document_id": doc["document_id"], "status": "indexed", "chunks": len(chunk_ids)}
+
     @app.post("/knowledge/documents", status_code=201, tags=["knowledge"])
     async def upload_document(req_body: DocUpload, req: Request) -> dict[str, Any]:
-        engine = req.app.state.engine
-        tenant_id = req.state.tenant_id
-        doc = await create_document(engine, tenant_id, req_body.knowledge_base_id, req_body.content, req_body.title)
-        if await is_unchanged(engine, tenant_id, doc["document_id"], doc["content_hash"]):
-            return {"document_id": doc["document_id"], "status": "unchanged", "chunks": 0}
-        await cleanup_old_chunks(engine, tenant_id, doc["document_id"])
-        chunk_ids = await create_chunks(engine, tenant_id, doc["document_id"], req_body.content, doc["content_hash"])
-        await embed_chunks(engine, tenant_id, chunk_ids)
-        return {"document_id": doc["document_id"], "status": "indexed", "chunks": len(chunk_ids)}
+        return await _index_document(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req_body.knowledge_base_id,
+            req_body.content,
+            req_body.title,
+            req_body.data_classification,
+            metadata=req_body.metadata,
+        )
+
+    @app.post("/knowledge/documents/upload", status_code=201, tags=["knowledge"])
+    async def upload_document_file(
+        req: Request,
+        file: UploadFile = File(...),
+        knowledge_base_id: str = Form(...),
+        data_classification: str = Form("internal"),
+        metadata: str = Form("{}"),  # JSON string of manual doc metadata
+    ) -> dict[str, Any]:
+        """Multipart upload: .docx / .pdf / txt / md / csv / json / html."""
+        try:
+            meta = json.loads(metadata) if metadata.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"metadata 必须是 JSON 字符串: {exc}") from exc
+        data = await file.read()
+        try:
+            content = extract_text(file.filename or "", data)
+        except FileParseError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await _index_document(
+            req.app.state.engine,
+            req.state.tenant_id,
+            knowledge_base_id,
+            content,
+            file.filename or "",
+            data_classification,
+            metadata=meta,
+        )
 
     @app.post("/knowledge/search", tags=["knowledge"])
     async def search_knowledge(req_body: SearchQuery, req: Request) -> list[dict[str, Any]]:
+        """Chunk search. No explicit KB/DD scope → soft-routing across the whole
+        tenant (enterprise-retrieval design §3/§6, decision B-6): route_query
+        produces candidate KBs (permission-filtered), then chunk recall happens
+        inside those KBs. Explicit scope keeps current in-scope semantics.
+        """
         engine = req.app.state.engine
         bus = req.app.state.eventbus
         q_emb = await embed_query(req_body.query)
+        kb_ids = req_body.knowledge_base_ids
+        if kb_ids is None and req_body.data_domain_ids is None:
+            routed = await route_query(
+                engine, req.state.tenant_id, req_body.query, q_emb, req.state.role_id
+            )
+            cand = [kb["knowledge_base_id"] for kb in routed["candidate_kbs"]]
+            kb_ids = cand or None  # empty candidates → whole-tenant fallback
+            logger.info(
+                "search soft-routing: query=%r candidate_kbs=%s fallback=%s → chunk search limited to those KBs",
+                req_body.query,
+                cand,
+                routed["fallback_used"],
+            )
         return await search_chunks(
             engine,
             req.state.tenant_id,
             q_emb,
             req.state.role_id,
             req_body.top_k,
-            bus,
+            eventbus=bus,
             embedding_dim=req.app.state.settings.embedding_dim,
+            knowledge_base_ids=kb_ids,
+            data_domain_ids=req_body.data_domain_ids,
+            threshold=req_body.threshold,
+            query_text=req_body.query,
+            mode=req_body.mode,
+            metadata_filters=req_body.metadata_filters,
         )
+
+    # ── Routing: debug view + index rebuild (enterprise-retrieval Phase 1) ──
+    @app.post("/knowledge/routing/debug", tags=["knowledge"])
+    async def routing_debug_endpoint(req_body: RoutingDebugRequest, req: Request) -> dict[str, Any]:
+        """Routing debug view: DD keyword/vector lanes → candidate DDs (permitted)
+        → candidate KBs, plus description coverage + freshness for every domain.
+        """
+        q_emb = await embed_query(req_body.query)
+        return await route_debug(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req_body.query,
+            q_emb,
+            req.state.role_id,
+            req_body.top_n,
+            req_body.top_k,
+        )
+
+    @app.post("/knowledge/routing/rebuild", tags=["knowledge"])
+    async def routing_rebuild_endpoint(req_body: RoutingRebuildRequest, req: Request) -> dict[str, Any]:
+        """Manually rebuild routing embeddings (None = all domains/KBs).
+        Idempotent: unchanged aggregate texts are skipped (hash check).
+        """
+        stats = await build_routing_index(
+            req.app.state.engine,
+            req.state.tenant_id,
+            dd_ids=req_body.data_domain_ids,
+            kb_ids=req_body.knowledge_base_ids,
+        )
+        return stats
+
+    # ── Doc-level metadata editing (enterprise-retrieval design §4, C-9) ──
+    @app.patch("/knowledge/documents/{doc_id}/metadata", tags=["knowledge"])
+    async def update_doc_metadata_endpoint(doc_id: str, req_body: MetadataUpdate, req: Request) -> dict[str, Any]:
+        """Edit a document's manual metadata (schema-validated, auto fields rejected)."""
+        try:
+            updated = await update_document_metadata(
+                req.app.state.engine, req.state.tenant_id, doc_id, req_body.metadata
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if updated is None:
+            raise HTTPException(status_code=404, detail="document not found")
+        return {"document_id": doc_id, "metadata": updated}
+
+    # ── Chunking preview (no persistence — test chunking params before upload) ──
+    @app.post("/knowledge/chunks/preview", tags=["knowledge"])
+    async def preview_chunks(req_body: ChunkPreviewRequest, req: Request) -> dict[str, Any]:
+        rules = {
+            "pre_processing_rules": [
+                {"id": "remove_extra_spaces", "enabled": req_body.remove_extra_spaces},
+            ],
+            "segmentation": {
+                "separator": req_body.separator,
+                "separators": req_body.separators,
+                "max_tokens": req_body.max_tokens,
+                "chunk_overlap": req_body.chunk_overlap,
+            },
+        }
+        preview = build_preview(req_body.content, rules)
+        return {"chunks": preview, "total": len(preview)}
+
+    # ── Knowledge Admin (PRD-2026-028 §6.5/§6.6) ──
+    @app.post("/knowledge/bases", status_code=201, tags=["knowledge"])
+    async def create_kb_endpoint(req_body: KBCreate, req: Request) -> dict[str, Any]:
+        return await create_kb(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req_body.name,
+            req_body.data_domain_id,
+            req_body.description,
+            retrieval_model=req_body.retrieval_model,
+            indexing_technique=req_body.indexing_technique,
+            metadata_schema=req_body.metadata_schema,
+            summary_text=req_body.summary_text,
+        )
+
+    @app.get("/knowledge/bases", tags=["knowledge"])
+    async def list_kbs_endpoint(req: Request, data_domain_id: str | None = None) -> list[dict[str, Any]]:
+        return await list_kbs(req.app.state.engine, req.state.tenant_id, data_domain_id)
+
+    @app.delete("/knowledge/bases/{kb_id}", status_code=204, tags=["knowledge"])
+    async def delete_kb_endpoint(kb_id: str, req: Request) -> None:
+        deleted = await delete_kb(req.app.state.engine, req.state.tenant_id, kb_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="KB not found")
+
+    @app.patch("/knowledge/bases/{kb_id}", tags=["knowledge"])
+    async def update_kb_endpoint(kb_id: str, req_body: KBUpdate, req: Request) -> dict[str, Any]:
+        """Edit KB basic attributes (name / data domain / description / indexing)."""
+        try:
+            updated = await update_kb(
+                req.app.state.engine,
+                req.state.tenant_id,
+                kb_id,
+                name=req_body.name,
+                data_domain_id=req_body.data_domain_id,
+                description=req_body.description,
+                indexing_technique=req_body.indexing_technique,
+                metadata_schema=req_body.metadata_schema,
+                summary_text=req_body.summary_text,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if updated is None:
+            raise HTTPException(status_code=404, detail="KB not found")
+        return updated
+
+    @app.patch("/knowledge/bases/{kb_id}/retrieval", tags=["knowledge"])
+    async def update_kb_retrieval_endpoint(kb_id: str, req_body: KBRetrievalUpdate, req: Request) -> dict[str, Any]:
+        """Save per-KB retrieval/chunking config (used by Test Retrieval '保存到KB')."""
+        updated = await update_kb_retrieval(
+            req.app.state.engine,
+            req.state.tenant_id,
+            kb_id,
+            req_body.retrieval_model,
+            req_body.indexing_technique,
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="KB not found")
+        return updated
+
+    @app.post("/knowledge/bases/{kb_id}/reindex", tags=["knowledge"])
+    async def reindex_kb_endpoint(kb_id: str, req: Request) -> dict[str, Any]:
+        """Re-chunk + re-embed all documents of a KB using its saved chunking config."""
+        stats = await reindex_kb(req.app.state.engine, req.state.tenant_id, kb_id)
+        if stats is None:
+            raise HTTPException(status_code=404, detail="KB not found")
+        return stats
+
+    @app.get("/knowledge/bases/{kb_id}/documents", tags=["knowledge"])
+    async def list_documents_endpoint(kb_id: str, req: Request) -> list[dict[str, Any]]:
+        return await list_documents(req.app.state.engine, req.state.tenant_id, kb_id)
+
+    @app.patch("/knowledge/documents/{doc_id}", tags=["knowledge"])
+    async def update_doc_class_endpoint(doc_id: str, req_body: DocClassUpdate, req: Request) -> dict[str, Any]:
+        updated = await update_document_classification(
+            req.app.state.engine, req.state.tenant_id, doc_id, req_body.data_classification
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return updated
+
+    @app.get("/knowledge/documents/{doc_id}", tags=["knowledge"])
+    async def get_doc_detail_endpoint(doc_id: str, req: Request) -> dict[str, Any]:
+        detail = await get_document_detail(req.app.state.engine, req.state.tenant_id, doc_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return detail
+
+    @app.patch("/knowledge/documents/{doc_id}/status", tags=["knowledge"])
+    async def update_doc_status_endpoint(doc_id: str, req_body: DocStatusUpdate, req: Request) -> dict[str, Any]:
+        if req_body.status not in ("active", "disabled"):
+            raise HTTPException(status_code=400, detail="status must be active|disabled")
+        updated = await update_document_status(
+            req.app.state.engine, req.state.tenant_id, doc_id, req_body.status
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return updated
+
+    @app.put("/knowledge/documents/{doc_id}/process-rule", tags=["knowledge"])
+    async def save_doc_process_rule_endpoint(doc_id: str, req_body: DocProcessRule, req: Request) -> dict[str, Any]:
+        saved = await save_document_process_rule(
+            req.app.state.engine, req.state.tenant_id, doc_id, req_body.rules
+        )
+        if saved is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return saved
+
+    @app.post("/knowledge/documents/{doc_id}/suggest-separators", tags=["knowledge"])
+    async def suggest_doc_separators(doc_id: str, req: Request) -> dict[str, Any]:
+        """Analyze the document's structure and suggest a priority-ordered separator list."""
+        from sqlalchemy import text as _text
+
+        engine = req.app.state.engine
+        async with engine.connect() as conn:
+            await conn.execute(_text(f"SET LOCAL earp.tenant_id = '{req.state.tenant_id}'"))
+            row = await conn.execute(_text("SELECT content FROM documents WHERE document_id = :did"), {"did": doc_id})
+            r = row.fetchone()
+            if r is None:
+                raise HTTPException(status_code=404, detail="Document not found")
+            content = r.content or ""
+        seps = suggest_separators(content)
+        return {
+            "document_id": doc_id,
+            "separators": seps,
+            "display": [s.replace("\n", "\\n") for s in seps],
+        }
+
+    @app.post("/knowledge/documents/{doc_id}/preview", tags=["knowledge"])
+    async def preview_doc_chunks(doc_id: str, req_body: DocPreviewRequest, req: Request) -> dict[str, Any]:
+        """Preview chunking for ONE document's content with the given params."""
+        from sqlalchemy import text as _text
+
+        engine = req.app.state.engine
+        async with engine.connect() as conn:
+            await conn.execute(_text(f"SET LOCAL earp.tenant_id = '{req.state.tenant_id}'"))
+            row = await conn.execute(_text("SELECT content FROM documents WHERE document_id = :did"), {"did": doc_id})
+            r = row.fetchone()
+            if r is None:
+                raise HTTPException(status_code=404, detail="Document not found")
+            content = r.content or ""
+        rules = {
+            "pre_processing_rules": [
+                {"id": "remove_extra_spaces", "enabled": req_body.remove_extra_spaces},
+            ],
+            "segmentation": {
+                "separator": req_body.separator,
+                "separators": req_body.separators,
+                "max_tokens": req_body.max_tokens,
+                "chunk_overlap": req_body.chunk_overlap,
+            },
+        }
+        preview = build_preview(content, rules)
+        return {"document_id": doc_id, "chunks": preview, "total": len(preview)}
+
+    @app.post("/knowledge/documents/{doc_id}/reindex", tags=["knowledge"])
+    async def reindex_doc_endpoint(doc_id: str, req: Request) -> dict[str, Any]:
+        """Re-chunk + re-embed ONE document (uses its saved rule, fallback KB config)."""
+        stats = await reindex_document(req.app.state.engine, req.state.tenant_id, doc_id)
+        if stats is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return stats
+
+    @app.delete("/knowledge/documents/{doc_id}", status_code=204, tags=["knowledge"])
+    async def delete_doc_endpoint(doc_id: str, req: Request) -> None:
+        deleted = await delete_document(req.app.state.engine, req.state.tenant_id, doc_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+    # ── Data Domains Admin (PRD-2026-028 §6.6) ──
+    @app.get("/api/data-domains", tags=["knowledge"])
+    async def list_data_domains_endpoint(req: Request) -> list[dict[str, Any]]:
+        return await list_data_domains(req.app.state.engine, req.state.tenant_id)
+
+    @app.post("/api/data-domains", status_code=201, tags=["knowledge"])
+    async def create_data_domain_endpoint(req_body: DataDomainCreate, req: Request) -> dict[str, Any]:
+        return await create_data_domain(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req_body.data_domain_id,
+            req_body.name,
+            req_body.data_classification,
+            req_body.description,
+            req_body.owner,
+        )
+
+    @app.delete("/api/data-domains/{data_domain_id}", status_code=200, tags=["knowledge"])
+    async def delete_data_domain_endpoint(data_domain_id: str, req: Request) -> dict[str, Any]:
+        try:
+            return await delete_data_domain(req.app.state.engine, req.state.tenant_id, data_domain_id)
+        except DataDomainInUseError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.patch("/api/data-domains/{data_domain_id}", tags=["knowledge"])
+    async def update_data_domain_endpoint(
+        data_domain_id: str, req_body: DataDomainUpdate, req: Request
+    ) -> dict[str, Any]:
+        """Edit data domain basic attributes (name / description / classification / owner / routing)."""
+        updated = await update_data_domain(
+            req.app.state.engine,
+            req.state.tenant_id,
+            data_domain_id,
+            name=req_body.name,
+            description=req_body.description,
+            data_classification=req_body.data_classification,
+            owner=req_body.owner,
+            routing_description=req_body.routing_description,
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Data domain not found")
+        return updated
+
+    # ── AI-assisted DD routing description (C-7: LLM draft, manual confirm) ──
+    @app.post("/api/data-domains/{data_domain_id}/suggest-description", tags=["knowledge"])
+    async def suggest_dd_description_endpoint(data_domain_id: str, req: Request) -> dict[str, Any]:
+        """Generate a routing_description draft from the domain's KB names/descriptions.
+
+        Returns the draft + source KBs; the admin confirms/edits and saves via
+        PATCH /api/data-domains/{id}. Management aid only — no test coverage
+        for the LLM call itself (dev-only; Ollama required).
+        """
+        from sqlalchemy import text as _text
+
+        engine = req.app.state.engine
+        async with engine.connect() as conn:
+            await conn.execute(_text(f"SET LOCAL earp.tenant_id = '{req.state.tenant_id}'"))
+            drow = await conn.execute(
+                _text("SELECT name, description FROM data_domains WHERE data_domain_id = :dd"),
+                {"dd": data_domain_id},
+            )
+            dd = drow.fetchone()
+            if dd is None:
+                raise HTTPException(status_code=404, detail="Data domain not found")
+            kbs = [
+                f"{r.name}（{r.description}）" if r.description else r.name
+                for r in await conn.execute(
+                    _text(
+                        "SELECT name, description FROM knowledge_bases "
+                        "WHERE data_domain_id = :dd ORDER BY name"
+                    ),
+                    {"dd": data_domain_id},
+                )
+            ]
+        domain_label = f"{dd.name}（{dd.description}）" if dd.description else dd.name
+        kb_text = "；".join(kbs) if kbs else "（暂无知识库）"
+        prompt = (
+            f"请为数据域「{domain_label}」写一段检索描述（50-150字），用于语义路由："
+            f"描述会被向量化后与用户查询匹配，需覆盖该域下所有知识库主题：{kb_text}。"
+            '只输出 JSON：{"description": "..."}'
+        )
+        draft = await _llm_suggest(engine, req.state.tenant_id, req.app.state.settings, prompt)
+        return {"data_domain_id": data_domain_id, "suggested_description": draft, "sources": kbs}
+
+    # ── AI-assisted KB retrieval summary (KB parity with DD, 2026-08-09) ──
+    @app.post("/knowledge/bases/{kb_id}/suggest-summary", tags=["knowledge"])
+    async def suggest_kb_summary_endpoint(kb_id: str, req: Request) -> dict[str, Any]:
+        """Generate a KB summary_text draft from KB name/description + doc titles.
+        The admin confirms/edits and saves via PATCH /knowledge/bases/{id}.
+        """
+        from sqlalchemy import text as _text
+
+        engine = req.app.state.engine
+        async with engine.connect() as conn:
+            await conn.execute(_text(f"SET LOCAL earp.tenant_id = '{req.state.tenant_id}'"))
+            krow = await conn.execute(
+                _text("SELECT name, description FROM knowledge_bases WHERE knowledge_base_id = :kid"),
+                {"kid": kb_id},
+            )
+            kb = krow.fetchone()
+            if kb is None:
+                raise HTTPException(status_code=404, detail="Knowledge base not found")
+            titles = [
+                r.title
+                for r in (await conn.execute(
+                    _text(
+                        "SELECT title FROM documents WHERE knowledge_base_id = :kid "
+                        "AND status = 'active' AND title IS NOT NULL AND title <> '' "
+                        "ORDER BY created_at LIMIT 60"
+                    ),
+                    {"kid": kb_id},
+                )).fetchall()
+            ]
+        kb_label = f"{kb.name}（{kb.description}）" if kb.description else kb.name
+        title_text = "；".join(titles) if titles else "（暂无文档）"
+        prompt = (
+            f"请为知识库「{kb_label}」写一段检索摘要（30-100字），用于语义路由定位："
+            f"摘要会被向量化后与用户查询匹配，需覆盖该知识库文档主题：{title_text}。"
+            '只输出 JSON：{"description": "..."}'
+        )
+        draft = await _llm_suggest(engine, req.state.tenant_id, req.app.state.settings, prompt)
+        return {"knowledge_base_id": kb_id, "suggested_summary": draft, "sources": titles}
 
     # ── Streaming (M8) ──
     @app.post(

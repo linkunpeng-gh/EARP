@@ -1,12 +1,19 @@
 <!DOCTYPE html>
-<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Knowledge Base"><title>Knowledge Base — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Knowledge Base"><title>Knowledge Base — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
 <body>
 <header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>  <nav>
     <a href="../index.html">Overview</a>
     <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
     <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
     <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
-    <div class="nav-group"><a href="knowledge.html" data-nav="knowledge" class="active" aria-current="page">知识</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="knowledge.html" data-nav="knowledge" class="active" aria-current="page">知识</a>
+      <div class="dropdown-menu">
+        <a href="data-domains.html" data-nav="data-domains">数据域</a>
+        <a href="knowledge.html" data-nav="knowledge">知识库</a>
+        <a href="test-retrieval.html" data-nav="test-retrieval">召回测试</a>
+      </div>
+    </div>
     <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
     <div class="nav-group nav-dropdown">
       <a href="audit.html">治理</a>
@@ -19,7 +26,7 @@
         <a href="observability.html" class="disabled">Observability</a>
       </div>
     </div>
-  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+  </nav><div class="meta"><a href="models.html" class="model-link" title="模型配置">⚙️</a> tenant-demo · <a href="login.html">Admin</a></div></header>
 
 <main>
 
@@ -61,14 +68,14 @@
           <option value="restricted">restricted</option>
         </select>
         <span id="upload-file-info" style="flex:1;font-size:0.81rem;color:var(--text-quaternary);min-width:120px">No file selected</span>
-        <input type="file" id="upload-file" accept=".txt,.md,.csv,.json,.html" onchange="onFileSelected()" style="display:none">
+        <input type="file" id="upload-file" accept=".txt,.md,.csv,.json,.html,.docx,.pdf" onchange="onFileSelected()" style="display:none">
         <button class="secondary" onclick="document.getElementById('upload-file').click()">Choose File</button>
         <button class="primary" id="upload-btn" onclick="uploadDoc()" disabled>Upload</button>
       </div>
 
       <!-- Doc table -->
       <table id="doc-table">
-        <thead><tr><th>Doc ID</th><th>Title</th><th>Classification</th><th>Chunks</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Title</th><th>字符数</th><th>召回</th><th>上传时间</th><th>分类</th><th>状态</th><th>操作</th></tr></thead>
         <tbody id="doc-tbody"></tbody>
       </table>
 
@@ -85,69 +92,78 @@
 
 <script src="../js/app.js"></script>
 <script>
-// ── Demo data ──
-var kbData = {
-  'kb-eq-manuals': {
-    name: 'Equipment Manuals', desc: '设备操作手册与维护文档集合，涵盖CNC、温控及安全检查相关技术文档',
-    dd: 'equipment_data', chunk_size: 1000, overlap: 200, separators: '\n\n,\n,., ,', model: 'bge-m3',
-    mode: 'vector', top_k: 5, threshold: 0.0, index: 'high_quality',
-    docs: [
-      {id:'doc-001',title:'CNC Operation Manual v3',cls:'internal',chunks:24,status:'indexed'},
-      {id:'doc-002',title:'Maintenance Schedule 2026',cls:'internal',chunks:15,status:'indexed'},
-      {id:'doc-003',title:'Safety Guidelines',cls:'confidential',chunks:8,status:'indexed'},
-    ]
-  },
-  'kb-eq-alarms': {
-    name: 'Alarm Thresholds', desc: '设备报警阈值配置文档，包含温度、压力报警参数设定',
-    dd: 'equipment_data', chunk_size: 1000, overlap: 200, separators: '\n\n,\n,., ,', model: 'bge-m3',
-    mode: 'hybrid', top_k: 10, threshold: 0.0, index: 'high_quality',
-    docs: [
-      {id:'doc-004',title:'Temperature Threshold Guide',cls:'internal',chunks:12,status:'indexed'},
-      {id:'doc-005',title:'Pressure Alarm Settings',cls:'internal',chunks:10,status:'indexed'},
-    ]
-  },
-  'kb-hr-policies': {
-    name: 'Company Policies', desc: '企业人事政策与员工手册，包括考勤、休假及员工行为规范',
-    dd: 'hr_data', chunk_size: 1500, overlap: 300, separators: '\n\n,\n', model: 'text-embedding-3-small',
-    mode: 'vector', top_k: 5, threshold: 0.0, index: 'high_quality',
-    docs: [
-      {id:'doc-006',title:'Leave Policy 2026',cls:'internal',chunks:18,status:'indexed'},
-      {id:'doc-007',title:'Employee Handbook',cls:'confidential',chunks:42,status:'indexed'},
-    ]
-  },
-};
-
-var state = { selectedKB: null };
+// ── State (live API — PRD-2026-028 §6.5) ──
+var state = { selectedKB: null, kbs: [], docs: [], ddNames: {} };
+var ddLabels = { equipment_data: 'Equipment Data', hr_data: 'HR Policies', corporate_data: 'Corporate Standards' };
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', function() {
-  renderKBList();
+  loadDDFilter();
+  loadKBs();
+  // auto-select KB passed via ?kb=xxx (back from Test Retrieval / doc-seg),
+  // fall back to the last-visited KB remembered in sessionStorage (browser back)
+  var autoKb = new URLSearchParams(location.search).get('kb')
+    || sessionStorage.getItem('earp_back_kb');
+  if (autoKb) state.selectedKB = autoKb;
 });
 
-// ── KB List ──
-function renderKBList() {
-  var dd = document.getElementById('dd-filter').value;
-  var list = document.getElementById('kb-list');
-  var items = [];
-  for (var id in kbData) {
-    var kb = kbData[id];
-    if (dd && kb.dd !== dd) continue;
-    items.push({id: id, kb: kb});
+// ── Data Domain filter dropdown (live from API, not hardcoded) ──
+async function loadDDFilter() {
+  try {
+    var dds = await EARP.fetchJSON('/api/data-domains');
+    var sel = document.getElementById('dd-filter');
+    sel.innerHTML = '<option value="">All Data Domains</option>'
+      + dds.map(function(dd) {
+        return '<option value="' + dd.data_domain_id + '">' + (dd.name || dd.data_domain_id) + '</option>';
+      }).join('');
+  } catch (err) { /* keep defaults */ }
+}
+
+// ── KB List (live) ──
+async function loadKBs() {
+  try {
+    var url = '/knowledge/bases';
+    var dd = document.getElementById('dd-filter').value;
+    if (dd) url += '?data_domain_id=' + encodeURIComponent(dd);
+    state.kbs = await EARP.fetchJSON(url);
+    // data domain id → friendly name (for the small tag next to each KB)
+    try {
+      var dds = await EARP.fetchJSON('/api/data-domains');
+      state.ddNames = {};
+      dds.forEach(function(d) { state.ddNames[d.data_domain_id] = d.name; });
+    } catch (e) { /* keep hardcoded labels */ }
+    renderKBList();
+    if (state.selectedKB) {
+      var stillThere = state.kbs.find(function(k){return k.knowledge_base_id===state.selectedKB;});
+      if (!stillThere) selectKB(null);
+      else selectKB(state.selectedKB);  // auto-expand workspace for ?kb=xxx
+    }
+  } catch (err) {
+    document.getElementById('kb-list').innerHTML = '<p style="font-size:0.75rem;color:var(--red);padding:0.5rem">Failed: ' + err.message + '</p>';
   }
-  if (items.length === 0) {
-    list.innerHTML = '<p style="font-size:0.75rem;color:var(--text-quaternary);padding:0.5rem">No KB found.</p>';
+}
+
+function renderKBList() {
+  var list = document.getElementById('kb-list');
+  if (state.kbs.length === 0) {
+    list.innerHTML = '<p style="font-size:0.75rem;color:var(--text-quaternary);padding:0.5rem">No KB found. Create one below.</p>';
     return;
   }
-  list.innerHTML = items.map(function(item) {
-    var active = state.selectedKB === item.id ? ' active' : '';
-    return '<div class="kb-list-item' + active + '" onclick="selectKB(\'' + item.id + '\')">'
-      + '<span class="kb-name">' + item.id + '</span>'
-      + '<span class="tag tag-accent" style="font-size:0.65rem;flex-shrink:0">' + item.kb.dd + '</span>'
-      + '<span class="kb-count">' + item.kb.docs.length + ' docs</span>'
-      + '<span class="kb-actions">'
-        + '<button class="kb-act-btn" onclick="event.stopPropagation();editKB(\'' + item.id + '\')" title="Config">⚙️</button>'
-        + '<button class="kb-act-btn del" onclick="event.stopPropagation();deleteKB(\'' + item.id + '\')" title="Delete">🗑</button>'
-      + '</span>'
+  list.innerHTML = state.kbs.map(function(kb) {
+    var active = state.selectedKB === kb.knowledge_base_id ? ' active' : '';
+    return '<div class="kb-list-item' + active + '" onclick="selectKB(\'' + kb.knowledge_base_id + '\')">'
+      + '<div class="kb-name" title="' + kb.knowledge_base_id + '">' + (kb.name || kb.knowledge_base_id) + '</div>'
+      + '<div class="kb-meta">'
+        + (kb.data_domain_id
+          ? '<span class="kb-dd-tag" title="数据域: ' + kb.data_domain_id + '">'
+            + (state.ddNames[kb.data_domain_id] || ddLabels[kb.data_domain_id] || kb.data_domain_id) + '</span>'
+          : '')
+        + '<span class="kb-count">' + kb.doc_count + ' docs · ' + kb.chunk_count + ' chunks</span>'
+        + '<span class="kb-actions">'
+          + '<button class="kb-act-btn" onclick="event.stopPropagation();editKB(\'' + kb.knowledge_base_id + '\')" title="编辑 KB 基础属性">✏️</button> '
+          + '<button class="kb-act-btn del" onclick="event.stopPropagation();deleteKB(\'' + kb.knowledge_base_id + '\')" title="Delete">🗑</button>'
+        + '</span>'
+      + '</div>'
       + '</div>';
   }).join('');
 }
@@ -155,11 +171,24 @@ function renderKBList() {
 function selectKB(id) {
   state.selectedKB = id;
   renderKBList();
-  showWorkspace(id);
+  if (!id) {
+    showWorkspace(null);
+    return;
+  }
+  loadDocs(id);
 }
 
-function showWorkspace(id) {
-  var kb = kbData[id];
+async function loadDocs(kbId) {
+  try {
+    state.docs = await EARP.fetchJSON('/knowledge/bases/' + encodeURIComponent(kbId) + '/documents');
+    var kb = state.kbs.find(function(k){return k.knowledge_base_id===kbId;});
+    if (kb) showWorkspace(kbId, kb, state.docs);
+  } catch (err) {
+    alert('Failed to load documents: ' + err.message);
+  }
+}
+
+function showWorkspace(id, kb, docs) {
   if (!kb) {
     document.getElementById('kb-empty').style.display = 'block';
     document.getElementById('kb-workspace-content').style.display = 'none';
@@ -168,108 +197,222 @@ function showWorkspace(id) {
   document.getElementById('kb-empty').style.display = 'none';
   document.getElementById('kb-workspace-content').style.display = '';
   document.getElementById('kb-info-name').textContent = kb.name;
-  var totalChunks = kb.docs.reduce(function(s,d){return s+d.chunks;},0);
+  var totalChunks = docs.reduce(function(s,d){return s + (d.chunk_count||0);},0);
   document.getElementById('kb-info-meta').innerHTML =
-    '<span class="tag tag-accent">' + kb.dd + '</span> · '
-    + kb.docs.length + ' docs · ' + totalChunks + ' chunks'
-    + (kb.desc ? ' · <span title="' + kb.desc + '" style="color:var(--text-quaternary)">' + kb.desc.substring(0,40) + '...</span>' : '');
-  renderDocTable(kb);
+    (kb.data_domain_id ? '<span class="tag tag-accent">' + (ddLabels[kb.data_domain_id] || kb.data_domain_id) + '</span> · ' : '')
+    + docs.length + ' docs · ' + totalChunks + ' chunks';
+  renderDocTable(docs);
 }
 
-function renderDocTable(kb) {
+// ── KB info / docs ──
+
+function renderDocTable(docs) {
   var tbody = document.getElementById('doc-tbody');
-  if (kb.docs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-quaternary);padding:2rem">No documents yet. Upload one above.</td></tr>';
+  if (!docs || docs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-quaternary);padding:2rem">No documents yet. Upload one above.</td></tr>';
     return;
   }
-  tbody.innerHTML = kb.docs.map(function(d) {
+  tbody.innerHTML = docs.map(function(d) {
     var clsOpts = ['public','internal','confidential','restricted'].map(function(c){
-      return '<option value="' + c + '"' + (d.cls===c?' selected':'') + '>' + c + '</option>';
+      return '<option value="' + c + '"' + (d.data_classification===c?' selected':'') + '>' + c + '</option>';
     }).join('');
+    var statusOpts = '<option value="active"' + (d.status==='active'?' selected':'') + '>可用</option>'
+      + '<option value="disabled"' + (d.status==='disabled'?' selected':'') + '>不可用</option>';
     return '<tr>'
-      + '<td><code>' + d.id + '</code></td>'
-      + '<td>' + d.title + '</td>'
-      + '<td><select class="cls-editor" onchange="changeCls(this,\'' + d.id + '\')">' + clsOpts + '</select></td>'
-      + '<td>' + d.chunks + '</td>'
-      + '<td>' + (d.status==='indexed'?'✅ indexed':'⏳ processing') + '</td>'
-      + '<td><a href="doc-config.html?doc=' + d.id + '" class="btn-sm" title="Chunk config" style="text-decoration:none">⚙️</a></td>'
+      + '<td>' + (d.title || d.name || '-') + (d.chunk_count ? ' <span class="tag tag-accent" style="font-size:0.65rem">' + d.chunk_count + '块</span>' : '') + '</td>'
+      + '<td>' + fmtChars(d.char_count || 0) + '</td>'
+      + '<td>' + (d.recall_count || 0) + '</td>'
+      + '<td style="font-size:0.78rem;color:var(--text-tertiary)">' + fmtTime(d.created_at) + '</td>'
+      + '<td><select class="cls-editor" onchange="changeCls(this,\'' + d.document_id + '\')">' + clsOpts + '</select></td>'
+      + '<td><select class="status-editor" onchange="changeDocStatus(this,\'' + d.document_id + '\')">' + statusOpts + '</select></td>'
+      + '<td style="white-space:nowrap">'
+        + '<button class="kb-act-btn" onclick="openDocSeg(\'' + d.document_id + '\')" title="分段设置">✂️</button> '
+        + '<button class="kb-act-btn" onclick="editDocMetadata(\'' + d.document_id + '\')" title="元数据">🏷️</button> '
+        + '<button class="kb-act-btn del" onclick="deleteDoc(\'' + d.document_id + '\')" title="Delete">🗑</button>'
+      + '</td>'
       + '</tr>';
   }).join('');
 }
 
-// ── KB CRUD ──
-function showKBModal(editId) {
+// ── formatting helpers ──
+function fmtChars(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+  return String(n);
+}
+function fmtTime(iso) {
+  if (!iso) return '-';
+  var d = new Date(iso);
+  if (isNaN(d)) return iso;
+  function p(x){ return (x<10?'0':'')+x; }
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+// ── Doc status (可用/不可用) ──
+async function changeDocStatus(sel, docId) {
+  var v = sel.value;
+  try {
+    await EARP.fetchJSON('/knowledge/documents/' + docId + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ status: v }),
+    });
+  } catch (err) { alert('Update failed: ' + err.message); }
+}
+
+// ── Doc segmentation → dedicated page (doc-seg.html?doc_id=xxx) ──
+function openDocSeg(docId) {
+  window.location.href = 'doc-seg.html?doc_id=' + encodeURIComponent(docId);
+}
+
+// ── Doc delete (live) ──
+async function deleteDoc(docId) {
+  if (!confirm('Delete document ' + docId + '?')) return;
+  try {
+    await EARP.fetchJSON('/knowledge/documents/' + docId, {method: 'DELETE'});
+    if (state.selectedKB) loadDocs(state.selectedKB);
+  } catch (err) { alert('Delete failed: ' + err.message); }
+}
+
+// ── KB CRUD (live) ──
+function showKBModal() {
   var modal = document.getElementById('kb-modal');
-  var title = document.getElementById('kb-modal-title');
-  if (!modal) { createKBModal(); modal = document.getElementById('kb-modal'); title = document.getElementById('kb-modal-title'); }
-  if (editId) {
-    title.textContent = 'Edit KB';
-    document.getElementById('kb-modal-id').value = editId;
-    var kb = kbData[editId];
-    document.getElementById('kb-name').value = kb.name;
-    document.getElementById('kb-desc').value = kb.desc || '';
-    document.getElementById('kb-dd').value = kb.dd;
-    document.getElementById('kb-chunk-size').value = kb.chunk_size;
-    document.getElementById('kb-overlap').value = kb.overlap;
-    document.getElementById('kb-separators').value = kb.separators;
-    document.getElementById('kb-model').value = kb.model;
-    document.getElementById('kb-mode').value = kb.mode;
-    document.getElementById('kb-topk').value = kb.top_k;
-    document.getElementById('kb-threshold').value = kb.threshold;
-    document.getElementById('kb-index').value = kb.index;
-  } else {
-    title.textContent = 'Create Knowledge Base';
-    document.getElementById('kb-modal-id').value = '';
-    document.getElementById('kb-name').value = '';
-    document.getElementById('kb-desc').value = '';
-    document.getElementById('kb-dd').value = '';
-    document.getElementById('kb-chunk-size').value = '1000';
-    document.getElementById('kb-overlap').value = '200';
-    document.getElementById('kb-separators').value = '\\n\\n,\\n,., ,';
-    document.getElementById('kb-model').value = 'bge-m3';
-    document.getElementById('kb-mode').value = 'vector';
-    document.getElementById('kb-topk').value = '5';
-    document.getElementById('kb-threshold').value = '0.0';
-    document.getElementById('kb-index').value = 'high_quality';
-  }
+  if (!modal) { createKBModal(); modal = document.getElementById('kb-modal'); }
+  document.getElementById('kb-modal-title').textContent = 'Create Knowledge Base';
+  document.getElementById('kb-modal-id').value = '';
+  document.getElementById('kb-name').value = '';
+  document.getElementById('kb-desc').value = '';
+  document.getElementById('kb-dd').value = '';
   modal.style.display = 'flex';
 }
 
 function hideKBModal() { document.getElementById('kb-modal').style.display = 'none'; }
 
-function saveKB() {
-  var name = document.getElementById('kb-name').value.trim();
-  if (!name) { alert('Name required'); return; }
-  var editId = document.getElementById('kb-modal-id').value;
-  var kb = {
-    name: name, desc: document.getElementById('kb-desc').value.trim(),
-    dd: document.getElementById('kb-dd').value,
-    chunk_size: parseInt(document.getElementById('kb-chunk-size').value),
-    overlap: parseInt(document.getElementById('kb-overlap').value),
-    separators: document.getElementById('kb-separators').value,
-    model: document.getElementById('kb-model').value,
-    mode: document.getElementById('kb-mode').value,
-    top_k: parseInt(document.getElementById('kb-topk').value),
-    threshold: parseFloat(document.getElementById('kb-threshold').value),
-    index: document.getElementById('kb-index').value,
-    docs: editId && kbData[editId] ? kbData[editId].docs : [],
-  };
-  var id = editId || ('kb-' + name.toLowerCase().replace(/[^a-z0-9]+/g,'-').substring(0,20));
-  kbData[id] = kb;
-  if (!editId) state.selectedKB = id;
-  hideKBModal();
-  renderKBList();
-  showWorkspace(state.selectedKB);
+// ── KB 基础属性编辑（name / data domain / description / indexing）──
+var editKBState = { kbId: null };
+
+function editKB(kbId) {
+  var kb = state.kbs.find(function(k){ return k.knowledge_base_id === kbId; });
+  if (!kb) { alert('KB not found'); return; }
+  editKBState.kbId = kbId;
+  var modal = document.getElementById('kb-edit-modal');
+  if (!modal) { createKBEditModal(); modal = document.getElementById('kb-edit-modal'); }
+  document.getElementById('kb-edit-name').value = kb.name || '';
+  document.getElementById('kb-edit-desc').value = kb.description || '';
+  document.getElementById('kb-edit-summary').value = kb.summary_text || '';
+  document.getElementById('kb-edit-index').value = kb.indexing_technique || 'high_quality';
+  renderMetaSchemaEditor('kb-edit-meta-schema', kb.metadata_schema || []);
+  // data domain options（动态加载）
+  var ddSel = document.getElementById('kb-edit-dd');
+  ddSel.innerHTML = '<option value="">未分配</option>';
+  EARP.fetchJSON('/api/data-domains').then(function(dds) {
+    dds.forEach(function(d) {
+      var o = document.createElement('option');
+      o.value = d.data_domain_id;
+      o.textContent = (d.name || d.data_domain_id) + ' (' + d.data_domain_id + ')';
+      ddSel.appendChild(o);
+    });
+    ddSel.value = kb.data_domain_id || '';
+  }).catch(function(){});
+  ddSel.value = kb.data_domain_id || '';
+  modal.style.display = 'flex';
 }
 
-function editKB(id) { showKBModal(id); }
+function hideKBEditModal() { document.getElementById('kb-edit-modal').style.display = 'none'; }
 
-function deleteKB(id) {
-  if (!confirm('Delete KB "' + kbData[id].name + '" and all its documents? This cannot be undone.')) return;
-  delete kbData[id];
-  if (state.selectedKB === id) state.selectedKB = null;
-  renderKBList();
-  showWorkspace(null);
+function createKBEditModal() {
+  var html = '<div id="kb-edit-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideKBEditModal()">'
+    + '<div class="modal"><h4>编辑 Knowledge Base</h4>'
+    + '<div class="form-row"><label>名称</label><input id="kb-edit-name" placeholder="KB name"></div>'
+    + '<div class="form-row"><label>Data Domain</label><select id="kb-edit-dd"><option value="">未分配</option></select></div>'
+    + '<div class="form-row"><label>描述</label><textarea id="kb-edit-desc" rows="4" placeholder="Describe this KB\'s content" style="resize:vertical"></textarea></div>'
+    + '<div style="margin-bottom:0.5rem"><label style="display:block;font-size:0.78rem;color:var(--text-secondary,#6b6e75);margin-bottom:0.3rem">检索摘要 (summary_text)</label>'
+    + '<textarea id="kb-edit-summary" rows="4" placeholder="留空=自动聚合（KB 名+描述+文档标题）。用于语义路由定位（Level 2），非空则人工覆盖。" style="resize:vertical;width:100%;min-height:100px;box-sizing:border-box"></textarea>'
+    + '<div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.2rem"><button class="btn-sm" onclick="suggestKbSummary()">✨ AI 生成</button>'
+    + '<span style="font-size:0.69rem;color:var(--text-quaternary,#8b8d91)">AI 生成需 30-60 秒；生成后人工确认再保存</span></div>'
+    + '</div>'
+    + '<div class="form-row"><label>索引方式</label><select id="kb-edit-index">'
+    + '<option value="high_quality">high_quality</option><option value="economy">economy</option></select></div>'
+    + '<div class="form-section"><div class="form-section-title">元数据字段（metadata_schema）</div>'
+    + '<div id="kb-edit-meta-schema"></div>'
+    + '<button class="btn-sm" onclick="addMetaField(\'kb-edit-meta-schema\')">+ 添加字段</button>'
+    + '<div style="font-size:0.69rem;color:var(--text-quaternary);margin-top:0.3rem">文档级元数据字段模板；上传/编辑文档时按此校验。自动字段（source_kb / data_domain / data_classification）系统注入，不可手工覆盖。</div>'
+    + '</div>'
+    + '<div class="form-actions"><button class="primary" onclick="saveKBEdit()">保存</button>'
+    + '<button class="btn-sm" onclick="hideKBEditModal()">取消</button></div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function saveKBEdit() {
+  var name = document.getElementById('kb-edit-name').value.trim();
+  if (!name) { alert('名称必填'); return; }
+  var body = {
+    name: name,
+    data_domain_id: document.getElementById('kb-edit-dd').value || null,
+    description: document.getElementById('kb-edit-desc').value.trim(),  // 空串=清空
+    indexing_technique: document.getElementById('kb-edit-index').value,
+    metadata_schema: collectMetaSchema('kb-edit-meta-schema'),
+    summary_text: document.getElementById('kb-edit-summary').value.trim(),  // 空串=自动聚合
+  };
+  try {
+    await EARP.fetchJSON('/knowledge/bases/' + encodeURIComponent(editKBState.kbId), {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    hideKBEditModal();
+    await loadKBs();
+    if (state.selectedKB) loadDocs(state.selectedKB);
+  } catch (err) { alert('保存失败: ' + err.message); }
+}
+
+async function saveKB() {
+  var name = document.getElementById('kb-name').value.trim();
+  if (!name) { alert('Name required'); return; }
+  try {
+    // PRD-2026-028 §6.5: chunking/retrieval config is now wired to the backend
+    // (knowledge_bases.retrieval_model JSONB + indexing_technique) — these
+    // drive create_chunks() at document upload time.
+    var seps = (document.getElementById('kb-separators').value || '\\n\\n')
+      .split(',')
+      .map(function(s) { return s.trim().replace(/\\n/g, '\n'); })
+      .filter(function(s) { return s !== ''; })
+      .slice(0, 5);
+    var retrieval_model = {
+      segmentation: {
+        separators: seps,
+        separator: seps[0] || '\n\n',
+        max_tokens: parseInt(document.getElementById('kb-chunk-size').value, 10) || 1000,
+        chunk_overlap: parseInt(document.getElementById('kb-overlap').value, 10) || 200,
+      },
+      mode: document.getElementById('kb-mode').value,
+      top_k: parseInt(document.getElementById('kb-topk').value, 10) || 5,
+      score_threshold: parseFloat(document.getElementById('kb-threshold').value) || 0.0,
+      model: document.getElementById('kb-model').value,
+    };
+    await EARP.fetchJSON('/knowledge/bases', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name,
+        data_domain_id: document.getElementById('kb-dd').value || null,
+        description: document.getElementById('kb-desc').value.trim(),  // 空串=无描述
+        retrieval_model: retrieval_model,
+        indexing_technique: document.getElementById('kb-index').value,
+        metadata_schema: collectMetaSchema('kb-meta-schema'),
+      }),
+    });
+    hideKBModal();
+    await loadKBs();
+  } catch (err) { alert('Create failed: ' + err.message); }
+}
+
+async function deleteKB(id) {
+  if (!confirm('Delete KB "' + id + '" and all its documents? This cannot be undone.')) return;
+  try {
+    await EARP.fetchJSON('/knowledge/bases/' + encodeURIComponent(id), {method: 'DELETE'});
+    if (state.selectedKB === id) state.selectedKB = null;
+    await loadKBs();
+    showWorkspace(null);
+  } catch (err) { alert('Delete failed: ' + err.message); }
 }
 
 function createKBModal() {
@@ -277,10 +420,8 @@ function createKBModal() {
     + '<div class="modal"><h4 id="kb-modal-title">Create Knowledge Base</h4>'
     + '<input type="hidden" id="kb-modal-id">'
     + '<div class="form-row"><label>Name</label><input id="kb-name" placeholder="KB name"></div>'
-    + '<div class="form-row"><label>Description</label><textarea id="kb-desc" rows="2" placeholder="Describe this KB\'s content — used for indexing and discovery"></textarea></div>'
-    + '<div class="form-row"><label>Data Domain</label><select id="kb-dd"><option value="">Select...</option>'
-    + '<option value="equipment_data">Equipment Data</option><option value="hr_data">HR Policies</option>'
-    + '<option value="corporate_data">Corporate Standards</option></select></div>'
+    + '<div class="form-row"><label>Description</label><textarea id="kb-desc" rows="4" placeholder="Describe this KB\'s content — used for indexing and discovery" style="resize:vertical"></textarea></div>'
+    + '<div class="form-row"><label>Data Domain</label><select id="kb-dd"><option value="">Select...</option></select></div>'
     + '<div class="form-section"><div class="form-section-title">Chunking</div>'
     + '<div class="form-row"><label>Chunk Size</label><select id="kb-chunk-size">'
     + '<option value="500">500</option><option value="1000" selected>1000</option>'
@@ -309,10 +450,28 @@ function createKBModal() {
     + '<option value="high_quality" selected>High Quality</option>'
     + '<option value="economy">Economy</option></select></div>'
     + '</div>'
+    + '<div class="form-section"><div class="form-section-title">元数据字段（metadata_schema）</div>'
+    + '<div id="kb-meta-schema"></div>'
+    + '<button class="btn-sm" onclick="addMetaField(\'kb-meta-schema\') ">+ 添加字段</button>'
+    + '<div style="font-size:0.69rem;color:var(--text-quaternary);margin-top:0.3rem">文档级元数据字段模板（department / year / doc_type…），上传/编辑文档时按此校验与类型化。</div>'
+    + '</div>'
     + '<div class="form-actions"><button class="primary" onclick="saveKB()">Save</button>'
     + '<button class="btn-sm" onclick="hideKBModal()">Cancel</button></div>'
     + '</div></div>';
   document.body.insertAdjacentHTML('beforeend', html);
+  renderMetaSchemaEditor('kb-meta-schema', []);
+  // Live-load Data Domains from API (PRD-2026-028 §6.6) — keeps DD options in sync
+  // with backend instead of hardcoded ids (which broke KB creation with a 500 FK error).
+  EARP.fetchJSON('/api/data-domains').then(function(dds) {
+    var sel = document.getElementById('kb-dd');
+    if (!sel) return;
+    dds.forEach(function(dd) {
+      var opt = document.createElement('option');
+      opt.value = dd.data_domain_id;
+      opt.textContent = dd.name + ' (' + dd.data_domain_id + ')';
+      sel.appendChild(opt);
+    });
+  }).catch(function(){});
 }
 
 // ── Upload ──
@@ -339,42 +498,207 @@ function onFileSelected() {
   reader.readAsText(file);
 }
 
-function uploadDoc() {
+async function uploadDoc() {
   if (!selectedFileContent) { alert('Select a file first'); return; }
   if (!state.selectedKB) { alert('Select a KB first'); return; }
   var cls = document.getElementById('upload-class').value;
-  var docId = 'doc-' + Date.now().toString(36);
-  kbData[state.selectedKB].docs.push({
-    id: docId,
-    title: selectedFileName,
-    cls: cls,
-    chunks: Math.floor(selectedFileContent.length / 500) || 1,
-    status: 'indexed'
-  });
-  // Reset
-  document.getElementById('upload-file').value = '';
-  document.getElementById('upload-file-info').textContent = 'No file selected';
-  document.getElementById('upload-btn').disabled = true;
-  selectedFileContent = null;
-  selectedFileName = null;
-  renderDocTable(kbData[state.selectedKB]);
-  renderKBList();
+  try {
+    var ext = (selectedFileName || '').split('.').pop().toLowerCase();
+    if (['docx', 'pdf'].indexOf(ext) >= 0) {
+      // binary formats → multipart upload (server-side text extraction)
+      var fd = new FormData();
+      fd.append('file', document.getElementById('upload-file').files[0]);
+      fd.append('knowledge_base_id', state.selectedKB);
+      fd.append('data_classification', cls);
+      var res = await fetch(EARP.apiBase + '/knowledge/documents/upload', {
+        method: 'POST', headers: { 'Authorization': EARP.headers().Authorization }, body: fd,
+      });
+      if (!res.ok) {
+        var errBody = await res.json().catch(function(){ return {}; });
+        throw new Error((errBody.detail || res.status + ' ' + res.statusText));
+      }
+    } else {
+      await EARP.fetchJSON('/knowledge/documents', {
+        method: 'POST',
+        body: JSON.stringify({
+          knowledge_base_id: state.selectedKB,
+          content: selectedFileContent,
+          title: selectedFileName,
+          data_classification: cls,
+        }),
+      });
+    }
+    // Reset
+    document.getElementById('upload-file').value = '';
+    document.getElementById('upload-file-info').textContent = 'No file selected';
+    document.getElementById('upload-btn').disabled = true;
+    selectedFileContent = null;
+    selectedFileName = null;
+    await loadDocs(state.selectedKB);
+    await loadKBs();
+  } catch (err) { alert('Upload failed: ' + err.message); }
 }
 
-function changeCls(sel, docId) {
+async function changeCls(sel, docId) {
   if (!confirm('Change classification to ' + sel.value + '?')) return;
-  var kb = kbData[state.selectedKB];
-  if (!kb) return;
-  var doc = kb.docs.find(function(d){return d.id===docId;});
-  if (doc) doc.cls = sel.value;
+  try {
+    await EARP.fetchJSON('/knowledge/documents/' + docId, {
+      method: 'PATCH',
+      body: JSON.stringify({ data_classification: sel.value }),
+    });
+  } catch (err) { alert('Update failed: ' + err.message); }
 }
 
 // ── Test Retrieval ──
 function goTestRetrieval() {
   var url = 'test-retrieval.html';
-  if (state.selectedKB) url += '?kb=' + state.selectedKB;
-  else if (document.getElementById('dd-filter').value) url += '?dd=' + document.getElementById('dd-filter').value;
+  if (state.selectedKB) {
+    url += '?kb=' + state.selectedKB;
+    sessionStorage.setItem('earp_back_kb', state.selectedKB);  // 浏览器后退也能恢复
+  } else if (document.getElementById('dd-filter').value) {
+    url += '?dd=' + document.getElementById('dd-filter').value;
+  }
   window.location.href = url;
+}
+
+// ── metadata_schema editor (KB create/edit modal, C-9) ──
+var META_TYPES = ['string', 'number', 'boolean'];
+
+function renderMetaSchemaEditor(containerId, schema) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = '';
+  (schema || []).forEach(function(f) { addMetaField(containerId, f.key, f.type, !!f.required); });
+}
+
+function addMetaField(containerId, key, type, required) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  var row = document.createElement('div');
+  row.className = 'meta-field-row';
+  row.style.cssText = 'display:flex;gap:0.4rem;align-items:center;margin-bottom:0.3rem';
+  row.innerHTML = '<input class="meta-key" placeholder="key" value="' + (key || '') + '" style="flex:1;padding:3px 6px;font-size:0.75rem">'
+    + '<select class="meta-type" style="padding:3px 6px;font-size:0.75rem">'
+      + META_TYPES.map(function(t) { return '<option value="' + t + '"' + (t === (type || 'string') ? ' selected' : '') + '>' + t + '</option>'; }).join('')
+    + '</select>'
+    + '<label style="font-size:0.7rem;color:var(--text-tertiary);white-space:nowrap"><input class="meta-required" type="checkbox"' + (required ? ' checked' : '') + '> 必填</label>'
+    + '<button class="btn-sm" onclick="this.parentNode.remove()" title="删除字段">✕</button>';
+  el.appendChild(row);
+}
+
+function collectMetaSchema(containerId) {
+  var el = document.getElementById(containerId);
+  if (!el) return [];
+  var schema = [];
+  el.querySelectorAll('.meta-field-row').forEach(function(row) {
+    var key = row.querySelector('.meta-key').value.trim();
+    if (!key) return;
+    schema.push({
+      key: key,
+      type: row.querySelector('.meta-type').value,
+      required: row.querySelector('.meta-required').checked,
+    });
+  });
+  return schema;
+}
+
+// ── KB 检索摘要 AI 生成（KB parity with DD, 2026-08-09）──
+async function suggestKbSummary() {
+  var el = document.getElementById('kb-edit-summary');
+  if (!el) return;
+  var kbId = editKBState.kbId;
+  el.value = '生成中... 大模型需 30-60 秒，请稍候（如超时可重试）';
+  try {
+    var res = await EARP.fetchJSON('/knowledge/bases/' + encodeURIComponent(kbId) + '/suggest-summary', {
+      method: 'POST',
+      body: '{}',
+    });
+    el.value = res.suggested_summary || '';
+  } catch (err) {
+    el.value = '';
+    alert('AI 生成失败: ' + err.message + '（可手动填写）');
+  }
+}
+
+// ── Doc-level metadata editing (C-9: manual fields, auto fields rejected) ──
+var docMetaState = { docId: null, kbSchema: [] };
+
+function editDocMetadata(docId) {
+  var kb = state.kbs.find(function(k) { return k.knowledge_base_id === state.selectedKB; });
+  var schema = (kb && kb.metadata_schema) || [];
+  docMetaState.docId = docId;
+  docMetaState.kbSchema = schema;
+  var doc = state.docs.find(function(d) { return d.document_id === docId; });
+  var current = (doc && doc.metadata) || {};
+  var modal = document.getElementById('doc-meta-modal');
+  if (!modal) { createDocMetaModal(); modal = document.getElementById('doc-meta-modal'); }
+  var form = document.getElementById('doc-meta-form');
+  var esc = function(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]; }); };
+  if (!schema.length) {
+    form.innerHTML = '<div style="color:var(--text-tertiary);font-size:0.78rem;padding:0.5rem 0">该 KB 未配置元数据字段（metadata_schema）。可在「编辑 Knowledge Base」中添加。</div>'
+      + autoMetaHtml(current);
+  } else {
+    form.innerHTML = schema.map(function(f) {
+      var v = current[f.key];
+      var val = v === undefined ? '' : (f.type === 'boolean' ? v : String(v));
+      if (f.type === 'boolean') {
+        return '<div class="form-row"><label>' + esc(f.key) + (f.required ? ' *' : '') + '</label>'
+          + '<select class="doc-meta-val" data-key="' + esc(f.key) + '"><option value="">（未填）</option>'
+          + '<option value="true"' + (val === 'true' ? ' selected' : '') + '>true</option>'
+          + '<option value="false"' + (val === 'false' ? ' selected' : '') + '>false</option></select></div>';
+      }
+      return '<div class="form-row"><label>' + esc(f.key) + (f.required ? ' *' : '') + '</label>'
+        + '<input class="doc-meta-val" data-key="' + esc(f.key) + '" value="' + esc(val) + '" style="width:100%;padding:4px 6px"></div>';
+    }).join('') + autoMetaHtml(current);
+  }
+  modal.style.display = 'flex';
+}
+
+// 系统自动字段（只读展示）—— source_kb / data_domain / original_file_name /
+// uploaded_at / updated_at / source（产品需求 2026-08-09；data_classification 是
+// 可变业务值，不在此列）
+var AUTO_META_LABELS = {
+  source_kb: '所属 KB', data_domain: '数据域',
+  original_file_name: '原始文件名', uploaded_at: '上传日期', updated_at: '最后更新', source: '来源',
+};
+function autoMetaHtml(current) {
+  var rows = Object.keys(AUTO_META_LABELS).map(function(k) {
+    var v = current[k];
+    var label = AUTO_META_LABELS[k];
+    if (v === undefined || v === null || v === '') return '<div class="form-row"><label>' + label + '</label><span style="color:var(--text-quaternary);font-size:0.75rem">—</span></div>';
+    var shown = (k === 'uploaded_at' || k === 'updated_at') ? new Date(v).toLocaleString() : String(v);
+    return '<div class="form-row"><label>' + label + '</label><span style="color:var(--text-tertiary);font-size:0.78rem">' + esc(shown) + '</span></div>';
+  }).join('');
+  return '<div style="border-top:1px dashed var(--border-subtle);margin-top:0.5rem;padding-top:0.5rem">'
+    + '<div style="font-size:0.69rem;color:var(--text-quaternary);margin-bottom:0.3rem">系统自动字段（只读，不可修改）</div>' + rows + '</div>';
+}
+
+function createDocMetaModal() {
+  var html = '<div id="doc-meta-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)this.style.display=\'none\'">'
+    + '<div class="modal"><h4>编辑文档元数据</h4>'
+    + '<div id="doc-meta-form"></div>'
+    + '<div class="form-actions"><button class="primary" onclick="saveDocMetadata()">保存</button>'
+    + '<button class="btn-sm" onclick="document.getElementById(\'doc-meta-modal\').style.display=\'none\'">取消</button></div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function saveDocMetadata() {
+  var meta = {};
+  document.querySelectorAll('#doc-meta-form .doc-meta-val').forEach(function(input) {
+    var key = input.getAttribute('data-key');
+    var v = input.value;
+    if (v === '' || v === null) return;
+    meta[key] = v;
+  });
+  try {
+    await EARP.fetchJSON('/knowledge/documents/' + encodeURIComponent(docMetaState.docId) + '/metadata', {
+      method: 'PATCH',
+      body: JSON.stringify({ metadata: meta }),
+    });
+    document.getElementById('doc-meta-modal').style.display = 'none';
+    await loadDocs(state.selectedKB);
+  } catch (err) { alert('保存失败: ' + err.message); }
 }
 </script>
 </body></html>

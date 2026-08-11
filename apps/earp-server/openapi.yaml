@@ -1,5 +1,75 @@
 components:
   schemas:
+    Body_upload_document_file_knowledge_documents_upload_post:
+      properties:
+        data_classification:
+          default: internal
+          title: Data Classification
+          type: string
+        file:
+          contentMediaType: application/octet-stream
+          title: File
+          type: string
+        knowledge_base_id:
+          title: Knowledge Base Id
+          type: string
+        metadata:
+          default: '{}'
+          title: Metadata
+          type: string
+      required:
+      - file
+      - knowledge_base_id
+      title: Body_upload_document_file_knowledge_documents_upload_post
+      type: object
+    CapabilityEntityIn:
+      properties:
+        entity_type_id:
+          title: Entity Type Id
+          type: string
+        operation:
+          default: read
+          title: Operation
+          type: string
+      required:
+      - entity_type_id
+      title: CapabilityEntityIn
+      type: object
+    ChunkPreviewRequest:
+      properties:
+        chunk_overlap:
+          default: 200
+          title: Chunk Overlap
+          type: integer
+        content:
+          title: Content
+          type: string
+        max_tokens:
+          default: 1000
+          title: Max Tokens
+          type: integer
+        remove_extra_spaces:
+          default: true
+          title: Remove Extra Spaces
+          type: boolean
+        separator:
+          default: '
+
+
+            '
+          title: Separator
+          type: string
+        separators:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Separators
+      required:
+      - content
+      title: ChunkPreviewRequest
+      type: object
     ConvCreate:
       properties:
         title:
@@ -8,14 +78,139 @@ components:
           type: string
       title: ConvCreate
       type: object
+    DataDomainCreate:
+      properties:
+        data_classification:
+          default: internal
+          title: Data Classification
+          type: string
+        data_domain_id:
+          title: Data Domain Id
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        name:
+          title: Name
+          type: string
+        owner:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Owner
+      required:
+      - data_domain_id
+      - name
+      title: DataDomainCreate
+      type: object
+    DataDomainUpdate:
+      properties:
+        data_classification:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Classification
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        owner:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Owner
+        routing_description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Routing Description
+      title: DataDomainUpdate
+      type: object
+    DocClassUpdate:
+      properties:
+        data_classification:
+          title: Data Classification
+          type: string
+      required:
+      - data_classification
+      title: DocClassUpdate
+      type: object
+    DocPreviewRequest:
+      description: 'Doc preview: content is read server-side from the document row.'
+      properties:
+        chunk_overlap:
+          default: 200
+          title: Chunk Overlap
+          type: integer
+        max_tokens:
+          default: 1000
+          title: Max Tokens
+          type: integer
+        remove_extra_spaces:
+          default: true
+          title: Remove Extra Spaces
+          type: boolean
+        separator:
+          default: '
+
+
+            '
+          title: Separator
+          type: string
+        separators:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Separators
+      title: DocPreviewRequest
+      type: object
+    DocProcessRule:
+      properties:
+        rules:
+          additionalProperties: true
+          title: Rules
+          type: object
+      required:
+      - rules
+      title: DocProcessRule
+      type: object
+    DocStatusUpdate:
+      properties:
+        status:
+          title: Status
+          type: string
+      required:
+      - status
+      title: DocStatusUpdate
+      type: object
     DocUpload:
       properties:
         content:
           title: Content
           type: string
+        data_classification:
+          default: internal
+          title: Data Classification
+          type: string
         knowledge_base_id:
           title: Knowledge Base Id
           type: string
+        metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metadata
         title:
           default: ''
           title: Title
@@ -24,6 +219,111 @@ components:
       - knowledge_base_id
       - content
       title: DocUpload
+      type: object
+    EntityIn:
+      properties:
+        attributes:
+          additionalProperties: true
+          default: {}
+          title: Attributes
+          type: object
+        business_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Business Code
+        data_domain_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Domain Id
+        entity_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Entity Id
+        entity_type_id:
+          title: Entity Type Id
+          type: string
+        name:
+          title: Name
+          type: string
+        source_mode:
+          default: extracted
+          title: Source Mode
+          type: string
+        source_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Ref
+      required:
+      - entity_type_id
+      - name
+      title: EntityIn
+      type: object
+    EntityTypeIn:
+      properties:
+        attributes:
+          additionalProperties: true
+          default: {}
+          title: Attributes
+          type: object
+        data_domain_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Domain Id
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        entity_type_id:
+          title: Entity Type Id
+          type: string
+        kind:
+          default: object
+          title: Kind
+          type: string
+        name:
+          title: Name
+          type: string
+        owner:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Owner
+      required:
+      - entity_type_id
+      - name
+      title: EntityTypeIn
+      type: object
+    FactIn:
+      properties:
+        confidence:
+          default: 1.0
+          title: Confidence
+          type: number
+        relation_type_id:
+          title: Relation Type Id
+          type: string
+        source_entity_id:
+          title: Source Entity Id
+          type: string
+        source_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Ref
+        target_entity_id:
+          title: Target Entity Id
+          type: string
+      required:
+      - source_entity_id
+      - relation_type_id
+      - target_entity_id
+      title: FactIn
       type: object
     HTTPValidationError:
       properties:
@@ -79,6 +379,170 @@ components:
       - status
       title: InvokeResponse
       type: object
+    KBCreate:
+      properties:
+        data_domain_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Domain Id
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        indexing_technique:
+          default: high_quality
+          title: Indexing Technique
+          type: string
+        metadata_schema:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Metadata Schema
+        name:
+          title: Name
+          type: string
+        retrieval_model:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Retrieval Model
+        summary_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summary Text
+      required:
+      - name
+      title: KBCreate
+      type: object
+    KBRetrievalUpdate:
+      properties:
+        indexing_technique:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Indexing Technique
+        retrieval_model:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Retrieval Model
+      title: KBRetrievalUpdate
+      type: object
+    KBUpdate:
+      description: KB basic attributes edit.
+      properties:
+        data_domain_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Domain Id
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        indexing_technique:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Indexing Technique
+        metadata_schema:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Metadata Schema
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        summary_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summary Text
+      title: KBUpdate
+      type: object
+    LoginRequest:
+      properties:
+        role_id:
+          title: Role Id
+          type: string
+        tenant_id:
+          title: Tenant Id
+          type: string
+        user_id:
+          title: User Id
+          type: string
+      required:
+      - tenant_id
+      - user_id
+      - role_id
+      title: LoginRequest
+      type: object
+    MetadataUpdate:
+      properties:
+        metadata:
+          additionalProperties: true
+          title: Metadata
+          type: object
+      required:
+      - metadata
+      title: MetadataUpdate
+      type: object
+    ModelConfigIn:
+      properties:
+        credentials:
+          additionalProperties: true
+          default: {}
+          title: Credentials
+          type: object
+        model_name:
+          title: Model Name
+          type: string
+        model_type:
+          title: Model Type
+          type: string
+        provider:
+          title: Provider
+          type: string
+      required:
+      - provider
+      - model_type
+      - model_name
+      title: ModelConfigIn
+      type: object
+    ModelConfigUpdate:
+      properties:
+        credentials:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Credentials
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        is_default:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Default
+      title: ModelConfigUpdate
+      type: object
     MsgAdd:
       properties:
         content:
@@ -101,11 +565,100 @@ components:
       - intent
       title: PlanRequest
       type: object
-    SearchQuery:
+    RelationTypeIn:
+      properties:
+        cardinality:
+          title: Cardinality
+          type: string
+        name:
+          title: Name
+          type: string
+        relation_type_id:
+          title: Relation Type Id
+          type: string
+        source_type:
+          title: Source Type
+          type: string
+        target_type:
+          title: Target Type
+          type: string
+      required:
+      - relation_type_id
+      - name
+      - source_type
+      - target_type
+      - cardinality
+      title: RelationTypeIn
+      type: object
+    RoutingDebugRequest:
       properties:
         query:
           title: Query
           type: string
+        top_k:
+          default: 3
+          title: Top K
+          type: integer
+        top_n:
+          default: 3
+          title: Top N
+          type: integer
+      required:
+      - query
+      title: RoutingDebugRequest
+      type: object
+    RoutingRebuildRequest:
+      properties:
+        data_domain_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Data Domain Ids
+        knowledge_base_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Knowledge Base Ids
+      title: RoutingRebuildRequest
+      type: object
+    SearchQuery:
+      properties:
+        data_domain_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Data Domain Ids
+        knowledge_base_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Knowledge Base Ids
+        metadata_filters:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metadata Filters
+        mode:
+          default: vector
+          title: Mode
+          type: string
+        query:
+          title: Query
+          type: string
+        threshold:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Threshold
         top_k:
           default: 5
           title: Top K
@@ -176,6 +729,25 @@ components:
       - prompt
       title: StreamRequest
       type: object
+    SystemSettingsIn:
+      properties:
+        embedding:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Embedding
+        llm:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Llm
+        rerank:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Rerank
+      title: SystemSettingsIn
+      type: object
     ValidationError:
       properties:
         ctx:
@@ -207,6 +779,387 @@ info:
   version: 0.1.0
 openapi: 3.1.0
 paths:
+  /api/data-domains:
+    get:
+      operationId: list_data_domains_endpoint_api_data_domains_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Data Domains Endpoint Api Data Domains Get
+                type: array
+          description: Successful Response
+      summary: List Data Domains Endpoint
+      tags:
+      - knowledge
+    post:
+      operationId: create_data_domain_endpoint_api_data_domains_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataDomainCreate'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Data Domain Endpoint Api Data Domains Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Data Domain Endpoint
+      tags:
+      - knowledge
+  /api/data-domains/{data_domain_id}:
+    delete:
+      operationId: delete_data_domain_endpoint_api_data_domains__data_domain_id__delete
+      parameters:
+      - in: path
+        name: data_domain_id
+        required: true
+        schema:
+          title: Data Domain Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Delete Data Domain Endpoint Api Data Domains  Data
+                  Domain Id  Delete
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete Data Domain Endpoint
+      tags:
+      - knowledge
+    patch:
+      description: Edit data domain basic attributes (name / description / classification
+        / owner / routing).
+      operationId: update_data_domain_endpoint_api_data_domains__data_domain_id__patch
+      parameters:
+      - in: path
+        name: data_domain_id
+        required: true
+        schema:
+          title: Data Domain Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataDomainUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Data Domain Endpoint Api Data Domains  Data
+                  Domain Id  Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Data Domain Endpoint
+      tags:
+      - knowledge
+  /api/data-domains/{data_domain_id}/suggest-description:
+    post:
+      description: 'Generate a routing_description draft from the domain''s KB names/descriptions.
+
+
+        Returns the draft + source KBs; the admin confirms/edits and saves via
+
+        PATCH /api/data-domains/{id}. Management aid only — no test coverage
+
+        for the LLM call itself (dev-only; Ollama required).'
+      operationId: suggest_dd_description_endpoint_api_data_domains__data_domain_id__suggest_description_post
+      parameters:
+      - in: path
+        name: data_domain_id
+        required: true
+        schema:
+          title: Data Domain Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Suggest Dd Description Endpoint Api Data Domains  Data
+                  Domain Id  Suggest Description Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Suggest Dd Description Endpoint
+      tags:
+      - knowledge
+  /api/model-configs:
+    get:
+      operationId: list_model_configs_api_model_configs_get
+      parameters:
+      - in: query
+        name: model_type
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Type
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Model Configs Api Model Configs Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Model Configs
+      tags:
+      - models
+    post:
+      operationId: create_model_config_api_model_configs_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelConfigIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Model Config Api Model Configs Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Model Config
+      tags:
+      - models
+  /api/model-configs/{config_id}:
+    delete:
+      operationId: delete_model_config_api_model_configs__config_id__delete
+      parameters:
+      - in: path
+        name: config_id
+        required: true
+        schema:
+          title: Config Id
+          type: string
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete Model Config
+      tags:
+      - models
+    put:
+      operationId: update_model_config_api_model_configs__config_id__put
+      parameters:
+      - in: path
+        name: config_id
+        required: true
+        schema:
+          title: Config Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelConfigUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Model Config Api Model Configs  Config Id  Put
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Model Config
+      tags:
+      - models
+  /api/model-configs/{config_id}/test:
+    post:
+      operationId: test_model_config_api_model_configs__config_id__test_post
+      parameters:
+      - in: path
+        name: config_id
+        required: true
+        schema:
+          title: Config Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Test Model Config Api Model Configs  Config Id  Test
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Test Model Config
+      tags:
+      - models
+  /api/model-providers:
+    get:
+      description: Provider catalog + per-provider configured models.
+      operationId: list_providers_api_model_providers_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Providers Api Model Providers Get
+                type: array
+          description: Successful Response
+      summary: List Providers
+      tags:
+      - models
+  /api/system-model-settings:
+    get:
+      operationId: get_system_settings_api_system_model_settings_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get System Settings Api System Model Settings Get
+                type: object
+          description: Successful Response
+      summary: Get System Settings
+      tags:
+      - models
+    put:
+      operationId: set_system_settings_api_system_model_settings_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemSettingsIn'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Set System Settings Api System Model Settings Put
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Set System Settings
+      tags:
+      - models
+  /auth/login:
+    post:
+      description: 'Dev/test convenience: tenant/user/role -> JWT. Disabled in prod.
+
+
+        Validates the identities exist (RLS-scoped for user/role) so the issued
+
+        token is guaranteed usable — a token with an unknown role_id would fail
+
+        PolicyLayer with a confusing 403 later.'
+      operationId: auth_login_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Auth Login Auth Login Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Auth Login
+      tags:
+      - auth
   /capabilities:
     get:
       operationId: discover_capabilities_endpoint_capabilities_get
@@ -388,6 +1341,278 @@ paths:
       summary: List Intents Endpoint
       tags:
       - planner
+  /knowledge/bases:
+    get:
+      operationId: list_kbs_endpoint_knowledge_bases_get
+      parameters:
+      - in: query
+        name: data_domain_id
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Domain Id
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Kbs Endpoint Knowledge Bases Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Kbs Endpoint
+      tags:
+      - knowledge
+    post:
+      operationId: create_kb_endpoint_knowledge_bases_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KBCreate'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Kb Endpoint Knowledge Bases Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Kb Endpoint
+      tags:
+      - knowledge
+  /knowledge/bases/{kb_id}:
+    delete:
+      operationId: delete_kb_endpoint_knowledge_bases__kb_id__delete
+      parameters:
+      - in: path
+        name: kb_id
+        required: true
+        schema:
+          title: Kb Id
+          type: string
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete Kb Endpoint
+      tags:
+      - knowledge
+    patch:
+      description: Edit KB basic attributes (name / data domain / description / indexing).
+      operationId: update_kb_endpoint_knowledge_bases__kb_id__patch
+      parameters:
+      - in: path
+        name: kb_id
+        required: true
+        schema:
+          title: Kb Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KBUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Kb Endpoint Knowledge Bases  Kb Id  Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Kb Endpoint
+      tags:
+      - knowledge
+  /knowledge/bases/{kb_id}/documents:
+    get:
+      operationId: list_documents_endpoint_knowledge_bases__kb_id__documents_get
+      parameters:
+      - in: path
+        name: kb_id
+        required: true
+        schema:
+          title: Kb Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Documents Endpoint Knowledge Bases  Kb Id  Documents
+                  Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Documents Endpoint
+      tags:
+      - knowledge
+  /knowledge/bases/{kb_id}/reindex:
+    post:
+      description: Re-chunk + re-embed all documents of a KB using its saved chunking
+        config.
+      operationId: reindex_kb_endpoint_knowledge_bases__kb_id__reindex_post
+      parameters:
+      - in: path
+        name: kb_id
+        required: true
+        schema:
+          title: Kb Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Reindex Kb Endpoint Knowledge Bases  Kb Id  Reindex
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Reindex Kb Endpoint
+      tags:
+      - knowledge
+  /knowledge/bases/{kb_id}/retrieval:
+    patch:
+      description: Save per-KB retrieval/chunking config (used by Test Retrieval '保存到KB').
+      operationId: update_kb_retrieval_endpoint_knowledge_bases__kb_id__retrieval_patch
+      parameters:
+      - in: path
+        name: kb_id
+        required: true
+        schema:
+          title: Kb Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KBRetrievalUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Kb Retrieval Endpoint Knowledge Bases  Kb Id  Retrieval
+                  Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Kb Retrieval Endpoint
+      tags:
+      - knowledge
+  /knowledge/bases/{kb_id}/suggest-summary:
+    post:
+      description: 'Generate a KB summary_text draft from KB name/description + doc
+        titles.
+
+        The admin confirms/edits and saves via PATCH /knowledge/bases/{id}.'
+      operationId: suggest_kb_summary_endpoint_knowledge_bases__kb_id__suggest_summary_post
+      parameters:
+      - in: path
+        name: kb_id
+        required: true
+        schema:
+          title: Kb Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Suggest Kb Summary Endpoint Knowledge Bases  Kb Id  Suggest
+                  Summary Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Suggest Kb Summary Endpoint
+      tags:
+      - knowledge
+  /knowledge/chunks/preview:
+    post:
+      operationId: preview_chunks_knowledge_chunks_preview_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChunkPreviewRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Preview Chunks Knowledge Chunks Preview Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Preview Chunks
+      tags:
+      - knowledge
   /knowledge/documents:
     post:
       operationId: upload_document_knowledge_documents_post
@@ -415,8 +1640,393 @@ paths:
       summary: Upload Document
       tags:
       - knowledge
+  /knowledge/documents/upload:
+    post:
+      description: 'Multipart upload: .docx / .pdf / txt / md / csv / json / html.'
+      operationId: upload_document_file_knowledge_documents_upload_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_document_file_knowledge_documents_upload_post'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Upload Document File Knowledge Documents Upload Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Upload Document File
+      tags:
+      - knowledge
+  /knowledge/documents/{doc_id}:
+    delete:
+      operationId: delete_doc_endpoint_knowledge_documents__doc_id__delete
+      parameters:
+      - in: path
+        name: doc_id
+        required: true
+        schema:
+          title: Doc Id
+          type: string
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete Doc Endpoint
+      tags:
+      - knowledge
+    get:
+      operationId: get_doc_detail_endpoint_knowledge_documents__doc_id__get
+      parameters:
+      - in: path
+        name: doc_id
+        required: true
+        schema:
+          title: Doc Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Doc Detail Endpoint Knowledge Documents  Doc Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Doc Detail Endpoint
+      tags:
+      - knowledge
+    patch:
+      operationId: update_doc_class_endpoint_knowledge_documents__doc_id__patch
+      parameters:
+      - in: path
+        name: doc_id
+        required: true
+        schema:
+          title: Doc Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocClassUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Doc Class Endpoint Knowledge Documents  Doc
+                  Id  Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Doc Class Endpoint
+      tags:
+      - knowledge
+  /knowledge/documents/{doc_id}/metadata:
+    patch:
+      description: Edit a document's manual metadata (schema-validated, auto fields
+        rejected).
+      operationId: update_doc_metadata_endpoint_knowledge_documents__doc_id__metadata_patch
+      parameters:
+      - in: path
+        name: doc_id
+        required: true
+        schema:
+          title: Doc Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetadataUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Doc Metadata Endpoint Knowledge Documents  Doc
+                  Id  Metadata Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Doc Metadata Endpoint
+      tags:
+      - knowledge
+  /knowledge/documents/{doc_id}/preview:
+    post:
+      description: Preview chunking for ONE document's content with the given params.
+      operationId: preview_doc_chunks_knowledge_documents__doc_id__preview_post
+      parameters:
+      - in: path
+        name: doc_id
+        required: true
+        schema:
+          title: Doc Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocPreviewRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Preview Doc Chunks Knowledge Documents  Doc Id  Preview
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Preview Doc Chunks
+      tags:
+      - knowledge
+  /knowledge/documents/{doc_id}/process-rule:
+    put:
+      operationId: save_doc_process_rule_endpoint_knowledge_documents__doc_id__process_rule_put
+      parameters:
+      - in: path
+        name: doc_id
+        required: true
+        schema:
+          title: Doc Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocProcessRule'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Save Doc Process Rule Endpoint Knowledge Documents  Doc
+                  Id  Process Rule Put
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Save Doc Process Rule Endpoint
+      tags:
+      - knowledge
+  /knowledge/documents/{doc_id}/reindex:
+    post:
+      description: Re-chunk + re-embed ONE document (uses its saved rule, fallback
+        KB config).
+      operationId: reindex_doc_endpoint_knowledge_documents__doc_id__reindex_post
+      parameters:
+      - in: path
+        name: doc_id
+        required: true
+        schema:
+          title: Doc Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Reindex Doc Endpoint Knowledge Documents  Doc Id  Reindex
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Reindex Doc Endpoint
+      tags:
+      - knowledge
+  /knowledge/documents/{doc_id}/status:
+    patch:
+      operationId: update_doc_status_endpoint_knowledge_documents__doc_id__status_patch
+      parameters:
+      - in: path
+        name: doc_id
+        required: true
+        schema:
+          title: Doc Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocStatusUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Doc Status Endpoint Knowledge Documents  Doc
+                  Id  Status Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Doc Status Endpoint
+      tags:
+      - knowledge
+  /knowledge/documents/{doc_id}/suggest-separators:
+    post:
+      description: Analyze the document's structure and suggest a priority-ordered
+        separator list.
+      operationId: suggest_doc_separators_knowledge_documents__doc_id__suggest_separators_post
+      parameters:
+      - in: path
+        name: doc_id
+        required: true
+        schema:
+          title: Doc Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Suggest Doc Separators Knowledge Documents  Doc Id  Suggest
+                  Separators Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Suggest Doc Separators
+      tags:
+      - knowledge
+  /knowledge/routing/debug:
+    post:
+      description: 'Routing debug view: DD keyword/vector lanes → candidate DDs (permitted)
+
+        → candidate KBs, plus description coverage + freshness for every domain.'
+      operationId: routing_debug_endpoint_knowledge_routing_debug_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingDebugRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Routing Debug Endpoint Knowledge Routing Debug Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Routing Debug Endpoint
+      tags:
+      - knowledge
+  /knowledge/routing/rebuild:
+    post:
+      description: 'Manually rebuild routing embeddings (None = all domains/KBs).
+
+        Idempotent: unchanged aggregate texts are skipped (hash check).'
+      operationId: routing_rebuild_endpoint_knowledge_routing_rebuild_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingRebuildRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Routing Rebuild Endpoint Knowledge Routing Rebuild
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Routing Rebuild Endpoint
+      tags:
+      - knowledge
   /knowledge/search:
     post:
+      description: 'Chunk search. No explicit KB/DD scope → soft-routing across the
+        whole
+
+        tenant (enterprise-retrieval design §3/§6, decision B-6): route_query
+
+        produces candidate KBs (permission-filtered), then chunk recall happens
+
+        inside those KBs. Explicit scope keeps current in-scope semantics.'
       operationId: search_knowledge_knowledge_search_post
       requestBody:
         content:
@@ -523,6 +2133,503 @@ paths:
       summary: Stream Invoke
       tags:
       - streaming
+  /v1/ontology/capabilities/by-entity-type/{entity_type_id}:
+    get:
+      description: Reverse lookup for Resolution Engine candidate narrowing (planner-spec
+        §5.1.5).
+      operationId: capabilities_by_entity_type_v1_ontology_capabilities_by_entity_type__entity_type_id__get
+      parameters:
+      - in: path
+        name: entity_type_id
+        required: true
+        schema:
+          title: Entity Type Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response Capabilities By Entity Type V1 Ontology Capabilities
+                  By Entity Type  Entity Type Id  Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Capabilities By Entity Type
+      tags:
+      - ontology
+  /v1/ontology/capabilities/{capability_id}/entities:
+    post:
+      operationId: map_capability_entity_v1_ontology_capabilities__capability_id__entities_post
+      parameters:
+      - in: path
+        name: capability_id
+        required: true
+        schema:
+          title: Capability Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CapabilityEntityIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Map Capability Entity V1 Ontology Capabilities  Capability
+                  Id  Entities Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Map Capability Entity
+      tags:
+      - ontology
+  /v1/ontology/entities:
+    post:
+      operationId: upsert_entity_v1_ontology_entities_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Upsert Entity V1 Ontology Entities Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Upsert Entity
+      tags:
+      - ontology
+  /v1/ontology/entities/lookup:
+    get:
+      operationId: lookup_entities_v1_ontology_entities_lookup_get
+      parameters:
+      - in: query
+        name: q
+        required: true
+        schema:
+          title: Q
+          type: string
+      - in: query
+        name: entity_type
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Entity Type
+      - in: query
+        name: top_k
+        required: false
+        schema:
+          default: 5
+          title: Top K
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response Lookup Entities V1 Ontology Entities Lookup Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Lookup Entities
+      tags:
+      - ontology
+  /v1/ontology/entities/{entity_id}:
+    get:
+      operationId: get_entity_v1_ontology_entities__entity_id__get
+      parameters:
+      - in: path
+        name: entity_id
+        required: true
+        schema:
+          title: Entity Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Entity V1 Ontology Entities  Entity Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Entity
+      tags:
+      - ontology
+  /v1/ontology/entities/{entity_id}/facts:
+    post:
+      operationId: add_fact_v1_ontology_entities__entity_id__facts_post
+      parameters:
+      - in: path
+        name: entity_id
+        required: true
+        schema:
+          title: Entity Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Add Fact V1 Ontology Entities  Entity Id  Facts Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Add Fact
+      tags:
+      - ontology
+  /v1/ontology/entities/{entity_id}/graph:
+    get:
+      operationId: graph_query_v1_ontology_entities__entity_id__graph_get
+      parameters:
+      - in: path
+        name: entity_id
+        required: true
+        schema:
+          title: Entity Id
+          type: string
+      - in: query
+        name: max_hops
+        required: false
+        schema:
+          default: 3
+          title: Max Hops
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response Graph Query V1 Ontology Entities  Entity Id  Graph
+                  Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Graph Query
+      tags:
+      - ontology
+  /v1/ontology/entities/{entity_id}/profile:
+    get:
+      operationId: get_profile_v1_ontology_entities__entity_id__profile_get
+      parameters:
+      - in: path
+        name: entity_id
+        required: true
+        schema:
+          title: Entity Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Profile V1 Ontology Entities  Entity Id  Profile
+                  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Profile
+      tags:
+      - ontology
+  /v1/ontology/entity-types:
+    get:
+      operationId: list_entity_types_v1_ontology_entity_types_get
+      parameters:
+      - in: query
+        name: data_domain_id
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Domain Id
+      - in: query
+        name: kind
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Kind
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Entity Types V1 Ontology Entity Types Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Entity Types
+      tags:
+      - ontology
+    post:
+      operationId: create_entity_type_v1_ontology_entity_types_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityTypeIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Entity Type V1 Ontology Entity Types Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Entity Type
+      tags:
+      - ontology
+  /v1/ontology/entity-types/{entity_type_id}/deprecate:
+    post:
+      operationId: deprecate_entity_type_v1_ontology_entity_types__entity_type_id__deprecate_post
+      parameters:
+      - in: path
+        name: entity_type_id
+        required: true
+        schema:
+          title: Entity Type Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Deprecate Entity Type V1 Ontology Entity Types  Entity
+                  Type Id  Deprecate Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Deprecate Entity Type
+      tags:
+      - ontology
+  /v1/ontology/facts/{fact_id}/revoke:
+    post:
+      operationId: revoke_fact_v1_ontology_facts__fact_id__revoke_post
+      parameters:
+      - in: path
+        name: fact_id
+        required: true
+        schema:
+          title: Fact Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Revoke Fact V1 Ontology Facts  Fact Id  Revoke Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Revoke Fact
+      tags:
+      - ontology
+  /v1/ontology/relation-types:
+    get:
+      operationId: list_relation_types_v1_ontology_relation_types_get
+      parameters:
+      - in: query
+        name: source_type
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Type
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Relation Types V1 Ontology Relation Types Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Relation Types
+      tags:
+      - ontology
+    post:
+      operationId: create_relation_type_v1_ontology_relation_types_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RelationTypeIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Relation Type V1 Ontology Relation Types Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Relation Type
+      tags:
+      - ontology
+  /v1/ontology/search:
+    get:
+      description: 'Three-layer retrieval (PRD-2026-030 M2): profile + graph + vector,
+        RRF-fused.'
+      operationId: knowledge_search_endpoint_v1_ontology_search_get
+      parameters:
+      - in: query
+        name: q
+        required: true
+        schema:
+          title: Q
+          type: string
+      - in: query
+        name: top_k
+        required: false
+        schema:
+          default: 5
+          title: Top K
+          type: integer
+      - in: query
+        name: data_domain_id
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Domain Id
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response Knowledge Search Endpoint V1 Ontology Search Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Knowledge Search Endpoint
+      tags:
+      - ontology
   /v1/sessions:
     get:
       operationId: list_sessions_endpoint_v1_sessions_get

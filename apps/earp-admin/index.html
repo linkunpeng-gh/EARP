@@ -5,7 +5,7 @@
 <meta name="description" content="EARP Enterprise AI Runtime Platform — Admin Dashboard">
 <title>EARP Admin — Dashboard</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
 <link rel="stylesheet" href="css/admin.css">
 </head>
 <body>
@@ -20,7 +20,14 @@
     <div class="nav-group"><a href="pages/sessions.html" data-nav="sessions">运行时</a></div>
     <div class="nav-group"><a href="pages/plan.html" data-nav="plan">推理</a></div>
     <div class="nav-group"><a href="pages/capabilities.html" data-nav="capabilities">能力</a></div>
-    <div class="nav-group"><a href="pages/knowledge.html" data-nav="knowledge">知识</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="pages/knowledge.html" data-nav="knowledge">知识</a>
+      <div class="dropdown-menu">
+        <a href="pages/data-domains.html" data-nav="data-domains">数据域</a>
+        <a href="pages/knowledge.html" data-nav="knowledge">知识库</a>
+        <a href="pages/test-retrieval.html" data-nav="test-retrieval">召回测试</a>
+      </div>
+    </div>
     <div class="nav-group"><a href="pages/conversations.html" data-nav="conversations">对话</a></div>
     <div class="nav-group nav-dropdown">
       <a href="pages/audit.html">治理</a>

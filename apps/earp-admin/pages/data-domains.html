@@ -1,12 +1,19 @@
 <!DOCTYPE html>
-<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Data Domains"><title>Data Domains — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/admin.css"></head>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Data Domains"><title>Data Domains — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
 <body>
 <header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>              <nav>
     <a href="../index.html">Overview</a>
     <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
     <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
     <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
-    <div class="nav-group"><a href="knowledge.html" data-nav="knowledge">知识</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="knowledge.html" data-nav="knowledge">知识</a>
+      <div class="dropdown-menu">
+        <a href="data-domains.html" data-nav="data-domains">数据域</a>
+        <a href="knowledge.html" data-nav="knowledge">知识库</a>
+        <a href="test-retrieval.html" data-nav="test-retrieval">召回测试</a>
+      </div>
+    </div>
     <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
     <div class="nav-group nav-dropdown">
       <a href="audit.html">治理</a>
@@ -19,9 +26,9 @@
         <a href="observability.html" class="disabled">Observability</a>
       </div>
     </div>
-  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+  </nav><div class="meta"><a href="models.html" class="model-link" title="模型配置">⚙️</a> tenant-demo · <a href="login.html">Admin</a></div></header>
 <main>
-<div class="page-title"><div><h2>Data Domains</h2><p class="page-subtitle">Manage governance boundaries — KB membership and role access</p></div></div>
+<div class="page-title"><div><h2>Data Domains</h2><p class="page-subtitle">Manage governance boundaries — KB membership and role access · <a href="knowledge.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">Knowledge Base →</a></p></div></div>
 
 <div class="toolbar" style="margin-bottom:16px">
   <select id="class-filter" style="width:auto" onchange="filterByClass()">
@@ -38,34 +45,11 @@
 
 <!-- Two-column layout -->
 <div class="dd-layout">
-  <!-- Left: DD list -->
+  <!-- Left: DD list (live) -->
   <div class="dd-list-panel">
     <h4 style="margin:0 0 8px;font-size:0.87rem;color:var(--text-secondary,#6b6e75)">Data Domains</h4>
     <div class="dd-list" id="dd-list">
-      <div class="dd-card" data-class="internal" onclick="selectDd('equipment_data')">
-        <input type="radio" name="dd-sel" style="display:none">
-        <div class="dd-card-name">Equipment Data</div>
-        <div class="dd-card-meta">
-          <span class="tag tag-internal">internal</span>
-          <span class="dd-card-count">2 KB · 12 docs</span>
-        </div>
-      </div>
-      <div class="dd-card" data-class="confidential" onclick="selectDd('hr_data')">
-        <input type="radio" name="dd-sel" style="display:none">
-        <div class="dd-card-name">HR Policies</div>
-        <div class="dd-card-meta">
-          <span class="tag tag-confidential">confidential</span>
-          <span class="dd-card-count">1 KB · 5 docs</span>
-        </div>
-      </div>
-      <div class="dd-card" data-class="internal" onclick="selectDd('corporate_data')">
-        <input type="radio" name="dd-sel" style="display:none">
-        <div class="dd-card-name">Corporate Standards</div>
-        <div class="dd-card-meta">
-          <span class="tag tag-internal">internal</span>
-          <span class="dd-card-count">2 KB · 8 docs</span>
-        </div>
-      </div>
+      <p style="font-size:0.75rem;color:var(--text-tertiary,#8b8d91)">Loading...</p>
     </div>
   </div>
 
@@ -74,96 +58,155 @@
     <div class="dd-detail-empty">
       <p style="color:var(--text-tertiary,#8b8d91);margin:0">Select a Data Domain from the left panel to view details.</p>
     </div>
-
-    <!-- equipment_data detail (hidden by default) -->
-    <div id="detail-equipment_data" class="dd-detail-content" style="display:none">
-      <div class="dd-detail-header">
-        <div><h3 style="margin:0;font-size:1.1rem">Equipment Data</h3>
-          <p style="margin:4px 0 0;font-size:0.81rem;color:var(--text-tertiary,#8b8d91)">Owner: equipment-team · Mapped BD: Equipment</p></div>
-        <div><span class="tag tag-internal" style="font-size:0.81rem;padding:2px 10px">internal</span></div>
-      </div>
-
-      <!-- KB membership -->
-      <div class="section-card">
-        <div class="section-header">
-          <h4 style="margin:0;font-size:0.87rem">Knowledge Bases <span style="font-weight:400;color:var(--text-tertiary)">(2 KBs)</span></h4>
-          <button class="btn-sm" onclick="alert('Add KB to Equipment Data domain')">+ Attach KB</button>
-        </div>
-        <table><thead><tr><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>
-          <tr><td>kb-eq-manuals</td><td><a href="../pages/knowledge.html">Equipment Manuals</a></td><td>8</td><td>120</td></tr>
-          <tr><td>kb-eq-alarms</td><td><a href="../pages/knowledge.html">Alarm Thresholds</a></td><td>4</td><td>45</td></tr>
-        </tbody></table>
-      </div>
-
-      <!-- Role Access -->
-      <div class="section-card">
-        <div class="section-header">
-          <h4 style="margin:0;font-size:0.87rem">Role Access <span style="font-weight:400;color:var(--text-tertiary)">(3 roles)</span></h4>
-        </div>
-        <table id="access-table-equipment"><thead><tr><th>Role</th><th>Max Classification</th><th></th></tr></thead><tbody>
-          <tr><td>设备工程师</td><td><select><option>public</option><option selected>internal</option><option>confidential</option><option>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
-          <tr><td>设备管理员</td><td><select><option>public</option><option>internal</option><option selected>confidential</option><option>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
-          <tr><td>运维人员</td><td><select><option>public</option><option selected>internal</option><option>confidential</option><option>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
-        </tbody></table>
-        <div class="grant-row">
-          <select style="flex:1"><option value="">Grant access to a role...</option><option>产线操作员</option><option>质量工程师</option><option>安全审计员</option></select>
-          <select style="width:auto;margin:0 4px"><option value="public">public</option>
-    <option value="internal">internal</option><option value="confidential">confidential</option><option value="restricted">restricted</option></select>
-          <button class="btn-sm primary" onclick="grantAccess(this)">Grant</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- hr_data detail (hidden by default) -->
-    <div id="detail-hr_data" class="dd-detail-content" style="display:none">
-      <div class="dd-detail-header">
-        <div><h3 style="margin:0;font-size:1.1rem">HR Policies</h3>
-          <p style="margin:4px 0 0;font-size:0.81rem;color:var(--text-tertiary,#8b8d91)">Owner: hr-team · Mapped BD: HR</p></div>
-        <div><span class="tag tag-confidential" style="font-size:0.81rem;padding:2px 10px">confidential</span></div>
-      </div>
-      <div class="section-card">
-        <div class="section-header">
-          <h4 style="margin:0;font-size:0.87rem">Knowledge Bases <span style="font-weight:400;color:var(--text-tertiary)">(1 KB)</span></h4>
-          <button class="btn-sm" onclick="alert('Add KB to HR Policies domain')">+ Attach KB</button>
-        </div>
-        <table><thead><tr><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>
-          <tr><td>kb-hr-policies</td><td><a href="../pages/knowledge.html">Company Policies</a></td><td>5</td><td>60</td></tr>
-        </tbody></table>
-      </div>
-      <div class="section-card">
-        <div class="section-header">
-          <h4 style="margin:0;font-size:0.87rem">Role Access <span style="font-weight:400;color:var(--text-tertiary)">(2 roles)</span></h4>
-        </div>
-        <table id="access-table-hr"><thead><tr><th>Role</th><th>Max Classification</th><th></th></tr></thead><tbody>
-          <tr><td>HR 经理</td><td><select><option>public</option><option>internal</option><option>confidential</option><option selected>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
-          <tr><td>HR 专员</td><td><select><option>public</option><option selected>internal</option><option>confidential</option><option>restricted</option></select></td><td><button class="btn-sm" onclick="revokeAccess(this)">Revoke</button></td></tr>
-        </tbody></table>
-        <div class="grant-row">
-          <select style="flex:1"><option value="">Grant access to a role...</option><option>财务分析员</option><option>法务合规</option><option>部门主管</option></select>
-          <select style="width:auto;margin:0 4px"><option value="public">public</option>
-    <option value="internal">internal</option><option value="confidential">confidential</option><option value="restricted">restricted</option></select>
-          <button class="btn-sm primary" onclick="grantAccess(this)">Grant</button>
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 
-<!-- Modal for create/edit domain -->
+<!-- Modal for create domain -->
 <div id="dd-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideDdModal()">
   <div class="modal">
     <h4 id="dd-modal-title">Create Data Domain</h4>
-    <div class="form-row"><label>Name</label><input id="dd-modal-name" placeholder="Domain name" style="flex:1"></div>
-    <div class="form-row"><label>Description</label><input id="dd-modal-desc" placeholder="Optional description" style="flex:1"></div>
+    <div class="form-row"><label>ID</label><input id="dd-modal-id" placeholder="equipment_data" style="flex:1"></div>
+    <div class="form-row"><label>Name</label><input id="dd-modal-name" placeholder="设备数据" style="flex:1"></div>
+    <div class="form-row"><label>Description</label><textarea id="dd-modal-desc" rows="3" placeholder="Optional description" style="resize:vertical"></textarea></div>
     <div class="form-row"><label>Classification</label><select id="dd-modal-class" style="flex:1"><option value="public">public</option>
     <option value="internal">internal</option><option value="confidential">confidential</option><option value="restricted">restricted</option></select></div>
     <div class="form-row"><label>Owner</label><input id="dd-modal-owner" placeholder="Team or individual" style="flex:1"></div>
-    <div class="form-row"><label>Mapped BD</label><input id="dd-modal-bd" placeholder="e.g. Equipment, HR" style="flex:1"></div>
     <div class="form-actions"><button class="primary" onclick="saveDd()">Save</button> <button class="btn-sm" onclick="hideDdModal()">Cancel</button></div>
   </div>
 </div>
 
+<script src="../js/app.js"></script>
 <script>
+// ── State (live API — PRD-2026-028 §6.6) ──
+var ddState = { domains: [], selected: null };
+var clsTag = {
+  public: 'tag-public', internal: 'tag-internal', confidential: 'tag-confidential', restricted: 'tag-restricted'
+};
+var clsLabels = { public: 'Public', internal: 'Internal', confidential: 'Confidential', restricted: 'Restricted' };
+
+document.addEventListener('DOMContentLoaded', loadDds);
+
+async function loadDds() {
+  try {
+    ddState.domains = await EARP.fetchJSON('/api/data-domains');
+    renderDdList();
+  } catch (err) {
+    document.getElementById('dd-list').innerHTML = '<p style="font-size:0.75rem;color:var(--red);padding:0.5rem">Failed: ' + err.message + '</p>';
+  }
+}
+
+function renderDdList() {
+  var list = document.getElementById('dd-list');
+  if (ddState.domains.length === 0) {
+    list.innerHTML = '<p style="font-size:0.75rem;color:var(--text-tertiary,#8b8d91);padding:0.5rem">No Data Domains. Create one.</p>';
+    return;
+  }
+  list.innerHTML = ddState.domains.map(function(dd) {
+    var active = ddState.selected === dd.data_domain_id ? ' selected' : '';
+    return '<div class="dd-card' + active + '" data-class="' + dd.data_classification + '" onclick="selectDd(\'' + dd.data_domain_id + '\')">'
+      + '<div class="dd-card-name">' + (dd.name || dd.data_domain_id)
+      + '<span class="dd-actions">'
+        + '<button class="dd-del-btn" title="编辑" onclick="event.stopPropagation();editDd(\'' + dd.data_domain_id + '\')">✏️</button> '
+        + '<button class="dd-del-btn" title="删除" onclick="event.stopPropagation();deleteDd(\'' + dd.data_domain_id + '\', \'' + (dd.name || dd.data_domain_id) + '\')">🗑</button>'
+      + '</span>'
+      + '</div>'
+      + '<div class="dd-card-meta">'
+      + '<span class="tag ' + (clsTag[dd.data_classification] || 'tag-internal') + '">' + (clsLabels[dd.data_classification] || dd.data_classification) + '</span>'
+      + '<span class="dd-card-count">' + dd.kb_count + ' KB · ' + dd.doc_count + ' docs</span>'
+      + '</div></div>';
+  }).join('');
+}
+
+async function deleteDd(id, name) {
+  if (!confirm('Delete data domain "' + name + '" (' + id + ')?')) return;
+  try {
+    var res = await EARP.fetchJSON('/api/data-domains/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (ddState.selected === id) ddState.selected = null;
+    document.getElementById('dd-detail').innerHTML = '<div class="dd-detail-empty"><p style="color:var(--text-tertiary,#8b8d91);margin:0">Select a Data Domain from the left panel to view details.</p></div>';
+    await loadDds();
+  } catch (err) {
+    alert('Delete failed: ' + err.message);
+  }
+}
+
+// ── 编辑 Data Domain（name / description / classification / owner）──
+var editDdState = { ddId: null };
+
+function editDd(id) {
+  var dd = ddState.domains.find(function(d){ return d.data_domain_id === id; });
+  if (!dd) { alert('Data domain not found'); return; }
+  editDdState.ddId = id;
+  var modal = document.getElementById('dd-edit-modal');
+  if (!modal) { createDdEditModal(); modal = document.getElementById('dd-edit-modal'); }
+  document.getElementById('dd-edit-title').textContent = '编辑 — ' + (dd.name || dd.data_domain_id);
+  document.getElementById('dd-edit-id').textContent = dd.data_domain_id;
+  document.getElementById('dd-edit-name').value = dd.name || '';
+  document.getElementById('dd-edit-desc').value = dd.description || '';
+  document.getElementById('dd-edit-class').value = dd.data_classification || 'internal';
+  document.getElementById('dd-edit-owner').value = dd.owner || '';
+  document.getElementById('dd-edit-rdesc').value = dd.routing_description || '';
+  modal.style.display = 'flex';
+}
+
+function hideDdEditModal() { document.getElementById('dd-edit-modal').style.display = 'none'; }
+
+function createDdEditModal() {
+  var html = '<div id="dd-edit-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideDdEditModal()">'
+    + '<div class="modal" style="min-width:600px;max-width:780px;width:90vw"><h4 id="dd-edit-title">编辑 Data Domain</h4>'
+    + '<div class="form-row"><label>ID</label><code id="dd-edit-id"></code></div>'
+    + '<div class="form-row"><label>Name</label><input id="dd-edit-name" placeholder="名称" style="flex:1"></div>'
+    + '<div class="form-row"><label>Description</label><textarea id="dd-edit-desc" rows="5" placeholder="描述" style="resize:vertical;flex:1;min-height:100px"></textarea></div>'
+    + '<div class="form-row"><label>Classification</label><select id="dd-edit-class">'
+    + '<option value="public">public</option><option value="internal">internal</option>'
+    + '<option value="confidential">confidential</option><option value="restricted">restricted</option></select></div>'
+    + '<div class="form-row"><label>Owner</label><input id="dd-edit-owner" placeholder="负责人" style="flex:1"></div>'
+    + '<div style="margin-bottom:0.5rem"><label style="display:block;font-size:0.78rem;color:var(--text-secondary,#6b6e75);margin-bottom:0.3rem">检索描述 (routing_description)</label>'
+    + '<textarea id="dd-edit-rdesc" rows="8" placeholder="留空=自动聚合（DD 名+描述+域下 KB 名/描述）。用于语义路由，非空则人工覆盖。" style="resize:vertical;width:100%;min-height:160px;box-sizing:border-box"></textarea>'
+    + '<div style="font-size:0.69rem;color:var(--text-quaternary,#8b8d91);margin-top:0.2rem">留空 = 自动聚合；非空 = 人工覆盖（AI 生成后确认）。此描述决定语义路由质量，建议覆盖全部 KB 主题。</div>'
+    + '</div>'
+    + '<div class="form-actions">'
+    + '<button class="btn-sm" onclick="suggestDdDescription()" title="让 LLM 基于当前域内容生成检索描述草稿（人工确认后保存）">✨ AI 生成</button>'
+    + '<button class="primary" onclick="saveDdEdit()">保存</button>'
+    + '<button class="btn-sm" onclick="hideDdEditModal()">取消</button></div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function saveDdEdit() {
+  var name = document.getElementById('dd-edit-name').value.trim();
+  if (!name) { alert('Name required'); return; }
+  try {
+    await EARP.fetchJSON('/api/data-domains/' + encodeURIComponent(editDdState.ddId), {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: name,
+        description: document.getElementById('dd-edit-desc').value.trim(),  // 空串=清空
+        data_classification: document.getElementById('dd-edit-class').value,
+        owner: document.getElementById('dd-edit-owner').value.trim(),  // 空串=清空
+        routing_description: document.getElementById('dd-edit-rdesc').value.trim(),  // 空串=自动聚合
+      }),
+    });
+    hideDdEditModal();
+    await loadDds();
+  } catch (err) { alert('保存失败: ' + err.message); }
+}
+
+async function suggestDdDescription() {
+  var rdesc = document.getElementById('dd-edit-rdesc');
+  var btn = event && event.target ? event.target : null;
+  rdesc.value = '生成中... 大模型需 30-60 秒，请稍候（如超时可重试）';
+  try {
+    var res = await EARP.fetchJSON('/api/data-domains/' + encodeURIComponent(editDdState.ddId) + '/suggest-description', {
+      method: 'POST',
+      body: '{}',
+    });
+    rdesc.value = res.suggested_description || '';
+  } catch (err) {
+    rdesc.value = '';
+    alert('AI 生成失败: ' + err.message + '（可手动填写）');
+  }
+}
+
 function filterByClass() {
   var cl = document.getElementById('class-filter').value;
   var q = document.getElementById('dd-search').value.trim().toLowerCase();
@@ -174,21 +217,84 @@ function filterByClass() {
   });
 }
 
-function selectDd(id) {
-  document.querySelectorAll('.dd-card').forEach(function(c) { c.classList.remove('selected'); });
-  event.currentTarget.classList.add('selected');
-
-  document.querySelectorAll('.dd-detail-content').forEach(function(d) { d.style.display = 'none'; });
-  document.querySelectorAll('.dd-detail-empty').forEach(function(d) { d.style.display = 'none'; });
-  var detail = document.getElementById('detail-' + id);
-  if (detail) detail.style.display = 'block';
+async function selectDd(id) {
+  ddState.selected = id;
+  renderDdList();
+  var dd = ddState.domains.find(function(d){return d.data_domain_id===id;});
+  if (!dd) return;
+  var detail = document.getElementById('dd-detail');
+  detail.innerHTML = renderDdDetail(dd) + '<p style="font-size:0.75rem;color:var(--text-tertiary,#8b8d91);margin-top:12px" id="kb-load-msg">Loading knowledge bases...</p>';
+  try {
+    var kbs = await EARP.fetchJSON('/knowledge/bases?data_domain_id=' + encodeURIComponent(id));
+    var msg = document.getElementById('kb-load-msg');
+    if (msg) msg.remove();
+    renderKbSection(id, kbs);
+  } catch (err) {
+    var msg2 = document.getElementById('kb-load-msg');
+    if (msg2) msg2.textContent = 'Failed to load KBs: ' + err.message;
+  }
 }
 
-function showDdModal() { document.getElementById('dd-modal').style.display='flex'; document.getElementById('dd-modal-title').textContent='Create Data Domain'; document.getElementById('dd-modal-name').value=''; document.getElementById('dd-modal-desc').value=''; document.getElementById('dd-modal-class').value='internal'; document.getElementById('dd-modal-owner').value=''; document.getElementById('dd-modal-bd').value=''; }
-function hideDdModal() { document.getElementById('dd-modal').style.display='none'; }
-function saveDd() { var n=document.getElementById('dd-modal-name'); if(!n.value.trim()){alert('Name required');return} alert('Created Data Domain: '+n.value.trim()); hideDdModal(); }
-function revokeAccess(btn) { if(confirm('Revoke access for this role?')) btn.closest('tr').remove(); }
-function grantAccess(btn) { var sel=btn.parentElement.querySelector('select'); if(!sel.value){alert('Select a role');return} alert('Granted: '+sel.value); }
+function renderDdDetail(dd) {
+  return '<div class="dd-detail-header">'
+    + '<div><h3 style="margin:0;font-size:1.1rem">' + (dd.name || dd.data_domain_id) + '</h3>'
+    + '<p style="margin:4px 0 0;font-size:0.81rem;color:var(--text-tertiary,#8b8d91)">' + (dd.owner ? 'Owner: ' + dd.owner + ' · ' : '') + dd.data_domain_id + '</p></div>'
+    + '<div><span class="tag ' + (clsTag[dd.data_classification] || 'tag-internal') + '" style="font-size:0.81rem;padding:2px 10px">' + (clsLabels[dd.data_classification] || dd.data_classification) + '</span></div>'
+    + '</div>'
+    + '<div class="section-card"><div class="section-header">'
+    + '<h4 style="margin:0;font-size:0.87rem">Knowledge Bases <span style="font-weight:400;color:var(--text-tertiary)">(' + dd.kb_count + ' KBs)</span></h4>'
+    + '</div><div id="kb-table-wrap"><p style="font-size:0.78rem;color:var(--text-tertiary,#8b8d91)">Loading...</p></div></div>'
+    + '<div class="section-card"><div class="section-header">'
+    + '<h4 style="margin:0;font-size:0.87rem">Role Access <span style="font-weight:400;color:var(--text-tertiary)">(Phase 2)</span></h4>'
+    + '</div><p style="font-size:0.78rem;color:var(--text-tertiary,#8b8d91);margin:0">角色-DD 授权（max_classification）将在 Roles 管理页实现（PRD-2026-028 §6.6，后端 roles admin API 待建）。</p></div>';
+}
+
+function renderKbSection(ddId, kbs) {
+  var wrap = document.getElementById('kb-table-wrap');
+  if (!wrap) return;
+  if (kbs.length === 0) {
+    wrap.innerHTML = '<p style="font-size:0.78rem;color:var(--text-tertiary,#8b8d91);margin:0">No knowledge bases in this domain.</p>';
+    return;
+  }
+  wrap.innerHTML = '<table><thead><tr><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>'
+    + kbs.map(function(kb) {
+      return '<tr><td>' + kb.knowledge_base_id + '</td><td><a href="knowledge.html">' + kb.name + '</a></td>'
+        + '<td>' + kb.doc_count + '</td><td>' + kb.chunk_count + '</td></tr>';
+    }).join('')
+    + '</tbody></table>';
+}
+
+// ── Create DD (live) ──
+function showDdModal() {
+  document.getElementById('dd-modal').style.display = 'flex';
+  document.getElementById('dd-modal-title').textContent = 'Create Data Domain';
+  document.getElementById('dd-modal-id').value = '';
+  document.getElementById('dd-modal-name').value = '';
+  document.getElementById('dd-modal-desc').value = '';
+  document.getElementById('dd-modal-class').value = 'internal';
+  document.getElementById('dd-modal-owner').value = '';
+}
+function hideDdModal() { document.getElementById('dd-modal').style.display = 'none'; }
+
+async function saveDd() {
+  var id = document.getElementById('dd-modal-id').value.trim();
+  var name = document.getElementById('dd-modal-name').value.trim();
+  if (!id || !name) { alert('ID and Name required'); return; }
+  try {
+    await EARP.fetchJSON('/api/data-domains', {
+      method: 'POST',
+      body: JSON.stringify({
+        data_domain_id: id,
+        name: name,
+        description: document.getElementById('dd-modal-desc').value.trim() || null,
+        data_classification: document.getElementById('dd-modal-class').value,
+        owner: document.getElementById('dd-modal-owner').value.trim() || null,
+      }),
+    });
+    hideDdModal();
+    await loadDds();
+  } catch (err) { alert('Create failed: ' + err.message); }
+}
 </script>
 
 <style>
@@ -198,16 +304,19 @@ function grantAccess(btn) { var sel=btn.parentElement.querySelector('select'); i
 .dd-card{padding:10px 12px;border:1px solid var(--border,#e5e7eb);border-radius:6px;cursor:pointer;transition:border-color 0.15s}
 .dd-card:hover{border-color:var(--accent,#5b5fc7)}
 .dd-card.selected{background:var(--bg-secondary,#f5f5f5);border-color:var(--accent,#5b5fc7);outline:2px solid var(--accent,#5b5fc7);outline-offset:-1px}
-.dd-card-name{font-weight:500;font-size:0.87rem;margin-bottom:4px}
+.dd-card-name{font-weight:500;font-size:0.87rem;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.dd-del-btn{background:none;border:none;cursor:pointer;font-size:0.8rem;padding:2px 4px;opacity:0.55;line-height:1}
+.dd-del-btn:hover{opacity:1}
+.dd-card:hover .dd-del-btn{opacity:0.8}
 .dd-card-meta{display:flex;align-items:center;gap:8px}
 .dd-card-count{font-size:0.75rem;color:var(--text-tertiary,#8b8d91)}
 .dd-detail-panel{flex:1;min-height:300px}
 .dd-detail-empty{display:flex;align-items:center;justify-content:center;height:200px;background:var(--bg,#fff);border:1px dashed var(--border,#e5e7eb);border-radius:8px}
 .dd-detail-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
-.grant-row{display:flex;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border,#e5e7eb)}
 .section-card{background:var(--bg,#fff);border:1px solid var(--border,#e5e7eb);border-radius:8px;padding:16px;margin-bottom:12px}
 .section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:0.75rem;font-weight:500}
+.tag-public{background:var(--green-bg,#dcfce7);color:var(--green-fg,#166534)}
 .tag-internal{background:var(--yellow-bg,#fef3c7);color:var(--yellow-fg,#92400e)}
 .tag-confidential{background:var(--red-bg,#fee2e2);color:var(--red-fg,#991b1b)}
 .tag-restricted{background:var(--purple-bg,#e9d5ff);color:var(--purple-fg,#581c87)}

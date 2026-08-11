@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 文档分段设置"><title>分段设置 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body>
+<header><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>EARP</span>  <nav>
+    <a href="../index.html">Overview</a>
+    <div class="nav-group"><a href="sessions.html" data-nav="sessions">运行时</a></div>
+    <div class="nav-group"><a href="plan.html" data-nav="plan">推理</a></div>
+    <div class="nav-group"><a href="capabilities.html" data-nav="capabilities">能力</a></div>
+    <div class="nav-group nav-dropdown">
+      <a href="knowledge.html" data-nav="knowledge" class="active" aria-current="page">知识</a>
+      <div class="dropdown-menu">
+        <a href="data-domains.html" data-nav="data-domains">数据域</a>
+        <a href="knowledge.html" data-nav="knowledge">知识库</a>
+        <a href="test-retrieval.html" data-nav="test-retrieval">召回测试</a>
+      </div>
+    </div>
+    <div class="nav-group"><a href="conversations.html" data-nav="conversations">对话</a></div>
+  </nav><div class="meta">tenant-demo · <a href="login.html">Admin</a></div></header>
+
+<main>
+<p class="breadcrumb"><a href="knowledge.html" id="back-kb-link">&larr; Back to Knowledge Base</a> <span id="crumb-doc" style="color:var(--text-quaternary)"></span></p>
+
+<div class="page-title"><div><h2 id="page-title">分段设置</h2><p class="page-subtitle" id="page-sub">加载中...</p></div></div>
+
+<div class="ds-layout">
+
+  <!-- Left: segmentation config -->
+  <div class="ds-left panel">
+    <div class="params-title">分段设置（保存后对该文档生效）</div>
+    <div style="display:flex;flex-direction:column;gap:0.75rem">
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-tertiary);display:block;margin-bottom:2px">分段标识符（多个用逗号分隔，按优先级，最多 5 个）</label>
+        <input id="ds-sep" type="text" value="\n\n, \n, 。" style="width:100%;padding:3px 6px" title="如 \n\n, \n, 。 先按段落切，切不动降级按行/句号">
+        <div style="font-size:0.68rem;color:var(--text-quaternary);margin-top:2px">例：\n\n, \n, 。 → 段落 → 行 → 句号，逐级降级</div>
+      </div>
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-tertiary);display:block;margin-bottom:2px">分段最大长度（tokens）</label>
+        <input id="ds-size" type="number" min="100" max="4000" step="100" value="1000" style="width:100%;padding:3px 6px" title="中文约 1 字符 = 1 token">
+      </div>
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-tertiary);display:block;margin-bottom:2px">分段重叠长度（tokens）</label>
+        <input id="ds-overlap" type="number" min="0" max="1000" step="50" value="200" style="width:100%;padding:3px 6px">
+      </div>
+      <div class="params-title" style="margin-top:0.25rem">文本预处理规则</div>
+      <label style="font-size:0.78rem;color:var(--text-secondary);display:flex;align-items:center;gap:4px"><input type="checkbox" id="ds-spaces" checked> 去除多余空格</label>
+      <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.5rem">
+        <button class="primary" onclick="doPreview()">🔍 分块预览</button>
+        <button class="btn-outline btn-sm" onclick="doSave(false)">💾 保存配置</button>
+        <button class="btn-outline btn-sm" onclick="doSave(true)">💾 保存并重新分块</button>
+      </div>
+      <div id="ds-status" style="font-size:0.72rem;color:var(--text-tertiary)"></div>
+      <div id="ds-meta" style="font-size:0.72rem;color:var(--text-quaternary);border-top:1px solid var(--border-subtle,#e5e7eb);padding-top:0.5rem"></div>
+      <div id="ds-suggest" style="font-size:0.75rem;color:var(--text-secondary);border-top:1px solid var(--border-subtle,#e5e7eb);padding-top:0.5rem"></div>
+    </div>
+  </div>
+
+  <!-- Right: preview -->
+  <div class="ds-right">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+      <div class="params-title" style="margin:0">分块预览</div>
+      <span id="ds-preview-count" style="font-size:0.72rem;color:var(--text-quaternary)"></span>
+    </div>
+    <div id="ds-preview" class="ds-preview">
+      <p style="color:var(--text-quaternary);font-size:0.78rem">调整左侧参数后点击「分块预览」查看切块效果。预览显示每块完整内容。</p>
+    </div>
+  </div>
+
+</div>
+</main>
+
+<script src="../js/app.js"></script>
+<script>
+var docId = new URLSearchParams(location.search).get('doc_id');
+var doc = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+  if (!docId) { document.getElementById('page-sub').textContent = '缺少 doc_id 参数'; return; }
+  loadDoc();
+});
+
+async function loadDoc() {
+  try {
+    doc = await EARP.fetchJSON('/knowledge/documents/' + encodeURIComponent(docId));
+    document.getElementById('page-title').textContent = '分段设置 — ' + (doc.title || doc.name || docId);
+    document.getElementById('page-sub').textContent = (doc.kb_name || '') + ' · ' + fmtChars(doc.char_count || 0) + ' · 召回 ' + (doc.recall_count||0) + ' 次';
+    document.getElementById('crumb-doc').textContent = '› ' + (doc.title || doc.name || '');
+    // 返回链接带上所属 KB，knowledge 页面自动选中它（不再回退到历史 KB）
+    if (doc.knowledge_base_id) {
+      document.getElementById('back-kb-link').href =
+        'knowledge.html?kb=' + encodeURIComponent(doc.knowledge_base_id);
+      sessionStorage.setItem('earp_back_kb', doc.knowledge_base_id);  // 浏览器后退也恢复
+    }
+    // fill config: doc rule → KB rule → defaults
+    var seg = (doc.process_rule && doc.process_rule.segmentation) || (doc.kb_retrieval_model && doc.kb_retrieval_model.segmentation) || {};
+    // separators list (priority order) → comma display; legacy single separator → as-is
+    var sepDisplay;
+    if (seg.separators && seg.separators.length) {
+      sepDisplay = seg.separators.map(function(s){ return s.replace(/\n/g, '\\n'); }).join(', ');
+    } else {
+      sepDisplay = seg.separator ? seg.separator.replace(/\n/g, '\\n') : '\\n\\n, \\n, 。';
+    }
+    document.getElementById('ds-sep').value = sepDisplay;
+    document.getElementById('ds-size').value = seg.max_tokens || 1000;
+    document.getElementById('ds-overlap').value = seg.chunk_overlap || 200;
+    var pr = (doc.process_rule && doc.process_rule.pre_processing_rules) || [];
+    var rm = pr.find(function(r){ return r.id === 'remove_extra_spaces'; });
+    document.getElementById('ds-spaces').checked = rm ? !!rm.enabled : true;
+    var meta = document.getElementById('ds-meta');
+    meta.innerHTML = '文档: ' + docId + '<br>状态: ' + (doc.status === 'active' ? '可用' : '不可用')
+      + '<br>配置来源: ' + (doc.process_rule ? '文档自定义' : '继承 KB 默认');
+    document.getElementById('ds-status').textContent = doc.process_rule ? '已有文档级配置（继承显示 KB 默认时以文档为准）' : '无文档级配置，当前显示 KB 默认值';
+    loadSuggestion();
+  } catch (err) {
+    document.getElementById('page-sub').textContent = '加载失败: ' + err.message;
+  }
+}
+
+// ── 基于文档结构的分隔符建议 ──
+async function loadSuggestion() {
+  var box = document.getElementById('ds-suggest');
+  try {
+    var res = await EARP.fetchJSON('/knowledge/documents/' + encodeURIComponent(docId) + '/suggest-separators', {
+      method: 'POST',
+    });
+    var display = (res.display || []).join(', ');
+    box.innerHTML = '<div style="margin-bottom:0.3rem">💡 <strong>分隔符建议</strong>（基于文档结构分析）</div>'
+      + '<code>' + display + '</code>'
+      + ' <button class="btn-sm" onclick="applySuggestion()" style="margin-left:0.4rem">应用建议</button>'
+      + '<div style="margin-top:0.25rem;color:var(--text-quaternary);font-size:0.68rem">' + describeSeps(res.separators) + '</div>';
+  } catch (err) {
+    box.innerHTML = '<span style="color:var(--text-quaternary)">建议加载失败: ' + err.message + '</span>';
+  }
+}
+
+function describeSeps(seps) {
+  var names = { '\n\n': '段落', '\n': '行', '。': '句号', '；': '分号', '. ': '英文句号', ';': '英文分号' };
+  return (seps || []).map(function(s){ return (names[s] || JSON.stringify(s)); }).join(' → ');
+}
+
+function applySuggestion() {
+  var box = document.getElementById('ds-suggest');
+  // re-fetch suggestion and fill the input
+  EARP.fetchJSON('/knowledge/documents/' + encodeURIComponent(docId) + '/suggest-separators', {
+    method: 'POST',
+  }).then(function(res) {
+    document.getElementById('ds-sep').value = (res.display || []).join(', ');
+    box.innerHTML += '<div style="color:var(--green-fg,#166534);margin-top:0.3rem">✓ 已填入分段标识符，可点「分块预览」验证</div>';
+  }).catch(function(err) {
+    box.innerHTML += '<div style="color:var(--red);margin-top:0.3rem">应用失败: ' + err.message + '</div>';
+  });
+}
+
+function collectRules() {
+  var seps = parseSeparators(document.getElementById('ds-sep').value);
+  return {
+    pre_processing_rules: [{ id: 'remove_extra_spaces', enabled: document.getElementById('ds-spaces').checked }],
+    segmentation: {
+      separators: seps,
+      separator: seps[0] || '\n\n',
+      max_tokens: parseInt(document.getElementById('ds-size').value, 10) || 1000,
+      chunk_overlap: parseInt(document.getElementById('ds-overlap').value, 10) || 200,
+    },
+  };
+}
+
+// "\\n\\n, \\n, 。" → [真实换行, 真实换行, 句号]（转义 \n → 换行，逗号拆分，去空，限 5 个）
+function parseSeparators(raw) {
+  return (raw || '').split(',')
+    .map(function(s) { return s.trim().replace(/\\n/g, '\n'); })
+    .filter(function(s) { return s !== ''; })
+    .slice(0, 5);
+}
+
+async function doPreview() {
+  var rules = collectRules();
+  var out = document.getElementById('ds-preview');
+  out.innerHTML = '<p style="color:var(--text-tertiary)">预览中...</p>';
+  try {
+    var res = await EARP.fetchJSON('/knowledge/documents/' + encodeURIComponent(docId) + '/preview', {
+      method: 'POST',
+      body: JSON.stringify({
+        max_tokens: rules.segmentation.max_tokens,
+        chunk_overlap: rules.segmentation.chunk_overlap,
+        separator: rules.segmentation.separator,
+        separators: rules.segmentation.separators,
+        remove_extra_spaces: !!rules.pre_processing_rules[0].enabled,
+      }),
+    });
+    var chunks = res.chunks || [];
+    document.getElementById('ds-preview-count').textContent = '共 ' + res.total + ' 块';
+    if (chunks.length === 0) { out.innerHTML = '<p style="color:var(--text-tertiary)">无分块结果（内容为空？）</p>'; return; }
+    out.innerHTML = chunks.map(function(c) {
+      return '<div class="ds-chunk">'
+        + '<div class="ds-chunk-head"><span>#' + c.index + '</span><span>' + c.char_count + ' chars</span></div>'
+        + '<div class="ds-chunk-body">' + esc(c.content) + '</div>'
+        + '</div>';
+    }).join('');
+  } catch (err) {
+    out.innerHTML = '<p style="color:var(--red)">预览失败: ' + err.message + '</p>';
+  }
+}
+
+async function doSave(withReindex) {
+  var rules = collectRules();
+  var statusEl = document.getElementById('ds-status');
+  statusEl.textContent = withReindex ? '保存并重新分块中（可能需要较长时间）...' : '保存中...';
+  try {
+    await EARP.fetchJSON('/knowledge/documents/' + encodeURIComponent(docId) + '/process-rule', {
+      method: 'PUT',
+      body: JSON.stringify({ rules: rules }),
+    });
+    if (withReindex) {
+      var stats = await EARP.fetchJSON('/knowledge/documents/' + encodeURIComponent(docId) + '/reindex', {
+        method: 'POST', timeout: 600000,
+      });
+      statusEl.textContent = '✓ 已保存并重新分块：' + stats.chunks + ' 块';
+    } else {
+      statusEl.textContent = '✓ 已保存文档级配置（下次上传/重新分块生效）';
+    }
+    await loadDoc(); // refresh meta (config source)
+  } catch (err) { statusEl.textContent = '操作失败: ' + err.message; }
+}
+
+function fmtChars(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+  return String(n);
+}
+function esc(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+<style>
+.ds-layout { display: grid; grid-template-columns: 320px 1fr; gap: 1.25rem; align-items: start; }
+@media (max-width: 768px) { .ds-layout { grid-template-columns: 1fr; } }
+.ds-left { position: sticky; top: 72px; }
+.params-title { font-size:0.75rem; font-weight:600; color:var(--text-secondary,#6b6e75); margin-bottom:0.4rem; }
+.ds-preview {
+  background: var(--bg-surface,#f5f5f5);
+  border: 1px solid var(--border-subtle,#e5e7eb);
+  border-radius: 6px;
+  padding: 0.75rem;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.ds-chunk { background: var(--bg,#fff); border: 1px solid var(--border-subtle,#e5e7eb); border-radius: 4px; margin-bottom: 0.4rem; overflow: hidden; }
+.ds-chunk-head { display:flex; justify-content:space-between; padding: 0.25rem 0.5rem; background: var(--bg-surface,#f5f5f5); font-size: 0.7rem; color: var(--accent,#5b5fc7); border-bottom: 1px solid var(--border-subtle,#e5e7eb); font-weight:600; }
+.ds-chunk-body { padding: 0.45rem 0.5rem; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
+</style>
+</body></html>

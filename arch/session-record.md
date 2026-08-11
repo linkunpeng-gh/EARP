@@ -83,6 +83,52 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ## 待办事项
 
+### 最近会话（2026-08-07）— 知识资产方向：决策 → 规范 → PRD → 实施 → 验证
+
+> 完整记录：`arch/reviews/2026-08-07-knowledge-implementation.md`（下次从这里续）
+
+**会话主线**：企业知识库优先 → RAG 打底 + 本体层（TBox/ABox）渐进 → 图谱点缀；gBrain 三机制借鉴（Compiled Truth / Enrichment / 零 LLM 建图）；数据中台分工（EARP 聚焦知识资产）；BD vs DD 概念钉死；三层检索流水线；Capability 类型正交（query/command × source_type）。
+
+**关键产出**：
+- 设计：`arch/design/2026-08-07-ontology-layer-design.md`（L2.5）+ `-l3-design-v1.md`（L3）
+- 规范：knowledge-center v1.2 / planner v1.1 / KB v1.1 / runtime v1.4
+- PRD：`PRD-2026-030` 新增；028/023 修订
+- 代码：migration 0007（schema 对齐）/ 0008（ontology 7 表）+ ontology 模块 + 三层检索 + 前端接线
+- 修复 4 个存量 bug（M4 schema 脱节 / 上传永远 unchanged / embedding 未初始化 / 单列主键跨租户冲突）
+- 验证：51 tests passed + 端到端脚本 `scripts/verify_knowledge.py` 跑通
+
+**下一步**：PRD-2026-030 M3（中台 importer + Enrichment）→ M4（admin 实体管理页）→ business_capabilities 复合主键
+
+**待开新会话（2026-08-09）**：**企业级精准召回实施**——设计已定稿：`arch/design/2026-08-09-enterprise-retrieval-design.md`。内容：软路由（DD routing_description 向量 + KB summary_embedding，三级漏斗 top-N 候选）+ 元数据过滤（chunks.metadata JSONB + KB metadata_schema）+ 评估集（routing_eval）。落地路径 Phase 1（migration 0010 + routing.py + search 过滤 + 调试视图）→ Phase 2（LLM 路由 + rerank）。
+
+---
+
+### 最近会话（2026-08-09）— 企业级精准召回 Phase 1 已实施
+
+> 设计：`arch/design/2026-08-09-enterprise-retrieval-design.md`（本会话讨论定稿后实施）
+
+**会话主线**：软路由（DD 描述向量 + KB summary 向量三级漏斗）+ 元数据过滤（documents.metadata 权威）+ 评估集。逐项讨论定稿：migration 0012（非 0010，编号已被占用）；GIN 用 containment `@>` 而非 `->>` 等值；metadata 是**文档级**属性（schema=模板，doc=值，chunks.metadata 保留不填充）；自动字段存 id 不可手工覆盖（写时级联）；软路由接 `/knowledge/search` 无 scope 路径（ontology 三层检索留未来）；DD 描述不含文档标题（文档操作不触发域级重建）；关键词表下沉 knowledge 域（D-13）。
+
+**关键产出**：
+- migration `0012_routing`（routing_description/routing_embedding/routing_hash + summary_embedding/summary_hash/metadata_schema + documents.metadata + GIN jsonb_path_ops）
+- `knowledge/routing.py`（关键词表下沉 + build_routing_index 幂等局部重建 + route_query 软路由 + route_debug 三层得分/覆盖自检/新鲜度）
+- search_chunks 加 metadata_filters（documents.metadata @>，类型敏感）；/knowledge/search 无 scope 自动路由
+- 新端点：routing/debug、routing/rebuild、documents/{id}/metadata、data-domains/{id}/suggest-description（AI 生成 DD 描述）
+- 前端：test-retrieval 路由调试视图 + knowledge KB schema 编辑器/文档元数据弹窗 + data-domains routing_description/AI 生成
+- 三层验证：机制层（pytest test_routing.py 8 项：触发/局部性/幂等/权限/类型敏感）+ 内容层（覆盖自检 + hash 新鲜度）+ 效果层（routing_eval.md 跑分 ≥90%，CI 大gram 伪向量/dev 真 bge-m3）
+- `scripts/verify_routing.py`（dev 真模型评估）
+- 验证：63 tests passed + import-linter kept + OpenAPI 基线同步；真实 bge-m3 语义评估 5/5 = 100%（≥90% 验收线）
+- 追加（同日）：自动字段扩展公共默认（original_file_name / uploaded_at / updated_at / source），文档元数据弹窗只读展示，updated_at 随编辑刷新；测试补断言
+- 追加（同日）：data_classification 移出自动字段（可变业务值），分类变更时清理 metadata 旧快照
+- 追加（2026-08-10）：KB 检索摘要对齐 DD——migration 0013 summary_text（空=自动聚合/非空=人工覆盖）+ suggest-summary AI 生成端点（LLM 调用抽公共 helper `_llm_suggest`，DB 模型优先支持 ollama/openai）+ 前端 KB 编辑模态框字段与按钮 + 调试视图展示 KB 摘要文本；tech-debt #8（indexing_technique 仅存储未生效）
+- 验证指南见设计文档 §0.1（四层：CI 测试 → 真实语义评估 → API → 前端）
+
+**下一步**：Phase 2（低置信度 LLM 路由 + bge-reranker 精排）→ ontology 三层检索接入软路由（实体限域）→ 评估集管理页落库。
+
+---
+
+### 历史待办
+
 | 优先级 | 事项 | 状态 |
 |:------:|------|:----:|
 | P0 | P6 SDK（Runtime/Capability/Connector/Plugin） | ✅ 已完成 (2026-07-20) |
@@ -96,7 +142,12 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 | — | #12 Saga/TCC 完整补偿 | ✅ 已完成 |
 | — | #14 Plugin Daemon 独立进程 | ✅ 已完成 |
 | — | #15 Langfuse 可观测性 | ✅ 已完成 |
+| — | Langfuse 可观测性 | ✅ 已完成 |
 | — | 技术债务追踪 | ✅ arch/tech-debt.md |
+| P1 | PRD-2026-030 M3 中台对接 + Enrichment | 🟡 待实施 (2026-08-07 设计完成) |
+| P1 | PRD-2026-030 M4 admin 实体管理页 | 🟡 待实施 |
+| P2 | business_capabilities 复合主键 | 🟡 arch/tech-debt.md #7 |
+| P1 | **企业级精准召回实施**（另开会话）：软路由（DD/KB 描述向量）+ 元数据过滤 + 评估集——设计见 `arch/design/2026-08-09-enterprise-retrieval-design.md` | ✅ 已完成 (2026-08-09 Phase 1) |
 
 ---
 
@@ -108,6 +159,7 @@ arch/L0/design-philosophy.md         ← 零号文档（新人从这里开始）
 arch/L1/architecture-v6.md           ← 当前架构（最新版本）
 arch/L1.5/concept-model-v2.0.md      ← 概念模型（最新版本）
 arch/L1/business-flows.md            ← 业务流程场景
+arch/reviews/2026-08-07-knowledge-implementation.md  ← 最近会话记录（知识资产方向）
 ```
 
 L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 的核心依赖。
@@ -115,4 +167,5 @@ L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 �
 ---
 
 **记录位置**：`arch/session-record.md`
-**开发流程规范**：`arch/development-process.md`（另一份独立文档）
+**开发流程规范**：`arch/development-process.md`
+**开发运维备忘**：`arch/development-ops.md`（服务启停/重启/日志/排查速查）
