@@ -145,17 +145,23 @@ async def _retrieve(
     app: dict[str, Any],
     embedding_dim: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """返回 (chunks, citations)。kb_scope 空 → 软路由；否则限定 KB（无权限静默过滤）。"""
+    """返回 (chunks, citations)。kb_scope 空 → 软路由；否则限定 KB（无权限静默过滤）。
+
+    文档级去重：候选放大 top_k+5，每文档最多保留相似度最高 2 个 chunk（保底单文档
+    信息），再按相似度全局排序取 top_k——多文档场景引用来源多样化，避免 5 条
+    citations 全来自同一长文档。
+    """
     retrieval = app.get("retrieval") or {}
     top_k = retrieval.get("top_k", 5)
     threshold = retrieval.get("threshold") or 0.0
     mode = retrieval.get("mode", "hybrid")
+    candidate_k = top_k + 5  # 去重前的候选放大
 
     kb_scope = app.get("kb_scope") or []
     if kb_scope:
         chunks = await search_chunks(
             engine, tenant_id, q_emb, role_id,
-            top_k=top_k, eventbus=None, embedding_dim=embedding_dim,
+            top_k=candidate_k, eventbus=None, embedding_dim=embedding_dim,
             knowledge_base_ids=kb_scope, threshold=threshold,
             query_text=query, mode=mode,
         )
@@ -165,10 +171,13 @@ async def _retrieve(
         logger.info("chat soft-routing: query=%r candidates=%s fallback=%s", query, cand, routed.get("fallback_used"))
         chunks = await search_chunks(
             engine, tenant_id, q_emb, role_id,
-            top_k=top_k, eventbus=None, embedding_dim=embedding_dim,
+            top_k=candidate_k, eventbus=None, embedding_dim=embedding_dim,
             knowledge_base_ids=cand or None, threshold=threshold,
             query_text=query, mode=mode,
         )
+
+    # 文档级去重（每文档最多 2 片段，保留相似度最高）
+    chunks = _dedup_by_document(chunks, top_k)
 
     citations = []
     for ch in chunks:
@@ -184,6 +193,21 @@ async def _retrieve(
             }
         )
     return chunks, citations
+
+
+def _dedup_by_document(chunks: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
+    """每文档保留相似度最高的最多 2 个 chunk，按相似度全局降序取 top_k。"""
+    if not chunks:
+        return []
+    per_doc: dict[str, list[dict[str, Any]]] = {}
+    for ch in chunks:
+        per_doc.setdefault(ch.get("document_id", ""), []).append(ch)
+    deduped: list[dict[str, Any]] = []
+    for doc_chunks in per_doc.values():
+        doc_chunks.sort(key=lambda c: -(c.get("similarity") or 0))
+        deduped.extend(doc_chunks[:2])
+    deduped.sort(key=lambda c: -(c.get("similarity") or 0))
+    return deduped[:top_k]
 
 
 def _build_context_block(chunks: list[dict[str, Any]]) -> str:

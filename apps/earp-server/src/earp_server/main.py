@@ -1119,7 +1119,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ):
                 yield line
 
-        return StreamingResponse(gen(), media_type="text/event-stream")
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={
+                # 防代理/网关缓冲：token 逐条到达，避免「几秒无输出后突然全出」
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     # ── Conversation ──
     @app.post("/conversations", status_code=201, tags=["conversations"])

@@ -62,6 +62,7 @@
 .msg.user { align-self: flex-end; background: var(--accent-light); color: var(--text-primary); border: 1px solid rgba(94,106,210,0.2); }
 .msg.assistant { align-self: flex-start; background: var(--bg-surface); border: 1px solid var(--border-subtle); }
 .msg .cursor { display: inline-block; width: 2px; height: 1em; background: var(--accent); vertical-align: -0.15em; animation: blink 0.8s step-end infinite; }
+.msg .thinking { font-size: 0.75rem; color: var(--text-quaternary); font-style: italic; margin-right: 0.35rem; }
 .msg.error { align-self: flex-start; background: var(--red-bg); border: 1px solid var(--red); color: var(--red); }
 .cite-block { align-self: flex-start; max-width: 85%; width: 100%; }
 .cite-title { font-size: 0.72rem; color: var(--text-tertiary); font-weight: 500; margin: 0.35rem 0 0.3rem; }
@@ -410,16 +411,24 @@ function appendCitations(citations) {
   var area = document.getElementById('msg-area');
   var block = document.createElement('div');
   block.className = 'cite-block';
+  // 按文档聚合：同一文档的多个片段合并为一条引用卡（标注片段编号集合 + 最高相似度）
+  var groups = {};
+  citations.forEach(function (c, i) {
+    var key = c.document_id || c.chunk_id || 'src-' + i;
+    if (!groups[key]) groups[key] = { title: c.title || '未命名', kb: c.kb_name || c.kb_id || '', meta: c.metadata || {}, refs: [], sim: 0 };
+    groups[key].refs.push(i + 1);
+    groups[key].sim = Math.max(groups[key].sim, c.similarity || 0);
+  });
   var html = '<div class="cite-title">依据</div>';
-  html += citations.map(function (c, i) {
+  Object.keys(groups).forEach(function (key) {
+    var g = groups[key];
     var meta = '';
-    var m = c.metadata || {};
-    if (m.version) meta += ' · ' + m.version;
-    if (m.year) meta += ' (' + m.year + ')';
-    return '<div class="cite-card"><span class="cc-src">[' + (i + 1) + '] ' + esc(c.title || '未命名') + '</span>'
-      + '<span class="cc-kb">' + esc(c.kb_name || c.kb_id || '') + '</span>'
-      + '<span class="cc-meta">' + esc(meta) + '</span></div>';
-  }).join('');
+    if (g.meta.version) meta += ' · ' + g.meta.version;
+    if (g.meta.year) meta += ' (' + g.meta.year + ')';
+    html += '<div class="cite-card"><span class="cc-src">' + g.refs.map(function (r) { return '[' + r + ']'; }).join(' ') + ' ' + esc(g.title) + '</span>'
+      + '<span class="cc-kb">' + esc(g.kb) + '</span>'
+      + '<span class="cc-meta">' + esc(meta) + ' · 相似度 ' + (g.sim ? g.sim.toFixed(2) : '-') + '</span></div>';
+  });
   block.innerHTML = html;
   area.appendChild(block);
   area.scrollTop = area.scrollHeight;
@@ -435,7 +444,7 @@ async function send() {
   input.value = '';
   appendMsg('user', query);
   var answerEl = appendMsg('assistant', '');
-  answerEl.innerHTML = '<span class="cursor"></span>';
+  answerEl.innerHTML = '<span class="thinking">正在思考…</span><span class="cursor"></span>';
   var tokens = [];
   var sendBtn = document.getElementById('send-btn');
   state.streaming = true;
@@ -448,6 +457,7 @@ async function send() {
     }, function (ev) {
       if (ev.type === 'token') {
         tokens.push(ev.content);
+        // 首个 token 到达后移除「思考中」占位
         answerEl.textContent = tokens.join('');
         answerEl.insertAdjacentHTML('beforeend', '<span class="cursor"></span>');
         answerEl.scrollTop = answerEl.scrollHeight;

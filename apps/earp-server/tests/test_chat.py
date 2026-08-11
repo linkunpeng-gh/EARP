@@ -209,9 +209,10 @@ async def test_chat_full_flow_with_citations(migrated: str, app_url: str, monkey
     assert len(done) == 1
     d = done[0]
     assert d["conversation_id"] and d["message_id"]
-    # citations 命中 finance KB（bigram 语义）
+    # citations 命中 finance KB（bigram 语义）；文档去重后最多 2 条（单文档）
     assert d["citations"], "expected citations"
     assert d["citations"][0]["kb_id"] == "kb-fin"
+    assert len(d["citations"]) <= 2, "per-doc dedup should cap at 2"
     assert d["citations"][0]["title"]  # 文档标题
     assert "similarity" in d["citations"][0]
 
