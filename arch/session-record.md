@@ -168,6 +168,28 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 最近会话（2026-08-11）— Chat 智能体一期已实施（P1 问答链路）
+
+> 设计：`arch/design/2026-08-11-chat-agent-design.md`（r1 12/12 + r2 2/2 评审闭环，9.2/10 通过）
+> 计划：`tasks/chat-agent-task-breakdown.md`（19 任务）
+
+**会话主线**：工作台 chat = 智能体编排工作台（创建/配置/调试/发布），最终使用界面归应用中心二期。后端 chat_apps 实体 + SSE 链路 + 引用溯源；前端 Dify 风格（卡片列表 → 编排页左右分栏）；发布评审 + 可见范围明确二期。
+
+**关键产出**：
+- migration 0014：chat_apps（retrieval 默认值 + RLS 三件套 + **显式 GRANT earp_app**——queue_schema 的 GRANT ALL TABLES 不覆盖升级路径新表）+ messages.citations + conversations.chat_app_id（ON DELETE SET NULL）
+- chat_app_service：CRUD + 发布状态机（编辑已发布→回 draft）+ 审计 earp.chat_app.*
+- chat_service：POST /chat_apps/{id}/chat SSE（会话/多轮配对/软路由+限定/结构尾巴 [N] 编号/citations 落库/模型三级解析含 credentials 解密）
+- LLMConnector.chat_stream + 修 stream() 忽略 model_override base_url（评审实证 bug）
+- 端点：/chat_apps CRUD+publish+chat、GET /conversations（列表）、GET /chat_apps/{id}、messages 补 citations
+- 前端：chat.html 卡片列表+新建模态、chat-edit.html 编排页（左配置/右调试预览+流式+引用卡）、apps.html 应用中心、nav 点亮（chat/应用中心概览）
+- 测试：test_chat_apps 7 项 + test_chat 7 项（bigram stub + FakeLLM）；验证 77 passed + import-linter + OpenAPI 基线
+- 端到端真模型：bge-m3 + qwen2.5:1.5b —— 单轮/元数据/多轮追问（指代消解）/拒答全链路；scripts/verify_chat.py 引用命中 5/5=100%（≥80% 验收）
+- 顺手发现并记录：test_routing 的 embed_chunks 传 document_id 导致 embedding 实际未写入（检索靠 NULL 向量假命中）——既有测试弱点，记入待办
+
+**下一步**：P2 ontology 接入软路由 → P3 rerank 精排 → B6 评估集管理页；chat 二期：发布评审+可见范围、应用中心使用界面、对话日志 UI 升级（P7）
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |
