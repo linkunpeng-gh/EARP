@@ -115,7 +115,7 @@ allOk = runScenario('planned.html', { base: '..', nav: 'full' }, '?section=capab
   if (!drawer.innerHTML.includes('连接器') || !drawer.innerHTML.includes('planned-tag')) fail('connector planned item missing');
   if (!drawer.innerHTML.includes('class="drawer-item active"')) fail('connector not active');
   if (!nav.PLANNED['capability/connector']) fail('PLANNED data missing for connector');
-  if (!nav.PLANNED['workspace/chat'].desc.includes('P1')) fail('chat roadmap missing P1');
+  if (nav.PLANNED['workspace/chat']) fail('workspace/chat should NOT be in PLANNED (implemented)');
 });
 
 allOk = runScenario('login.html', { base: '..', nav: 'none' }, '', ({ h, shell, main, fail }) => {
@@ -129,6 +129,21 @@ allOk = runScenario('stream.html', { base: '..', section: 'capability', sub: 'st
   if (!drawer.innerHTML.includes('流式推理')) fail('drawer missing 流式推理');
   if (!drawer.innerHTML.includes('class="drawer-item active"')) fail('stream not active');
   if (!drawer.innerHTML.includes('推理测试')) fail('drawer missing 推理测试');
+});
+
+allOk = runScenario('workspace.html', { base: '..', section: 'workspace', sub: 'chat' }, '', ({ h, drawer, fail }) => {
+  if (!drawer.innerHTML.includes('pages/chat.html')) fail('workspace drawer chat should link chat.html');
+  if (!drawer.innerHTML.includes('workflow') || !drawer.innerHTML.includes('Agent') || !drawer.innerHTML.includes('Skills')) fail('workspace drawer missing planned items');
+  const chatEl = drawer.innerHTML.match(/<a class="drawer-item[^"]*"[^>]*>\s*<span>chat<\/span>/);
+  if (!chatEl || !chatEl[0].includes('active')) fail('chat drawer item not active');
+  if (!drawer.innerHTML.includes('pages/chat.html')) fail('chat should NOT be planned anymore');
+});
+
+allOk = runScenario('apps.html', { base: '..', section: 'apps', sub: 'overview' }, '', ({ drawer, fail }) => {
+  if (!drawer.innerHTML.includes('pages/apps.html')) fail('apps drawer 概览 should link apps.html');
+  if (drawer.innerHTML.includes('planned.html?section=apps&item=overview')) fail('概览 should not be planned');
+  const mine = drawer.innerHTML.match(/planned.html\?section=apps&item=mine/);
+  if (!mine) fail('我的应用 should stay planned');
 });
 
 allOk = runScenario('monitor-audit.html', { base: '..', section: 'monitor', sub: 'audit' }, '', ({ drawer, fail }) => {

@@ -36,7 +36,7 @@
       { label: '知识资产看板', sub: 'kboard', planned: 'home/kboard' },
     ],
     workspace: [
-      { label: 'chat', sub: 'chat', planned: 'workspace/chat' },
+      { label: 'chat', sub: 'chat', path: '{b}/pages/chat.html' },
       { label: 'workflow', sub: 'workflow', planned: 'workspace/workflow' },
       { label: 'Agent', sub: 'agent', planned: 'workspace/agent' },
       { label: 'Skills', sub: 'skills', planned: 'workspace/skills' },
@@ -54,7 +54,7 @@
       { label: '模型配置', sub: 'models', path: '{b}/pages/models.html' },
     ],
     apps: [
-      { label: '概览', sub: 'overview', planned: 'apps/overview' },
+      { label: '概览', sub: 'overview', path: '{b}/pages/apps.html' },
       { label: '我的应用', sub: 'mine', planned: 'apps/mine' },
     ],
     plugins: [
@@ -80,11 +80,6 @@
       desc: '知识资产总览看板（KB / 数据域 / 文档 / 引用统计），需要新增首页聚合接口。',
       related: [['知识库', '{b}/pages/knowledge.html'], ['数据域', '{b}/pages/data-domains.html']],
     },
-    'workspace/chat': {
-      label: 'chat', section: 'workspace', phase: '第一期', priority: 'P1 · 问答链路',
-      desc: '简单对话页：query → 检索 → LLM 生成回答 → 带引用溯源「依据：财务部《报销制度》v3」。落地依赖 P1 问答链路（对话页 + 检索引用 + 回答生成）；推理（plan/stream）留在能力中心作为能力调试工具。',
-      related: [['推理测试', '{b}/pages/plan.html'], ['召回测试', '{b}/pages/test-retrieval.html'], ['对话日志', '{b}/pages/conversations.html']],
-    },
     'workspace/workflow': {
       label: 'workflow', section: 'workspace', phase: '第三期', priority: '三期',
       desc: 'workflow 配置 UI。可视化对话编排（chatflow）为未来立项，本轮不做。',
@@ -104,11 +99,6 @@
       label: '连接器', section: 'capability', phase: '第三期', priority: '三期',
       desc: '连接器配置页。连接器（MCP / REST / DB 三类）是 capability 的执行后端，归能力中心（架构一致、配置闭环）；首期实现 MCP，REST/DB 占位。',
       related: [['能力注册', '{b}/pages/capabilities.html'], ['模型配置', '{b}/pages/models.html']],
-    },
-    'apps/overview': {
-      label: '概览', section: 'apps', phase: '第三期', priority: '三期',
-      desc: '应用中心 admin 发布管理视图（上架 / 下架 / 状态）。user 端使用流程（应用商店 / 我的应用）在 earp-user，本轮不动。',
-      related: [],
     },
     'apps/mine': {
       label: '我的应用', section: 'apps', phase: '第三期', priority: '三期',

@@ -60,19 +60,19 @@ function runPlanned(url, bodyDataset) {
 let ok = true;
 const fail = (m) => { ok = false; console.error('  ✗ ' + m); };
 
-// 1) item view: ?section=workspace&item=chat
-let r = runPlanned('?section=workspace&item=chat', { base: '..' });
-if (!r.els['p-title'].textContent.includes('chat')) fail('item title wrong: ' + r.els['p-title'].textContent);
-if (!r.els['pb-phase'].textContent.includes('P1')) fail('phase/priority missing: ' + r.els['pb-phase'].textContent);
-if (!r.els['p-grid'].innerHTML.includes('P1 问答链路')) fail('roadmap card missing P1 desc');
-if (!r.els['p-grid'].innerHTML.includes('test-retrieval.html')) fail('related link missing');
+// 1) item view: ?section=workspace&item=workflow（chat 已实现，用 workflow 验证占位页）
+let r = runPlanned('?section=workspace&item=workflow', { base: '..' });
+if (!r.els['p-title'].textContent.includes('workflow')) fail('item title wrong: ' + r.els['p-title'].textContent);
+if (!r.els['pb-phase'].textContent.includes('第三期')) fail('phase/priority missing: ' + r.els['pb-phase'].textContent);
+if (!r.els['p-grid'].innerHTML.includes('可视化对话编排')) fail('roadmap card missing workflow desc');
 if (r.els['p-hint'].style.display !== 'none') fail('hint not hidden');
 
 // 2) section overview: ?section=workspace (no item)
 r = runPlanned('?section=workspace', { base: '..' });
 const grid = r.els['p-grid'].innerHTML;
-if (!grid.includes('chat') || !grid.includes('workflow') || !grid.includes('Agent') || !grid.includes('Skills')) fail('workspace overview missing planned items');
-if (!grid.includes('planned.html?section=workspace&item=chat')) fail('overview card link wrong');
+if (!grid.includes('workflow') || !grid.includes('Agent') || !grid.includes('Skills')) fail('workspace overview missing planned items');
+if (grid.includes('pages/chat.html')) fail('chat should NOT appear in planned overview');
+if (!grid.includes('planned.html?section=workspace&item=workflow')) fail('overview card link wrong');
 
 // 3) mixed section: ?section=capability (connector planned + implemented items)
 r = runPlanned('?section=capability', { base: '..' });

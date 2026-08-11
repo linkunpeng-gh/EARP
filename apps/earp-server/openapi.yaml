@@ -1348,6 +1348,33 @@ paths:
       summary: Delete Chat App Ep
       tags:
       - chat_apps
+    get:
+      operationId: get_chat_app_ep_chat_apps__chat_app_id__get
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Chat App Ep Chat Apps  Chat App Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Chat App Ep
+      tags:
+      - chat_apps
     patch:
       operationId: update_chat_app_ep_chat_apps__chat_app_id__patch
       parameters:

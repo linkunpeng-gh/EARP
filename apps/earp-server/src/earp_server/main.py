@@ -1031,6 +1031,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def list_chat_apps_ep(req: Request) -> list[dict[str, Any]]:
         return await list_chat_apps(req.app.state.engine, req.state.tenant_id)
 
+    @app.get("/chat_apps/{chat_app_id}", tags=["chat_apps"])
+    async def get_chat_app_ep(chat_app_id: str, req: Request) -> dict[str, Any]:
+        app = await get_chat_app(req.app.state.engine, req.state.tenant_id, chat_app_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="chat app not found")
+        return app
+
     @app.post("/chat_apps", status_code=201, tags=["chat_apps"])
     async def create_chat_app_ep(req_body: ChatAppCreate, req: Request) -> dict[str, Any]:
         try:

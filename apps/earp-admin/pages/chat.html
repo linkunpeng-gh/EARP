@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Chat 智能体"><title>Chat 智能体 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css">
+<style>
+.chat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
+.chat-card {
+  display: flex; flex-direction: column; gap: 0.5rem;
+  padding: 1.1rem 1.2rem; background: var(--bg-panel);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card); cursor: pointer; text-decoration: none; color: inherit;
+  transition: box-shadow 0.2s, transform 0.15s, border-color 0.15s;
+}
+.chat-card:hover { box-shadow: var(--shadow-elevated); transform: translateY(-1px); border-color: var(--border-standard); }
+.chat-card .cc-top { display: flex; align-items: center; gap: 0.5rem; }
+.chat-card .cc-name { font-size: 0.95rem; font-weight: 600; color: var(--text-primary); flex: 1; }
+.chat-card .cc-desc { font-size: 0.78rem; color: var(--text-tertiary); line-height: 1.5; min-height: 2.4em; }
+.chat-card .cc-meta { font-size: 0.72rem; color: var(--text-quaternary); display: flex; gap: 0.75rem; }
+.new-card {
+  border-style: dashed; align-items: center; justify-content: center;
+  display: flex; min-height: 120px; color: var(--accent-text);
+  font-size: 0.86rem; font-weight: 500; gap: 0.4rem;
+}
+.new-card:hover { border-color: var(--accent); background: var(--accent-light); }
+</style>
+</head>
+<body data-base=".." data-section="workspace" data-sub="chat">
+<header id="app-header"></header>
+<main>
+<div class="page-title"><div><h2>Chat 智能体</h2><p class="page-subtitle">创建与编排基于知识中心的问答智能体；测试通过后发布到应用中心</p></div></div>
+<div class="chat-grid" id="chat-grid">
+  <a class="chat-card new-card" href="javascript:void(0)" onclick="showCreateModal()">＋ 新建</a>
+</div>
+</main>
+<script src="../js/app.js"></script>
+<script src="../js/nav.js"></script>
+<script>
+// ── Chat 智能体列表（P1 问答链路一期，设计 §5.1）──
+var state = { apps: [] };
+
+document.addEventListener('DOMContentLoaded', loadApps);
+
+async function loadApps() {
+  try {
+    state.apps = await EARP.fetchJSON('/chat_apps');
+  } catch (err) {
+    document.getElementById('chat-grid').innerHTML +=
+      '<p class="kb-empty" style="grid-column:1/-1">加载失败: ' + err.message + '</p>';
+    return;
+  }
+  renderApps();
+}
+
+function statusTag(s) {
+  return s === 'published'
+    ? '<span class="tag tag-green">已发布</span>'
+    : '<span class="tag tag-accent">草稿</span>';
+}
+
+function renderApps() {
+  var grid = document.getElementById('chat-grid');
+  var cards = state.apps.map(function (a) {
+    return '<a class="chat-card" href="chat-edit.html?app=' + encodeURIComponent(a.chat_app_id) + '">'
+      + '<div class="cc-top"><span class="cc-name">' + esc(a.name) + '</span>' + statusTag(a.status) + '</div>'
+      + '<div class="cc-desc">' + esc(a.description || '暂无描述') + '</div>'
+      + '<div class="cc-meta"><span>编辑 · 调试</span><span style="margin-left:auto">' + fmtTime(a.updated_at || a.created_at) + '</span></div>'
+      + '</a>';
+  }).join('');
+  // 保留新建卡
+  grid.innerHTML = '<a class="chat-card new-card" href="javascript:void(0)" onclick="showCreateModal()">＋ 新建</a>' + cards;
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function fmtTime(iso) {
+  if (!iso) return '-';
+  var d = new Date(iso);
+  if (isNaN(d)) return iso;
+  function p(x) { return (x < 10 ? '0' : '') + x; }
+  return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+// ── 新建模态（命名 + 描述 → 创建 draft → 进编排页）──
+function showCreateModal() {
+  var modal = document.getElementById('create-modal');
+  if (!modal) { createModal(); modal = document.getElementById('create-modal'); }
+  document.getElementById('new-name').value = '';
+  document.getElementById('new-desc').value = '';
+  modal.style.display = 'flex';
+  setTimeout(function () { document.getElementById('new-name').focus(); }, 50);
+}
+
+function hideCreateModal() { document.getElementById('create-modal').style.display = 'none'; }
+
+function createModal() {
+  var html = '<div id="create-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideCreateModal()">'
+    + '<div class="modal"><h4>新建 Chat 智能体</h4>'
+    + '<div class="form-row"><label>名称 *</label><input id="new-name" placeholder="如：财务制度助手"></div>'
+    + '<div class="form-row"><label>描述</label><textarea id="new-desc" rows="3" placeholder="用途说明，如：报销制度与差旅标准问答" style="resize:vertical"></textarea></div>'
+    + '<div class="form-actions"><button class="primary" onclick="createApp()">创建</button>'
+    + '<button class="btn-sm" onclick="hideCreateModal()">取消</button></div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('new-name').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') createApp();
+  });
+}
+
+async function createApp() {
+  var name = document.getElementById('new-name').value.trim();
+  if (!name) { alert('请填写名称'); return; }
+  var desc = document.getElementById('new-desc').value.trim();
+  var btn = document.querySelector('#create-modal .primary');
+  btn.disabled = true; btn.textContent = '创建中…';
+  try {
+    var app = await EARP.fetchJSON('/chat_apps', {
+      method: 'POST',
+      body: JSON.stringify({ name: name, description: desc }),
+    });
+    hideCreateModal();
+    window.location.href = 'chat-edit.html?app=' + encodeURIComponent(app.chat_app_id);
+  } catch (err) {
+    alert('创建失败: ' + err.message);
+    btn.disabled = false; btn.textContent = '创建';
+  }
+}
+</script>
+</body></html>

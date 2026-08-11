@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Chat 智能体编排"><title>编排 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css">
+<style>
+/* 编排页布局：左配置 / 右调试预览 */
+.edit-layout { display: grid; grid-template-columns: 320px 1fr; gap: 1.25rem; align-items: start; }
+@media (max-width: 960px) { .edit-layout { grid-template-columns: 1fr; } }
+.edit-top { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.edit-top h2 { margin: 0; font-size: 1.25rem; }
+.edit-top .spacer { flex: 1; }
+.config-panel { background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 1.1rem; box-shadow: var(--shadow-card); }
+.config-panel .cfg-label { display: block; font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); margin-bottom: 0.3rem; }
+.config-panel .cfg-field { margin-bottom: 1rem; }
+.config-panel input[type=text], .config-panel select, .config-panel textarea { width: 100%; }
+.config-panel textarea { resize: vertical; min-height: 110px; }
+.kb-check { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-secondary); padding: 0.2rem 0; cursor: pointer; }
+.kb-check input { width: 14px; height: 14px; accent-color: var(--accent); }
+.cfg-note { font-size: 0.7rem; color: var(--text-quaternary); margin-top: 0.3rem; }
+.cfg-inline { display: flex; gap: 0.5rem; align-items: center; }
+.cfg-inline select { flex: 1; }
+/* 调试对话 */
+.preview-panel { display: flex; flex-direction: column; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); height: calc(100vh - 150px); min-height: 480px; }
+.preview-head { padding: 0.7rem 1rem; border-bottom: 1px solid var(--border-subtle); font-size: 0.78rem; color: var(--text-tertiary); display: flex; gap: 1rem; align-items: center; }
+.preview-head .ph-hint { margin-left: auto; font-size: 0.7rem; color: var(--text-quaternary); }
+.msg-area { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.9rem; }
+.msg { max-width: 85%; padding: 0.6rem 0.85rem; border-radius: var(--radius-md); font-size: 0.84rem; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.msg.user { align-self: flex-end; background: var(--accent-light); color: var(--text-primary); border: 1px solid rgba(94,106,210,0.2); }
+.msg.assistant { align-self: flex-start; background: var(--bg-surface); border: 1px solid var(--border-subtle); }
+.msg .cursor { display: inline-block; width: 2px; height: 1em; background: var(--accent); vertical-align: -0.15em; animation: blink 0.8s step-end infinite; }
+.msg.error { align-self: flex-start; background: var(--red-bg); border: 1px solid var(--red); color: var(--red); }
+.cite-block { align-self: flex-start; max-width: 85%; width: 100%; }
+.cite-title { font-size: 0.72rem; color: var(--text-tertiary); font-weight: 500; margin: 0.35rem 0 0.3rem; }
+.cite-card { border: 1px solid var(--border-subtle); border-left: 3px solid var(--accent); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.3rem; background: var(--bg-panel); }
+.cite-card .cc-src { font-weight: 500; color: var(--text-primary); }
+.cite-card .cc-kb { color: var(--accent-text); margin-left: 0.4rem; }
+.cite-card .cc-meta { color: var(--text-quaternary); font-size: 0.7rem; margin-left: 0.4rem; }
+.input-bar { display: flex; gap: 0.5rem; padding: 0.8rem 1rem; border-top: 1px solid var(--border-subtle); }
+.input-bar input { flex: 1; }
+.input-bar input:disabled { opacity: 0.6; }
+</style>
+</head>
+<body data-base=".." data-section="workspace" data-sub="chat">
+<header id="app-header"></header>
+<main>
+
+<div class="edit-top">
+  <h2 id="app-title">—</h2>
+  <span id="app-status"></span>
+  <span class="spacer"></span>
+  <button class="secondary" onclick="saveApp()">保存</button>
+  <button class="primary" onclick="publishApp()" id="publish-btn">发布</button>
+</div>
+
+<div class="edit-layout">
+
+  <!-- 左：配置 -->
+  <div class="config-panel">
+    <div class="cfg-field">
+      <label class="cfg-label">名称</label>
+      <input type="text" id="cfg-name">
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-label">描述</label>
+      <input type="text" id="cfg-desc">
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-label">大模型（空 = 系统默认）</label>
+      <select id="cfg-model"><option value="">系统默认</option></select>
+      <div class="cfg-note">三级解析：本应用 → 系统默认(llm) → 环境配置</div>
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-label">系统提示词（人设/风格；引用规则自动追加）</label>
+      <textarea id="cfg-prompt"></textarea>
+      <button class="btn-sm" style="margin-top:0.35rem" onclick="resetPrompt()">↺ 重置默认模板</button>
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-label">知识库绑定（全不选 = 全租户自动路由）</label>
+      <div id="cfg-kbs" style="max-height:180px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;padding:0.4rem 0.6rem"></div>
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-label">检索参数</label>
+      <div class="cfg-inline" style="margin-bottom:0.4rem">
+        <select id="cfg-mode">
+          <option value="hybrid">混合检索</option>
+          <option value="vector">向量检索</option>
+        </select>
+        <select id="cfg-topk">
+          <option value="3">TopK 3</option><option value="5" selected>TopK 5</option>
+          <option value="10">TopK 10</option><option value="20">TopK 20</option>
+        </select>
+      </div>
+      <div class="cfg-inline">
+        <label class="cfg-label" style="margin:0;white-space:nowrap">相似度阈值</label>
+        <input type="number" id="cfg-threshold" min="0" max="1" step="0.05" value="0.0" style="width:80px">
+      </div>
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-label">多轮上下文轮数</label>
+      <select id="cfg-turns">
+        <option value="2">2 轮</option><option value="4">4 轮</option>
+        <option value="6" selected>6 轮</option><option value="10">10 轮</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 右：调试预览 -->
+  <div class="preview-panel">
+    <div class="preview-head">
+      <span>调试对话</span>
+      <button class="btn-sm secondary" onclick="clearChat()">清空对话</button>
+      <span class="ph-hint">Enter 发送 · 引用自动标注 [1][2]</span>
+    </div>
+    <div class="msg-area" id="msg-area">
+      <p class="kb-empty" id="chat-empty-hint">配置左侧参数后，在下方输入问题开始调试（自动保存前请先点「保存」）。</p>
+    </div>
+    <div class="input-bar">
+      <input id="chat-input" placeholder="输入问题…" onkeydown="if(event.key==='Enter')send()">
+      <button class="primary" onclick="send()" id="send-btn">发送</button>
+    </div>
+  </div>
+
+</div>
+</main>
+<script src="../js/app.js"></script>
+<script src="../js/nav.js"></script>
+<script>
+// ── Chat 智能体编排页（设计 §5.2）：左配置 / 右调试预览 ──
+var DEFAULT_PROMPT = '你是企业知识库智能助手。请基于提供的资料准确回答用户问题；资料不足时明确说明，不要编造。回答用中文，简洁清晰。';
+var state = { app: null, kbs: [], models: [], convId: null, streaming: false, promptTouched: false };
+
+var appId = new URLSearchParams(location.search).get('app') || '';
+
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  if (!appId) { document.getElementById('app-title').textContent = '缺少 app 参数'; return; }
+  await Promise.all([loadApp(), loadKBs(), loadModels()]);
+  renderConfig();
+}
+
+async function loadApp() {
+  try { state.app = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId)); }
+  catch (err) { document.getElementById('app-title').textContent = '加载失败: ' + err.message; }
+}
+
+async function loadKBs() {
+  try { state.kbs = await EARP.fetchJSON('/knowledge/bases'); } catch (e) { state.kbs = []; }
+}
+
+async function loadModels() {
+  try {
+    var all = await EARP.fetchJSON('/api/model-configs');
+    state.models = all.filter(function (m) { return m.model_type === 'llm' && m.enabled; });
+  } catch (e) { state.models = []; }
+}
+
+function statusTag(s) {
+  return s === 'published'
+    ? '<span class="tag tag-green">已发布</span>'
+    : '<span class="tag tag-accent">草稿</span>';
+}
+
+function renderConfig() {
+  var a = state.app;
+  if (!a) return;
+  document.getElementById('app-title').textContent = a.name;
+  document.getElementById('app-status').innerHTML = statusTag(a.status);
+  document.getElementById('cfg-name').value = a.name || '';
+  document.getElementById('cfg-desc').value = a.description || '';
+  document.getElementById('cfg-prompt').value = a.system_prompt || DEFAULT_PROMPT;
+  document.getElementById('cfg-model').innerHTML = '<option value="">系统默认</option>'
+    + state.models.map(function (m) {
+      var sel = m.config_id === a.model_config_id ? ' selected' : '';
+      return '<option value="' + m.config_id + '"' + sel + '>' + esc(m.model_name) + ' (' + m.provider + ')</option>';
+    }).join('');
+  var ret = a.retrieval || {};
+  document.getElementById('cfg-mode').value = ret.mode || 'hybrid';
+  document.getElementById('cfg-topk').value = String(ret.top_k || 5);
+  document.getElementById('cfg-threshold').value = ret.threshold != null ? ret.threshold : 0.0;
+  document.getElementById('cfg-turns').value = String(a.context_turns || 6);
+
+  var scope = a.kb_scope || [];
+  document.getElementById('cfg-kbs').innerHTML = state.kbs.length
+    ? state.kbs.map(function (kb) {
+        var on = scope.indexOf(kb.knowledge_base_id) >= 0;
+        return '<label class="kb-check"><input type="checkbox" value="' + kb.knowledge_base_id + '"' + (on ? ' checked' : '') + '>'
+          + esc(kb.name || kb.knowledge_base_id) + '</label>';
+      }).join('')
+    : '<div class="cfg-note">暂无知识库（请先在知识中心创建）</div>';
+  document.getElementById('publish-btn').disabled = a.status === 'published';
+  document.getElementById('publish-btn').textContent = a.status === 'published' ? '已发布' : '发布';
+}
+
+function collectConfig() {
+  var kbScope = [];
+  document.querySelectorAll('#cfg-kbs input:checked').forEach(function (el) { kbScope.push(el.value); });
+  return {
+    name: document.getElementById('cfg-name').value.trim(),
+    description: document.getElementById('cfg-desc').value.trim(),
+    system_prompt: document.getElementById('cfg-prompt').value.trim(),
+    model_config_id: document.getElementById('cfg-model').value || null,
+    kb_scope: kbScope,
+    retrieval: {
+      mode: document.getElementById('cfg-mode').value,
+      top_k: parseInt(document.getElementById('cfg-topk').value, 10) || 5,
+      threshold: parseFloat(document.getElementById('cfg-threshold').value) || 0.0,
+    },
+    context_turns: parseInt(document.getElementById('cfg-turns').value, 10) || 6,
+  };
+}
+
+function resetPrompt() { document.getElementById('cfg-prompt').value = DEFAULT_PROMPT; }
+
+async function saveApp(quiet) {
+  if (!state.app) return;
+  var body = collectConfig();
+  var btn = document.querySelector('.edit-top .secondary');
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  try {
+    var upd = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId), {
+      method: 'PATCH', body: JSON.stringify(body),
+    });
+    state.app = upd;
+    if (upd.status === 'draft' && body.name === upd.name) {
+      // 已发布 → 编辑后回 draft
+      if (!quiet) alert('已保存。原已发布应用已回到「草稿」，需重新测试并发布。');
+    }
+    renderConfig();
+  } catch (err) { alert('保存失败: ' + err.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
+}
+
+async function publishApp() {
+  if (!state.app) return;
+  if (state.app.status === 'published') return;
+  if (!confirm('确认发布？发布后可在「应用中心」查看。')) return;
+  try {
+    var pub = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId) + '/publish', { method: 'POST' });
+    state.app = pub;
+    alert('已发布，可在应用中心查看。');
+    renderConfig();
+  } catch (err) { alert('发布失败: ' + err.message); }
+}
+
+// ── 调试对话（流式 + 引用卡）──
+function clearChat() {
+  document.getElementById('msg-area').innerHTML = '';
+  state.convId = null;
+}
+
+function appendMsg(role, text) {
+  var area = document.getElementById('msg-area');
+  document.getElementById('chat-empty-hint') && (document.getElementById('chat-empty-hint').style.display = 'none');
+  var div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+  return div;
+}
+
+function appendCitations(citations) {
+  if (!citations || !citations.length) return;
+  var area = document.getElementById('msg-area');
+  var block = document.createElement('div');
+  block.className = 'cite-block';
+  var html = '<div class="cite-title">依据</div>';
+  html += citations.map(function (c, i) {
+    var meta = '';
+    var m = c.metadata || {};
+    if (m.version) meta += ' · ' + m.version;
+    if (m.year) meta += ' (' + m.year + ')';
+    return '<div class="cite-card"><span class="cc-src">[' + (i + 1) + '] ' + esc(c.title || '未命名') + '</span>'
+      + '<span class="cc-kb">' + esc(c.kb_name || c.kb_id || '') + '</span>'
+      + '<span class="cc-meta">' + esc(meta) + '</span></div>';
+  }).join('');
+  block.innerHTML = html;
+  area.appendChild(block);
+  area.scrollTop = area.scrollHeight;
+}
+
+async function send() {
+  if (state.streaming) return;
+  var input = document.getElementById('chat-input');
+  var query = input.value.trim();
+  if (!query) return;
+  if (!state.app) { alert('智能体未加载'); return; }
+
+  input.value = '';
+  appendMsg('user', query);
+  var answerEl = appendMsg('assistant', '');
+  answerEl.innerHTML = '<span class="cursor"></span>';
+  var tokens = [];
+  var sendBtn = document.getElementById('send-btn');
+  state.streaming = true;
+  input.disabled = true; sendBtn.disabled = true;
+
+  try {
+    await EARP.streamSSE('/chat_apps/' + encodeURIComponent(appId) + '/chat', {
+      query: query,
+      conversation_id: state.convId,
+    }, function (ev) {
+      if (ev.type === 'token') {
+        tokens.push(ev.content);
+        answerEl.textContent = tokens.join('');
+        answerEl.insertAdjacentHTML('beforeend', '<span class="cursor"></span>');
+        answerEl.scrollTop = answerEl.scrollHeight;
+        document.getElementById('msg-area').scrollTop = document.getElementById('msg-area').scrollHeight;
+      } else if (ev.type === 'done') {
+        state.convId = ev.conversation_id;
+        answerEl.textContent = tokens.join('');
+        appendCitations(ev.citations);
+      } else if (ev.type === 'error') {
+        answerEl.className = 'msg assistant error';
+        answerEl.textContent = tokens.length ? tokens.join('') + '\n\n⚠ ' + ev.message : ev.message;
+      }
+    });
+  } catch (err) {
+    answerEl.className = 'msg assistant error';
+    answerEl.textContent = tokens.length ? tokens.join('') + '\n\n⚠ ' + err.message : '请求失败: ' + err.message;
+  } finally {
+    state.streaming = false;
+    input.disabled = false; sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+</script>
+</body></html>
