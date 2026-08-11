@@ -14,7 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Web
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from earp_server.admin.model_routes import router as model_routes_router
 from earp_server.audit.consumer import audit_handler_factory
@@ -25,6 +25,14 @@ from earp_server.conversation.conversation_service import (
     add_message,
     create_conversation,
     get_messages,
+)
+from earp_server.conversation.chat_app_service import (
+    create_chat_app,
+    delete_chat_app,
+    get_chat_app,
+    list_chat_apps,
+    publish_chat_app,
+    update_chat_app,
 )
 from earp_server.gateway.auth import JWTMiddleware, create_token
 from earp_server.gateway.input_guard import sanitize_body
@@ -249,6 +257,22 @@ class ConvCreate(BaseModel):
 class MsgAdd(BaseModel):
     role: str
     content: str
+
+
+class ChatAppCreate(BaseModel):
+    name: str = Field(min_length=1)
+    description: str = ""
+    system_prompt: str | None = None  # None → DB 默认模板
+
+
+class ChatAppUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    system_prompt: str | None = None
+    kb_scope: list[str] | None = None
+    retrieval: dict[str, Any] | None = None
+    model_config_id: str | None = None
+    context_turns: int | None = None
 
 
 class LoginRequest(BaseModel):
@@ -992,6 +1016,68 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    # ── Chat Apps（工作台 · chat 智能体，P1 问答链路一期）──
+    @app.get("/chat_apps", tags=["chat_apps"])
+    async def list_chat_apps_ep(req: Request) -> list[dict[str, Any]]:
+        return await list_chat_apps(req.app.state.engine, req.state.tenant_id)
+
+    @app.post("/chat_apps", status_code=201, tags=["chat_apps"])
+    async def create_chat_app_ep(req_body: ChatAppCreate, req: Request) -> dict[str, Any]:
+        try:
+            return await create_chat_app(
+                req.app.state.engine,
+                req.state.tenant_id,
+                req.state.user_id,
+                req_body.name,
+                req_body.description,
+                bus=req.app.state.eventbus,
+                system_prompt=req_body.system_prompt,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+
+    @app.patch("/chat_apps/{chat_app_id}", tags=["chat_apps"])
+    async def update_chat_app_ep(chat_app_id: str, req_body: ChatAppUpdate, req: Request) -> dict[str, Any]:
+        try:
+            app = await update_chat_app(
+                req.app.state.engine,
+                req.state.tenant_id,
+                req.state.user_id,
+                chat_app_id,
+                req_body.model_dump(exclude_unset=True),
+                bus=req.app.state.eventbus,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        if app is None:
+            raise HTTPException(status_code=404, detail="chat app not found")
+        return app
+
+    @app.delete("/chat_apps/{chat_app_id}", status_code=204, tags=["chat_apps"])
+    async def delete_chat_app_ep(chat_app_id: str, req: Request) -> None:
+        ok = await delete_chat_app(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req.state.user_id,
+            chat_app_id,
+            bus=req.app.state.eventbus,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="chat app not found")
+
+    @app.post("/chat_apps/{chat_app_id}/publish", tags=["chat_apps"])
+    async def publish_chat_app_ep(chat_app_id: str, req: Request) -> dict[str, Any]:
+        app = await publish_chat_app(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req.state.user_id,
+            chat_app_id,
+            bus=req.app.state.eventbus,
+        )
+        if app is None:
+            raise HTTPException(status_code=404, detail="chat app not found")
+        return app
 
     # ── Conversation ──
     @app.post("/conversations", status_code=201, tags=["conversations"])

@@ -284,19 +284,21 @@ class LLMConnector:
         """
         return await self.plan(prompt)
 
-    async def stream(self, prompt: str, *, system: str = "") -> AsyncGenerator[TokenEvent, None]:
-        """Stream tokens from Ollama /api/chat with stream=true.
+    async def _stream_messages(self, messages: list[dict[str, str]]) -> AsyncGenerator[TokenEvent, None]:
+        """Stream tokens for a full message list from /api/chat with stream=true.
 
-        Yields TokenEvent for each token chunk from the LLM.
-        Handles Ollama's NDJSON streaming format.
+        Uses model_override (DB model_configs, PRD-2026-031) when configured:
+        base_url/model from the override, api_key header for non-ollama providers.
+        Yields TokenEvent per token; handles Ollama NDJSON streaming.
         """
         from earp_server.orchestrator.types import TokenEvent
 
-        url = f"{self._settings.ollama_base_url}/api/chat"
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+        # FIX（评审已实证）：旧实现直接用 settings.ollama_base_url，忽略构造器算好的
+        # self._base_url（model_override）—— 统一改走 self._base_url
+        url = f"{self._base_url}/api/chat"
+        headers = {}
+        if self._api_key and self._provider != "ollama":
+            headers["Authorization"] = f"Bearer {self._api_key}"
         payload = {
             "model": self._model,
             "messages": messages,
@@ -306,7 +308,7 @@ class LLMConnector:
         index = 0
         try:
             async with httpx.AsyncClient(timeout=300) as client:
-                async with client.stream("POST", url, json=payload) as resp:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
                     resp.raise_for_status()
                     async for line in resp.aiter_lines():
                         if not line:
@@ -324,3 +326,32 @@ class LLMConnector:
         except httpx.HTTPError as exc:
             logger.error("LLMConnector.stream: Ollama streaming failed: %s", exc)
             raise ConnectorError(f"Ollama streaming failed: {exc}") from exc
+
+    async def stream(self, prompt: str, *, system: str = "") -> AsyncGenerator[TokenEvent, None]:
+        """Stream tokens from Ollama /api/chat with stream=true.
+
+        Yields TokenEvent for each token chunk from the LLM.
+        Handles Ollama's NDJSON streaming format.
+        """
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        async for ev in self._stream_messages(messages):
+            yield ev
+
+    async def chat_stream(
+        self,
+        system: str,
+        history: list[dict[str, str]],
+        query: str,
+    ) -> AsyncGenerator[TokenEvent, None]:
+        """RAG chat streaming — full message list (system + history + current query).
+
+        history: [{"role": "user"|"assistant", "content": ...}]（最近 N 对，已配对）
+        """
+        messages = [{"role": "system", "content": system}]
+        messages.extend(history)
+        messages.append({"role": "user", "content": query})
+        async for ev in self._stream_messages(messages):
+            yield ev

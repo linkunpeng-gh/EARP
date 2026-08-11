@@ -35,6 +35,67 @@ components:
       - entity_type_id
       title: CapabilityEntityIn
       type: object
+    ChatAppCreate:
+      properties:
+        description:
+          default: ''
+          title: Description
+          type: string
+        name:
+          minLength: 1
+          title: Name
+          type: string
+        system_prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: System Prompt
+      required:
+      - name
+      title: ChatAppCreate
+      type: object
+    ChatAppUpdate:
+      properties:
+        context_turns:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Context Turns
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        kb_scope:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Kb Scope
+        model_config_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Config Id
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        retrieval:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Retrieval
+        system_prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: System Prompt
+      title: ChatAppUpdate
+      type: object
     ChunkPreviewRequest:
       properties:
         chunk_overlap:
@@ -1207,6 +1268,133 @@ paths:
       summary: Register Capability Endpoint
       tags:
       - capabilities
+  /chat_apps:
+    get:
+      operationId: list_chat_apps_ep_chat_apps_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Chat Apps Ep Chat Apps Get
+                type: array
+          description: Successful Response
+      summary: List Chat Apps Ep
+      tags:
+      - chat_apps
+    post:
+      operationId: create_chat_app_ep_chat_apps_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatAppCreate'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Chat App Ep Chat Apps Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Chat App Ep
+      tags:
+      - chat_apps
+  /chat_apps/{chat_app_id}:
+    delete:
+      operationId: delete_chat_app_ep_chat_apps__chat_app_id__delete
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete Chat App Ep
+      tags:
+      - chat_apps
+    patch:
+      operationId: update_chat_app_ep_chat_apps__chat_app_id__patch
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatAppUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Chat App Ep Chat Apps  Chat App Id  Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Chat App Ep
+      tags:
+      - chat_apps
+  /chat_apps/{chat_app_id}/publish:
+    post:
+      operationId: publish_chat_app_ep_chat_apps__chat_app_id__publish_post
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Publish Chat App Ep Chat Apps  Chat App Id  Publish
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Publish Chat App Ep
+      tags:
+      - chat_apps
   /conversations:
     post:
       operationId: create_conv_conversations_post

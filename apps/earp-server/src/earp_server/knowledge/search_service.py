@@ -66,7 +66,8 @@ def _build_conditions(
 
 
 _SELECT_COLS = (
-    "c.chunk_id, c.document_id, d.title, d.name AS doc_name, c.content, c.chunk_index, d.data_classification"
+    "c.chunk_id, c.document_id, d.title, d.name AS doc_name, c.content, c.chunk_index, d.data_classification, "
+    "kb.knowledge_base_id AS kb_id, kb.name AS kb_name, d.metadata"
 )
 
 
