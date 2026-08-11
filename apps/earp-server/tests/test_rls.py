@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.infra.db import build_session_factory, tenant_session
 
-TENANT_TABLE_COUNT = 36  # baseline(24) + 0005(2) + 0006(1) + 0008(7 ontology) + 0009(2 model)
+TENANT_TABLE_COUNT = 37  # baseline(24) + 0005(2) + 0006(1) + 0008(7 ontology) + 0009(2 model) + 0014(1 chat_apps)
 
 
 @pytest.fixture(scope="module")
