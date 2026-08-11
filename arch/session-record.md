@@ -123,7 +123,22 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 - 追加（2026-08-10）：KB 检索摘要对齐 DD——migration 0013 summary_text（空=自动聚合/非空=人工覆盖）+ suggest-summary AI 生成端点（LLM 调用抽公共 helper `_llm_suggest`，DB 模型优先支持 ollama/openai）+ 前端 KB 编辑模态框字段与按钮 + 调试视图展示 KB 摘要文本；tech-debt #8（indexing_technique 仅存储未生效）
 - 验证指南见设计文档 §0.1（四层：CI 测试 → 真实语义评估 → API → 前端）
 
-**下一步**：Phase 2（低置信度 LLM 路由 + bge-reranker 精排）→ ontology 三层检索接入软路由（实体限域）→ 评估集管理页落库。
+**下一步（2026-08-11 定稿优先级，按序执行）**：
+
+| 优先级 | 方向 | 内容 | 关联 |
+|:---:|---|---|---|
+| P1 | **A1 问答链路** | 真正的问答入口（query → 检索 → LLM 生成回答 → 带引用溯源「依据：财务部《报销制度》v3（2024-03）」）——RAG 最后一公里 | §4.3 |
+| P2 | A3 ontology 接入软路由 | 候选 DD 限域喂给三层检索（实体查找 + chunk 层），图谱能力生效 | 2026-08-07 设计 |
+| P3 | A2 Phase 2 精排 | bge-reranker 重排 + 低置信度 LLM 路由升级（<0.6 触发） | 设计 §3/§8 |
+| P4 | B6 评估集管理页 | routing_eval 从 fixture 落库 + admin 管理页（跑分可视化） | 设计 §7/§8 ⑥ |
+| P5 | B4 中台 importer + Enrichment | PRD-2026-030 M3 | PRD-030 |
+| P6 | B5 admin 实体管理页 | PRD-2026-030 M4 | PRD-030 |
+| P7 | C7 引用溯源展示 | 检索结果携带文档元数据 → 回答带引用 | §4.3 |
+| P8 | C8 角色域权限管理页 | tech-debt #9（roles 页开放配置 + Admin 全权限通用机制） | tech-debt #9 |
+| P9 | D10 embedding 容灾 | 远端 Ollama 不可用时自动切换 embedding 提供商 | 2026-08-10 踩坑 |
+| P10 | D9 business_capabilities 复合主键 | tech-debt #7 | tech-debt #7 |
+
+> 注：P7（引用溯源）与 P1（问答链路）天然耦合，可在 P1 内一并实现。
 
 ---
 
