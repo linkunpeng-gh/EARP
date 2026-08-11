@@ -8,7 +8,7 @@
 
 | # | Task | 关联设计 | 涉及文件 | 预估 |
 |:-:|:-----|:------:|:---------|:----:|
-| 1 | migration 0014：`chat_apps` 表（含 retrieval 默认值）+ `messages.citations JSONB` + `conversations.chat_app_id`（FK→chat_apps **ON DELETE SET NULL**） | §4.1（CP1/N1/CP5） | migrations/versions/0014_chat_apps.py | 中 |
+| 1 | migration 0014：`chat_apps` 表（含 retrieval 默认值 + **RLS 三件套：ENABLE RLS / FORCE / tenant_isolation policy**，0009 模式）+ `messages.citations JSONB` + `conversations.chat_app_id`（FK→chat_apps **ON DELETE SET NULL**）+ downgrade 对称 drop | §4.1（CP1/N1/CP5）/§4.6 | migrations/versions/0014_chat_apps.py | 中 |
 | 2 | `chat_app_service.py`：chat_apps CRUD（create draft / list RLS / get / update published→draft / delete 硬删）+ publish 状态机 + 审计事件发布（`earp.chat_app.created/updated/deleted/published`） | §4.2/§4.6（F2） | src/earp_server/conversation/chat_app_service.py + service.py 接口导出 | 中 |
 | 3 | `chat_apps` 路由组：GET/POST /chat_apps、PATCH/DELETE /chat_apps/{id}、POST /chat_apps/{id}/publish | §4.2 | src/earp_server/main.py | 小 |
 | 4 | `GET /conversations` 列表端点（id/标题/chat_app_id/message_count/最后消息时间）+ GET messages 响应补 citations | §4.2（Q1/Q2） | src/earp_server/conversation/conversation_service.py + main.py | 小 |
@@ -35,8 +35,8 @@
 | 15 | pytest `test_chat_apps.py`：CRUD/RLS/发布状态机（published→draft）/删除含会话 app 对话日志保留（SET NULL）/审计事件 | §8.1 | apps/earp-server/tests/test_chat_apps.py | 中 |
 | 16 | pytest `test_chat.py`：链路闭环（会话+用户消息+检索+流式+助手消息+citations）、多轮配对、kb_scope 软路由/限定/无权限静默过滤、引用字段完整、SSE token/done/error、chat_stream model_override | §8.1 | apps/earp-server/tests/test_chat.py | 大 |
 | 17 | `scripts/verify_chat.py`：QA 评估集（单轮事实/元数据纯语义/多轮追问/拒答）+ 引用命中 ≥80% 跑分（真模型 bge-m3+ollama，人工抽检要点） | §8.2（I1） | scripts/verify_chat.py | 中 |
-| 18 | OpenAPI 基线同步 + import-linter 全量 + 全量回归（现 63 tests 保持绿） | §4.6/§8 | apps/earp-server/scripts 或仓库惯例 | 中 |
-| 19 | task-log + commit + session-record 更新 + 前端冒烟（test-nav-smoke 补 chat 场景） | — | arch/session-record.md + apps/earp-admin/test-nav-smoke.cjs | 小 |
+| 18 | OpenAPI 基线同步 + import-linter 全量 + 全量回归（现 63 tests 保持绿）；**测试常量适配：EXPECTED_TABLES 37→38（test_migrations）、TENANT_TABLE_COUNT 36→37（test_rls）+ downgrade 断言调整（0014 建表，downgrade -2 回退 0014+0013 会删表 → 表数 -1，不再「不变」）** | §4.6/§8 | apps/earp-server/scripts 或仓库惯例 + tests/test_migrations.py + tests/test_rls.py | 中 |
+| 19 | task-log + commit + session-record 更新 + 前端冒烟（test-nav-smoke 补 chat 场景）+ **§8.3 前端验收清单走查（卡片/新建模态/编排左右分栏/流式+引用卡/发布→应用中心可见/导航联动）** | §8.3 | arch/session-record.md + apps/earp-admin/test-nav-smoke.cjs | 小 |
 
 ## 依赖关系
 
