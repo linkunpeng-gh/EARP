@@ -139,6 +139,7 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 | P10 | D9 business_capabilities 复合主键 | tech-debt #7 | tech-debt #7 |
 
 > 注：P7（引用溯源）与 P1（问答链路）天然耦合，可在 P1 内一并实现。
+> 另：后台导航改版已定稿（8 项决策 + 蓝图 + 分期），见 `arch/design/2026-08-11-admin-navigation-redesign.md`——纯前端重构，可与 P1 并行或穿插。
 
 ---
 
