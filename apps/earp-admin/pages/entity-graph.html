@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 图谱探索"><title>图谱探索 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body data-base=".." data-section="knowledge" data-sub="entity-graph">
+<header id="app-header"></header>
+
+<main>
+
+<div class="page-title"><div><h2>图谱探索</h2><p class="page-subtitle">输入实体 → 查看关系网络（前向/反向，点击节点展开）· ontology ABox 图谱</p></div></div>
+
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+  <input id="entity-q" placeholder="实体名或业务编码，如 CNC-01" style="flex:1 1 260px">
+  <button onclick="explore()">🔍 探索</button>
+  <label style="font-size:0.78rem;display:flex;align-items:center;gap:4px"><input type="checkbox" id="include-backward" checked> 含反向关系</label>
+  <span id="entity-info" style="font-size:0.78rem;color:var(--text-tertiary)"></span>
+</div>
+
+<div id="graph-wrap" style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;overflow:auto;display:none">
+  <svg id="graph-svg" width="760" height="520" style="display:block;min-width:760px"></svg>
+</div>
+
+<div id="graph-relations" style="margin-top:12px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:12px;display:none">
+  <h3 style="margin:0 0 8px;font-size:0.85rem">关系明细</h3>
+  <div id="rel-list" style="font-size:0.78rem;line-height:1.7"></div>
+</div>
+
+</main>
+<script src="../js/nav.js"></script>
+<script src="../js/app.js"></script>
+<script>
+var CENTER = { x: 380, y: 260 };
+var RADIUS = 170;
+
+async function lookupEntity(q) {
+  var hits = await EARP.fetchJSON('/v1/ontology/entities/lookup?q=' + encodeURIComponent(q));
+  if (!hits || !hits.length) throw new Error('未找到实体: ' + q);
+  return hits[0];
+}
+
+async function graphOf(id, direction) {
+  var items = await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(id) + '/graph?max_hops=1' + (direction === 'backward' ? '&direction=backward' : ''));
+  return items || [];
+}
+
+async function explore() {
+  var q = document.getElementById('entity-q').value.trim();
+  if (!q) return;
+  var info = document.getElementById('entity-info');
+  info.textContent = '查询中…';
+  try {
+    var ent = await lookupEntity(q);
+    await renderGraph(ent);
+  } catch (e) {
+    info.textContent = '';
+    alert(e.message);
+  }
+}
+
+async function renderGraph(ent) {
+  var info = document.getElementById('entity-info');
+  info.textContent = ent.entity_type_id + ' · ' + (ent.business_code || '') + ' · ' + ent.entity_id;
+  var backward = document.getElementById('include-backward').checked;
+  var fwd = await graphOf(ent.entity_id, 'forward');
+  var back = backward ? await graphOf(ent.entity_id, 'backward') : [];
+  drawSvg(ent, fwd, back);
+  renderTextList(ent, fwd, back);
+  document.getElementById('graph-wrap').style.display = 'block';
+  document.getElementById('graph-relations').style.display = 'block';
+}
+
+// ── SVG 渲染（vanilla，无外部依赖）─────────────────────────────────────────
+function drawSvg(center, fwd, back) {
+  var svg = document.getElementById('graph-svg');
+  svg.innerHTML = '';
+  var ns = 'http://www.w3.org/2000/svg';
+  function el(tag, attrs, text) {
+    var n = document.createElementNS(ns, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  // 去重邻居（同实体多关系 → 取最近一跳 + 聚合关系标签）
+  var fwdMap = {}, backMap = {};
+  fwd.forEach(function (h) { fwdMap[h.target_entity_id] = h; });
+  back.forEach(function (h) { backMap[h.target_entity_id] = h; });
+
+  // 布局：forward 邻居在右半圆，backward 在左半圆
+  var fwdKeys = Object.keys(fwdMap), backKeys = Object.keys(backMap);
+  function place(keys, angle0, angle1) {
+    var out = {};
+    keys.forEach(function (k, i) {
+      var a = keys.length === 1 ? (angle0 + angle1) / 2 : angle0 + (angle1 - angle0) * i / (keys.length - 1);
+      var rad = a * Math.PI / 180;
+      out[k] = { x: CENTER.x + RADIUS * Math.cos(rad), y: CENTER.y + RADIUS * Math.sin(rad) };
+    });
+    return out;
+  }
+  var fwdPos = place(fwdKeys, -70, 70);     // 右
+  var backPos = place(backKeys, 110, 250);  // 左
+
+  // 连线（forward 绿 / backward 琥珀）
+  function edge(rel, from, to, color, dash) {
+    var line = el('line', { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, 'stroke-width': 1.5, 'stroke-dasharray': dash || '', 'marker-end': 'url(#arrow-' + (color === '#16a34a' ? 'fwd' : 'bwd') + ')' });
+    var mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2;
+    var label = el('text', { x: mx, y: my - 4, 'font-size': 10, fill: '#888', 'text-anchor': 'middle' }, rel);
+    return [line, label];
+  }
+
+  // 定义箭头
+  var defs = el('defs', {});
+  [['fwd', '#16a34a'], ['bwd', '#d97706']].forEach(function (d) {
+    var mk = el('marker', { id: 'arrow-' + d[0], markerWidth: 8, markerHeight: 8, refX: 8, refY: 4, orient: 'auto' });
+    mk.appendChild(el('path', { d: 'M0,0 L8,4 L0,8 z', fill: d[1] }));
+    defs.appendChild(mk);
+  });
+  svg.appendChild(defs);
+
+  // 中心实体
+  svg.appendChild(el('circle', { cx: CENTER.x, cy: CENTER.y, r: 38, fill: '#e0e7ff', stroke: '#4f46e5', 'stroke-width': 2 }));
+  svg.appendChild(el('text', { x: CENTER.x, y: CENTER.y + 4, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600, fill: '#312e81' }, center.name));
+
+  // 邻居节点 + 边（可点击展开）
+  var clickable = [];
+  Object.keys(fwdMap).forEach(function (id) {
+    var h = fwdMap[id], pos = fwdPos[id];
+    edge(h.relation_type_id, CENTER, pos, '#16a34a').forEach(function (n) { svg.appendChild(n); });
+    var g = el('g', { style: 'cursor:pointer', id: 'node-' + id });
+    g.appendChild(el('circle', { r: 26, fill: '#dcfce7', stroke: '#16a34a' }));
+    g.appendChild(el('text', { y: 4, 'text-anchor': 'middle', 'font-size': 10, fill: '#166534' }, (h.target_name || h.target_entity_id).slice(0, 6)));
+    g.setAttribute('transform', 'translate(' + pos.x + ',' + pos.y + ')');
+    g.addEventListener('click', function () { expand(id); });
+    svg.appendChild(g);
+    clickable.push({ id: id, name: h.target_name || id });
+  });
+  Object.keys(backMap).forEach(function (id) {
+    var h = backMap[id], pos = backPos[id];
+    edge(h.relation_type_id, pos, CENTER, '#d97706', '4,3').forEach(function (n) { svg.appendChild(n); });
+    var g = el('g', { style: 'cursor:pointer' });
+    g.appendChild(el('circle', { r: 26, fill: '#fef3c7', stroke: '#d97706' }));
+    g.appendChild(el('text', { y: 4, 'text-anchor': 'middle', 'font-size': 10, fill: '#92400e' }, (h.target_name || h.target_entity_id).slice(0, 6)));
+    g.setAttribute('transform', 'translate(' + pos.x + ',' + pos.y + ')');
+    g.addEventListener('click', function () { expand(id); });
+    svg.appendChild(g);
+    clickable.push({ id: id, name: h.target_name || id });
+  });
+
+  // 图例
+  svg.appendChild(el('text', { x: 20, y: 30, 'font-size': 11, fill: '#16a34a' }, '→ 前向关系（source→target）'));
+  svg.appendChild(el('text', { x: 20, y: 48, 'font-size': 11, fill: '#d97706' }, '⇠ 反向关系（target←source）'));
+  svg.appendChild(el('text', { x: 20, y: 66, 'font-size': 11, fill: '#888' }, '点击节点 → 以它为中心展开'));
+}
+
+async function expand(entityId) {
+  try {
+    var ent = await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(entityId));
+    await renderGraph(ent);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+// ── 文本关系明细 ────────────────────────────────────────────────────────────
+function renderTextList(center, fwd, back) {
+  var lines = [];
+  fwd.forEach(function (h) {
+    lines.push('<span style="color:#16a34a">→</span> ' + esc(h.relation_type_id)
+      + ' → <b>' + esc(h.target_name || h.target_entity_id) + '</b>'
+      + ' <span style="color:var(--text-quaternary)">(' + esc(h.target_type || '') + ' · depth ' + h.depth + ')</span>');
+  });
+  back.forEach(function (h) {
+    lines.push('<span style="color:#d97706">⇠</span> ' + esc(h.relation_type_id)
+      + ' ← <b>' + esc(h.target_name || h.target_entity_id) + '</b>'
+      + ' <span style="color:var(--text-quaternary)">(' + esc(h.target_type || '') + ' · depth ' + h.depth + ')</span>');
+  });
+  document.getElementById('rel-list').innerHTML =
+    lines.length ? lines.join('<br>') : '<span style="color:var(--text-tertiary)">无关系（该实体无活跃事实）</span>';
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+</script>
+</body></html>

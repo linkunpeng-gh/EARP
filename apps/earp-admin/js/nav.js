@@ -45,6 +45,7 @@
       { label: '数据域', sub: 'data-domains', path: '{b}/pages/data-domains.html' },
       { label: '知识库', sub: 'knowledge', path: '{b}/pages/knowledge.html' },
       { label: '实体导入', sub: 'entity-import', path: '{b}/pages/entity-import.html' },
+      { label: '图谱探索', sub: 'entity-graph', path: '{b}/pages/entity-graph.html' },
       { label: '召回测试', sub: 'test-retrieval', path: '{b}/pages/test-retrieval.html' },
     ],
     capability: [
