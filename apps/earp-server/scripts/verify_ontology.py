@@ -25,7 +25,7 @@ from sqlalchemy import text
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from earp_server.config import Settings  # noqa: E402
-from earp_server.infra.db import build_engine, tenant_session  # noqa: E402
+from earp_server.infra.db import tenant_session  # noqa: E402
 from earp_server.infra.ext.ext_embedding import init_app as _init_embedding  # noqa: E402
 from earp_server.knowledge.chunk_service import create_chunks  # noqa: E402
 from earp_server.knowledge.document_service import create_document  # noqa: E402
@@ -58,6 +58,53 @@ DOCS = [
     ("kb-manual", "设备维护手册", "设备维护保养说明：定期检查主轴、轴承与润滑系统。"),
     ("kb-alarm", "报警阈值", "设备报警阈值设定：主轴温度超过85度触发报警。"),
 ]
+
+
+async def _purge(engine) -> None:
+    """跨租户清理 equipment_data 域同 id 数据（dev 库被 verify_routing/verify_chat 复用过）。"""
+    ids = ["equipment_data"]
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "DELETE FROM chunks WHERE knowledge_base_id IN "
+                "(SELECT knowledge_base_id FROM knowledge_bases WHERE data_domain_id = ANY(:ids))"
+            ),
+            {"ids": ids},
+        )
+        await conn.execute(
+            text(
+                "DELETE FROM documents WHERE knowledge_base_id IN "
+                "(SELECT knowledge_base_id FROM knowledge_bases WHERE data_domain_id = ANY(:ids))"
+            ),
+            {"ids": ids},
+        )
+        await conn.execute(text("DELETE FROM knowledge_bases WHERE data_domain_id = ANY(:ids)"), {"ids": ids})
+        await conn.execute(text("DELETE FROM data_domains WHERE data_domain_id = ANY(:ids)"), {"ids": ids})
+        await conn.execute(text("DELETE FROM roles WHERE role_id = :rid"), {"rid": ROLE})
+        await conn.execute(
+            text(
+                "DELETE FROM facts WHERE source_entity_id IN "
+                "(SELECT entity_id FROM entities WHERE data_domain_id = ANY(:ids)) "
+                "OR target_entity_id IN "
+                "(SELECT entity_id FROM entities WHERE data_domain_id = ANY(:ids))"
+            ),
+            {"ids": ids},
+        )
+        await conn.execute(
+            text(
+                "DELETE FROM entity_profiles WHERE entity_id IN "
+                "(SELECT entity_id FROM entities WHERE data_domain_id = ANY(:ids))"
+            ),
+            {"ids": ids},
+        )
+        await conn.execute(
+            text(
+                "DELETE FROM entity_timeline WHERE entity_id IN "
+                "(SELECT entity_id FROM entities WHERE data_domain_id = ANY(:ids))"
+            ),
+            {"ids": ids},
+        )
+        await conn.execute(text("DELETE FROM entities WHERE data_domain_id = ANY(:ids)"), {"ids": ids})
 
 
 async def _seed(engine) -> None:
@@ -121,7 +168,7 @@ async def _seed(engine) -> None:
     await build_routing_index(engine, TENANT)
 
 
-async def _three_layer(engine, settings, q: str) -> list[dict]:
+async def _three_layer(engine, settings, q: str, top_k: int = 5) -> list[dict]:
     from earp_server.ontology.search import knowledge_search
 
     emb = await embed_query(q)
@@ -131,13 +178,13 @@ async def _three_layer(engine, settings, q: str) -> list[dict]:
     if not cand_dds:
         # 路由未命中任何 DD → 全租户 chunk（P2 决策 D4，与原行为一致）
         return await search_chunks(
-            engine, TENANT, emb, ROLE, top_k=5,
+            engine, TENANT, emb, ROLE, top_k=top_k,
             knowledge_base_ids=cand_kbs, embedding_dim=settings.embedding_dim,
         )
     return await knowledge_search(
         engine, TENANT, q, embedding=emb, role_id=ROLE,
         data_domain_ids=cand_dds, knowledge_base_ids=cand_kbs,
-        top_k=5, embedding_dim=settings.embedding_dim,
+        top_k=top_k, embedding_dim=settings.embedding_dim,
     )
 
 
@@ -161,6 +208,13 @@ def _hit_three_layer(items: list[dict], expect: list[str]) -> bool:
     return False
 
 
+def _layer_hit_all(items: list[dict], expect: list[str]) -> tuple[bool, list[str]]:
+    """全量 layer 命中诊断：区分「实体层未命中」vs「命中但被 RRF top-5 截断」。"""
+    titles = [f"{i.get('source')}:{i.get('title', '')}" for i in items if i.get("source") in ("profile", "graph")]
+    hit = any(any(e in (i.get("title") or "") for e in expect) for i in items)
+    return hit, titles
+
+
 def _hit_pure_vector(chunks: list[dict], expect: list[str]) -> bool:
     # 纯 vector 只能靠文档原文——seed 文档不含实体名 → 期望不命中
     joined = " ".join(c.get("content", "") for c in chunks[:5])
@@ -170,7 +224,12 @@ def _hit_pure_vector(chunks: list[dict], expect: list[str]) -> bool:
 async def main() -> int:
     settings = Settings()
     _init_embedding(settings)
-    engine = build_engine(settings)
+    # dev tool: use the migration (superuser) engine — BYPASSRLS so we can purge
+    # cross-tenant same-id rows (knowledge_base_id / role_id 非复合主键，debt #7 模式)
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine(settings.migration_database_url)
+    await _purge(engine)
     await _seed(engine)
 
     print(f"\n{'问题':<28} {'三层':<6} {'纯vector':<8} 说明")
@@ -178,7 +237,7 @@ async def main() -> int:
     total = len(CASES)
     hits3 = hitsv = 0
     for case in CASES:
-        items3 = await _three_layer(engine, settings, case["q"])
+        items3 = await _three_layer(engine, settings, case["q"], top_k=5)
         itemsv = await _pure_vector(engine, settings, case["q"])
         h3 = _hit_three_layer(items3, case["expect"])
         hv = _hit_pure_vector(itemsv, case["expect"])
@@ -188,8 +247,12 @@ async def main() -> int:
         markv = "✓" if hv else "✗"
         print(f"{case['q']:<28} {mark3:<6} {markv:<8} {case['note']}")
         if not h3:
-            tops = [f"{i.get('source')}:{i.get('title', i.get('content', ''))[:20]}" for i in items3[:5]]
-            print(f"    三层 top-5: {tops}")
+            items3_full = await _three_layer(engine, settings, case["q"], top_k=20)
+            all_hit, layer_titles = _layer_hit_all(items3_full, case["expect"])
+            if all_hit:
+                print(f"    → 实体层已命中但被 RRF top-5 截断；graph/profile: {layer_titles}")
+            else:
+                print(f"    → 实体层未命中（lookup/tokenize 局限，QU Phase B 范畴）；graph/profile: {layer_titles}")
     p3 = hits3 / total * 100
     pv = hitsv / total * 100
     print("-" * 78)

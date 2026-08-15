@@ -246,7 +246,12 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 - 全量 85 passed + import-linter + OpenAPI 基线同步（改动了 search 端点响应含 source 字段）
 - main.py I001（import 排序）为既有问题，未在本次范围
 
-**下一步**：verify_ontology.py dev 真模型跑分 → P3 rerank 精排（recall 层）→ Phase B（QU 独立并行建设）→ 项目组拍板 TBox 缺口（阻塞 QU relation 门槛，见 2026-08-13 记录）
+**效果层验证（dev 真模型 bge-m3，2026-08-15）**：`scripts/verify_ontology.py` 跑分 PASS ✅——三层 P@5 命中 3/6 = 50% vs 纯 vector 0%，提升 **+50 个百分点（验收线 ≥+10）**。3 个未命中归因：
+1. 纯中文实体长查询（「A产线由谁负责」「高温报警由什么设备引起」）实体层未命中——`_entity_hits` 的 CJK tokenize 把整句当一个 token，`lookup_entities` 的 ILIKE 方向是「实体名包含查询串」而非「查询包含实体名」——**QU Phase B 范畴**（已知项）
+2. 「CNC-01 由哪家供应商制造」实体层命中但 manufactured_by 被 RRF top-5 截断——graph lane 排序按 target entity_id 字典序、与查询无关（RRF 边界效应，每次 seed 随机翻转）——**QU Phase C plan_relation 定向关系查询范畴**
+3. 脚本从 build_engine（应用角色）改为迁移角色 engine + 跨租户 purge（knowledge_base_id/role_id 非复合主键、dev 库被 verify_routing/verify_chat 复用过）——对齐 verify_routing 模式
+
+**下一步**：P3 rerank 精排（recall 层）→ Phase B（QU 独立并行建设）→ 项目组拍板 TBox 缺口（阻塞 QU relation 门槛，见 2026-08-13 记录）
 
 ---
 
