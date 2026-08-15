@@ -199,4 +199,71 @@ Task 1-7 → Task 8（回归）→ Task 9（收尾）
 7. **graph 跨域 target 宽松（决策 D1）**：源实体限域 candidate_dds，target 可跨域——治理模块统一收紧前为已知行为，记 tech-debt。
 
 ---
+
+## 人工测试指南（2026-08-15 实施完成版）
+
+> 前置：`make migrate` + `EARP_OLLAMA_BASE_URL=http://127.0.0.1:11434 make api`（API:8000）。
+> Seed：跑一次 `scripts/verify_ontology.py` 即完成数据准备（verify-ontology 租户：equipment_data 域 + kb-manual/kb-alarm + 实体 CNC-01/华东一厂/A产线/上海某精机/张工/高温报警 + facts + profile）。
+
+```bash
+# token（tenant=verify-ontology, role=verify-role）
+TOKEN=$(cd apps/earp-server && .venv/bin/python -c "
+import jwt; print(jwt.encode({'sub':'u1','tenant_id':'verify-ontology','role_id':'verify-role','exp':9999999999},'earp-dev-secret-change-in-production',algorithm='HS256'))")
+```
+
+### 场景 1：无 scope 三层检索（P2 核心）
+
+```bash
+curl -X POST localhost:8000/knowledge/search -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"query": "CNC-01 位于哪个工厂", "top_k": 5}'
+#   期望：混合 items —— {"source":"profile","title":"CNC-01（实体档案）"...} + {"source":"graph","title":"图谱：located_in → 华东一厂"...}
+curl -X POST localhost:8000/knowledge/search -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"query": "设备维护保养", "top_k": 5}'
+#   期望：全 chunk（无实体命中 = 原行为回归），且带 kb_id/kb_name/similarity
+```
+
+### 场景 2：显式 scope（原行为不变）
+
+```bash
+curl -X POST localhost:8000/knowledge/search -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"query":"报警阈值","knowledge_base_ids":["kb-alarm"]}'
+#   期望：只返回 kb-alarm 的 chunk（无实体层）
+```
+
+### 场景 3：路由调试视图
+
+```bash
+curl -X POST localhost:8000/knowledge/routing/debug -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"query":"CNC-01 设备报警"}'
+#   期望：dd_keyword_hits=["equipment_data"]、candidate_dds/KBs 非空、freshness 无 stale
+```
+
+### 场景 4：chat 软路由三层 + 引用（SSE）
+
+```bash
+APP_ID=$(curl -s -X POST localhost:8000/chat_apps -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"人工测试助手"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['chat_app_id'])")
+# ① 实体命中 → citations 含 profile/graph 来源
+curl -N -X POST localhost:8000/chat_apps/$APP_ID/chat -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"query":"CNC-01 的供应商是谁"}'
+#   期望：done 事件 citations 含 {"source":"graph","title":"图谱：manufactured_by → 上海某精机"...}
+# ② 无实体 → 纯 chunk 引用（kb_id 非空）
+curl -N -X POST localhost:8000/chat_apps/$APP_ID/chat -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"query":"报警阈值是多少"}'
+```
+
+### 场景 5/6：前端
+
+```bash
+cd apps/earp-admin && python3 -m http.server 8080   # 打开 localhost:8080
+```
+- `pages/test-retrieval.html`：Scope 选「全局」→ 搜 `CNC-01 位于哪个工厂` → 期望结果卡出现 📇实体档案 / 🕸图谱 徽标（场景 5）
+- `pages/chat-edit.html`：调试面板问 `CNC-01 的供应商是谁` → 期望「依据」引用卡出现 📇/🕸 徽标（场景 6）
+
+### 已知边界（非 bug）
+
+1. 纯中文实体长查询（「A产线由谁负责」）实体层不命中 → 三层退化为纯 chunk——实体识别局限，QU Phase B 范畴
+2. 「CNC-01 由哪家供应商制造」的 graph 命中可能被 RRF top-5 截断（graph lane 按 entity_id 排序，与查询无关）——QU Phase C plan_relation 范畴
+
+---
 **规划定稿，确认后按执行序开工。**

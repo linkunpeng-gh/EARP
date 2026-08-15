@@ -12,6 +12,10 @@ Usage (from apps/earp-server, with PG + Ollama up, bge-m3 pulled):
     uv run python scripts/verify_ontology.py
 
 Requires: Postgres migrated + embedding provider reachable (EARP_OLLAMA_*).
+
+Manual smoke (optional): running this script also seeds the verify-ontology
+tenant (DD/KB/docs + entity graph) for API/frontend manual testing — see
+`tasks/ontology-soft-routing-task-breakdown.md` §人工测试指南 for curl steps.
 """
 
 from __future__ import annotations
