@@ -41,6 +41,13 @@
   </section>
 </div>
 
+<details id="tbox-panel" style="margin-top:16px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+  <summary style="cursor:pointer;font-weight:600;font-size:0.9rem">📚 TBox 一览（当前租户实体/关系类型，填模板前核对）</summary>
+  <div id="tbox-content" style="margin-top:10px">
+    <p style="color:var(--text-tertiary);font-size:0.75rem">展开后自动加载…</p>
+  </div>
+</details>
+
 </main>
 <script src="../js/nav.js"></script>
 <script src="../js/app.js"></script>
@@ -155,6 +162,43 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
+}
+
+// ── TBox 一览（首次展开时加载）────────────────────────────────────────────
+var tboxLoaded = false;
+document.getElementById('tbox-panel').addEventListener('toggle', function () {
+  if (this.open && !tboxLoaded) { tboxLoaded = true; loadTBox(); }
+});
+
+function loadTBox() {
+  var box = document.getElementById('tbox-content');
+  box.innerHTML = '<p style="color:var(--text-tertiary);font-size:0.75rem">加载中…</p>';
+  Promise.all([
+    EARP.fetchJSON('/v1/ontology/entity-types'),
+    EARP.fetchJSON('/v1/ontology/relation-types'),
+  ]).then(function (res) {
+    var et = res[0] || [];
+    var rt = res[1] || [];
+    box.innerHTML = '<h4 style="margin:0 0 6px">实体类型（' + et.length + '）</h4>'
+      + tboxTable(et, ['entity_type_id', 'name', 'kind', 'data_domain_id', 'status'])
+      + '<h4 style="margin:14px 0 6px">关系类型（' + rt.length + '）</h4>'
+      + tboxTable(rt, ['relation_type_id', 'name', 'source_type', 'target_type', 'cardinality', 'status']);
+  }).catch(function (e) {
+    box.innerHTML = '<p style="color:var(--red);font-size:0.78rem">加载失败: ' + esc(e.message) + '</p>';
+  });
+}
+
+function tboxTable(rows, cols) {
+  if (!rows.length) return '<p style="color:var(--text-tertiary);font-size:0.75rem">空</p>';
+  var head = cols.map(function (c) { return '<th style="text-align:left;padding:5px;border-bottom:1px solid var(--border-subtle);white-space:nowrap">' + c + '</th>'; }).join('');
+  var body = rows.map(function (r) {
+    return '<tr>' + cols.map(function (c) {
+      var v = r[c] == null ? '' : String(r[c]);
+      var cls = (c === 'status' && v === 'deprecated') ? ' style="color:var(--red)"' : '';
+      return '<td style="padding:5px;border-bottom:1px solid var(--border-subtle);font-size:0.73rem"' + cls + '>' + esc(v) + '</td>';
+    }).join('') + '</tr>';
+  }).join('');
+  return '<table style="width:100%;border-collapse:collapse"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
 }
 </script>
 </body></html>
