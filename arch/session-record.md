@@ -268,6 +268,23 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **下一步**：前端导入入口并入 M4 admin 实体管理页（现为 API-only）→ P3 rerank → Phase B（QU）
 
+### 追加（2026-08-15）— P3 rerank 接入 + G1 graph 反向遍历
+
+**P3 rerank（enterprise-retrieval §8 Phase 2 ⑧）**：
+- `infra/ext/ext_reranker.py`（新）：可插拔 RerankerProvider（Ollama `/api/rerank` + OpenAI 兼容 `/rerank`）+ 工厂 singleton，`rerank_provider` 默认 `none`（本地 Ollama 0.32 无 rerank API）
+- `search_chunks` 加 rerank 步骤：RRF/vector 召回后对 top-N 候选（`rerank_top_n=20`）cross-encoder 精排取 top_k；provider 未配置/失败 → 原序返回（优雅降级，日志告警）；结果打 `rerank_score` 字段
+- 透传链：knowledge_search → main.py（lifespan init + DB model_config 的 rerank 类型 reinit）→ chat_service
+- 测试 test_rerank.py 3 项：mock 重排/截断/score、禁用保序、search_chunks 全链路（启用排序变化 + 禁用原样）
+- **真模型验证待环境**：本地 Ollama 无 `/api/rerank`（404）+ 远程不可达——实现可插拔、环境就绪即用（拉 bge-reranker 模型 + `EARP_RERANK_PROVIDER=ollama`）
+
+**G1 graph 反向遍历（QU §12 例 4 / Phase D2 缺口闭合）**：
+- `graph_query` 加 `direction` 参数（forward 默认 | backward）：backward 从 target 反走到 source（递归 CTE 镜像 + 环保护），邻居实体统一以 `target_*` 呈现（消费方无感）
+- API `GET /v1/ontology/entities/{id}/graph?direction=backward`；测试 test_graph_query_backward（工厂 forward 空 / backward 找到 2 台设备）
+
+**验证**：93 passed + import-linter + OpenAPI 基线；P3 无行为回归（rerank 默认禁用）
+
+**下一步**：P3 真模型验证（待 rerank 环境）→ G2 图谱可视化 → Phase B（QU，等 TBox 拍板）
+
 ---
 
 ### 历史待办

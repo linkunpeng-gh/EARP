@@ -2675,6 +2675,13 @@ paths:
           default: 3
           title: Max Hops
           type: integer
+      - in: query
+        name: direction
+        required: false
+        schema:
+          default: forward
+          title: Direction
+          type: string
       responses:
         '200':
           content:

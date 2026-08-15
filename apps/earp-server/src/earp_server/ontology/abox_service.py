@@ -170,36 +170,66 @@ async def graph_query(
     tenant_id: str,
     entity_id: str,
     max_hops: int = 3,
+    direction: str = "forward",
 ) -> list[dict]:
     """Recursive CTE traversal (≤ max_hops, cycle-protected via visited path).
 
-    Returns rows {depth, relation_type_id, source_entity_id, target_entity_id,
-    target_name, target_type} for active (valid_to IS NULL) facts.
+    direction: "forward" (source→target, default) | "backward" (target→source)
+    — backward 用于「某实体被谁关联」（如 工厂 → 位于该厂的设备，QU 设计 §12 例 4
+    Phase D2 缺口闭合）。返回行统一为 {depth, relation_type_id, source_entity_id,
+    target_entity_id, target_name, target_type}：backward 时邻居实体（原 source）
+    以 target_* 字段呈现，消费方（knowledge_search Layer 2）无需感知方向。
     """
-    sql = text(
-        """
-        WITH RECURSIVE hops AS (
-            SELECT 1 AS depth, f.relation_type_id, f.source_entity_id, f.target_entity_id,
-                   CAST(f.target_entity_id AS TEXT) AS path
-            FROM facts f
-            WHERE f.tenant_id = :tid AND f.source_entity_id = :eid
-              AND f.status = 'active' AND f.valid_to IS NULL
-            UNION ALL
-            SELECT h.depth + 1, f.relation_type_id, f.source_entity_id, f.target_entity_id,
-                   h.path || ',' || f.target_entity_id
+    if direction == "backward":
+        sql = text(
+            """
+            WITH RECURSIVE hops AS (
+                SELECT 1 AS depth, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                       CAST(f.source_entity_id AS TEXT) AS path
+                FROM facts f
+                WHERE f.tenant_id = :tid AND f.target_entity_id = :eid
+                  AND f.status = 'active' AND f.valid_to IS NULL
+                UNION ALL
+                SELECT h.depth + 1, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                       h.path || ',' || f.source_entity_id
+                FROM hops h
+                JOIN facts f ON f.target_entity_id = h.source_entity_id
+                    AND f.tenant_id = :tid AND f.status = 'active' AND f.valid_to IS NULL
+                WHERE h.depth < :max_hops
+                  AND position(f.source_entity_id in h.path) = 0
+            )
+            SELECT h.depth, h.relation_type_id, h.source_entity_id, h.target_entity_id,
+                   e.name AS target_name, e.entity_type_id AS target_type
             FROM hops h
-            JOIN facts f ON f.source_entity_id = h.target_entity_id
-                AND f.tenant_id = :tid AND f.status = 'active' AND f.valid_to IS NULL
-            WHERE h.depth < :max_hops
-              AND position(f.target_entity_id in h.path) = 0
+            LEFT JOIN entities e ON e.entity_id = h.source_entity_id AND e.tenant_id = :tid
+            ORDER BY h.depth, h.source_entity_id
+            """
         )
-        SELECT h.depth, h.relation_type_id, h.source_entity_id, h.target_entity_id,
-               e.name AS target_name, e.entity_type_id AS target_type
-        FROM hops h
-        LEFT JOIN entities e ON e.entity_id = h.target_entity_id AND e.tenant_id = :tid
-        ORDER BY h.depth, h.target_entity_id
-        """
-    )
+    else:
+        sql = text(
+            """
+            WITH RECURSIVE hops AS (
+                SELECT 1 AS depth, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                       CAST(f.target_entity_id AS TEXT) AS path
+                FROM facts f
+                WHERE f.tenant_id = :tid AND f.source_entity_id = :eid
+                  AND f.status = 'active' AND f.valid_to IS NULL
+                UNION ALL
+                SELECT h.depth + 1, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                       h.path || ',' || f.target_entity_id
+                FROM hops h
+                JOIN facts f ON f.source_entity_id = h.target_entity_id
+                    AND f.tenant_id = :tid AND f.status = 'active' AND f.valid_to IS NULL
+                WHERE h.depth < :max_hops
+                  AND position(f.target_entity_id in h.path) = 0
+            )
+            SELECT h.depth, h.relation_type_id, h.source_entity_id, h.target_entity_id,
+                   e.name AS target_name, e.entity_type_id AS target_type
+            FROM hops h
+            LEFT JOIN entities e ON e.entity_id = h.target_entity_id AND e.tenant_id = :tid
+            ORDER BY h.depth, h.target_entity_id
+            """
+        )
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         rows = await conn.execute(sql, {"tid": tenant_id, "eid": entity_id, "max_hops": max_hops})

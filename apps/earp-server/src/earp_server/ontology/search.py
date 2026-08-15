@@ -75,6 +75,8 @@ async def knowledge_search(
     threshold: float | None = None,
     metadata_filters: dict | None = None,
     eventbus: EventBus | None = None,
+    rerank: bool = True,
+    rerank_top_n: int = 20,
 ) -> list[dict]:
     """Three-layer retrieval with RRF fusion (recall layer, QU design §8.1).
 
@@ -159,6 +161,8 @@ async def knowledge_search(
                 mode=mode,
                 metadata_filters=metadata_filters,
                 eventbus=eventbus,
+                rerank=rerank,
+                rerank_top_n=rerank_top_n,
             )
             for c in chunks:
                 merged = dict(c)

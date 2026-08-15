@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://10.188.2.230:11434"
     ollama_embedding_model: str = "bge-m3:latest"
     embedding_provider: str = "ollama"  # ollama | openai
+    # P3 rerank（enterprise-retrieval §8 Phase 2 ⑧）：默认禁用——本地 Ollama 旧版无
+    # /api/rerank，provider 不可用时检索优雅降级为纯 RRF。
+    rerank_provider: str = "none"  # none | ollama | openai（兼容 /rerank）
+    ollama_rerank_model: str = "bge-reranker-v2-m3"
+    rerank_top_n: int = 20  # 精排候选数（RRF/向量召回后）
     ollama_chat_model: str = "qwen3.6:27b"
     embedding_dim: int = 1024  # bge-m3 dimension; change when switching models
 

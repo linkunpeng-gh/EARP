@@ -163,6 +163,33 @@ def _rrf_merge(ranked_lists: list[list[dict]], top_k: int) -> list[dict]:
     return sorted(fused.values(), key=lambda x: -x["rrf_score"])[:top_k]
 
 
+async def _rerank_results(
+    results: list[dict], query: str, top_k: int, rerank_top_n: int,
+) -> list[dict]:
+    """Cross-encoder re-rank the recalled candidates (P3).
+
+    Takes top `rerank_top_n` candidates, scores them against the query with the
+    configured reranker, re-sorts, returns top_k. Any failure (provider missing /
+    upstream error) → original order preserved (graceful degradation).
+    """
+    try:
+        from earp_server.infra.ext.ext_reranker import get_reranker
+
+        reranker = get_reranker()
+        if reranker is None:
+            return results
+        cands = results[:rerank_top_n]
+        scores = await reranker.rerank(query, [c["content"] for c in cands])
+        for c, s in zip(cands, scores, strict=True):
+            c["rerank_score"] = s
+        cands.sort(key=lambda x: -(x.get("rerank_score") or 0.0))
+        logger.info("rerank: %d/%d candidates scored → top %d", len(cands), len(results), top_k)
+        return cands[:top_k]
+    except Exception:
+        logger.warning("rerank skipped (provider unavailable or failed) — RRF order kept", exc_info=True)
+        return results
+
+
 async def search_chunks(
     engine: AsyncEngine,
     tenant_id: str,
@@ -178,6 +205,8 @@ async def search_chunks(
     query_text: str = "",
     mode: str = "vector",
     metadata_filters: dict[str, Any] | None = None,
+    rerank: bool = True,
+    rerank_top_n: int = 20,
 ) -> list[dict]:
     """Search chunks, filtered by scope + accessible_roles.
 
@@ -189,6 +218,9 @@ async def search_chunks(
       - query_text: original query string (required for the hybrid text lane)
       - metadata_filters: JSONB containment filter on documents.metadata
         (values must match stored JSON types; served by the GIN index)
+      - rerank: cross-encoder re-rank the recalled candidates (P3). No-op when
+        no reranker provider is configured or query_text is empty — RRF-only
+        result is returned unchanged (graceful degradation).
     """
     embedding_str = f"[{', '.join(str(x) for x in query_embedding)}]"
     if embedding_dim is None:
@@ -238,6 +270,10 @@ async def search_chunks(
                 results = await _vector_lane(
                     conn, params, where_clause, embedding_dim, embedding_str, threshold=threshold
                 )
+        # P3 rerank：跨编码器精排（enterprise-retrieval §8 Phase 2 ⑧）。provider 未配置
+        # / query_text 为空 / 调用失败 → 原样返回（优雅降级，不阻塞召回）。
+        if rerank and results and query_text.strip():
+            results = await _rerank_results(results, query_text, top_k, rerank_top_n)
         # Recall statistics: +1 per document per matching query (deduped)
         if results:
             hit_doc_ids = list({r["document_id"] for r in results})

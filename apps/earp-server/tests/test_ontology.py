@@ -125,3 +125,31 @@ async def test_capability_entity_map_reverse_lookup(app_engine: AsyncEngine) -> 
 
     caps = await tbox_service.find_capabilities_by_entity_type(app_engine, "ont-t1", "equipment")
     assert any(c["capability_id"] == "cap-query-alarms" for c in caps)
+
+
+async def test_graph_query_backward(app_engine: AsyncEngine) -> None:
+    """反向遍历（QU §12 例 4 Phase D2 缺口闭合）：工厂 ← located_in ← 设备。
+
+    forward 视角工厂无出边（located_in 方向 equipment→plant）；backward 应
+    找到位于该厂的全部设备。
+    """
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t2")
+    plant = await abox_service.upsert_entity(app_engine, "ont-t2", "plant", "华东一厂", business_code="PL-1")
+    e1 = await abox_service.upsert_entity(app_engine, "ont-t2", "equipment", "CNC-01", business_code="CNC-01")
+    e2 = await abox_service.upsert_entity(app_engine, "ont-t2", "equipment", "CNC-02", business_code="CNC-02")
+    await abox_service.add_fact(app_engine, "ont-t2", e1["entity_id"], "located_in", plant["entity_id"])
+    await abox_service.add_fact(app_engine, "ont-t2", e2["entity_id"], "located_in", plant["entity_id"])
+
+    # forward（默认）：工厂无出边 → 空
+    fwd = await abox_service.graph_query(app_engine, "ont-t2", plant["entity_id"], max_hops=1)
+    assert fwd == []
+
+    # backward：华东一厂 → 位于该厂的设备
+    bw = await abox_service.graph_query(
+        app_engine, "ont-t2", plant["entity_id"], max_hops=1, direction="backward"
+    )
+    names = {h["target_name"] for h in bw}
+    assert {"CNC-01", "CNC-02"} == names
+    assert all(h["relation_type_id"] == "located_in" for h in bw)
+    # 邻居实体以 target_* 呈现（消费方无需感知方向）
+    assert all(h["target_type"] == "equipment" for h in bw)

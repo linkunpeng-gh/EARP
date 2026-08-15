@@ -308,6 +308,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else:
             app.state.eventbus = RedisStreamsEventBus()
         app.state.rate_limiter = TokenBucketRateLimiter(rps=100)
+        # P3: reranker init (default disabled — graceful RRF-only when unavailable)
+        from earp_server.infra.ext.ext_reranker import init_reranker_provider as _init_rrk
+
+        _init_rrk(
+            provider=getattr(cfg, "rerank_provider", "none"),
+            ollama_base_url=getattr(cfg, "ollama_base_url", "http://localhost:11434"),
+            ollama_model=getattr(cfg, "ollama_rerank_model", "bge-reranker-v2-m3"),
+            openai_api_key=getattr(cfg, "openai_api_key", ""),
+        )
         # Phase 2: LLM cache + structured output via Ollama
         llm_connector = LLMConnector(cfg, rate_limiter=app.state.rate_limiter)
         # PRD-2026-031: DB-configured models take priority (env fallback inside connector)
@@ -330,6 +339,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         openai_model=emb["model_name"],
                         openai_base_url=emb.get("base_url") or "https://api.openai.com/v1",
                     )
+            rr = runtime_models.get("rerank")
+            if rr:
+                _init_rrk(
+                    provider=rr["provider"],
+                    ollama_base_url=rr.get("base_url"),
+                    ollama_model=rr["model_name"],
+                )
         except Exception:
             logger.warning("load_runtime_models failed — using env defaults", exc_info=True)
         from earp_server.infra.llm_cache import LLMCache
@@ -652,6 +668,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     threshold=req_body.threshold,
                     metadata_filters=req_body.metadata_filters,
                     eventbus=bus,
+                    rerank=True,
+                    rerank_top_n=req.app.state.settings.rerank_top_n,
                 )
             # 无候选 DD → 全租户 chunk 兜底（原行为，决策 D4）
             kb_ids = cand_kbs or None
@@ -674,6 +692,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             query_text=req_body.query,
             mode=req_body.mode,
             metadata_filters=req_body.metadata_filters,
+            rerank=True,
+            rerank_top_n=req.app.state.settings.rerank_top_n,
         )
 
     # ── Routing: debug view + index rebuild (enterprise-retrieval Phase 1) ──

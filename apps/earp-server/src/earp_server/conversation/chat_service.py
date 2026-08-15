@@ -183,6 +183,7 @@ async def _retrieve(
                 query_text=query, mode=mode,
                 threshold=threshold, metadata_filters=None,
                 eventbus=None,
+                rerank=True,
             )
         else:
             # 无候选 DD → 全租户 chunk 兜底（原行为，决策 D4）
