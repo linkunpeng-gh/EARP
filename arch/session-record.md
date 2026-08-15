@@ -294,6 +294,19 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **下一步**：Phase B（QU，等 TBox 拍板）→ M4 实体管理页（导入/图谱并入）→ P3 真模型验证（待 rerank 环境）
 
+### 追加（2026-08-15）— TBox 部件级关系缺口闭合（方案 A）
+
+> 决策简报拍板：方案 A（扩源类型，不引入 has_component；YAGNI）——「主轴轴承由谁供应」「主轴轴承属于哪台设备」可建模，不再阻塞 QU §17 relation 门槛
+
+**落地**：
+- `tbox_service.SEED_RELATION_TYPES`：`belongs_to` 源扩 component（target 加 equipment）、`supplied_by` 源扩 component（仍 12 类）
+- **migration 0016**：存量租户全量同步（`init_tenant_tbox` 是 ON CONFLICT DO NOTHING，已存在行不更新——migration superuser 显式 UPDATE）；downgrade 回退
+- 测试：test_component_supply_belong_relations（component→supplier / component→equipment 导入校验放行）；修 test_migrations downgrade 断言（head 变 0016，`-2` 语义过时）
+- 文档：ontology 设计 §3.2 表格同步（belongs_to/supplied_by 源加 component）、QU v0.3 §20 问题 1 标记已决策关闭
+- 验证：94 passed + migration 0016 应用成功
+
+**下一步**：Phase B（QU 理解层）——TBox 缺口已解除，可直接开工 → M4 实体管理页 → P3 真模型验证
+
 ---
 
 ### 历史待办

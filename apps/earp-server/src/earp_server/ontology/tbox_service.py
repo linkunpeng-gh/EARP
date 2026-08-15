@@ -29,10 +29,13 @@ SEED_ENTITY_TYPES: list[dict] = [
 
 SEED_RELATION_TYPES: list[dict] = [
     # relation_type_id, name, source_type(s), target_type(s), cardinality
+    # 2026-08-15 决策（TBox 部件级关系缺口，方案 A）：belongs_to/supplied_by 源集合
+    # 扩 component——部件属于设备（component→equipment）、部件由供应商供应
+    # （component→supplier）。设计 §3.2 表格已同步。
     ("located_in", "位于", "equipment,sensor,production_line", "plant", "N:1"),
-    ("belongs_to", "属于", "equipment,sensor", "production_line", "N:1"),
+    ("belongs_to", "属于", "equipment,sensor,component", "production_line,equipment", "N:1"),
     ("manufactured_by", "由…制造", "equipment", "supplier", "N:1"),
-    ("supplied_by", "由…供应", "material", "supplier", "N:1"),
+    ("supplied_by", "由…供应", "material,component", "supplier", "N:1"),
     ("maintained_by", "由…维护", "equipment", "employee", "N:M"),
     ("responsible_for", "负责", "employee,department", "production_line,equipment,material", "N:M"),
     ("produces", "生产", "production_line,plant", "product", "1:N"),

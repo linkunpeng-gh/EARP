@@ -50,9 +50,10 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
         row = conn.execute("SELECT count(*) FROM users").fetchone()
         assert row is not None and int(row[0]) == 1  # superuser bypasses RLS
 
-    command.downgrade(cfg, "-2")
-    # head=0014: -2 回退 0014(删 chat_apps 表) + 0013(删 summary_text 列) → 表数 -1
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 1
+    command.downgrade(cfg, "0014_chat_apps")
+    # head=0016：回退 0016(纯 UPDATE 无表变更) + 0015(加 generation 列) → 0014；
+    # 表数与 head 相同（0015/0016 均不改表数量），断言退到 0014 后 upgrade 可重放
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES
 
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES

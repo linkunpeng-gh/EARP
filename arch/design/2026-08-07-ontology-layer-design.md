@@ -105,9 +105,9 @@ P7  Capability ↔ 实体类型显式关联（capability_entity_map）
 | relation_type_id | 名称 | 源类型 | 目标类型 | 基数 | 示例 |
 |:---|:---|:---|:---|:---|:---|
 | `located_in` | 位于 | equipment / sensor / production_line | plant | N:1 | CNC-01 → 华东一厂 |
-| `belongs_to` | 属于 | equipment / sensor | production_line | N:1 | CNC-01 → A 产线 |
+| `belongs_to` | 属于 | equipment / sensor / **component** | production_line / **equipment** | N:1 | CNC-01 → A 产线；主轴轴承 → CNC-01 |
 | `manufactured_by` | 由…制造 | equipment | supplier | N:1 | CNC-01 → 上海某精机 |
-| `supplied_by` | 由…供应 | material | supplier | N:1 | 轴承 → 某轴承厂 |
+| `supplied_by` | 由…供应 | material / **component** | supplier | N:1 | 轴承 → 某轴承厂 |
 | `maintained_by` | 由…维护 | equipment | employee | N:M | CNC-01 → 张工 |
 | `responsible_for` | 负责 | employee / department | production_line / equipment / material | N:M | 张工 → A 产线 |
 | `produces` | 生产 | production_line / plant | product | 1:N | A 产线 → 产品 X |

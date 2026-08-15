@@ -147,3 +147,26 @@ async def test_import_execute_writes_and_recompiles_profile(migrated: str, app_u
     rels = [kf["relation"] for kf in profile.get("key_facts", [])]
     assert "由…制造" in rels  # compile_profile 聚合的是 relation_types.name（中文名）
     await engine.dispose()
+
+
+async def test_component_supply_belong_relations(migrated: str, app_url: str) -> None:
+    """TBox 部件级关系缺口闭合（2026-08-15 方案 A）：component→supplier 供应、
+    component→equipment 归属——导入校验应放行（原会被类型匹配拒绝）。"""
+    engine = await _engine(app_url)
+    tid = "imp-t4"
+    await tbox_service.init_tenant_tbox(engine, tid)
+    await _seed_dd(engine, tid)
+
+    ents = (
+        "component,主轴轴承,CPN-1,equipment_data,\n"
+        "equipment,CNC-01,CNC-01,equipment_data,\n"
+        "supplier,上海某精机,SUP-001,equipment_data,"
+    )
+    facts = (
+        "CPN-1,supplied_by,SUP-001,1.0\n"     # 部件由供应商供应（新增）
+        "CPN-1,belongs_to,CNC-01,1.0\n"        # 部件属于设备（新增）
+    )
+    res = await import_service.import_abox(engine, tid, ents, facts, dry_run=True)
+    assert res["entities"]["errors"] == []
+    assert res["facts"]["total"] == 2 and res["facts"]["ok"] == 2, res["facts"]["errors"]
+    await engine.dispose()
