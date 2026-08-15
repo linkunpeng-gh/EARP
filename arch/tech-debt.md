@@ -19,6 +19,7 @@
 | 8 | `knowledge_bases.indexing_technique` | high_quality/economy 仅存储未生效——检索逻辑（search_service）不读该字段，改值不改变任何行为（Dify 概念迁移残留）；应定义差异化行为（如是否建关键词索引/向量索引）或移除 | P3 | 需要按 KB 区分索引成本/策略时 |
 | 9 | 角色域权限管理 | Admin 全权限非通用机制：seed 特判（建角色时查租户 DD 配全）+ 存量手动修；新建 DD 不会自动加入已有角色的 data_domain_access；roles 管理页仍 disabled。应：roles 页开放配置 + 通用「admin 角色跳过域过滤」或「新 DD 自动授权 admin」机制 | P2 | 多角色/多域接入或新建 DD 后路由权限失效时 |
 | 10 | `ontology/search.py::knowledge_search` | 三层文本证据 RRF 是合法 recall 层，但缺「角色层」：capability 结构化行无法进 RRF，答案 vs 引用未分层——QU 设计 v0.3 §8.1；Phase D3 叠加角色层（§9.2），不替换 RRF | P3 | Phase D3（QU 设计 §16） |
+| 11 | `ontology/abox_service.py`（compile_profile/get_entity_profile）+ `ontology/search.py:103` | **profile 无过期管理**：① 写时失效未实现——`add_fact`/`revoke_fact`/`upsert_entity` 无重编译钩子；② 惰性编译只兜「缺失」不兜「过期」——`knowledge_search` 先查表、有就返回，已存在（哪怕过期）的 profile 会一直读到旧缓存，`get_entity_profile` 无 freshness 校验；③ 夜间 enrichment（ontology 设计 §4.3）未实现——scheduler 进程 idle；④ `entity_timeline` 全库无 INSERT——`stats.recent_events` 恒 0。影响：QU v0.3 recall 层 profile lane 会给出过期事实 | P2 | 事实变更后 profile 提供旧事实 / QU Phase D 角色层依赖 profile lane 时。修复：写时失效（facts 变更→重编译该实体 profile）+ 读时 freshness 校验 + enrichment 落 scheduler |
 
 ## 已清偿
 
