@@ -285,6 +285,15 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **下一步**：P3 真模型验证（待 rerank 环境）→ G2 图谱可视化 → Phase B（QU，等 TBox 拍板）
 
+### 追加（2026-08-15）— G2 图谱可视化（图谱探索页）
+
+- `pages/entity-graph.html`（新）：实体 lookup → forward+backward 图查询 → vanilla SVG 渲染（中心实体 + 环形邻居 + 关系标签 + 方向图例，绿=前向/琥珀=反向），点击节点以它为中心展开；文本关系明细列表
+- nav.js 知识中心抽屉新增「图谱探索」
+- 真 API 冒烟：CNC-01 forward（belongs_to→A产线 / located_in→华东一厂 / manufactured_by→上海某精机）+ backward（caused_by←高温报警）全通
+- 至此图谱能力从「API 文本」补全为「可视化探索」（G1 反向遍历 + G2 可视化 + 导入数据 = 完整闭环）
+
+**下一步**：Phase B（QU，等 TBox 拍板）→ M4 实体管理页（导入/图谱并入）→ P3 真模型验证（待 rerank 环境）
+
 ---
 
 ### 历史待办
