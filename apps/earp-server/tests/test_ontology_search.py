@@ -117,3 +117,192 @@ async def test_resolve_with_entities_narrows_candidates(app_engine: AsyncEngine)
 
     # intent with no entity match → empty (caller falls back to full discovery)
     assert await search.resolve_with_entities(app_engine, tid, "不存在的实体关键词xyz") == []
+
+
+# ── P2: ontology 接入软路由（Task 5）──────────────────────────────────────────
+# 验证 knowledge_search 新参数（knowledge_base_ids 透传 / title / chunk 字段保留）
+# + /knowledge/search 无 scope 路径三层生效 + 权限限域。
+
+
+async def _seed_p2_routing_scene(engine: AsyncEngine, tid: str, suffix: str = "") -> dict:
+    """DDs + role + KB + docs + entity graph（CNC-01/上海某精机 in equipment_data、
+    财务系统 in finance_data）——P2 软路由场景种子。suffix 隔离全局唯一 id
+    （knowledge_base_id / role_id 非复合主键，跨租户复用会冲突）。"""
+    from sqlalchemy import text
+
+    from earp_server.knowledge.chunk_service import create_chunks
+    from earp_server.knowledge.document_service import create_document
+    from earp_server.knowledge.embedding_service import embed_chunks
+    from earp_server.knowledge.routing import build_routing_index
+
+    kb_maint, kb_alarm, kb_fin = f"kb-maint{suffix}", f"kb-alarm{suffix}", f"kb-fin{suffix}"
+    role_eq, role_all = f"r-p2-eq{suffix}", f"r-p2-all{suffix}"
+    await tbox_service.init_tenant_tbox(engine, tid)
+    async with tenant_session(engine, tid) as session:
+        await session.execute(
+            text(
+                "INSERT INTO data_domains (data_domain_id, tenant_id, name, description, "
+                "data_classification, status) "
+                "VALUES ('equipment_data', :tid, '设备数据', '设备报警维护', 'internal', 'active'), "
+                "('finance_data', :tid, '财务数据', '财务制度报销', 'internal', 'active') "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"tid": tid},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
+                "VALUES (:rid, :tid, 'eq-only', '{}', 'all', "
+                "'[{\"data_domain_id\": \"equipment_data\"}]') ON CONFLICT DO NOTHING"
+            ),
+            {"rid": role_eq, "tid": tid},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
+                "VALUES (:rid, :tid, 'all', '{}', 'all', "
+                "'[{\"data_domain_id\": \"equipment_data\"}, "
+                "{\"data_domain_id\": \"finance_data\"}]') ON CONFLICT DO NOTHING"
+            ),
+            {"rid": role_all, "tid": tid},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO knowledge_bases (knowledge_base_id, tenant_id, name, data_domain_id, description) "
+                "VALUES (:kb1, :tid, '设备维护手册', 'equipment_data', '维护与保养'), "
+                "(:kb2, :tid, '报警阈值配置', 'equipment_data', '报警阈值'), "
+                "(:kb3, :tid, '费用报销手册', 'finance_data', '报销流程') ON CONFLICT DO NOTHING"
+            ),
+            {"tid": tid, "kb1": kb_maint, "kb2": kb_alarm, "kb3": kb_fin},
+        )
+    docs = [
+        (kb_maint, "维护手册v1", "设备维护：主轴轴承更换周期为每季度一次。"),
+        (kb_alarm, "报警阈值", "设备报警阈值：主轴温度超过85度触发报警。"),
+        (kb_fin, "报销制度v1", "财务报销标准：住宿每天500元。"),
+    ]
+    chunk_ids_all: list[str] = []
+    for kb, title, content in docs:
+        doc = await create_document(engine, tid, kb, content, title=title)
+        chunk_ids_all.extend(await create_chunks(engine, tid, doc["document_id"], content))
+    await embed_chunks(engine, tid, chunk_ids_all)
+    await build_routing_index(engine, tid)
+
+    sup = await abox_service.upsert_entity(
+        engine, tid, "supplier", "上海某精机", business_code="SUP-1", data_domain_id="equipment_data"
+    )
+    equip = await abox_service.upsert_entity(
+        engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
+    )
+    await abox_service.add_fact(engine, tid, equip["entity_id"], "manufactured_by", sup["entity_id"])
+    await abox_service.compile_profile(engine, tid, equip["entity_id"])
+    fin = await abox_service.upsert_entity(
+        engine, tid, "employee", "财务系统", business_code="FIN-SYS", data_domain_id="finance_data"
+    )
+    return {
+        "equip": equip["entity_id"], "sup": sup["entity_id"], "fin": fin["entity_id"],
+        "kb_maint": kb_maint, "kb_alarm": kb_alarm, "kb_fin": kb_fin,
+        "role_eq": role_eq, "role_all": role_all,
+    }
+
+
+async def test_knowledge_search_pure_chunk_regression(
+    migrated: str, app_url: str, monkeypatch
+) -> None:
+    """无实体命中 → 全 chunk（原行为回归）；chunk item 保留 kb_id/kb_name/title/metadata/similarity。"""
+    provider = _install_stub(monkeypatch)
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "p2-t1"
+    scene = await _seed_p2_routing_scene(engine, tid, suffix="-t1")
+
+    emb = (await provider.embed(["报销标准"]))[0]
+    hits = await search.knowledge_search(
+        engine, tid, "报销标准", embedding=emb, role_id=scene["role_all"], top_k=5,
+        data_domain_ids=["finance_data"], embedding_dim=DIM,
+    )
+    assert hits, "must return chunk hits"
+    assert all(h["source"] == "chunk" for h in hits)
+    first = hits[0]
+    assert first["kb_id"] == scene["kb_fin"]  # 限域 finance_data → 只有 kb-fin 的 chunk
+    assert first["kb_name"]
+    assert first["title"]
+    assert "similarity" in first
+
+
+async def test_knowledge_search_kb_limit_layer3(
+    migrated: str, app_url: str, monkeypatch
+) -> None:
+    """knowledge_base_ids 透传：L3 chunk 限定到指定 KB；L1/L2 实体层不受 KB 限制。"""
+    provider = _install_stub(monkeypatch)
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "p2-t2"
+    scene = await _seed_p2_routing_scene(engine, tid, suffix="-t2")
+
+    emb = (await provider.embed(["CNC-01 设备维护"]))[0]
+    hits = await search.knowledge_search(
+        engine, tid, "CNC-01 设备维护", embedding=emb, role_id=scene["role_eq"], top_k=10,
+        data_domain_ids=["equipment_data"],
+        knowledge_base_ids=[scene["kb_maint"]],
+        embedding_dim=DIM,
+    )
+    sources = {h["source"] for h in hits}
+    assert "profile" in sources  # 实体层不受 KB 限制
+    for h in hits:
+        if h["source"] == "chunk":
+            assert h["kb_id"] == scene["kb_maint"]  # L3 限定
+
+
+async def test_knowledge_search_dd_permission_scope(
+    migrated: str, app_url: str, monkeypatch
+) -> None:
+    """候选 DD（已权限过滤）限定实体层：无权限 DD 的实体不进 profile 结果（决策 D1）。"""
+    provider = _install_stub(monkeypatch)
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "p2-t3"
+    scene = await _seed_p2_routing_scene(engine, tid, suffix="-t3")
+
+    emb = (await provider.embed(["CNC-01 财务系统"]))[0]
+    hits = await search.knowledge_search(
+        engine, tid, "CNC-01 财务系统", embedding=emb, role_id=scene["role_eq"], top_k=10,
+        data_domain_ids=["equipment_data"],  # 模拟 route_query 权限过滤后的候选 DD
+        embedding_dim=DIM,
+    )
+    assert hits
+    profile_ids = {h["entity_id"] for h in hits if h["source"] == "profile"}
+    assert scene["equip"] in profile_ids
+    assert scene["fin"] not in profile_ids  # finance 域实体不在候选 DD → 不返回
+
+
+def test_knowledge_search_endpoint_soft_route_three_layer(
+    migrated: str, app_url: str, monkeypatch,
+) -> None:
+    """/knowledge/search 无 scope：keyword 命中 equipment_data → 三层检索，profile/graph 参与。"""
+    import asyncio
+
+    import jwt
+    from fastapi.testclient import TestClient
+
+    from earp_server.config import Settings
+    from earp_server.main import create_app
+
+    _install_stub(monkeypatch)
+    tid = "p2-t4"
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    scene = asyncio.run(_seed_p2_routing_scene(engine, tid, suffix="-t4"))
+
+    app = create_app(Settings(database_url=app_url, app_env="test"))
+    token = jwt.encode(
+        {"sub": "u1", "tenant_id": tid, "role_id": scene["role_eq"], "exp": 9999999999},
+        "earp-dev-secret-change-in-production",
+        algorithm="HS256",
+    )
+    with TestClient(app) as c:
+        resp = c.post(
+            "/knowledge/search",
+            json={"query": "CNC-01 设备报警", "top_k": 10},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200, resp.text
+        items = resp.json()
+        assert items
+        sources = {i.get("source") for i in items}
+        assert "profile" in sources or "graph" in sources

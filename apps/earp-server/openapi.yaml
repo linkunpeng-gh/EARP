@@ -2325,14 +2325,11 @@ paths:
       - knowledge
   /knowledge/search:
     post:
-      description: 'Chunk search. No explicit KB/DD scope → soft-routing across the
-        whole
+      description: 'Knowledge search. No explicit KB/DD scope → soft-routing + three-layer
 
-        tenant (enterprise-retrieval design §3/§6, decision B-6): route_query
+        retrieval (ontology profile/graph + chunk, RRF recall fusion, P2). Explicit
 
-        produces candidate KBs (permission-filtered), then chunk recall happens
-
-        inside those KBs. Explicit scope keeps current in-scope semantics.'
+        scope keeps current in-scope chunk semantics.'
       operationId: search_knowledge_knowledge_search_post
       requestBody:
         content:

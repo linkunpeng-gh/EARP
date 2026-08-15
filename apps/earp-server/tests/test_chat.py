@@ -288,6 +288,41 @@ async def test_chat_soft_route_respects_role_permission(migrated: str, app_url: 
     assert any(c["kb_id"] == "kb-fin" for c in done2["citations"])
 
 
+# ── P2: chat 软路由路径三层检索（Task 6）──────────────────────────────────
+async def test_chat_soft_route_three_layer_citations(
+    migrated: str, app_url: str, monkeypatch,
+) -> None:
+    """chat 软路由 + 实体命中 → citations 含 profile/graph 来源（决策 D3）。
+
+    回归覆盖（既有测试）：无实体命中 = 纯 chunk citations（
+    test_chat_full_flow_with_citations）；kb_scope 限定路径不接三层
+    （test_chat_kb_scope_limits_search）。
+    """
+    from earp_server.ontology import abox_service, tbox_service
+
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "ch-p2"
+    await _seed(engine, tid, migrated, monkeypatch)
+
+    # 追加实体图谱：CNC-01 (equipment, equipment_data) —manufactured_by→ 上海某精机
+    await tbox_service.init_tenant_tbox(engine, tid)
+    sup = await abox_service.upsert_entity(
+        engine, tid, "supplier", "上海某精机", business_code="SUP-P2", data_domain_id="equipment_data"
+    )
+    equip = await abox_service.upsert_entity(
+        engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
+    )
+    await abox_service.add_fact(engine, tid, equip["entity_id"], "manufactured_by", sup["entity_id"])
+    await abox_service.compile_profile(engine, tid, equip["entity_id"])
+
+    app = await _app(engine, tid)  # kb_scope=[] → 软路由
+    events = await _collect(engine, tid, "u1", "r-all", app, "CNC-01 设备报警供应商", llm=FakeLLM())
+    done = [e for e in events if e["type"] == "done"][0]
+    assert done["citations"], "expected citations"
+    sources = {c.get("source") for c in done["citations"]}
+    assert "profile" in sources or "graph" in sources
+
+
 # ── LLM 失败 → SSE error（用户消息已落库）─────────────────────────────────
 async def test_chat_llm_error_emits_sse_error(migrated: str, app_url: str, monkeypatch) -> None:
     engine = create_async_engine(app_url, pool_pre_ping=True)

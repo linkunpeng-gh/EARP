@@ -611,10 +611,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/knowledge/search", tags=["knowledge"])
     async def search_knowledge(req_body: SearchQuery, req: Request) -> list[dict[str, Any]]:
-        """Chunk search. No explicit KB/DD scope → soft-routing across the whole
-        tenant (enterprise-retrieval design §3/§6, decision B-6): route_query
-        produces candidate KBs (permission-filtered), then chunk recall happens
-        inside those KBs. Explicit scope keeps current in-scope semantics.
+        """Knowledge search. No explicit KB/DD scope → soft-routing + three-layer
+        retrieval (ontology profile/graph + chunk, RRF recall fusion, P2). Explicit
+        scope keeps current in-scope chunk semantics.
         """
         engine = req.app.state.engine
         bus = req.app.state.eventbus
@@ -624,13 +623,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             routed = await route_query(
                 engine, req.state.tenant_id, req_body.query, q_emb, req.state.role_id
             )
-            cand = [kb["knowledge_base_id"] for kb in routed["candidate_kbs"]]
-            kb_ids = cand or None  # empty candidates → whole-tenant fallback
+            cand_dds = [dd["data_domain_id"] for dd in routed["candidate_dds"]]
+            cand_kbs = [kb["knowledge_base_id"] for kb in routed["candidate_kbs"]]
+            if cand_dds:
+                # 有候选 DD → 三层检索：L1/L2 实体层限 DD，L3 chunk 限 KB
+                # （candidate_kbs 空 → search_chunks 自动回退 DD，决策 D4）
+                logger.info(
+                    "search soft-routing + ontology: query=%r candidate_dds=%s candidate_kbs=%s fallback=%s",
+                    req_body.query,
+                    cand_dds,
+                    cand_kbs,
+                    routed["fallback_used"],
+                )
+                from earp_server.ontology.search import knowledge_search
+
+                return await knowledge_search(
+                    engine,
+                    req.state.tenant_id,
+                    req_body.query,
+                    embedding=q_emb,
+                    role_id=req.state.role_id,
+                    data_domain_ids=cand_dds,
+                    knowledge_base_ids=cand_kbs or None,
+                    top_k=req_body.top_k,
+                    embedding_dim=req.app.state.settings.embedding_dim,
+                    query_text=req_body.query,
+                    mode=req_body.mode,
+                    threshold=req_body.threshold,
+                    metadata_filters=req_body.metadata_filters,
+                    eventbus=bus,
+                )
+            # 无候选 DD → 全租户 chunk 兜底（原行为，决策 D4）
+            kb_ids = cand_kbs or None
             logger.info(
-                "search soft-routing: query=%r candidate_kbs=%s fallback=%s → chunk search limited to those KBs",
+                "search soft-routing fallback: query=%r no candidate DD → whole-tenant chunk (candidate_kbs=%s)",
                 req_body.query,
-                cand,
-                routed["fallback_used"],
+                cand_kbs,
             )
         return await search_chunks(
             engine,

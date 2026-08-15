@@ -309,17 +309,24 @@ function doSearch() {
       container.innerHTML = '<div class="result-card"><div class="result-card-body" style="color:var(--text-tertiary)">No results. Try a different query, lower the threshold, or check KB content.</div></div>';
     } else {
       container.innerHTML = items.map(function(r, i) {
-        var docLabel = r.title || r.doc_name || r.document_id;
-        var scoreHtml = (r.similarity !== undefined ? r.similarity.toFixed(3) : r.score.toFixed(3));
+        var src = r.source || 'chunk';
+        var badge = '', footerIcon = '📄';
+        if (src === 'profile') { badge = '<span class="tag tag-accent" style="margin-left:6px">📇实体档案</span>'; footerIcon = '📇'; }
+        else if (src === 'graph') { badge = '<span class="tag tag-amber" style="margin-left:6px">🕸图谱</span>'; footerIcon = '🕸'; }
+        var docLabel = src === 'chunk' ? (r.title || r.doc_name || r.document_id) : (r.title || r.entity_id || '未命名');
+        var scoreVal = (r.similarity !== undefined) ? r.similarity : ((r.rrf_score !== undefined) ? r.rrf_score : r.score);
+        var scoreHtml = (scoreVal !== undefined ? scoreVal.toFixed(3) : '-');
         var txt = r.text_score ? '<span class="tag tag-blue" style="margin-left:6px" title="精确匹配到的关键词数">⚡命中' + r.text_score + '词</span>' : '';
+        var idLabel = r.chunk_id ? '#' + (i+1) + ' ' + r.chunk_id : '#' + (i+1);
         return '<div class="result-card">'
           + '<div class="result-card-header">'
-            + '<span style="font-weight:600;color:var(--text-primary)">#' + (i+1) + ' ' + r.chunk_id + '</span>'
+            + '<span style="font-weight:600;color:var(--text-primary)">' + idLabel + '</span>'
+            + badge
             + '<span class="tag tag-green" style="margin-left:auto">' + scoreHtml + '</span>'
             + txt
           + '</div>'
           + '<div class="result-card-body">' + (r.content || '') + '</div>'
-          + '<div class="result-card-footer">📄 ' + docLabel + '</div>'
+          + '<div class="result-card-footer">' + footerIcon + ' ' + docLabel + '</div>'
           + '</div>';
       }).join('');
     }

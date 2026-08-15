@@ -14,6 +14,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from earp_server.infra.eventbus import EventBus
 from earp_server.knowledge.search_service import search_chunks
 from earp_server.ontology import abox_service, tbox_service
 
@@ -68,12 +69,22 @@ async def knowledge_search(
     entity_type_ids: list[str] | None = None,
     top_k: int = 5,
     embedding_dim: int | None = None,
+    knowledge_base_ids: list[str] | None = None,
+    query_text: str = "",
+    mode: str = "vector",
+    threshold: float | None = None,
+    metadata_filters: dict | None = None,
+    eventbus: EventBus | None = None,
 ) -> list[dict]:
-    """Three-layer retrieval with RRF fusion.
+    """Three-layer retrieval with RRF fusion (recall layer, QU design §8.1).
 
-    Returns up to top_k hits, each {source: profile|graph|chunk, key, content,
-    score(original), rrf_score}.  Permission model: chunks filtered by DD +
-    accessible_roles inside search_chunks; entity layer filtered by DD ids.
+    Layer 1/2 (profile/graph) scoped by data_domain_ids; Layer 3 (chunks)
+    scoped by knowledge_base_ids (precedence) falling back to
+    data_domain_ids — search_chunks already implements kb-over-dd precedence.
+
+    Returns up to top_k hits, each {source: profile|graph|chunk, key, title,
+    content, score(original), rrf_score}.  Permission model: chunks filtered by
+    DD + accessible_roles inside search_chunks; entity layer filtered by DD ids.
     """
     layers: list[list[dict]] = []
 
@@ -101,6 +112,7 @@ async def knowledge_search(
                     "source": "profile",
                     "entity_id": ent["entity_id"],
                     "entity_type": ent["entity_type_id"],
+                    "title": f"{p.get('name', '') or ent['entity_id']}（实体档案）",
                     "content": p.get("summary") or f"{p.get('name', '')}（{ent['entity_type_id']}）",
                     "score": 1.0,
                     "key_facts": p.get("key_facts", []),
@@ -121,6 +133,7 @@ async def knowledge_search(
                         "source": "graph",
                         "entity_id": h["target_entity_id"],
                         "entity_type": h.get("target_type"),
+                        "title": f"图谱：{h['relation_type_id']} → {h.get('target_name', h['target_entity_id'])}",
                         "content": f"{h['relation_type_id']} → {h.get('target_name', h['target_entity_id'])}",
                         "score": 1.0 / (1 + h["depth"]),
                     }
@@ -140,18 +153,19 @@ async def knowledge_search(
                 top_k,
                 data_domain_ids=data_domain_ids,
                 embedding_dim=embedding_dim,
+                knowledge_base_ids=knowledge_base_ids,
+                threshold=threshold,
+                query_text=query_text,
+                mode=mode,
+                metadata_filters=metadata_filters,
+                eventbus=eventbus,
             )
             for c in chunks:
-                chunk_hits.append(
-                    {
-                        "key": c["chunk_id"],
-                        "source": "chunk",
-                        "chunk_id": c["chunk_id"],
-                        "document_id": c["document_id"],
-                        "content": c["content"],
-                        "score": c.get("similarity", 0.0),
-                    }
-                )
+                merged = dict(c)
+                merged["key"] = c["chunk_id"]
+                merged["source"] = "chunk"
+                merged["score"] = c.get("similarity", 0.0)
+                chunk_hits.append(merged)
         except Exception:
             logger.warning("knowledge_search: vector layer failed, skipping", exc_info=True)
     if chunk_hits:

@@ -164,28 +164,73 @@ async def _retrieve(
         )
     else:
         routed = await route_query(engine, tenant_id, query, q_emb, role_id)
-        cand = [kb["knowledge_base_id"] for kb in routed.get("candidate_kbs", [])]
-        logger.info("chat soft-routing: query=%r candidates=%s fallback=%s", query, cand, routed.get("fallback_used"))
-        chunks = await search_chunks(
-            engine, tenant_id, q_emb, role_id,
-            top_k=top_k, eventbus=None, embedding_dim=embedding_dim,
-            knowledge_base_ids=cand or None, threshold=threshold,
-            query_text=query, mode=mode,
-        )
+        cand_dds = [dd["data_domain_id"] for dd in routed.get("candidate_dds", [])]
+        cand_kbs = [kb["knowledge_base_id"] for kb in routed.get("candidate_kbs", [])]
+        if cand_dds:
+            # 三层检索：L1/L2 实体层限 DD，L3 chunk 限 KB（kbs 空 → search_chunks 自动回退 DD，决策 D4）
+            logger.info(
+                "chat soft-routing + ontology: query=%r candidate_dds=%s candidate_kbs=%s fallback=%s",
+                query, cand_dds, cand_kbs, routed.get("fallback_used"),
+            )
+            from earp_server.ontology.search import knowledge_search
+
+            chunks = await knowledge_search(
+                engine, tenant_id, query,
+                embedding=q_emb, role_id=role_id,
+                data_domain_ids=cand_dds,
+                knowledge_base_ids=cand_kbs or None,
+                top_k=top_k, embedding_dim=embedding_dim,
+                query_text=query, mode=mode,
+                threshold=threshold, metadata_filters=None,
+                eventbus=None,
+            )
+        else:
+            # 无候选 DD → 全租户 chunk 兜底（原行为，决策 D4）
+            logger.info(
+                "chat soft-routing fallback: query=%r no candidate DD → whole-tenant chunk (candidate_kbs=%s)",
+                query, cand_kbs,
+            )
+            chunks = await search_chunks(
+                engine, tenant_id, q_emb, role_id,
+                top_k=top_k, eventbus=None, embedding_dim=embedding_dim,
+                knowledge_base_ids=cand_kbs or None, threshold=threshold,
+                query_text=query, mode=mode,
+            )
 
     citations = []
     for ch in chunks:
-        citations.append(
-            {
-                "chunk_id": ch.get("chunk_id"),
-                "document_id": ch.get("document_id"),
-                "title": ch.get("title") or ch.get("doc_name") or "",
-                "kb_id": ch.get("kb_id"),
-                "kb_name": ch.get("kb_name"),
-                "metadata": ch.get("metadata"),
-                "similarity": ch.get("similarity"),
-            }
-        )
+        src = ch.get("source")
+        if src == "profile":
+            citations.append(
+                {
+                    "source": "profile",
+                    "entity_id": ch.get("entity_id"),
+                    "entity_type": ch.get("entity_type"),
+                    "title": ch.get("title") or "",
+                    "key_facts": ch.get("key_facts", []),
+                }
+            )
+        elif src == "graph":
+            citations.append(
+                {
+                    "source": "graph",
+                    "entity_id": ch.get("entity_id"),
+                    "entity_type": ch.get("entity_type"),
+                    "title": ch.get("title") or "",
+                }
+            )
+        else:
+            citations.append(
+                {
+                    "chunk_id": ch.get("chunk_id"),
+                    "document_id": ch.get("document_id"),
+                    "title": ch.get("title") or ch.get("doc_name") or "",
+                    "kb_id": ch.get("kb_id"),
+                    "kb_name": ch.get("kb_name"),
+                    "metadata": ch.get("metadata"),
+                    "similarity": ch.get("similarity"),
+                }
+            )
     return chunks, citations
 
 

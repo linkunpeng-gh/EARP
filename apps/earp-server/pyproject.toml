@@ -118,4 +118,6 @@ ignore_imports = [
     "earp_server.conversation.chat_service -> earp_server.knowledge.search_service",
     "earp_server.conversation.chat_service -> earp_server.knowledge.routing",
     "earp_server.conversation.chat_service -> earp_server.connector",
+    # P2: chat 软路由路径接入 ontology 三层检索（ontology.search 传递依赖 knowledge.search_service）
+    "earp_server.conversation.chat_service -> earp_server.ontology.search",
 ]

@@ -190,6 +190,66 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 最近会话（2026-08-12）— Query Understanding & Query Plan 设计评审（产出 v0.2）
+
+> 设计稿：`arch/design/query-understanding-query-plan-design-v0.1.md` → 评审后修订为 `-v0.2.md`
+
+**会话主线**：评审 Query Understanding + Knowledge Query Plan 设计稿，逐项对齐既有实现（planner / ontology / chat / 软路由）后修订。方向与原则（QU 不选工具 / Plan 只读编排 / Ontology 是语义基础）认可；修正三类系统性问题：与既有 Planner 边界未厘清、示例关系类型与冻结 TBox 冲突、与 roadmap 脱节（当绿地规划）。
+
+**关键产出**：
+- `query-understanding-query-plan-design-v0.2.md`（新文件，v0.1 留作历史）：§4 对齐矩阵（QU 问题类型 intent 定位为知识检索维度，与 capability intent 正交并存，在 resolve_with_entities() 汇合）；§11 一期砍通用 DAG DSL → 5 条固定策略函数；§9/QP-05 软融合（通道优先级而非排他）；§5.2 新增会话上下文 context 维度；§7.3/QP-08 补租户隔离；评估并入 routing_eval/verify_* 体系；filecite 残留清理 + 交叉引用带版本号
+- 分阶段对齐 roadmap：Phase 1-2 = 本文档净增量（QU + 固定策略）；Phase 3 = 当前 P2 延伸；Phase 4 = P3 rerank；P1 chat 即 ANSWER 节点现成实现
+
+**评审暴露的两个实质判断（待项目组拍板）**：
+1. **TBox 部件级关系缺口**（开放问题 1）：`supplied_by` 源类型只有 material、`manufactured_by` 源类型只有 equipment，`component → supplier` 供应关系、`component → equipment` 归属关系均不在冻结 12 类中（ontology 设计 §7.2 示例本身也用了未定义关系）——需决策扩展 TBox 或改建模（部件按 material 处理）
+2. **关系候选必须来自 TBox**（开放问题 2）：RELATION/MULTI_HOP/CAUSAL 的关系只允许 LLM 从 ontology 关系候选集选，不允许发明关系
+
+**下一步**：P2 ontology 接入软路由（沿用任务书 `tasks/ontology-soft-routing-task-breakdown.md`，4 决策点已对齐）→ 项目组对开放问题 1/2 拍板后进 Phase 1（QU schema 冻结）
+
+---
+
+### 最近会话（2026-08-13）— Query Understanding & Query Plan 对抗式评审（产出 v0.3）
+
+> 评审：`arch/reviews/query-understanding-query-plan-design-v0.2-review.md`（对抗式 + 代码事实核对，19 问题）
+> 设计：`arch/design/query-understanding-query-plan-design-v0.3.md`（v0.2 → v0.3 闭合 + 二轮内审 §0.1）
+
+**会话主线**：对 v0.2 做第一性原理对抗式评审，代码核对发现「直接映射」两处可证伪（`graph_query` 无反向遍历、`resolve_with_entities` 只吃单字符串）、跨通道 RRF 范畴错误、intent→策略映射不闭合、Evidence/Structured Query schema 未冻结；产出 v0.3 闭合。二轮内审再补 4 项（§0.1 修订 13-16）、三轮修订再补 2 项（§0.2 修订 17-18：方案 A 定性修正 + intent 收敛/Phase 重排序）。
+
+**关键决策**：
+1. **方案 A（三层 RRF 定性修正）**：`knowledge_search` 三层 RRF（profile/graph/chunk 文本证据）是**合法 recall 融合，非债、无需重构**；唯一真实边界是「capability 结构化行不进 RRF」。缺的是「角色层」（答案 vs 引用 + capability 主证据），Phase D3 叠加实现。P2 照常执行（验收「实体类 P@5 提升」即 recall 层验证）。写死：tech-debt #10 + P2 任务书风险 #6 + 本记录。
+2. **TBox 部件级关系缺口阻塞 Phase B（QU）**：§6.2 写死「relation 必须来自 TBox」，而 TBox 缺 `component → supplier`，将打穿 §17「relation 准确率 ≥ 80%」——**Phase B 评估集构建前必须拍板**（扩展 TBox 或部件按 material 处理）。
+3. **intent 收敛 + planner 后置（§0.2 修订 18）**：一期可靠分类子集 = {FACT, RELATION, AGGREGATION}，其余 7 类显式回落（QP-14），§17 只对可靠子集计分；Phase 顺序 = A（P2 接三层）→ B（QU 并行）→ C（最小 planner 后置）→ D（能力闭环 + 角色层）→ E（P3 rerank）。理由：AGG/COMP/TREND/CAUSAL 唯一消费者是 capability query（通道未就绪无消费者）；「graph vs rag 误选」疼点在通道接通前无法度量。
+
+**下一步**：项目组拍板 TBox 缺口 → Phase A（P2 三层接入 chat 链路，沿用任务书）→ Phase B（QU 独立并行建设）→ Phase C（最小 planner，度量疼点后扩展）
+
+---
+
+### 最近会话（2026-08-15）— P2 ontology 接入软路由已实施（A3）
+
+> 计划：`tasks/ontology-soft-routing-task-breakdown.md`（规划定稿版：9+2 任务，D1-D5 决策固化）
+
+**会话主线**：按规划执行序 1 → (2,3 并行) → (5,6,F1,F2 并行) → 7 → 8 → 9。让 ontology 三层检索（profile/graph/chunk）在无 scope 查询路径生效。
+
+**关键产出（后端）**：
+- `ontology/search.py::knowledge_search` 增强：新增 `knowledge_base_ids/query_text/mode/threshold/metadata_filters/eventbus` 透传（L3 直通 search_chunks，kb 优先于 dd 回退）；profile/graph item 补 `title` 字段；**修复 L3 chunk item 字段保留**（原实现丢弃 kb_id/kb_name/metadata/similarity → chat citation 缺 kb_id/similarity，测试实证抓到）
+- `/knowledge/search` 无 scope：route_query → cand_dds 非空 → knowledge_search 三层（L1/L2 限 DD、L3 限 KB）；cand_dds 空 → 全租户 chunk 兜底（决策 D4）
+- `chat_service._retrieve`：软路由路径接入三层（kb_scope 限定路径保持现状）；citations 三源转换（chunk 保持原结构；profile/graph 带 source/entity_id/entity_type/title/key_facts，决策 D3）
+- **import-linter 传递检查实证**：任务书「无新增 ignore_imports 需求」判断被推翻——conversation.chat_service → ontology.search → knowledge.search_service 构成传递违反（conversation/knowledge 均 independence 域），已加 ignore 条目
+
+**关键产出（前端）**：
+- test-retrieval.html：结果卡 source 徽标（📇实体档案/🕸图谱/📄文档），chunk_id 缺失不渲染 undefined，score 兼容 rrf_score
+- chat-edit.html：引用卡实体/图谱徽标（cc-badge），聚合 key 兼容 entity_id
+
+**测试与验证**：
+- test_ontology_search.py +4（纯 chunk 回归/字段保留、kb 透传 L3 限定、DD 权限限域、端点无 scope 三层）；test_chat.py +1（软路由三层 citations 含 profile/graph）；seed 用 suffix 隔离全局唯一 id（knowledge_base_id/role_id 非复合主键）
+- `scripts/verify_ontology.py`（新建）：dev 真模型实体类问题集 6 问，三层 vs 纯 vector 基线 P@5（验收 ≥+10）；CI 机制层由 pytest 覆盖
+- 全量 85 passed + import-linter + OpenAPI 基线同步（改动了 search 端点响应含 source 字段）
+- main.py I001（import 排序）为既有问题，未在本次范围
+
+**下一步**：verify_ontology.py dev 真模型跑分 → P3 rerank 精排（recall 层）→ Phase B（QU 独立并行建设）→ 项目组拍板 TBox 缺口（阻塞 QU relation 门槛，见 2026-08-13 记录）
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |
@@ -210,6 +270,9 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 | P1 | PRD-2026-030 M3 中台对接 + Enrichment | 🟡 待实施 (2026-08-07 设计完成) |
 | P1 | PRD-2026-030 M4 admin 实体管理页 | 🟡 待实施 |
 | P2 | business_capabilities 复合主键 | 🟡 arch/tech-debt.md #7 |
+| P3 | knowledge_search 叠加「角色层」（capability 主证据 + 答案/引用分层） | 🟡 arch/tech-debt.md #10（QU v0.3 Phase D3） |
+| P2 | **test_routing 既有测试弱点**：embed_chunks 传 document_id 导致 embedding 实际未写入（检索靠 NULL 向量假命中）——P2 碰 test_routing 时顺手修 | 🟡 待修 |
+| P2 | **ontology 设计 §7.2 示例用了未定义关系**（component→equipment 归属 / component→supplier 供应）——TBox 缺口文档侧，与 QU 设计开放问题 1 同源 | 🟡 待拍板 |
 | P1 | **企业级精准召回实施**（另开会话）：软路由（DD/KB 描述向量）+ 元数据过滤 + 评估集——设计见 `arch/design/2026-08-09-enterprise-retrieval-design.md` | ✅ 已完成 (2026-08-09 Phase 1) |
 
 ---
