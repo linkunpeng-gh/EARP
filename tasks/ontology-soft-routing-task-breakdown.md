@@ -260,6 +260,22 @@ cd apps/earp-admin && python3 -m http.server 8080   # 打开 localhost:8080
 - `pages/test-retrieval.html`：Scope 选「全局」→ 搜 `CNC-01 位于哪个工厂` → 期望结果卡出现 📇实体档案 / 🕸图谱 徽标（场景 5）
 - `pages/chat-edit.html`：调试面板问 `CNC-01 的供应商是谁` → 期望「依据」引用卡出现 📇/🕸 徽标（场景 6）
 
+### 场景 7：实体/事实批量导入（模板 + 干跑 + 执行，2026-08-15 新增）
+
+```bash
+# ① 下载模板（含说明头 + 示例行，Excel 可直接编辑）
+curl -s "localhost:8000/v1/ontology/import/templates" -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+# ② 干跑校验（不写库，返回逐行错误）：上传 entities.csv + facts.csv
+curl -s -X POST "localhost:8000/v1/ontology/import" -H "Authorization: Bearer $TOKEN" \
+  -F "entities_file=@entities.csv" -F "facts_file=@facts.csv" -F "dry_run=true" | python3 -m json.tool
+#   期望：{"dry_run":true,"entities":{"total":N,"ok":N,"errors":[]},"facts":{...}}
+# ③ 确认后执行（写库 + 联动重编涉及实体 profile）
+curl -s -X POST "localhost:8000/v1/ontology/import" -H "Authorization: Bearer $TOKEN" \
+  -F "entities_file=@entities.csv" -F "facts_file=@facts.csv" -F "dry_run=false" | python3 -m json.tool
+# ④ 验证：导入后查 profile 应含新事实
+curl -s "localhost:8000/v1/ontology/entities/lookup?q=CNC-01" -H "Authorization: Bearer $TOKEN"
+```
+
 ### 已知边界（非 bug）
 
 1. 纯中文实体长查询（「A产线由谁负责」）实体层不命中 → 三层退化为纯 chunk——实体识别局限，QU Phase B 范畴

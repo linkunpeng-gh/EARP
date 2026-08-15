@@ -253,6 +253,20 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **下一步**：P3 rerank 精排（recall 层）→ Phase B（QU 独立并行建设）→ 项目组拍板 TBox 缺口（阻塞 QU relation 门槛，见 2026-08-13 记录）
 
+### 追加（2026-08-15）— 实体/事实批量导入（模板 + 干跑校验 + profile 联动）
+
+> 需求来源：应用角度——手工导入需要一个文件模板，否则用户不知道上传什么样的数据（ontology 设计 §6 无中台兕底路径的落地）
+
+**关键产出**：
+- `ontology/import_service.py`（新）：CSV 解析（跳过 # 注释行）+ 校验（entity_type ∈ TBox 且 kind=object、data_domain ∈ DD、attributes JSON 合法、business_code 按 (type,code) 判重；facts 的 relation ∈ TBox、源/目标实体类型匹配关系类型集合、business_code 引用解析、confidence 0-1）+ 干跑不写库 + 执行写库（upsert_entity 幂等 + add_fact）
+- **profile 联动**：导入后对涉及实体（source+target）重编 profile——tech-debt #11 ① 写时失效场景的现成载体
+- 端点：`GET /v1/ontology/import/templates`（下载含说明头+示例行的 CSV）、`POST /v1/ontology/import`（multipart entities_file/facts_file + dry_run 参数，默认 true）
+- 测试 test_ontology_import.py 4 项：模板内容、干跑合法不写库、干跑逐行错误收集（类型/域/JSON/编码重复/关系方向/confidence）、执行+profile 重编（key_facts 含新事实）
+- 人工测试指南补场景 7（任务书）；修正指南 ontology 路径缺 /v1 前缀
+- 验证：92 passed（88+4）+ import-linter + OpenAPI 基线（+2 端点）
+
+**下一步**：前端导入入口并入 M4 admin 实体管理页（现为 API-only）→ P3 rerank → Phase B（QU）
+
 ---
 
 ### 历史待办

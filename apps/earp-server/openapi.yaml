@@ -1,5 +1,25 @@
 components:
   schemas:
+    Body_import_abox_endpoint_v1_ontology_import_post:
+      properties:
+        dry_run:
+          default: true
+          title: Dry Run
+          type: boolean
+        entities_file:
+          anyOf:
+          - contentMediaType: application/octet-stream
+            type: string
+          - type: 'null'
+          title: Entities File
+        facts_file:
+          anyOf:
+          - contentMediaType: application/octet-stream
+            type: string
+          - type: 'null'
+          title: Facts File
+      title: Body_import_abox_endpoint_v1_ontology_import_post
+      type: object
     Body_upload_document_file_knowledge_documents_upload_post:
       properties:
         data_classification:
@@ -2826,6 +2846,49 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Revoke Fact
+      tags:
+      - ontology
+  /v1/ontology/import:
+    post:
+      description: 批量导入实体/事实（CSV）。dry_run=true（默认）只校验不写库，返回逐行错误。
+      operationId: import_abox_endpoint_v1_ontology_import_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_import_abox_endpoint_v1_ontology_import_post'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Import Abox Endpoint V1 Ontology Import Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Import Abox Endpoint
+      tags:
+      - ontology
+  /v1/ontology/import/templates:
+    get:
+      description: 实体/事实导入模板下载（CSV，含说明头 + 示例行）。
+      operationId: import_templates_v1_ontology_import_templates_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Import Templates V1 Ontology Import Templates Get
+                type: object
+          description: Successful Response
+      summary: Import Templates
       tags:
       - ontology
   /v1/ontology/relation-types:

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from earp_server.ontology import abox_service, tbox_service
+from earp_server.ontology import abox_service, import_service, tbox_service
 
 router = APIRouter(prefix="/v1/ontology", tags=["ontology"])
 
@@ -206,6 +206,45 @@ async def revoke_fact(fact_id: str, req: Request) -> dict:
 @router.get("/entities/{entity_id}/graph")
 async def graph_query(entity_id: str, req: Request, max_hops: int = 3) -> list[dict]:
     return await abox_service.graph_query(req.app.state.engine, req.state.tenant_id, entity_id, max_hops)
+
+
+@router.get("/import/templates")
+async def import_templates() -> dict:
+    """实体/事实导入模板下载（CSV，含说明头 + 示例行）。"""
+    return {
+        "entities_csv": import_service.ENTITIES_TEMPLATE,
+        "facts_csv": import_service.FACTS_TEMPLATE,
+    }
+
+
+@router.post("/import")
+async def import_abox_endpoint(
+    req: Request,
+    entities_file: UploadFile | None = File(None),
+    facts_file: UploadFile | None = File(None),
+    dry_run: bool = Form(True),
+) -> dict:
+    """批量导入实体/事实（CSV）。dry_run=true（默认）只校验不写库，返回逐行错误。"""
+
+    def _read(f: UploadFile | None) -> str | None:
+        if f is None:
+            return None
+        data = f.file.read()
+        if len(data) > import_service._MAX_CSV_BYTES:
+            raise HTTPException(status_code=400, detail=f"{f.filename} 超过 2MB 限制")
+        return data.decode("utf-8-sig")
+
+    entities_csv = _read(entities_file)
+    facts_csv = _read(facts_file)
+    if not entities_csv and not facts_csv:
+        raise HTTPException(status_code=400, detail="至少上传 entities.csv 或 facts.csv 之一")
+    return await import_service.import_abox(
+        req.app.state.engine,
+        req.state.tenant_id,
+        entities_csv,
+        facts_csv,
+        dry_run=dry_run,
+    )
 
 
 @router.get("/search")
