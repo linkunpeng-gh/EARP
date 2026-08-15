@@ -321,6 +321,19 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **下一步**：M4 后续可加 TBox 管理（tech-debt #12 审批流一并设计）→ Phase B（QU 理解层）→ P3 真模型验证
 
+### 收尾（2026-08-15）— 会话完结状态
+
+**交付汇总**（14 commits）：P2 三层接入软路由 → 实体导入（API+前端+TBox 一览）→ P3 rerank（可插拔）→ G1 反向遍历 → G2 图谱探索 → TBox 缺口闭合（migration 0016）→ M4 实体管理页。**95 tests 全绿** + import-linter + OpenAPI + 多轮真 API 冒烟；verify_ontology 效果层 PASS（+50%）。评审链文档（v0.1/v0.2/review/TBox 决策）已入库。
+
+**遗留提醒（不阻塞）**：
+1. 8000 端口有残留 API 进程（PID 97205）——不需要可 kill
+2. **P3 真模型验证待 rerank 环境**：本地 Ollama 0.32 无 `/api/rerank`（404）+ 远程不可达；升级 + 拉 bge-reranker + `EARP_RERANK_PROVIDER=ollama` 即生效（零代码）
+3. **Phase B（QU 理解层）**：TBox 缺口已解除，随时可开工（3-5 天）；Structured Query schema（v0.3 §6.2）已冻结，评估门槛（§17）已定义
+4. M4 延伸：TBox 管理页（可并入 tech-debt #12 审批流）
+5. tech-debt #11（profile 无过期管理）/ #12（TBox 无审批流）待治理
+
+**知识资产方向当前能力闭环**：导入（建数据）→ 管理（M4 CRUD/关系）→ 探索（图谱）→ 检索（三层）→ 档案（profile 联动）；软路由 + 元数据 + rerank（待环境）构成企业检索管线
+
 ---
 
 ### 历史待办
