@@ -153,3 +153,32 @@ async def test_graph_query_backward(app_engine: AsyncEngine) -> None:
     assert all(h["relation_type_id"] == "located_in" for h in bw)
     # 邻居实体以 target_* 呈现（消费方无需感知方向）
     assert all(h["target_type"] == "equipment" for h in bw)
+
+
+async def test_list_deprecate_and_fact_id(app_engine: AsyncEngine) -> None:
+    """M4 admin：实体分页列表 + 过滤 + 软停用；graph 返回 fact_id 供撤销。"""
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t3")
+    e1 = await abox_service.upsert_entity(app_engine, "ont-t3", "equipment", "CNC-01", business_code="CNC-01")
+    e2 = await abox_service.upsert_entity(app_engine, "ont-t3", "equipment", "CNC-02", business_code="CNC-02")
+    sup = await abox_service.upsert_entity(app_engine, "ont-t3", "supplier", "上海某精机", business_code="SUP-1")
+    await abox_service.add_fact(app_engine, "ont-t3", e1["entity_id"], "manufactured_by", sup["entity_id"])
+
+    # 分页列表（过滤 equipment）
+    rows, total = await abox_service.list_entities(app_engine, "ont-t3", entity_type_ids=["equipment"], page_size=10)
+    assert total == 2 and len(rows) == 2
+    rows2, total2 = await abox_service.list_entities(app_engine, "ont-t3", page_size=1, page=1)
+    assert len(rows2) == 1 and total2 == 3  # 分页截断但 total 全量
+
+    # 软停用：不再出现在 active 列表
+    await abox_service.deprecate_entity(app_engine, "ont-t3", e2["entity_id"])
+    rows3, total3 = await abox_service.list_entities(app_engine, "ont-t3", page_size=10)
+    assert total3 == 2  # CNC-01 + supplier（CNC-02 已停用）
+    dep = await abox_service.deprecate_entity(app_engine, "ont-t3", e2["entity_id"])
+    assert dep is None  # 已停用 → 幂等返回 None
+
+    # graph 返回 fact_id（供前端撤销）
+    hops = await abox_service.graph_query(app_engine, "ont-t3", e1["entity_id"], max_hops=1)
+    assert hops and all(h.get("fact_id") for h in hops)
+    fid = hops[0]["fact_id"]
+    revoked = await abox_service.revoke_fact(app_engine, "ont-t3", fid)
+    assert revoked["status"] == "revoked"

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 实体管理"><title>实体管理 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body data-base=".." data-section="knowledge" data-sub="entities">
+<header id="app-header"></header>
+
+<main>
+
+<div class="page-title"><div><h2>实体管理</h2><p class="page-subtitle">ABox 实例 CRUD · 事实维护 · <a href="entity-import.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">批量导入 →</a> · <a href="entity-graph.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">图谱探索 →</a></p></div>
+<button onclick="showEntityModal()" style="white-space:nowrap">+ 新建实体</button></div>
+
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+  <input id="ent-q" placeholder="搜索名称/业务编码" onkeydown="if(event.key==='Enter')loadList()" style="flex:1 1 200px">
+  <select id="ent-type-filter" onchange="loadList()"><option value="">全部类型</option></select>
+  <select id="ent-dd-filter" onchange="loadList()"><option value="">全部数据域</option></select>
+  <button onclick="loadList()">🔍 查询</button>
+  <span id="ent-count" style="font-size:0.75rem;color:var(--text-tertiary)"></span>
+</div>
+
+<table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+  <thead><tr>
+    <th style="text-align:left;padding:7px;border-bottom:1px solid var(--border-subtle)">名称</th>
+    <th style="text-align:left;padding:7px;border-bottom:1px solid var(--border-subtle)">类型</th>
+    <th style="text-align:left;padding:7px;border-bottom:1px solid var(--border-subtle)">业务编码</th>
+    <th style="text-align:left;padding:7px;border-bottom:1px solid var(--border-subtle)">数据域</th>
+    <th style="text-align:left;padding:7px;border-bottom:1px solid var(--border-subtle)">来源</th>
+    <th style="text-align:right;padding:7px;border-bottom:1px solid var(--border-subtle)">操作</th>
+  </tr></thead>
+  <tbody id="ent-tbody"><tr><td colspan="6" style="padding:14px;text-align:center;color:var(--text-tertiary)">加载中…</td></tr></tbody>
+</table>
+
+<div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+  <button onclick="changePage(-1)">‹ 上一页</button>
+  <span id="ent-page" style="font-size:0.75rem;color:var(--text-tertiary)">第 1 页</span>
+  <button onclick="changePage(1)">下一页 ›</button>
+</div>
+
+<!-- 实体详情（内联展开） -->
+<div id="ent-detail" style="display:none;margin-top:16px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px"></div>
+
+<!-- 新建/编辑模态 -->
+<div id="ent-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
+  <div style="max-width:480px;margin:10vh auto;background:var(--bg-panel);border-radius:10px;padding:18px">
+    <h3 id="ent-modal-title" style="margin:0 0 12px">新建实体</h3>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">实体类型 *
+      <select id="m-type" style="display:block;width:100%;margin-top:4px"></select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">名称 *
+      <input id="m-name" style="display:block;width:100%;margin-top:4px" placeholder="如 CNC-01"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">业务编码
+      <input id="m-code" style="display:block;width:100%;margin-top:4px" placeholder="唯一编码，facts 引用锚点"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">数据域 *
+      <select id="m-dd" style="display:block;width:100%;margin-top:4px"></select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">attributes（JSON，可选）
+      <textarea id="m-attrs" style="display:block;width:100%;margin-top:4px;min-height:60px" placeholder='{"model":"XK-500"}'></textarea></label>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button onclick="document.getElementById('ent-modal').style.display='none'">取消</button>
+      <button onclick="saveEntity()" style="background:var(--green);color:#fff">保存</button>
+    </div>
+  </div>
+</div>
+
+</main>
+<script src="../js/nav.js"></script>
+<script src="../js/app.js"></script>
+<script>
+var PAGE = 1, PAGE_SIZE = 20, TOTAL = 0;
+var TYPES = [], DDS = [];
+
+async function init() {
+  try {
+    TYPES = await EARP.fetchJSON('/v1/ontology/entity-types');
+    var ddRes = await EARP.fetchJSON('/api/data-domains');
+    DDS = ddRes.items || ddRes || [];
+    var typeSel = document.getElementById('ent-type-filter');
+    TYPES.forEach(function (t) { typeSel.innerHTML += '<option value="' + esc(t.entity_type_id) + '">' + esc(t.name) + '</option>'; });
+    var ddSel = document.getElementById('ent-dd-filter');
+    DDS.forEach(function (d) { ddSel.innerHTML += '<option value="' + esc(d.data_domain_id) + '">' + esc(d.name || d.data_domain_id) + '</option>'; });
+  } catch (e) { console.warn('init filters:', e.message); }
+  loadList();
+}
+
+async function loadList() {
+  var q = document.getElementById('ent-q').value.trim();
+  var et = document.getElementById('ent-type-filter').value;
+  var dd = document.getElementById('ent-dd-filter').value;
+  var url = '/v1/ontology/entities?page=' + PAGE + '&page_size=' + PAGE_SIZE
+    + (et ? '&entity_type=' + encodeURIComponent(et) : '')
+    + (dd ? '&data_domain_id=' + encodeURIComponent(dd) : '');
+  try {
+    var data = await EARP.fetchJSON(url);
+    var items = data.items || [];
+    TOTAL = data.total || 0;
+    document.getElementById('ent-count').textContent = '共 ' + TOTAL + ' 条';
+    document.getElementById('ent-page').textContent = '第 ' + PAGE + ' 页 / ' + Math.max(1, Math.ceil(TOTAL / PAGE_SIZE)) + ' 页';
+    var tb = document.getElementById('ent-tbody');
+    if (!items.length) { tb.innerHTML = '<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--text-tertiary)">无实体</td></tr>'; return; }
+    tb.innerHTML = items.map(function (e) {
+      return '<tr>'
+        + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle);font-weight:500"><a href="javascript:void(0)" onclick="showDetail(\'' + e.entity_id + '\')" style="color:var(--accent-text)">' + esc(e.name) + '</a></td>'
+        + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.entity_type_id) + '</td>'
+        + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.business_code || '') + '</td>'
+        + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.data_domain_id || '') + '</td>'
+        + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.source_mode || '') + '</td>'
+        + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
+        + '<a href="javascript:void(0)" onclick="showDetail(\'' + e.entity_id + '\')" style="margin-right:8px">详情</a>'
+        + '<a href="entity-graph.html?entity=' + encodeURIComponent(e.entity_id) + '" style="margin-right:8px">图谱</a>'
+        + '<a href="javascript:void(0)" onclick="deprecate(\'' + e.entity_id + '\',\'' + esc(e.name) + '\')" style="color:var(--red)">停用</a>'
+        + '</td></tr>';
+    }).join('');
+  } catch (e) { document.getElementById('ent-tbody').innerHTML = '<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
+}
+
+function changePage(d) {
+  var max = Math.max(1, Math.ceil(TOTAL / PAGE_SIZE));
+  var next = PAGE + d;
+  if (next < 1 || next > max) return;
+  PAGE = next;
+  loadList();
+}
+
+// ── 新建/编辑 ──────────────────────────────────────────────────────────────
+var EDIT_ID = null;
+function showEntityModal() {
+  EDIT_ID = null;
+  document.getElementById('ent-modal-title').textContent = '新建实体';
+  document.getElementById('m-name').value = '';
+  document.getElementById('m-code').value = '';
+  document.getElementById('m-attrs').value = '';
+  var tsel = document.getElementById('m-type');
+  tsel.innerHTML = TYPES.map(function (t) { return '<option value="' + esc(t.entity_type_id) + '">' + esc(t.name) + ' (' + t.entity_type_id + ')</option>'; }).join('');
+  var dsel = document.getElementById('m-dd');
+  dsel.innerHTML = DDS.map(function (d) { return '<option value="' + esc(d.data_domain_id) + '">' + esc(d.name || d.data_domain_id) + '</option>'; }).join('');
+  document.getElementById('ent-modal').style.display = 'block';
+}
+
+async function saveEntity() {
+  var body = {
+    entity_type_id: document.getElementById('m-type').value,
+    name: document.getElementById('m-name').value.trim(),
+    business_code: document.getElementById('m-code').value.trim() || null,
+    data_domain_id: document.getElementById('m-dd').value,
+  };
+  var attrsRaw = document.getElementById('m-attrs').value.trim();
+  if (attrsRaw) {
+    try { body.attributes = JSON.parse(attrsRaw); }
+    catch (e) { alert('attributes 不是合法 JSON'); return; }
+  }
+  try {
+    await EARP.fetchJSON('/v1/ontology/entities', { method: 'POST', body: JSON.stringify(body) });
+    document.getElementById('ent-modal').style.display = 'none';
+    loadList();
+  } catch (e) { alert('保存失败: ' + e.message); }
+}
+
+async function deprecate(id, name) {
+  if (!confirm('确认停用实体「' + name + '」？停用后不再出现在检索，facts 保留。')) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(id) + '/deprecate', { method: 'POST' });
+    loadList();
+  } catch (e) { alert('停用失败: ' + e.message); }
+}
+
+// ── 详情（实体信息 + profile + facts 双向）────────────────────────────────
+async function showDetail(id) {
+  var box = document.getElementById('ent-detail');
+  box.style.display = 'block';
+  box.innerHTML = '<p style="color:var(--text-tertiary)">加载中…</p>';
+  try {
+    var ent = await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(id));
+    var prof = null;
+    try { prof = await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(id) + '/profile'); } catch (_) {}
+    var fwd = await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(id) + '/graph?max_hops=1');
+    var back = await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(id) + '/graph?max_hops=1&direction=backward');
+    var p = (prof && prof.profile) || {};
+    var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'
+      + '<h3 style="margin:0">' + esc(ent.name) + ' <span style="font-size:0.75rem;color:var(--text-tertiary)">' + esc(ent.entity_type_id) + ' · ' + esc(ent.business_code || '') + ' · ' + esc(ent.data_domain_id || '') + ' · ' + esc(ent.source_mode) + '</span></h3>'
+      + '<div><a href="entity-graph.html?entity=' + encodeURIComponent(ent.entity_id) + '" style="margin-right:10px">🕸 图谱</a>'
+      + '<button onclick="document.getElementById(\'ent-detail\').style.display=\'none\'">关闭</button></div></div>';
+    if (ent.attributes && Object.keys(ent.attributes).length) {
+      html += '<div style="margin-bottom:10px"><b style="font-size:0.78rem">attributes: </b><code style="font-size:0.75rem">' + esc(JSON.stringify(ent.attributes)) + '</code></div>';
+    }
+    // profile 摘要
+    if (p.key_facts && p.key_facts.length) {
+      html += '<h4 style="font-size:0.82rem;margin:10px 0 6px">📇 实体档案（profile v' + (prof.profile_version || '-') + '）</h4>'
+        + '<div style="font-size:0.78rem;line-height:1.8">' + p.key_facts.map(function (k) {
+            return '<div>· ' + esc(k.relation) + ' → <b>' + esc(k.target_name) + '</b> <span style="color:var(--text-quaternary)">(' + esc(k.target_type || '') + ')</span></div>';
+          }).join('') + '</div>';
+    }
+    // facts（forward + backward）——graph 返回 fact_id，可真撤销
+    var lines = [];
+    fwd.forEach(function (h) { lines.push('<div><span style="color:#16a34a">→</span> ' + esc(h.relation_type_id) + ' → <b>' + esc(h.target_name || h.target_entity_id) + '</b> <a href="javascript:void(0)" onclick="revokeFact(\'' + h.fact_id + '\',\'' + esc(h.relation_type_id) + ' → ' + esc(h.target_name || h.target_entity_id) + '\')" style="color:var(--red);font-size:0.7rem;margin-left:6px">撤销</a></div>'); });
+    back.forEach(function (h) { lines.push('<div><span style="color:#d97706">⇠</span> ' + esc(h.relation_type_id) + ' ← <b>' + esc(h.target_name || h.target_entity_id) + '</b> <a href="javascript:void(0)" onclick="revokeFact(\'' + h.fact_id + '\',\'' + esc(h.relation_type_id) + ' ← ' + esc(h.target_name || h.target_entity_id) + '\')" style="color:var(--red);font-size:0.7rem;margin-left:6px">撤销</a></div>'); });
+    html += '<h4 style="font-size:0.82rem;margin:10px 0 6px">🔗 关系（前向 ' + fwd.length + ' · 反向 ' + back.length + '）</h4>'
+      + '<div style="font-size:0.78rem;line-height:1.8">' + (lines.length ? lines.join('') : '<span style="color:var(--text-tertiary)">无关系</span>') + '</div>';
+    html += '<div style="margin-top:10px;border-top:1px dashed var(--border-subtle);padding-top:10px"><button onclick="showFactModal(\'' + ent.entity_id + '\')">+ 添加关系</button></div>';
+    box.innerHTML = html;
+  } catch (e) { box.innerHTML = '<p style="color:var(--red)">加载失败: ' + esc(e.message) + '</p>'; }
+}
+
+async function revokeFact(factId, label) {
+  if (!confirm('确认撤销关系「' + label + '」？')) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/facts/' + encodeURIComponent(factId) + '/revoke', { method: 'POST' });
+    location.reload();
+  } catch (e) { alert('撤销失败: ' + e.message); }
+}
+
+// ── 添加关系（source/target 用实体搜索）──────────────────────────────────
+async function showFactModal(entityId) {
+  var q = prompt('输入关联实体名称或编码（搜索）');
+  if (!q) return;
+  var hits = await EARP.fetchJSON('/v1/ontology/entities/lookup?q=' + encodeURIComponent(q));
+  if (!hits.length) { alert('未找到实体: ' + q); return; }
+  var target = hits[0];
+  var rel = prompt('输入关系类型（如 manufactured_by / located_in / belongs_to / supplied_by…，见实体导入页 TBox 一览）');
+  if (!rel) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(entityId) + '/facts', {
+      method: 'POST',
+      body: JSON.stringify({ source_entity_id: entityId, relation_type_id: rel, target_entity_id: target.entity_id }),
+    });
+    showDetail(entityId);
+  } catch (e) { alert('添加失败: ' + e.message); }
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+init();
+</script>
+</body></html>

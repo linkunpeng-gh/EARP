@@ -163,11 +163,42 @@ async def lookup_entities(
     )
 
 
+@router.get("/entities")
+async def list_entities(
+    req: Request,
+    entity_type: str | None = None,
+    data_domain_id: str | None = None,
+    status: str = "active",
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """实体分页列表（M4 admin 实体管理页）。"""
+    rows, total = await abox_service.list_entities(
+        req.app.state.engine,
+        req.state.tenant_id,
+        entity_type_ids=[entity_type] if entity_type else None,
+        data_domain_ids=[data_domain_id] if data_domain_id else None,
+        status=status,
+        page=page,
+        page_size=page_size,
+    )
+    return {"items": rows, "total": total, "page": page, "page_size": page_size}
+
+
 @router.get("/entities/{entity_id}")
 async def get_entity(entity_id: str, req: Request) -> dict:
     ent = await abox_service.get_entity(req.app.state.engine, req.state.tenant_id, entity_id)
     if ent is None:
         raise HTTPException(status_code=404, detail="Entity not found")
+    return ent
+
+
+@router.post("/entities/{entity_id}/deprecate")
+async def deprecate_entity(entity_id: str, req: Request) -> dict:
+    """软停用实体（status→deprecated，实例纠错留痕，facts 保留）。"""
+    ent = await abox_service.deprecate_entity(req.app.state.engine, req.state.tenant_id, entity_id)
+    if ent is None:
+        raise HTTPException(status_code=404, detail="Entity not found or already deprecated")
     return ent
 
 

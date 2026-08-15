@@ -119,6 +119,58 @@ async def lookup_entities(
         return [dict(r._mapping) for r in rows.fetchall()]
 
 
+async def list_entities(
+    engine: AsyncEngine,
+    tenant_id: str,
+    *,
+    entity_type_ids: list[str] | None = None,
+    data_domain_ids: list[str] | None = None,
+    status: str = "active",
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[dict], int]:
+    """Paginated entity list with type/DD filters (M4 admin 实体管理页). Returns (rows, total)."""
+    where = ["tenant_id = :tid", "status = :st"]
+    params: dict = {"tid": tenant_id, "st": status}
+    if entity_type_ids:
+        where.append("entity_type_id = ANY(:ets)")
+        params["ets"] = entity_type_ids
+    if data_domain_ids:
+        where.append("data_domain_id = ANY(:dds)")
+        params["dds"] = data_domain_ids
+    w = " AND ".join(where)
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        total = (
+            await conn.execute(text(f"SELECT count(*) FROM entities WHERE {w}"), params)
+        ).scalar()
+        rows = await conn.execute(
+            text(
+                f"SELECT entity_id, entity_type_id, name, business_code, attributes, source_mode, "
+                f"data_domain_id, status, created_at, updated_at FROM entities WHERE {w} "
+                f"ORDER BY updated_at DESC LIMIT :lim OFFSET :off"
+            ),
+            {**params, "lim": page_size, "off": (page - 1) * page_size},
+        )
+        return [dict(r._mapping) for r in rows.fetchall()], int(total or 0)
+
+
+async def deprecate_entity(engine: AsyncEngine, tenant_id: str, entity_id: str) -> dict | None:
+    """Mark entity deprecated (soft-delete; facts referencing it stay for audit)."""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        result = await conn.execute(
+            text(
+                "UPDATE entities SET status = 'deprecated', updated_at = now() "
+                "WHERE entity_id = :eid AND status = 'active' RETURNING entity_id, status"
+            ),
+            {"eid": entity_id},
+        )
+        await conn.commit()
+        r = result.fetchone()
+        return dict(r._mapping) if r else None
+
+
 async def add_fact(
     engine: AsyncEngine,
     tenant_id: str,
@@ -185,12 +237,14 @@ async def graph_query(
             """
             WITH RECURSIVE hops AS (
                 SELECT 1 AS depth, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                       f.fact_id,
                        CAST(f.source_entity_id AS TEXT) AS path
                 FROM facts f
                 WHERE f.tenant_id = :tid AND f.target_entity_id = :eid
                   AND f.status = 'active' AND f.valid_to IS NULL
                 UNION ALL
                 SELECT h.depth + 1, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                       f.fact_id,
                        h.path || ',' || f.source_entity_id
                 FROM hops h
                 JOIN facts f ON f.target_entity_id = h.source_entity_id
@@ -199,6 +253,7 @@ async def graph_query(
                   AND position(f.source_entity_id in h.path) = 0
             )
             SELECT h.depth, h.relation_type_id, h.source_entity_id, h.target_entity_id,
+                   h.fact_id,
                    e.name AS target_name, e.entity_type_id AS target_type
             FROM hops h
             LEFT JOIN entities e ON e.entity_id = h.source_entity_id AND e.tenant_id = :tid
@@ -210,12 +265,14 @@ async def graph_query(
             """
             WITH RECURSIVE hops AS (
                 SELECT 1 AS depth, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                       f.fact_id,
                        CAST(f.target_entity_id AS TEXT) AS path
                 FROM facts f
                 WHERE f.tenant_id = :tid AND f.source_entity_id = :eid
                   AND f.status = 'active' AND f.valid_to IS NULL
                 UNION ALL
                 SELECT h.depth + 1, f.relation_type_id, f.source_entity_id, f.target_entity_id,
+                       f.fact_id,
                        h.path || ',' || f.target_entity_id
                 FROM hops h
                 JOIN facts f ON f.source_entity_id = h.target_entity_id
@@ -224,6 +281,7 @@ async def graph_query(
                   AND position(f.target_entity_id in h.path) = 0
             )
             SELECT h.depth, h.relation_type_id, h.source_entity_id, h.target_entity_id,
+                   h.fact_id,
                    e.name AS target_name, e.entity_type_id AS target_type
             FROM hops h
             LEFT JOIN entities e ON e.entity_id = h.target_entity_id AND e.tenant_id = :tid

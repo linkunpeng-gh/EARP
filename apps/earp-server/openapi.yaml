@@ -2525,6 +2525,65 @@ paths:
       tags:
       - ontology
   /v1/ontology/entities:
+    get:
+      description: 实体分页列表（M4 admin 实体管理页）。
+      operationId: list_entities_v1_ontology_entities_get
+      parameters:
+      - in: query
+        name: entity_type
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Entity Type
+      - in: query
+        name: data_domain_id
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Domain Id
+      - in: query
+        name: status
+        required: false
+        schema:
+          default: active
+          title: Status
+          type: string
+      - in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          title: Page
+          type: integer
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          default: 20
+          title: Page Size
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response List Entities V1 Ontology Entities Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Entities
+      tags:
+      - ontology
     post:
       operationId: upsert_entity_v1_ontology_entities_post
       requestBody:
@@ -2622,6 +2681,36 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Get Entity
+      tags:
+      - ontology
+  /v1/ontology/entities/{entity_id}/deprecate:
+    post:
+      description: 软停用实体（status→deprecated，实例纠错留痕，facts 保留）。
+      operationId: deprecate_entity_v1_ontology_entities__entity_id__deprecate_post
+      parameters:
+      - in: path
+        name: entity_id
+        required: true
+        schema:
+          title: Entity Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Deprecate Entity V1 Ontology Entities  Entity Id  Deprecate
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Deprecate Entity
       tags:
       - ontology
   /v1/ontology/entities/{entity_id}/facts:

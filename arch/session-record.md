@@ -307,6 +307,20 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **下一步**：Phase B（QU 理解层）——TBox 缺口已解除，可直接开工 → M4 实体管理页 → P3 真模型验证
 
+### 追加（2026-08-15）— M4 admin 实体管理页（PRD-2026-030）
+
+**后端**：
+- `abox_service.list_entities`（分页 + 类型/数据域过滤 + status）+ `deprecate_entity`（软停用，facts 保留）
+- `GET /v1/ontology/entities`（列表）、`POST /v1/ontology/entities/{id}/deprecate`；**graph_query 返回 fact_id**（前端可真撤销事实）
+
+**前端**：
+- `pages/entities.html`（知识中心抽屉「实体管理」）：列表（类型/数据域下拉 + 搜索 + 分页）+ 新建实体模态（TBox 类型/DD 下拉 + attributes JSON）+ 详情内联展开（实体信息 + 📇profile 档案 + 🔗前向/反向关系 + 真撤销 + 添加关系）+ 跳转图谱/导入
+- nav.js 新增「实体管理」；图谱探索页已支持 ?entity= 直达
+
+**验证**：95 passed（+list/deprecate/fact_id 测试）+ OpenAPI 基线 + 真 API 冒烟（列表 total 8 / 类型过滤 / graph 含 fact_id）
+
+**下一步**：M4 后续可加 TBox 管理（tech-debt #12 审批流一并设计）→ Phase B（QU 理解层）→ P3 真模型验证
+
 ---
 
 ### 历史待办
