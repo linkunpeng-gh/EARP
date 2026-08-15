@@ -262,6 +262,8 @@ cd apps/earp-admin && python3 -m http.server 8080   # 打开 localhost:8080
 
 ### 场景 7：实体/事实批量导入（模板 + 干跑 + 执行，2026-08-15 新增）
 
+**前端入口**：知识中心 → 「实体导入」页（`pages/entity-import.html`，下载模板 → 上传 → 干跑 → 确认导入）。API 方式如下：
+
 ```bash
 # ① 下载模板（含说明头 + 示例行，Excel 可直接编辑）
 curl -s "localhost:8000/v1/ontology/import/templates" -H "Authorization: Bearer $TOKEN" | python3 -m json.tool

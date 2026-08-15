@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 实体/事实批量导入"><title>实体导入 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body data-base=".." data-section="knowledge" data-sub="entity-import">
+<header id="app-header"></header>
+
+<main>
+
+<div class="page-title"><div><h2>实体导入</h2><p class="page-subtitle">按 CSV 模板批量导入实体与事实（ABox 兜底路径 · ontology 设计 §6）· <a href="data-domains.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">Data Domains →</a></p></div></div>
+
+<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+
+  <!-- ① 模板下载 -->
+  <section style="flex:1 1 280px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+    <h3 style="margin:0 0 8px">① 下载模板</h3>
+    <p style="font-size:0.75rem;color:var(--text-tertiary);margin:0 0 10px">模板含说明头注释 + 示例行，Excel 可直接编辑。实体表填实例，事实表填三元组（business_code 引用实体）。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="downloadTemplate('entities_csv')">⬇ entities.csv</button>
+      <button onclick="downloadTemplate('facts_csv')">⬇ facts.csv</button>
+    </div>
+  </section>
+
+  <!-- ② 上传 + 干跑 -->
+  <section style="flex:2 1 420px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+    <h3 style="margin:0 0 8px">② 上传并干跑校验</h3>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <label style="font-size:0.78rem">entities.csv
+        <input type="file" id="entities-file" accept=".csv" style="display:block;margin-top:4px">
+      </label>
+      <label style="font-size:0.78rem">facts.csv
+        <input type="file" id="facts-file" accept=".csv" style="display:block;margin-top:4px">
+      </label>
+      <button onclick="dryRun()">🔍 干跑校验</button>
+    </div>
+    <div id="dry-result"></div>
+    <div id="confirm-section" style="display:none;margin-top:12px;border-top:1px dashed var(--border-subtle);padding-top:12px">
+      <h3 style="margin:0 0 8px">③ 确认导入</h3>
+      <p style="font-size:0.78rem;color:var(--text-tertiary);margin:0 0 10px" id="ok-summary">—</p>
+      <button onclick="executeImport()" style="background:var(--green);color:#fff">✅ 确认导入</button>
+      <div id="exec-result" style="margin-top:10px"></div>
+    </div>
+  </section>
+</div>
+
+</main>
+<script src="../js/nav.js"></script>
+<script src="../js/app.js"></script>
+<script>
+function downloadTemplate(key) {
+  EARP.fetchJSON('/v1/ontology/import/templates').then(function (tpl) {
+    if (!tpl[key]) throw new Error('模板字段缺失: ' + key);
+    downloadCSV(tpl[key], key.replace('_csv', '') + '.csv');
+  }).catch(function (e) { alert('模板下载失败: ' + e.message); });
+}
+
+function downloadCSV(content, filename) {
+  var blob = new Blob(['\ufeff' + content], { type: 'text/csv;charset=utf-8' }); // BOM → Excel 正确识别 UTF-8 中文
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+function collectFiles() {
+  var fd = new FormData();
+  var ef = document.getElementById('entities-file').files[0];
+  var ff = document.getElementById('facts-file').files[0];
+  if (!ef && !ff) { alert('请至少选择一个 CSV 文件'); return null; }
+  if (ef) fd.append('entities_file', ef);
+  if (ff) fd.append('facts_file', ff);
+  return fd;
+}
+
+async function importRequest(dryRun) {
+  var fd = collectFiles();
+  if (!fd) return null;
+  fd.append('dry_run', dryRun);
+  var res = await fetch(EARP.apiBase + '/v1/ontology/import', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + EARP.token },
+    body: fd,
+  });
+  if (!res.ok) throw new Error(res.status === 401 ? '401 未授权 — 请先登录' : ((await res.text()) || res.statusText));
+  return res.json();
+}
+
+function renderResult(container, result) {
+  var errors = [];
+  ['entities', 'facts'].forEach(function (k) {
+    var r = result[k] || {};
+    (r.errors || []).forEach(function (e) { errors.push({ source: k, row: e.row, reason: e.reason }); });
+  });
+  var html = '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">'
+    + statCard('实体', result.entities) + statCard('事实', result.facts)
+    + '</div>';
+  if (errors.length) {
+    html += '<table style="width:100%;border-collapse:collapse;font-size:0.75rem"><thead><tr>'
+      + '<th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">来源</th>'
+      + '<th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">行号</th>'
+      + '<th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">原因</th></tr></thead><tbody>'
+      + errors.map(function (e) {
+          return '<tr><td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + e.source + '</td>'
+            + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + e.row + '</td>'
+            + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--red)">' + esc(e.reason) + '</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+  }
+  container.innerHTML = html;
+  return errors.length === 0 && (result.entities.total > 0 || result.facts.total > 0);
+}
+
+function statCard(label, r) {
+  if (!r) return '';
+  var err = (r.errors || []).length;
+  var cls = err ? 'var(--red)' : 'var(--green)';
+  return '<div style="border:1px solid var(--border-subtle);border-radius:6px;padding:8px 12px">'
+    + '<div style="font-size:0.7rem;color:var(--text-tertiary)">' + label + '</div>'
+    + '<div style="font-size:1rem;font-weight:600;color:' + cls + '">' + r.ok + ' / ' + r.total + ' 通过'
+    + (err ? ' · ' + err + ' 错误' : '') + '</div></div>';
+}
+
+async function dryRun() {
+  var box = document.getElementById('dry-result');
+  box.innerHTML = '<p style="color:var(--text-tertiary)">校验中…</p>';
+  try {
+    var result = await importRequest(true);
+    if (!result) return;
+    var allOk = renderResult(box, result);
+    var confirm = document.getElementById('confirm-section');
+    var summary = document.getElementById('ok-summary');
+    if (allOk) {
+      confirm.style.display = 'block';
+      summary.textContent = '实体 ' + result.entities.ok + ' 行、事实 ' + result.facts.ok + ' 行将写库（幂等合并），并自动重编涉及实体的档案。';
+    } else {
+      confirm.style.display = 'none';
+    }
+  } catch (e) { box.innerHTML = '<p style="color:var(--red)">干跑失败: ' + esc(e.message) + '</p>'; }
+}
+
+async function executeImport() {
+  var box = document.getElementById('exec-result');
+  box.innerHTML = '<p style="color:var(--text-tertiary)">导入中…</p>';
+  try {
+    var result = await importRequest(false);
+    if (!result) return;
+    renderResult(box, result);
+    box.insertAdjacentHTML('beforeend', '<p style="color:var(--green);font-size:0.78rem">✅ 导入完成（profile 已联动重编）</p>');
+    document.getElementById('confirm-section').style.display = 'none';
+  } catch (e) { box.innerHTML = '<p style="color:var(--red)">导入失败: ' + esc(e.message) + '</p>'; }
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+</script>
+</body></html>

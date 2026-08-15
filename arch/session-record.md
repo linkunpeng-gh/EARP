@@ -263,7 +263,8 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 - 端点：`GET /v1/ontology/import/templates`（下载含说明头+示例行的 CSV）、`POST /v1/ontology/import`（multipart entities_file/facts_file + dry_run 参数，默认 true）
 - 测试 test_ontology_import.py 4 项：模板内容、干跑合法不写库、干跑逐行错误收集（类型/域/JSON/编码重复/关系方向/confidence）、执行+profile 重编（key_facts 含新事实）
 - 人工测试指南补场景 7（任务书）；修正指南 ontology 路径缺 /v1 前缀
-- 验证：92 passed（88+4）+ import-linter + OpenAPI 基线（+2 端点）
+- **前端临时页**：`pages/entity-import.html`（知识中心抽屉「实体导入」）——模板下载（带 BOM 供 Excel 识别中文）+ 上传 + 干跑结果表格（来源/行号/原因）+ 确认导入；API-only → 有 UI，可并入 M4
+- 验证：92 passed + 真实 API 冒烟（模板下载 → 干跑报错 → 执行 → lookup/profile 联动验证全通）
 
 **下一步**：前端导入入口并入 M4 admin 实体管理页（现为 API-only）→ P3 rerank → Phase B（QU）
 
