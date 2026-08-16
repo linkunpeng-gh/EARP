@@ -115,6 +115,15 @@ async def create_relation_type(req_body: RelationTypeIn, req: Request) -> dict:
     )
 
 
+@router.post("/relation-types/{relation_type_id}/deprecate")
+async def deprecate_relation_type(relation_type_id: str, req: Request) -> dict:
+    """软停用关系类型（已存在 facts 保留，不再允许新建该关系）。"""
+    rel = await tbox_service.deprecate_relation_type(req.app.state.engine, req.state.tenant_id, relation_type_id)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="Relation type not found or already deprecated")
+    return rel
+
+
 @router.post("/capabilities/{capability_id}/entities", status_code=201)
 async def map_capability_entity(capability_id: str, req_body: CapabilityEntityIn, req: Request) -> dict:
     return await tbox_service.map_capability_entity(

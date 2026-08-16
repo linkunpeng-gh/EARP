@@ -3053,6 +3053,36 @@ paths:
       summary: Create Relation Type
       tags:
       - ontology
+  /v1/ontology/relation-types/{relation_type_id}/deprecate:
+    post:
+      description: 软停用关系类型（已存在 facts 保留，不再允许新建该关系）。
+      operationId: deprecate_relation_type_v1_ontology_relation_types__relation_type_id__deprecate_post
+      parameters:
+      - in: path
+        name: relation_type_id
+        required: true
+        schema:
+          title: Relation Type Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Deprecate Relation Type V1 Ontology Relation Types  Relation
+                  Type Id  Deprecate Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Deprecate Relation Type
+      tags:
+      - ontology
   /v1/ontology/search:
     get:
       description: 'Three-layer retrieval (PRD-2026-030 M2): profile + graph + vector,

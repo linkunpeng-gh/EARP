@@ -196,6 +196,23 @@ async def create_relation_type(
     return {"relation_type_id": relation_type_id, "name": name}
 
 
+async def deprecate_relation_type(engine: AsyncEngine, tenant_id: str, relation_type_id: str) -> dict | None:
+    """Deprecate a relation type (软停用；已存在 facts 保留，不再允许新建该关系)."""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        result = await conn.execute(
+            text(
+                "UPDATE relation_types SET status = 'deprecated' "
+                "WHERE relation_type_id = :id AND status = 'active' "
+                "RETURNING relation_type_id, status"
+            ),
+            {"id": relation_type_id},
+        )
+        await conn.commit()
+        r = result.fetchone()
+        return dict(r._mapping) if r else None
+
+
 async def map_capability_entity(
     engine: AsyncEngine,
     tenant_id: str,

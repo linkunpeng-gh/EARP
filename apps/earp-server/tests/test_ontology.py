@@ -215,3 +215,16 @@ async def test_lookup_entities_reverse_substring(app_engine: AsyncEngine) -> Non
     # 无关查询不误命中
     hits3 = await abox_service.lookup_entities(app_engine, "ont-t5", "报销标准")
     assert hits3 == []
+
+
+async def test_deprecate_relation_type(app_engine: AsyncEngine) -> None:
+    """M4 补充：关系类型软停用（对称 deprecate_entity_type）。"""
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t6")
+    await tbox_service.create_relation_type(app_engine, "ont-t6", "connected_to", "连接至", "equipment", "equipment", "N:M")
+    rel = await tbox_service.deprecate_relation_type(app_engine, "ont-t6", "connected_to")
+    assert rel is not None and rel["status"] == "deprecated"
+    # 幂等：已停用 → 返回 None
+    assert await tbox_service.deprecate_relation_type(app_engine, "ont-t6", "connected_to") is None
+    # active 列表不再含它
+    active = await tbox_service.list_relation_types(app_engine, "ont-t6")
+    assert all(r["relation_type_id"] != "connected_to" for r in active)

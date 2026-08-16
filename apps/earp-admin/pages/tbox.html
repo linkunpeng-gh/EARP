@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 类型管理（TBox）"><title>类型管理 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body data-base=".." data-section="knowledge" data-sub="tbox">
+<header id="app-header"></header>
+
+<main>
+
+<div class="page-title"><div><h2>类型管理（TBox）</h2><p class="page-subtitle">实体/关系类型字典 · 新增与停用自助，改类型集合/ID 需走治理（tech-debt #12）· <a href="entities.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">实体管理 →</a></p></div></div>
+
+<!-- 实体类型 -->
+<section style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <h3 style="margin:0;font-size:0.9rem">实体类型（<span id="et-count">—</span>）</h3>
+    <button onclick="showEtModal()">+ 新增实体类型</button>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+    <thead><tr>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">类型 ID</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">名称</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">kind</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">数据域</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">状态</th>
+      <th style="text-align:right;padding:6px;border-bottom:1px solid var(--border-subtle)">操作</th>
+    </tr></thead>
+    <tbody id="et-tbody"><tr><td colspan="6" style="padding:10px;text-align:center;color:var(--text-tertiary)">加载中…</td></tr></tbody>
+  </table>
+</section>
+
+<!-- 关系类型 -->
+<section style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <h3 style="margin:0;font-size:0.9rem">关系类型（<span id="rt-count">—</span>）</h3>
+    <button onclick="showRtModal()">+ 新增关系类型</button>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+    <thead><tr>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">关系 ID</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">名称</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">源类型</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">目标类型</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">基数</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">状态</th>
+      <th style="text-align:right;padding:6px;border-bottom:1px solid var(--border-subtle)">操作</th>
+    </tr></thead>
+    <tbody id="rt-tbody"><tr><td colspan="7" style="padding:10px;text-align:center;color:var(--text-tertiary)">加载中…</td></tr></tbody>
+  </table>
+</section>
+
+<!-- 新增实体类型模态 -->
+<div id="et-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
+  <div style="max-width:460px;margin:10vh auto;background:var(--bg-panel);border-radius:10px;padding:18px">
+    <h3 style="margin:0 0 12px">新增实体类型</h3>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">类型 ID *（小写英文/下划线，创建后不可改）
+      <input id="et-id" style="display:block;width:100%;margin-top:4px" placeholder="如 inverter"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">名称 *
+      <input id="et-name" style="display:block;width:100%;margin-top:4px" placeholder="如 逆变器"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">kind
+      <select id="et-kind" style="display:block;width:100%;margin-top:4px">
+        <option value="object">object（业务实体对象）</option>
+        <option value="concept">concept（概念）</option>
+        <option value="metric">metric（指标）</option>
+      </select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">数据域 *
+      <select id="et-dd" style="display:block;width:100%;margin-top:4px"></select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">描述
+      <input id="et-desc" style="display:block;width:100%;margin-top:4px"></label>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button onclick="document.getElementById('et-modal').style.display='none'">取消</button>
+      <button onclick="saveEt()" style="background:var(--green);color:#fff">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新增关系类型模态 -->
+<div id="rt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
+  <div style="max-width:460px;margin:10vh auto;background:var(--bg-panel);border-radius:10px;padding:18px">
+    <h3 style="margin:0 0 12px">新增关系类型</h3>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">关系 ID *（小写英文/下划线，创建后不可改）
+      <input id="rt-id" style="display:block;width:100%;margin-top:4px" placeholder="如 connected_to"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">名称 *
+      <input id="rt-name" style="display:block;width:100%;margin-top:4px" placeholder="如 连接至"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">源类型 *（多选）
+      <select id="rt-src" multiple size="4" style="display:block;width:100%;margin-top:4px"></select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">目标类型 *（多选）
+      <select id="rt-tgt" multiple size="4" style="display:block;width:100%;margin-top:4px"></select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">基数
+      <select id="rt-card" style="display:block;width:100%;margin-top:4px">
+        <option value="1:1">1:1</option><option value="1:N">1:N</option>
+        <option value="N:1">N:1</option><option value="N:M" selected>N:M</option>
+      </select></label>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button onclick="document.getElementById('rt-modal').style.display='none'">取消</button>
+      <button onclick="saveRt()" style="background:var(--green);color:#fff">保存</button>
+    </div>
+  </div>
+</div>
+
+</main>
+<script src="../js/nav.js"></script>
+<script src="../js/app.js"></script>
+<script>
+var TYPES = [], DDS = [];
+
+async function init() {
+  try {
+    TYPES = await EARP.fetchJSON('/v1/ontology/entity-types');
+    var ddRes = await EARP.fetchJSON('/api/data-domains');
+    DDS = ddRes.items || ddRes || [];
+    var ddSel = document.getElementById('et-dd');
+    DDS.forEach(function (d) { ddSel.innerHTML += '<option value="' + esc(d.data_domain_id) + '">' + esc(d.name || d.data_domain_id) + '</option>'; });
+    var srcSel = document.getElementById('rt-src'), tgtSel = document.getElementById('rt-tgt');
+    TYPES.forEach(function (t) {
+      srcSel.innerHTML += '<option value="' + esc(t.entity_type_id) + '">' + esc(t.name) + ' (' + t.entity_type_id + ')</option>';
+      tgtSel.innerHTML += '<option value="' + esc(t.entity_type_id) + '">' + esc(t.name) + ' (' + t.entity_type_id + ')</option>';
+    });
+  } catch (e) { console.warn('init:', e.message); }
+  loadEt();
+  loadRt();
+}
+
+// ── 实体类型 ──────────────────────────────────────────────────────────────
+async function loadEt() {
+  try {
+    var rows = await EARP.fetchJSON('/v1/ontology/entity-types');
+    document.getElementById('et-count').textContent = rows.length;
+    var tb = document.getElementById('et-tbody');
+    tb.innerHTML = rows.map(function (t) {
+      var dep = t.status === 'deprecated';
+      return '<tr style="' + (dep ? 'opacity:.5' : '') + '">'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(t.entity_type_id) + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(t.name) + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(t.kind || '') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(t.data_domain_id || '') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (dep ? '<span style="color:var(--red)">deprecated</span>' : 'active') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right">'
+        + (dep ? '<span style="color:var(--text-quaternary)">—</span>' : '<a href="javascript:void(0)" onclick="depEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--red)">停用</a>')
+        + '</td></tr>';
+    }).join('');
+  } catch (e) { document.getElementById('et-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
+}
+
+function showEtModal() {
+  document.getElementById('et-id').value = '';
+  document.getElementById('et-name').value = '';
+  document.getElementById('et-desc').value = '';
+  document.getElementById('et-modal').style.display = 'block';
+}
+
+async function saveEt() {
+  var id = document.getElementById('et-id').value.trim();
+  var name = document.getElementById('et-name').value.trim();
+  if (!id || !name) { alert('类型 ID 和名称必填'); return; }
+  if (!/^[a-z][a-z0-9_]*$/.test(id)) { alert('类型 ID 须为小写英文/下划线开头字母'); return; }
+  var body = { entity_type_id: id, name: name, kind: document.getElementById('et-kind').value, data_domain_id: document.getElementById('et-dd').value };
+  var desc = document.getElementById('et-desc').value.trim();
+  if (desc) body.description = desc;
+  try {
+    await EARP.fetchJSON('/v1/ontology/entity-types', { method: 'POST', body: JSON.stringify(body) });
+    document.getElementById('et-modal').style.display = 'none';
+    loadEt();
+  } catch (e) { alert('保存失败: ' + e.message); }
+}
+
+async function depEt(id, name) {
+  if (!confirm('确认停用实体类型「' + name + '」？停用后不再出现在新建/导入的类型下拉，存量实体保留。')) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/entity-types/' + encodeURIComponent(id) + '/deprecate', { method: 'POST' });
+    loadEt();
+  } catch (e) { alert('停用失败: ' + e.message); }
+}
+
+// ── 关系类型 ──────────────────────────────────────────────────────────────
+async function loadRt() {
+  try {
+    var rows = await EARP.fetchJSON('/v1/ontology/relation-types');
+    document.getElementById('rt-count').textContent = rows.length;
+    var tb = document.getElementById('rt-tbody');
+    tb.innerHTML = rows.map(function (r) {
+      var dep = r.status === 'deprecated';
+      return '<tr style="' + (dep ? 'opacity:.5' : '') + '">'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(r.relation_type_id) + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(r.name) + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(r.source_type || '') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(r.target_type || '') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(r.cardinality || '') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (dep ? '<span style="color:var(--red)">deprecated</span>' : 'active') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right">'
+        + (dep ? '<span style="color:var(--text-quaternary)">—</span>' : '<a href="javascript:void(0)" onclick="depRt(\'' + esc(r.relation_type_id) + '\',\'' + esc(r.name) + '\')" style="color:var(--red)">停用</a>')
+        + '</td></tr>';
+    }).join('');
+  } catch (e) { document.getElementById('rt-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
+}
+
+function showRtModal() {
+  document.getElementById('rt-id').value = '';
+  document.getElementById('rt-name').value = '';
+  document.getElementById('rt-src').selectedIndex = -1;
+  document.getElementById('rt-tgt').selectedIndex = -1;
+  document.getElementById('rt-modal').style.display = 'block';
+}
+
+async function saveRt() {
+  var id = document.getElementById('rt-id').value.trim();
+  var name = document.getElementById('rt-name').value.trim();
+  if (!id || !name) { alert('关系 ID 和名称必填'); return; }
+  if (!/^[a-z][a-z0-9_]*$/.test(id)) { alert('关系 ID 须为小写英文/下划线开头字母'); return; }
+  var src = Array.from(document.getElementById('rt-src').selectedOptions).map(function (o) { return o.value; });
+  var tgt = Array.from(document.getElementById('rt-tgt').selectedOptions).map(function (o) { return o.value; });
+  if (!src.length || !tgt.length) { alert('源类型和目标类型至少各选一个'); return; }
+  var body = { relation_type_id: id, name: name, source_type: src.join(','), target_type: tgt.join(','), cardinality: document.getElementById('rt-card').value };
+  try {
+    await EARP.fetchJSON('/v1/ontology/relation-types', { method: 'POST', body: JSON.stringify(body) });
+    document.getElementById('rt-modal').style.display = 'none';
+    loadRt();
+  } catch (e) { alert('保存失败: ' + e.message); }
+}
+
+async function depRt(id, name) {
+  if (!confirm('确认停用关系类型「' + name + '」？停用后新建/导入不再允许使用该关系，存量 facts 保留。')) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/relation-types/' + encodeURIComponent(id) + '/deprecate', { method: 'POST' });
+    loadRt();
+  } catch (e) { alert('停用失败: ' + e.message); }
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+init();
+</script>
+</body></html>

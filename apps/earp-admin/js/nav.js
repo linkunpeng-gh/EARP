@@ -43,6 +43,7 @@
     ],
     knowledge: [
       { label: '数据域', sub: 'data-domains', path: '{b}/pages/data-domains.html' },
+      { label: '类型管理', sub: 'tbox', path: '{b}/pages/tbox.html' },
       { label: '知识库', sub: 'knowledge', path: '{b}/pages/knowledge.html' },
       { label: '实体管理', sub: 'entities', path: '{b}/pages/entities.html' },
       { label: '实体导入', sub: 'entity-import', path: '{b}/pages/entity-import.html' },
