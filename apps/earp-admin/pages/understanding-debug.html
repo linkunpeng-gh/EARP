@@ -127,16 +127,21 @@ function runPlan() {
     h += '</div>';
     // Evidence
     h += '<div class="panel">';
-    h += '<div class="params-title">Evidence Set（§9.1，' + (plan.evidence || []).length + ' 条）</div>';
+    h += '<div class="params-title">Evidence Set（§9.1，' + (plan.evidence || []).length + ' 条 · 角色层 §9.2）</div>';
     if ((plan.evidence || []).length) {
       (plan.evidence || []).forEach(function (e) {
-        h += '<div style="font-size:0.72rem;margin-bottom:0.35rem">' + tag(e.channel, 'background:#f1f5f9;color:#334155')
+        var roleTag = e.role === 'primary' ? tag('主证据', 'background:#dcfce7;color:#166534') : tag('佐证', 'background:#f1f5f9;color:#475569');
+        var conflictTag = e.conflict ? tag('⚠ 冲突', 'background:#fee2e2;color:#991b1b') : '';
+        var chanIcon = { chunk: '📄', profile: '📇', graph: '🕸', capability: '📊' }[e.channel] || '';
+        h += '<div style="font-size:0.72rem;margin-bottom:0.35rem">' + chanIcon + ' ' + tag(e.channel, 'background:#f1f5f9;color:#334155')
+          + ' ' + roleTag + ' ' + conflictTag
           + ' <span style="color:var(--text-secondary)">' + esc(e.source) + '</span>'
           + ' <span style="color:var(--text-quaternary)">conf=' + Number(e.confidence).toFixed(2) + '</span>'
+          + (e.channel === 'capability' && e.payload && e.payload.aggregate ? ' <span style="color:#065f46">聚合=' + esc(JSON.stringify(e.payload.aggregate)) + '</span>' : '')
           + '<div style="font-size:0.68rem;color:var(--text-tertiary,#6b6e75);margin-left:0.3rem">' + esc(String(e.content).slice(0, 100)) + '</div></div>';
       });
     } else {
-      h += '<div style="color:var(--text-quaternary,#6b6e75)">无 evidence（可能为回落/通道未就绪）</div>';
+      h += '<div style="color:var(--text-quaternary,#6b6e75)">无 evidence（可能为回落/执行失败）</div>';
     }
     h += '</div>';
     box.innerHTML = h;

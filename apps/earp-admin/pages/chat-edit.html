@@ -414,13 +414,15 @@ function appendCitations(citations) {
   block.className = 'cite-block';
   // 按文档聚合：同一文档的多个片段合并为一条引用卡（标注片段编号集合 + 最高相似度）
   // P2：profile/graph 引用（无 document_id）按 entity_id 聚合，显示「实体/图谱」徽标
+  // Phase D：capability 引用（AGGREGATION 结构化结果）按 capability_id 聚合，显示「聚合」徽标 + aggregate
   var groups = {};
   citations.forEach(function (c, i) {
     var src = c.source || 'chunk';
-    var key = c.document_id || c.chunk_id || c.entity_id || 'src-' + i;
-    if (!groups[key]) groups[key] = { title: c.title || '未命名', kb: c.kb_name || c.kb_id || '', meta: c.metadata || {}, refs: [], sim: 0, source: src };
+    var key = c.document_id || c.chunk_id || c.entity_id || c.capability_id || 'src-' + i;
+    if (!groups[key]) groups[key] = { title: c.title || '未命名', kb: c.kb_name || c.kb_id || '', meta: c.metadata || {}, refs: [], sim: 0, source: src, aggregate: c.aggregate || null };
     groups[key].refs.push(i + 1);
     groups[key].sim = Math.max(groups[key].sim, c.similarity || 0);
+    if (c.aggregate) groups[key].aggregate = c.aggregate;
   });
   var html = '<div class="cite-title">依据</div>';
   Object.keys(groups).forEach(function (key) {
@@ -428,12 +430,15 @@ function appendCitations(citations) {
     var badge = '';
     if (g.source === 'profile') badge = '<span class="cc-badge">📇实体</span>';
     else if (g.source === 'graph') badge = '<span class="cc-badge">🕸图谱</span>';
+    else if (g.source === 'capability') badge = '<span class="cc-badge">📊聚合</span>';
     var meta = '';
     if (g.meta.version) meta += ' · ' + g.meta.version;
     if (g.meta.year) meta += ' (' + g.meta.year + ')';
+    var detail = g.sim ? ' · 相似度 ' + g.sim.toFixed(2) : ' · -';
+    if (g.source === 'capability' && g.aggregate) detail = ' · 聚合 ' + esc(JSON.stringify(g.aggregate));
     html += '<div class="cite-card">' + badge + '<span class="cc-src">' + g.refs.map(function (r) { return '[' + r + ']'; }).join(' ') + ' ' + esc(g.title) + '</span>'
       + '<span class="cc-kb">' + esc(g.kb) + '</span>'
-      + '<span class="cc-meta">' + esc(meta) + ' · 相似度 ' + (g.sim ? g.sim.toFixed(2) : '-') + '</span></div>';
+      + '<span class="cc-meta">' + esc(meta) + detail + '</span></div>';
   });
   block.innerHTML = html;
   area.appendChild(block);
