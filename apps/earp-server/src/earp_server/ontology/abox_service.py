@@ -99,15 +99,24 @@ async def lookup_entities(
     data_domain_ids: list[str] | None = None,
     top_k: int = 5,
 ) -> list[dict]:
-    """Name / business_code prefix match with data-domain filter (双层权限由调用方按 DD 评估)."""
+    """Name / business_code match with data-domain filter (双层权限由调用方按 DD 评估).
+
+    双向子串匹配（2026-08-16 修复「纯中文实体长查询不命中」）：
+      - 正向：实体名包含查询串（name ILIKE %query%，原行为）
+      - 反向：查询串包含实体名（:qpat LIKE %name%）——「主变压器是哪个公司生产的」→
+        命中实体「主变压器」（实体提及检测的本质）。代价：两方向均全表扫，
+        实体表规模 < 万级可接受（QU Phase B 实体识别增强前的兜底）。
+    """
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         sql = (
             "SELECT entity_id, entity_type_id, name, business_code, attributes, source_mode, data_domain_id "
             "FROM entities WHERE tenant_id = :tid AND status = 'active' "
-            "AND (name ILIKE :pat OR business_code ILIKE :pat)"
+            "AND (name ILIKE :pat OR business_code ILIKE :pat "
+            "     OR :qpat LIKE '%' || name || '%' "
+            "     OR (:qpat LIKE '%' || business_code || '%'))"
         )
-        params: dict = {"tid": tenant_id, "pat": f"%{query}%"}
+        params: dict = {"tid": tenant_id, "pat": f"%{query}%", "qpat": query}
         if entity_type_ids:
             sql += " AND entity_type_id = ANY(:ets)"
             params["ets"] = entity_type_ids

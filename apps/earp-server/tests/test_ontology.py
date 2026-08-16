@@ -195,3 +195,23 @@ async def test_list_entities_keyword_search(app_engine: AsyncEngine) -> None:
     assert total == 2
     rows2, total2 = await abox_service.list_entities(app_engine, "ont-t4", q="精机", page_size=10)
     assert total2 == 1 and rows2[0]["name"] == "上海某精机"
+
+
+async def test_lookup_entities_reverse_substring(app_engine: AsyncEngine) -> None:
+    """实体名是查询子串 → 命中（2026-08-16 修复「纯中文实体长查询不命中」）。
+
+    「主变压器是哪个公司生产的」→ 命中实体「主变压器」；原方向（实体名包含
+    查询串）不回归。
+    """
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t5")
+    await abox_service.upsert_entity(app_engine, "ont-t5", "equipment", "主变压器", business_code="TX-01")
+
+    # 反向：查询包含实体名
+    hits = await abox_service.lookup_entities(app_engine, "ont-t5", "主变压器是哪个公司生产的")
+    assert any(h["name"] == "主变压器" for h in hits)
+    # 正向（原有）：实体名包含查询串
+    hits2 = await abox_service.lookup_entities(app_engine, "ont-t5", "主变压")
+    assert any(h["name"] == "主变压器" for h in hits2)
+    # 无关查询不误命中
+    hits3 = await abox_service.lookup_entities(app_engine, "ont-t5", "报销标准")
+    assert hits3 == []
