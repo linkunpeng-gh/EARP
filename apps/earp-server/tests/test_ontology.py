@@ -250,3 +250,15 @@ async def test_tbox_create_duplicate_and_deprecate_idempotent(app_engine: AsyncE
     # 关系类型同语义
     with pytest.raises(ValueError, match="已存在"):
         await tbox_service.create_relation_type(app_engine, "ont-t7", "manufactured_by", "制造", "equipment", "supplier", "N:1")
+
+
+async def test_list_entities_status_all(app_engine: AsyncEngine) -> None:
+    """list_entities status='all' 含 deprecated（配合「显示已停用」）。"""
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t8")
+    e1 = await abox_service.upsert_entity(app_engine, "ont-t8", "equipment", "CNC-D1", business_code="CNC-D1")
+    await abox_service.deprecate_entity(app_engine, "ont-t8", e1["entity_id"])
+    _, total_all = await abox_service.list_entities(app_engine, "ont-t8", status="all", page_size=50)
+    rows_all, _ = await abox_service.list_entities(app_engine, "ont-t8", status="all", page_size=50)
+    assert any(r["status"] == "deprecated" for r in rows_all)
+    _, total_active = await abox_service.list_entities(app_engine, "ont-t8", status="active")
+    assert total_all == total_active + 1  # deprecated 只出现在 all

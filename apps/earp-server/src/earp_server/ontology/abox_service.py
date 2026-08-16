@@ -140,8 +140,11 @@ async def list_entities(
     q: str | None = None,
 ) -> tuple[list[dict], int]:
     """Paginated entity list with type/DD filters + keyword search (M4 admin). Returns (rows, total)."""
-    where = ["tenant_id = :tid", "status = :st"]
-    params: dict = {"tid": tenant_id, "st": status}
+    where = ["tenant_id = :tid"]
+    params: dict = {"tid": tenant_id}
+    if status != "all":  # all = 不过滤状态（含 deprecated，配合「显示已停用」）
+        where.append("status = :st")
+        params["st"] = status
     if q:
         where.append("(name ILIKE :q OR business_code ILIKE :q)")
         params["q"] = f"%{q}%"

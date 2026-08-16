@@ -12,6 +12,7 @@
   <input id="ent-q" placeholder="搜索名称/业务编码" onkeydown="if(event.key==='Enter')loadList()" style="flex:1 1 200px">
   <select id="ent-type-filter" onchange="loadList()"><option value="">全部类型</option></select>
   <select id="ent-dd-filter" onchange="loadList()"><option value="">全部数据域</option></select>
+  <label style="font-size:0.78rem;display:flex;align-items:center;gap:4px"><input type="checkbox" id="ent-show-dep" onchange="loadList()"> 显示已停用</label>
   <button onclick="loadList()">🔍 查询</button>
   <span id="ent-count" style="font-size:0.75rem;color:var(--text-tertiary)"></span>
 </div>
@@ -23,6 +24,7 @@
     <th style="text-align:left;padding:7px;border-bottom:1px solid var(--border-subtle)">业务编码</th>
     <th style="text-align:left;padding:7px;border-bottom:1px solid var(--border-subtle)">数据域</th>
     <th style="text-align:left;padding:7px;border-bottom:1px solid var(--border-subtle)">来源</th>
+    <th style="text-align:left;padding:7px;border-bottom:1px solid var(--border-subtle)">状态</th>
     <th style="text-align:right;padding:7px;border-bottom:1px solid var(--border-subtle)">操作</th>
   </tr></thead>
   <tbody id="ent-tbody"><tr><td colspan="6" style="padding:14px;text-align:center;color:var(--text-tertiary)">加载中…</td></tr></tbody>
@@ -82,7 +84,9 @@ async function loadList() {
   var q = document.getElementById('ent-q').value.trim();
   var et = document.getElementById('ent-type-filter').value;
   var dd = document.getElementById('ent-dd-filter').value;
+  var showDep = document.getElementById('ent-show-dep').checked;
   var url = '/v1/ontology/entities?page=' + PAGE + '&page_size=' + PAGE_SIZE
+    + (showDep ? '&status=all' : '')
     + (q ? '&q=' + encodeURIComponent(q) : '')
     + (et ? '&entity_type=' + encodeURIComponent(et) : '')
     + (dd ? '&data_domain_id=' + encodeURIComponent(dd) : '');
@@ -93,21 +97,23 @@ async function loadList() {
     document.getElementById('ent-count').textContent = '共 ' + TOTAL + ' 条';
     document.getElementById('ent-page').textContent = '第 ' + PAGE + ' 页 / ' + Math.max(1, Math.ceil(TOTAL / PAGE_SIZE)) + ' 页';
     var tb = document.getElementById('ent-tbody');
-    if (!items.length) { tb.innerHTML = '<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--text-tertiary)">无实体</td></tr>'; return; }
+    if (!items.length) { tb.innerHTML = '<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--text-tertiary)">无实体</td></tr>'; return; }
     tb.innerHTML = items.map(function (e) {
-      return '<tr>'
+      var dep = e.status === 'deprecated';
+      return '<tr style="' + (dep ? 'opacity:.55' : '') + '">'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle);font-weight:500"><a href="javascript:void(0)" onclick="showDetail(\'' + e.entity_id + '\')" style="color:var(--accent-text)">' + esc(e.name) + '</a></td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.entity_type_id) + '</td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.business_code || '') + '</td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.data_domain_id || '') + '</td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.source_mode || '') + '</td>'
+        + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + (dep ? '<span style="color:var(--red)">deprecated</span>' : 'active') + '</td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
         + '<a href="javascript:void(0)" onclick="showDetail(\'' + e.entity_id + '\')" style="margin-right:8px">详情</a>'
         + '<a href="entity-graph.html?entity=' + encodeURIComponent(e.entity_id) + '" style="margin-right:8px">图谱</a>'
-        + '<a href="javascript:void(0)" onclick="deprecate(\'' + e.entity_id + '\',\'' + esc(e.name) + '\')" style="color:var(--red)">停用</a>'
+        + (dep ? '<span style="color:var(--text-quaternary)">已停用</span>' : '<a href="javascript:void(0)" onclick="deprecate(\'' + e.entity_id + '\',\'' + esc(e.name) + '\')" style="color:var(--red)">停用</a>')
         + '</td></tr>';
     }).join('');
-  } catch (e) { document.getElementById('ent-tbody').innerHTML = '<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
+  } catch (e) { document.getElementById('ent-tbody').innerHTML = '<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
 }
 
 function changePage(d) {
