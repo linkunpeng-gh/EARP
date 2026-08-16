@@ -42,13 +42,13 @@
       { label: 'Skills', sub: 'skills', planned: 'workspace/skills' },
     ],
     knowledge: [
-      { label: '数据域', sub: 'data-domains', path: '{b}/pages/data-domains.html' },
-      { label: '类型管理', sub: 'tbox', path: '{b}/pages/tbox.html' },
-      { label: '知识库', sub: 'knowledge', path: '{b}/pages/knowledge.html' },
-      { label: '实体管理', sub: 'entities', path: '{b}/pages/entities.html' },
-      { label: '实体导入', sub: 'entity-import', path: '{b}/pages/entity-import.html' },
-      { label: '图谱探索', sub: 'entity-graph', path: '{b}/pages/entity-graph.html' },
-      { label: '召回测试', sub: 'test-retrieval', path: '{b}/pages/test-retrieval.html' },
+      { label: '数据域', sub: 'data-domains', path: '{b}/pages/data-domains.html', group: '文档知识' },
+      { label: '知识库', sub: 'knowledge', path: '{b}/pages/knowledge.html', group: '文档知识' },
+      { label: '类型管理', sub: 'tbox', path: '{b}/pages/tbox.html', group: '结构化知识' },
+      { label: '实体管理', sub: 'entities', path: '{b}/pages/entities.html', group: '结构化知识' },
+      { label: '实体导入', sub: 'entity-import', path: '{b}/pages/entity-import.html', group: '结构化知识' },
+      { label: '图谱探索', sub: 'entity-graph', path: '{b}/pages/entity-graph.html', group: '探索验证' },
+      { label: '召回测试', sub: 'test-retrieval', path: '{b}/pages/test-retrieval.html', group: '探索验证' },
     ],
     capability: [
       { label: '能力注册', sub: 'capabilities', path: '{b}/pages/capabilities.html' },
@@ -181,16 +181,24 @@
   function renderDrawer(base, sectionId, subId) {
     var items = DRAWERS[sectionId] || [];
     if (!items.length) return '';
-    var html = items.map(function (it) {
+    var html = '';
+    var lastGroup = null;
+    items.forEach(function (it) {
+      // 分组标题：group 变化时插入（其它 section 无 group → 保持平铺）
+      if (it.group && it.group !== lastGroup) {
+        html += '<div class="drawer-group-title">' + esc(it.group) + '</div>';
+      }
+      lastGroup = it.group || lastGroup;
       var isActive = it.sub === subId;
       var cls = 'drawer-item' + (isActive ? ' active' : '');
       var aria = isActive ? ' aria-current="page"' : '';
       if (it.planned) {
-        return '<a class="' + cls + '" href="' + href(base, '{b}/pages/planned.html?section=' + sectionId + '&item=' + it.sub) + '"' + aria + '>'
+        html += '<a class="' + cls + '" href="' + href(base, '{b}/pages/planned.html?section=' + sectionId + '&item=' + it.sub) + '"' + aria + '>'
           + '<span>' + esc(it.label) + '</span><span class="planned-tag">规划中</span></a>';
+        return;
       }
-      return '<a class="' + cls + '" href="' + href(base, it.path) + '"' + aria + '><span>' + esc(it.label) + '</span></a>';
-    }).join('');
+      html += '<a class="' + cls + '" href="' + href(base, it.path) + '"' + aria + '><span>' + esc(it.label) + '</span></a>';
+    });
     var section = SECTIONS.filter(function (s) { return s.id === sectionId; })[0];
     return '<div class="drawer-section-title">' + esc(section ? section.label : '') + '</div>' + html;
   }

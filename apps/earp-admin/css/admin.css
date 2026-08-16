@@ -328,6 +328,10 @@ pre {
   text-transform: uppercase; letter-spacing: 0.06em;
   margin-bottom: 0.5rem; padding: 0 0.6rem;
 }
+.drawer-group-title {
+  font-size: 0.66rem; font-weight: 600; color: var(--text-quaternary);
+  margin: 0.55rem 0 0.2rem; padding: 0 0.6rem;
+}
 .drawer-item {
   display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;
   padding: 0.45rem 0.6rem; margin-bottom: 2px; border-radius: var(--radius-md);
