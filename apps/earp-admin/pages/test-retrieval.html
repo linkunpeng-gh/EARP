@@ -445,6 +445,7 @@ function doRouteDebug() {
 
     // Layer 1 — 实体检索（profile）
     html += '<div class="params-title">Layer 1 — 实体检索（📇 档案）</div>';
+    html += '<div style="font-size:0.68rem;color:var(--text-quaternary);margin-bottom:0.2rem">得分=层内原始值（档案命中=1.0 / 图谱=1/(1+深度) / 文档=相似度），不可跨层比较——RRF 融合只用每层内部排名；rerank 仅作用于文档层内部精排</div>';
     if (ontoOff) {
       html += '<div style="color:var(--text-quaternary)">' + ontoOff + '</div>';
     } else if ((onto.profile || []).length) {
