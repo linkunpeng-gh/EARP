@@ -62,7 +62,7 @@
 <script src="../js/nav.js"></script>
 <script src="../js/app.js"></script>
 <script>
-var PAGE = 1, PAGE_SIZE = 20, TOTAL = 0;
+var PAGE = 1, PAGE_SIZE = 10, TOTAL = 0;
 var TYPES = [], DDS = [];
 
 async function init() {
@@ -194,6 +194,8 @@ async function showDetail(id) {
       + '<div style="font-size:0.78rem;line-height:1.8">' + (lines.length ? lines.join('') : '<span style="color:var(--text-tertiary)">无关系</span>') + '</div>';
     html += '<div style="margin-top:10px;border-top:1px dashed var(--border-subtle);padding-top:10px"><button onclick="showFactModal(\'' + ent.entity_id + '\')">+ 添加关系</button></div>';
     box.innerHTML = html;
+    // 详情面板定位到视口（数据量大时避免滚动找）
+    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) { box.innerHTML = '<p style="color:var(--red)">加载失败: ' + esc(e.message) + '</p>'; }
 }
 
