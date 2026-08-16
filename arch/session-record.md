@@ -397,6 +397,42 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 会话续接（2026-08-16）— Phase C（最小固定策略 Planner）已实施
+
+> 任务书：`tasks/query-understanding-phase-c-task-breakdown.md`（12 Task；D2/D3 方案 A 已确认）
+> 设计：`arch/design/query-understanding-query-plan-design-v0.3.md`（§10/§11/§12/§16/§17）
+
+**会话主线**：QU 理解层之上实现最小固定策略 Planner——select_plan 规则映射表（10 类全覆盖）+ 3 策略函数（plan_fact/plan_relation/plan_aggregation）+ Execution Trace + plan-debug 完整可解释链端点 + Plan 层评估。
+
+**关键产出（后端）**：
+- `ontology/planning.py`（新建）：Evidence/EvidenceChannel/TraceRecord/PlanResult/QueryContext schema（§9.1/§10/§11.1 冻结）+ `select_plan`（§11.2 规则映射表，10 类全覆盖 QP-11，CAUSAL/MIXED 显式回落 QP-14）+ `_Tracer`（trace 记录器）+
+  - `plan_fact`：route_query → 三层检索（candidate_dds 非空）/全租户 chunk 兜底（D4），metadata_filters 透传 + trace 步进 + citations/evidence 三源转换
+  - `plan_relation`：lookup_entities（用 StructuredQuery.entities mention）→ graph_query（forward，MULTI_HOP max_hops=2）→ graph 无事实 RAG 补证（§14）；无实体回落 plan_fact
+  - `plan_aggregation`（D2）：resolve_with_entities 候选解析 → 无 query 候选回落 plan_fact / 有候选 trace 标注「capability 通道未就绪」（Phase D1 接入执行器，不 mock）
+  - `execute_plan` 入口（debug 端点/verify 脚本共用）
+- `POST /v1/ontology/understanding/plan-debug`（§15 完整可解释链：QU → select_plan → 策略执行 → PlanResult）
+- `knowledge/routing.py::route_query` 增强：**query_embedding=None 防护**（vector lane 跳过，keyword lane 兜底，优雅降级——plan_fact 在 embedding 不可达时不崩）
+- Plan 层评估：`test_planning.py`（13 用例）+ `test_planning_eval.py`（策略命中率 ≥95%）+ `scripts/verify_planning.py`（dev 真 LLM + 真检索端到端）
+
+**关键产出（前端）**：understanding-debug.html 加「🗺 运行策略」按钮 → plan-debug 端点 → select_plan 卡 + Execution Trace 步进表 + Evidence 通道表
+
+**Phase C 关键决策落地**：
+1. D2（plan_aggregation 一期=候选解析+回落）：capability 执行链仅 demo.echo（已核实）→ 有候选 trace 标注通道未就绪，不假执行；无候选回落 plan_fact——「AGGREGATION 唯一消费者是 capability query，通道未就绪无消费者」（§16 时序理由）成立
+2. D3（chat 一期不接）：PlanResult 经 plan-debug 验证；chat_service 保持 P1 双通道——避免 conversation→ontology.planning→knowledge.* 传递 import 链（Phase D 接 answer 时按 P2 先例加 ignore）
+3. Plan 不落库（QP-12）；Evidence 为 recall 层通道映射（§9.2 消解 Phase D3）
+4. 顺手修复：route_query 对 embedding=None 的健壮性（P2 后遗漏路径，plan_fact 触发）；test 全局主键撞车（kb-maint-tN 与 test_ontology_search p2-tN 同 id——suffix 改 pcN）
+
+**验证**：155 tests passed（141 → +14）+ import-linter + OpenAPI 基线同步（plan-debug 端点）+ ruff/pyright 零新增；Plan 层机制层**策略命中率 100%**（test_planning_eval，≥95% 门槛）；dev 真模型（qwen2.5:1.5b + bge-m3 真检索）**select_plan 映射命中 111/111=100%**、执行分布 plan_fact 79/plan_relation 30/plan_aggregation 2、非法 trace 0、延迟全在预算内（fact p95=222ms<800 / relation 211ms<500 / agg 8ms<600）
+
+**下一步（沿用优先级表）**：
+1. **Phase D**：D1 `resolve_with_query()` 落地 + **capability query 执行器**（plan_aggregation 从候选解析升级为真实聚合——D2 边界解除）+ chat 接入 answer；D3 角色层 Evidence 组装（tech-debt #10）
+2. **P3 rerank 真模型验证**——待 rerank 环境（升级 Ollama + 拉 bge-reranker + `EARP_RERANK_PROVIDER=ollama`，零代码）
+3. **tech-debt 治理**：#12 TBox 审批流、#11 profile 过期管理、#9 角色域权限、#7 business_capabilities 复合主键、#8 indexing_technique
+4. **M3 中台 importer + Enrichment**（PRD-2026-030）；**B6 评估集管理页**
+5. 8000 端口残留 API 进程（PID 97205/72523）可 kill
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |

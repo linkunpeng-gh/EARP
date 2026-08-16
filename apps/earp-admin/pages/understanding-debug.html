@@ -24,6 +24,7 @@
 
       <div style="margin-top:0.6rem;display:flex;gap:0.5rem">
         <button class="primary" onclick="runQU()" style="flex:1">🧠 理解</button>
+        <button class="primary" onclick="runPlan()" style="flex:1">🗺 运行策略</button>
         <button class="btn-outline btn-sm" onclick="clearAll()">Clear</button>
       </div>
     </div>
@@ -86,6 +87,61 @@ function runQU() {
     body: JSON.stringify({ query: q, context: parseContext() }),
   }).then(render).catch(function (e) {
     box.innerHTML = '<div class="panel" style="color:#b91c1c;font-size:0.78rem;padding:1rem">调用失败: ' + esc(e && e.message ? e.message : String(e)) + '</div>';
+  });
+}
+
+function runPlan() {
+  var q = document.getElementById('qu-query').value.trim();
+  if (!q) { alert('请输入查询'); return; }
+  var box = document.getElementById('qu-result');
+  box.innerHTML = '<div class="panel" style="color:var(--text-quaternary,#6b6e75);font-size:0.78rem;padding:1.5rem;text-align:center">规划中...（select_plan + 策略执行 + Execution Trace）</div>';
+  EARP.fetchJSON('/v1/ontology/understanding/plan-debug', {
+    method: 'POST',
+    body: JSON.stringify({ query: q, context: parseContext() }),
+  }).then(function (d) {
+    var sel = d.select_plan || {};
+    var plan = d.plan_result || {};
+    var h = '';
+    h += '<div class="panel" style="margin-bottom:0.75rem">';
+    h += '<div class="params-title">select_plan（§11.2 规则映射表）</div>';
+    h += '<div style="font-size:0.78rem">策略: <b>' + esc(sel.plan_name) + '</b>';
+    if (sel.fallback_reason) h += ' ' + tag('回落', 'background:#fef3c7;color:#92400e') + ' <span style="font-size:0.68rem;color:var(--text-quaternary)">' + esc(sel.fallback_reason) + '</span>';
+    if (plan.fallback_reason) h += '<div style="font-size:0.7rem;color:var(--text-tertiary,#6b6e75);margin-top:0.3rem">执行回落: ' + esc(plan.fallback_reason) + '</div>';
+    h += '<div style="font-size:0.7rem;color:var(--text-tertiary,#6b6e75);margin-top:0.3rem">耗时: ' + Number(plan.latency_ms || 0).toFixed(1) + 'ms</div>';
+    h += '</div>';
+    // Execution Trace
+    h += '<div class="panel" style="margin-bottom:0.75rem">';
+    h += '<div class="params-title">Execution Trace（§10，观测记录）</div>';
+    if ((plan.trace || []).length) {
+      h += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem">';
+      h += '<tr style="color:var(--text-tertiary,#6b6e75)"><th style="text-align:left;padding:2px 4px">#</th><th style="text-align:left">step</th><th style="text-align:left">input</th><th style="text-align:right">ms</th></tr>';
+      (plan.trace || []).forEach(function (t) {
+        h += '<tr><td style="padding:2px 4px;color:var(--text-quaternary)">' + esc(t.step_id) + '</td>';
+        h += '<td><b>' + esc(t.type) + '</b></td><td style="font-size:0.66rem;color:var(--text-tertiary,#6b6e75)">' + esc(JSON.stringify(t.input).slice(0, 80)) + '</td>';
+        h += '<td style="text-align:right;color:var(--text-tertiary,#6b6e75)">' + Number(t.latency_ms).toFixed(1) + '</td></tr>';
+      });
+      h += '</table>';
+    } else {
+      h += '<div style="color:var(--text-quaternary,#6b6e75)">无 trace</div>';
+    }
+    h += '</div>';
+    // Evidence
+    h += '<div class="panel">';
+    h += '<div class="params-title">Evidence Set（§9.1，' + (plan.evidence || []).length + ' 条）</div>';
+    if ((plan.evidence || []).length) {
+      (plan.evidence || []).forEach(function (e) {
+        h += '<div style="font-size:0.72rem;margin-bottom:0.35rem">' + tag(e.channel, 'background:#f1f5f9;color:#334155')
+          + ' <span style="color:var(--text-secondary)">' + esc(e.source) + '</span>'
+          + ' <span style="color:var(--text-quaternary)">conf=' + Number(e.confidence).toFixed(2) + '</span>'
+          + '<div style="font-size:0.68rem;color:var(--text-tertiary,#6b6e75);margin-left:0.3rem">' + esc(String(e.content).slice(0, 100)) + '</div></div>';
+      });
+    } else {
+      h += '<div style="color:var(--text-quaternary,#6b6e75)">无 evidence（可能为回落/通道未就绪）</div>';
+    }
+    h += '</div>';
+    box.innerHTML = h;
+  }).catch(function (e) {
+    box.innerHTML = '<div class="panel" style="color:#b91c1c;font-size:0.78rem;padding:1rem">规划失败: ' + esc(e && e.message ? e.message : String(e)) + '</div>';
   });
 }
 

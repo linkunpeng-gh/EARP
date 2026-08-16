@@ -318,6 +318,52 @@ class UnderstandingDebugIn(BaseModel):
     threshold: float | None = None  # 覆盖默认 0.7（评估/调参用，D5）
 
 
+@router.post("/understanding/plan-debug")
+async def understanding_plan_debug(req_body: UnderstandingDebugIn, req: Request) -> dict:
+    """完整可解释链调试（Phase C Task 6，QU 设计 §15）：
+
+    QU（StructuredQuery + 命中明细 + derive_needs + LLM 升级）→ select_plan
+    （策略名 + 回落原因）→ 策略执行（PlanResult：evidence/citations/trace）。
+    读端点、无写库、无迁移；Plan 不落库（QP-12）。
+    """
+    from earp_server.ontology.planning import execute_plan
+    from earp_server.ontology.understanding import (
+        build_structured_query,
+        derive_needs,
+        understand,
+        upgrade_with_llm,
+    )
+
+    engine = req.app.state.engine
+    tid = req.state.tenant_id
+    await _ensure_tbox(req)
+    result = await understand(engine, tid, req_body.query, context=req_body.context)
+    result = await upgrade_with_llm(
+        engine,
+        tid,
+        req_body.query,
+        result,
+        settings=req.app.state.settings,
+        threshold=req_body.threshold if req_body.threshold is not None else 0.7,
+    )
+    sq = build_structured_query(result)
+    sel, plan = await execute_plan(
+        engine, tid, req.state.role_id, req_body.query, sq,
+        settings=req.app.state.settings, context=req_body.context,
+    )
+    return {
+        "query": req_body.query,
+        "structured_query": sq.model_dump(mode="json"),
+        "rule_fields": {f: ("hit" if v else "miss") for f, v in result.field_hits.items()},
+        "field_reasons": result.field_reasons,
+        "relevant_fields": sorted(result.relevant_fields),
+        "derive_needs": derive_needs(sq),
+        "llm_upgraded": result.llm_upgraded,
+        "select_plan": {"plan_name": sel.plan_name, "fallback_reason": sel.fallback_reason},
+        "plan_result": plan.model_dump(mode="json"),
+    }
+
+
 @router.post("/understanding/debug")
 async def understanding_debug(req_body: UnderstandingDebugIn, req: Request) -> dict:
     """Query Understanding 调试（Phase B Task 9，QU 设计 §15 可解释模式）。

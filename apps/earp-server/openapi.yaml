@@ -3200,6 +3200,42 @@ paths:
       summary: Understanding Debug
       tags:
       - ontology
+  /v1/ontology/understanding/plan-debug:
+    post:
+      description: '完整可解释链调试（Phase C Task 6，QU 设计 §15）：
+
+
+        QU（StructuredQuery + 命中明细 + derive_needs + LLM 升级）→ select_plan
+
+        （策略名 + 回落原因）→ 策略执行（PlanResult：evidence/citations/trace）。
+
+        读端点、无写库、无迁移；Plan 不落库（QP-12）。'
+      operationId: understanding_plan_debug_v1_ontology_understanding_plan_debug_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnderstandingDebugIn'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Understanding Plan Debug V1 Ontology Understanding
+                  Plan Debug Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Understanding Plan Debug
+      tags:
+      - ontology
   /v1/sessions:
     get:
       operationId: list_sessions_endpoint_v1_sessions_get

@@ -152,7 +152,11 @@ async def build_routing_index(
     Returns stats for observability/tests.
     """
     stats = {
-        "dds_rebuilt": 0, "dds_skipped": 0, "kbs_rebuilt": 0, "kbs_skipped": 0, "failed": 0,
+        "dds_rebuilt": 0,
+        "dds_skipped": 0,
+        "kbs_rebuilt": 0,
+        "kbs_skipped": 0,
+        "failed": 0,
     }
     provider = None
     try:
@@ -258,7 +262,7 @@ async def route_query(
     engine: AsyncEngine,
     tenant_id: str,
     query: str,
-    query_embedding: list[float],
+    query_embedding: list[float] | None,
     role_id: str,
     top_n: int = 3,
     top_k: int = 3,
@@ -266,8 +270,10 @@ async def route_query(
     """Soft route: keyword ∪ vector DD candidates (permission-filtered) → KB
     candidates (accessible_roles-filtered). Empty DD candidates → whole-tenant
     KB fallback so routing misses never yield empty recall.
+
+    query_embedding=None → vector lane 跳过（keyword lane 仍工作，优雅降级）。
     """
-    emb_str = f"[{', '.join(str(x) for x in query_embedding)}]"
+    emb_str = f"[{', '.join(str(x) for x in query_embedding)}]" if query_embedding else None
     t_l0 = time.monotonic()
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
@@ -276,17 +282,20 @@ async def route_query(
         keyword_hits = match_data_domains(query)
 
         # ── Level 1b: vector lane over routing_description ──
-        rows = await conn.execute(
-            text(
-                "SELECT dd.data_domain_id, dd.name, "
-                "1 - (dd.routing_embedding <=> CAST(:qemb AS vector(1024))) AS score "
-                "FROM data_domains dd "
-                "WHERE dd.tenant_id = :tid AND dd.routing_embedding IS NOT NULL "
-                "ORDER BY dd.routing_embedding <=> CAST(:qemb2 AS vector(1024)) LIMIT :n"
-            ),
-            {"qemb": emb_str, "qemb2": emb_str, "tid": tenant_id, "n": top_n},
-        )
-        vector_cands = [dict(r._mapping) for r in rows]
+        if emb_str is not None:
+            rows = await conn.execute(
+                text(
+                    "SELECT dd.data_domain_id, dd.name, "
+                    "1 - (dd.routing_embedding <=> CAST(:qemb AS vector(1024))) AS score "
+                    "FROM data_domains dd "
+                    "WHERE dd.tenant_id = :tid AND dd.routing_embedding IS NOT NULL "
+                    "ORDER BY dd.routing_embedding <=> CAST(:qemb2 AS vector(1024)) LIMIT :n"
+                ),
+                {"qemb": emb_str, "qemb2": emb_str, "tid": tenant_id, "n": top_n},
+            )
+            vector_cands = [dict(r._mapping) for r in rows]
+        else:
+            vector_cands = []
 
         # ── union + permission filter (roles.data_domain_access) ──
         by_id: dict[str, dict] = {}
@@ -304,7 +313,7 @@ async def route_query(
         # ── Level 2: KB summary within candidate DDs (accessible_roles) ──
         kb_rows = []
         fallback_used = False
-        if candidate_dds:
+        if candidate_dds and emb_str is not None:
             kb_rows = (
                 await conn.execute(
                     text(
@@ -331,20 +340,21 @@ async def route_query(
             # fallback: whole-tenant KB summary match (routing miss must not
             # yield empty recall); still permission-filtered on accessible_roles.
             fallback_used = True
-            kb_rows = (
-                await conn.execute(
-                    text(
-                        "SELECT kb.knowledge_base_id, kb.name, kb.data_domain_id, "
-                        "1 - (kb.summary_embedding <=> CAST(:qemb AS vector(1024))) AS score "
-                        "FROM knowledge_bases kb "
-                        "WHERE kb.tenant_id = :tid AND kb.summary_embedding IS NOT NULL "
-                        "AND (kb.accessible_roles IS NULL OR kb.accessible_roles = '{}' "
-                        "     OR :rid = ANY(kb.accessible_roles)) "
-                        "ORDER BY kb.summary_embedding <=> CAST(:qemb2 AS vector(1024)) LIMIT :k"
-                    ),
-                    {"qemb": emb_str, "qemb2": emb_str, "tid": tenant_id, "rid": role_id, "k": top_k},
-                )
-            ).fetchall()
+            if emb_str is not None:
+                kb_rows = (
+                    await conn.execute(
+                        text(
+                            "SELECT kb.knowledge_base_id, kb.name, kb.data_domain_id, "
+                            "1 - (kb.summary_embedding <=> CAST(:qemb AS vector(1024))) AS score "
+                            "FROM knowledge_bases kb "
+                            "WHERE kb.tenant_id = :tid AND kb.summary_embedding IS NOT NULL "
+                            "AND (kb.accessible_roles IS NULL OR kb.accessible_roles = '{}' "
+                            "     OR :rid = ANY(kb.accessible_roles)) "
+                            "ORDER BY kb.summary_embedding <=> CAST(:qemb2 AS vector(1024)) LIMIT :k"
+                        ),
+                        {"qemb": emb_str, "qemb2": emb_str, "tid": tenant_id, "rid": role_id, "k": top_k},
+                    )
+                ).fetchall()
         candidate_kbs = [dict(r._mapping) for r in kb_rows]
         t_l2 = time.monotonic()
 
@@ -394,12 +404,17 @@ async def _ontology_layers_debug(
     from earp_server.ontology.search import _knowledge_layers
 
     layers, fused = await _knowledge_layers(
-        engine, tenant_id, query,
-        embedding=query_embedding, role_id=role_id,
+        engine,
+        tenant_id,
+        query,
+        embedding=query_embedding,
+        role_id=role_id,
         data_domain_ids=cand_dds,
         knowledge_base_ids=cand_kbs or None,
-        top_k=5, embedding_dim=_ROUTING_DIM,
-        query_text=query, mode="hybrid",
+        top_k=5,
+        embedding_dim=_ROUTING_DIM,
+        query_text=query,
+        mode="hybrid",
     )
     return {
         "triggered": True,
@@ -409,12 +424,8 @@ async def _ontology_layers_debug(
         "graph": [
             {k: h.get(k) for k in ("entity_id", "entity_type", "title", "depth", "score")} for h in layers["graph"][:5]
         ],
-        "chunk": [
-            {k: h.get(k) for k in ("chunk_id", "title", "kb_name", "score")} for h in layers["chunk"][:5]
-        ],
-        "fused": [
-            {k: h.get(k) for k in ("source", "title", "rrf_score")} for h in fused
-        ],
+        "chunk": [{k: h.get(k) for k in ("chunk_id", "title", "kb_name", "score")} for h in layers["chunk"][:5]],
+        "fused": [{k: h.get(k) for k in ("source", "title", "rrf_score")} for h in fused],
     }
 
 
@@ -449,13 +460,15 @@ async def route_debug(
         t_coverage0 = time.monotonic()
 
         # coverage + freshness for ALL tenant DDs (visible in debug view)
-        all_rows = (await conn.execute(
-            text(
-                "SELECT data_domain_id, name, description, routing_embedding, routing_hash "
-                "FROM data_domains WHERE tenant_id = :tid"
-            ),
-            {"tid": tenant_id},
-        )).fetchall()  # materialize BEFORE nested queries (psycopg async: no
+        all_rows = (
+            await conn.execute(
+                text(
+                    "SELECT data_domain_id, name, description, routing_embedding, routing_hash "
+                    "FROM data_domains WHERE tenant_id = :tid"
+                ),
+                {"tid": tenant_id},
+            )
+        ).fetchall()  # materialize BEFORE nested queries (psycopg async: no
         # interleaved cursor ops on one connection — would hang the request)
         coverage: list[dict] = []
         freshness: list[dict] = []
@@ -464,12 +477,12 @@ async def route_debug(
             h = _desc_hash(current)
             kb_names = [
                 r.name
-                for r in (await conn.execute(
-                    text(
-                        "SELECT name FROM knowledge_bases WHERE tenant_id = :tid AND data_domain_id = :dd"
-                    ),
-                    {"tid": tenant_id, "dd": dd["data_domain_id"]},
-                )).fetchall()
+                for r in (
+                    await conn.execute(
+                        text("SELECT name FROM knowledge_bases WHERE tenant_id = :tid AND data_domain_id = :dd"),
+                        {"tid": tenant_id, "dd": dd["data_domain_id"]},
+                    )
+                ).fetchall()
             ]
             missing = check_description_coverage(current, kb_names)
             coverage.append({"data_domain_id": dd["data_domain_id"], "name": dd["name"], "missing_kb_names": missing})
@@ -529,16 +542,19 @@ async def route_debug(
         "candidate_kbs": result["candidate_kbs"],
         "kb_summaries": kb_summaries,
         "ontology_layers": await _ontology_layers_debug(
-            engine, tenant_id, query, query_embedding, role_id,
-            result["candidate_dds"], result["candidate_kbs"],
+            engine,
+            tenant_id,
+            query,
+            query_embedding,
+            role_id,
+            result["candidate_dds"],
+            result["candidate_kbs"],
         ),
         "timings": {
             "dd_vector_ms": round((t_coverage0 - t_dd_vec0) * 1000, 1),
             "coverage_freshness_ms": round((t_coverage1 - t_coverage0) * 1000, 1),
             "route_query": result["timings"],  # dd_lanes_ms + kb_locate_ms
-            "kb_summaries_ms": (
-                round((time.monotonic() - t_kbs0) * 1000, 1) if result["candidate_kbs"] else 0.0
-            ),
+            "kb_summaries_ms": (round((time.monotonic() - t_kbs0) * 1000, 1) if result["candidate_kbs"] else 0.0),
             "total_ms": round((time.monotonic() - t_debug0) * 1000, 1),
         },
         "fallback_used": result["fallback_used"],
