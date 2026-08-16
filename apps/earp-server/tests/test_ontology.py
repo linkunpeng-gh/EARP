@@ -262,3 +262,18 @@ async def test_list_entities_status_all(app_engine: AsyncEngine) -> None:
     assert any(r["status"] == "deprecated" for r in rows_all)
     _, total_active = await abox_service.list_entities(app_engine, "ont-t8", status="active")
     assert total_all == total_active + 1  # deprecated 只出现在 all
+
+
+async def test_get_entity_deprecated_viewable(app_engine: AsyncEngine) -> None:
+    """停用实体详情可查看（管理追溯）：get_entity 返回 deprecated；profile 可重编。"""
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t9")
+    e1 = await abox_service.upsert_entity(app_engine, "ont-t9", "equipment", "CNC-D2", business_code="CNC-D2")
+    await abox_service.deprecate_entity(app_engine, "ont-t9", e1["entity_id"])
+    ent = await abox_service.get_entity(app_engine, "ont-t9", e1["entity_id"])
+    assert ent is not None and ent["status"] == "deprecated"
+    # profile 可编译（不因 deprecated 返回 None）
+    prof = await abox_service.compile_profile(app_engine, "ont-t9", e1["entity_id"])
+    assert prof is not None
+    # 检索路径仍排除 deprecated（lookup_entities）
+    hits = await abox_service.lookup_entities(app_engine, "ont-t9", "CNC-D2")
+    assert hits == []

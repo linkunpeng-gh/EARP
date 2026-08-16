@@ -80,10 +80,12 @@ async def upsert_entity(
 
 
 async def get_entity(engine: AsyncEngine, tenant_id: str, entity_id: str) -> dict | None:
+    """Fetch an entity by id. 2026-08-16：允许 deprecated（管理详情/图谱追溯）；
+    检索路径用 lookup_entities（仍仅 active），互不影响。"""
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         row = await conn.execute(
-            text("SELECT * FROM entities WHERE entity_id = :eid AND status = 'active'"),
+            text("SELECT * FROM entities WHERE entity_id = :eid AND status IN ('active','deprecated')"),
             {"eid": entity_id},
         )
         r = row.fetchone()
@@ -315,7 +317,7 @@ async def compile_profile(engine: AsyncEngine, tenant_id: str, entity_id: str) -
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         entity_row = await conn.execute(
-            text("SELECT * FROM entities WHERE entity_id = :eid AND status = 'active'"),
+            text("SELECT * FROM entities WHERE entity_id = :eid AND status IN ('active','deprecated')"),
             {"eid": entity_id},
         )
         e = entity_row.fetchone()
