@@ -295,8 +295,8 @@ async def test_plan_relation_graph_empty_chunk_fallback(migrated: str, app_url: 
 # ── plan_aggregation（D2 方案 A：候选解析 + 回落）─────────────────────────────
 
 
-async def test_plan_aggregation_candidate_channel_not_ready(migrated: str, app_url: str, monkeypatch) -> None:
-    """有 query 候选 → trace CAPABILITY_QUERY + 「通道未就绪」标注，不 mock 假执行。"""
+async def test_plan_aggregation_executes_capability(migrated: str, app_url: str, monkeypatch) -> None:
+    """D1c：有 query 候选 + 执行器成功 → capability evidence（D2 边界解除，不再「通道未就绪」）。"""
     _install_stub(monkeypatch)
     engine = create_async_engine(app_url, pool_pre_ping=True)
     tid = "pc-t7"
@@ -306,13 +306,16 @@ async def test_plan_aggregation_candidate_channel_not_ready(migrated: str, app_u
         intent=Intent.AGGREGATION,
         confidence=0.9,
         operation=Operation(aggregate="COUNT"),
+        entities=[EntityMention(mention="CNC-01", semantic_type="equipment")],
     )
     res = await plan_aggregation(q, ctx=_ctx(engine, tid, scene["role_all"], "CNC-01 高温报警", app_url=app_url))
     assert res.plan_name == "plan_aggregation"
     trace_types = [t.type for t in res.trace]
     assert "CAPABILITY_QUERY" in trace_types
-    assert res.fallback_reason and "通道未就绪" in res.fallback_reason
-    assert res.evidence == []  # 无 capability 假执行
+    cap_ev = [e for e in res.evidence if e.channel.value == "capability"]
+    assert cap_ev, "must have capability evidence（执行成功）"
+    assert cap_ev[0].payload.get("aggregate", {}).get("count", 0) >= 1
+    assert any((t.output or {}).get("executed") is True for t in res.trace)
 
 
 async def test_plan_aggregation_no_candidate_falls_back(migrated: str, app_url: str, monkeypatch) -> None:

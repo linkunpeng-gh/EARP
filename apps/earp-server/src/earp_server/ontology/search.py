@@ -269,3 +269,48 @@ async def resolve_with_entities(
         for c in caps:
             candidates[c["capability_id"]] = c
     return list(candidates.values())[:top_k]
+
+
+async def resolve_with_query(
+    engine: AsyncEngine,
+    tenant_id: str,
+    query,
+    *,
+    top_k: int = 10,
+) -> list[dict]:
+    """Entity-aware capability resolution from a StructuredQuery（§6.5 新签名，Phase D）。
+
+    与 resolve_with_entities 的区别（v0.2 缺陷闭合）：
+    - 直接用 query.entities 的 semantic_type/mention，不重新 tokenize intent
+    - 命中实体不再内部丢弃——每个候选带 matched_entity_ids（Evidence 溯源用）
+
+    返回 [{capability_id, entity_type_id, matched_entity_ids, name, type, operation}]。
+    空 entities → 返回 []（调用方回落，MUST NOT block routing）。
+    """
+    from earp_server.ontology.understanding import StructuredQuery
+
+    if not isinstance(query, StructuredQuery) or not query.entities:
+        return []
+    type_ids = list({e.semantic_type for e in query.entities if e.semantic_type})
+    if not type_ids:
+        return []
+
+    # matched_entity_ids：每个 semantic_type 下的实体命中（mention → lookup）
+    matched: dict[str, list[str]] = {}
+    for ent in query.entities[:5]:
+        if not ent.semantic_type:
+            continue
+        hits = await abox_service.lookup_entities(engine, tenant_id, ent.mention, top_k=1)
+        if hits:
+            matched.setdefault(ent.semantic_type, []).append(hits[0]["entity_id"])
+
+    candidates: dict[str, dict] = {}
+    for et in type_ids:
+        caps = await tbox_service.find_capabilities_by_entity_type(engine, tenant_id, et)
+        for c in caps:
+            key = c["capability_id"]
+            if key not in candidates:
+                candidates[key] = {**c, "entity_type_id": et, "matched_entity_ids": list(matched.get(et, []))}
+            else:
+                candidates[key]["matched_entity_ids"].extend(matched.get(et, []))
+    return list(candidates.values())[:top_k]

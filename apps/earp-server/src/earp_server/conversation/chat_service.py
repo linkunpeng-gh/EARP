@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.connector import ConnectorError, LLMConnector
 from earp_server.knowledge.embedding_service import embed_query
-from earp_server.knowledge.routing import route_query
 from earp_server.knowledge.search_service import search_chunks
 
 logger = logging.getLogger(__name__)
@@ -104,10 +103,7 @@ async def _recent_pairs(engine: AsyncEngine, tenant_id: str, conversation_id: st
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         rows = await conn.execute(
-            text(
-                "SELECT role, content FROM messages WHERE conversation_id = :cid "
-                "ORDER BY seq DESC LIMIT :lim"
-            ),
+            text("SELECT role, content FROM messages WHERE conversation_id = :cid ORDER BY seq DESC LIMIT :lim"),
             {"cid": conversation_id, "lim": turns * 4 + 1},
         )
         msgs = list(reversed(rows.fetchall()))
@@ -144,9 +140,14 @@ async def _retrieve(
     q_emb: list[float],
     app: dict[str, Any],
     embedding_dim: int,
+    *,
+    settings=None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """返回 (chunks, citations)。kb_scope 空 → 软路由；否则限定 KB（无权限静默过滤）。
+    """返回 (chunks, citations)。
 
+    kb_scope 非空 → 限定 KB（search_chunks，一期不接 planner）。
+    kb_scope 空 → 软路由走 planner（Phase D D1d：理解 → select_plan → 策略 →
+    PlanResult → chunks/citations；AGGREGATION 走 capability 执行器）。
     检索保持原 top_k 语义（chunk 级）；引用去重在展示层做（前端按文档聚合）。
     """
     retrieval = app.get("retrieval") or {}
@@ -157,46 +158,89 @@ async def _retrieve(
     kb_scope = app.get("kb_scope") or []
     if kb_scope:
         chunks = await search_chunks(
-            engine, tenant_id, q_emb, role_id,
-            top_k=top_k, eventbus=None, embedding_dim=embedding_dim,
-            knowledge_base_ids=kb_scope, threshold=threshold,
-            query_text=query, mode=mode,
+            engine,
+            tenant_id,
+            q_emb,
+            role_id,
+            top_k=top_k,
+            eventbus=None,
+            embedding_dim=embedding_dim,
+            knowledge_base_ids=kb_scope,
+            threshold=threshold,
+            query_text=query,
+            mode=mode,
         )
     else:
-        routed = await route_query(engine, tenant_id, query, q_emb, role_id)
-        cand_dds = [dd["data_domain_id"] for dd in routed.get("candidate_dds", [])]
-        cand_kbs = [kb["knowledge_base_id"] for kb in routed.get("candidate_kbs", [])]
-        if cand_dds:
-            # 三层检索：L1/L2 实体层限 DD，L3 chunk 限 KB（kbs 空 → search_chunks 自动回退 DD，决策 D4）
-            logger.info(
-                "chat soft-routing + ontology: query=%r candidate_dds=%s candidate_kbs=%s fallback=%s",
-                query, cand_dds, cand_kbs, routed.get("fallback_used"),
-            )
-            from earp_server.ontology.search import knowledge_search
+        # Phase D D1d：软路由路径走 planner（理解 → select_plan → 策略 → PlanResult）
+        from earp_server.ontology.planning import execute_plan
+        from earp_server.ontology.understanding import build_structured_query, understand, upgrade_with_llm
 
-            chunks = await knowledge_search(
-                engine, tenant_id, query,
-                embedding=q_emb, role_id=role_id,
-                data_domain_ids=cand_dds,
-                knowledge_base_ids=cand_kbs or None,
-                top_k=top_k, embedding_dim=embedding_dim,
-                query_text=query, mode=mode,
-                threshold=threshold, metadata_filters=None,
-                eventbus=None,
-                rerank=True,
-            )
-        else:
-            # 无候选 DD → 全租户 chunk 兜底（原行为，决策 D4）
-            logger.info(
-                "chat soft-routing fallback: query=%r no candidate DD → whole-tenant chunk (candidate_kbs=%s)",
-                query, cand_kbs,
-            )
-            chunks = await search_chunks(
-                engine, tenant_id, q_emb, role_id,
-                top_k=top_k, eventbus=None, embedding_dim=embedding_dim,
-                knowledge_base_ids=cand_kbs or None, threshold=threshold,
-                query_text=query, mode=mode,
-            )
+        result = await understand(engine, tenant_id, query)
+        # LLM 升级仅在 settings 完整（含 ollama 配置）时触发——测试/简化环境跳过（规则层结果）
+        if settings is not None and hasattr(settings, "ollama_chat_model"):
+            result = await upgrade_with_llm(engine, tenant_id, query, result, settings=settings)
+        sq = build_structured_query(result)
+        logger.info(
+            "chat planner: query=%r intent=%s",
+            query,
+            sq.intent.value,
+        )
+        _, plan = await execute_plan(
+            engine,
+            tenant_id,
+            role_id,
+            query,
+            sq,
+            settings=settings,
+            top_k=top_k,
+        )
+        chunks = []
+        for ev in plan.evidence:
+            p = ev.payload or {}
+            if ev.channel.value == "chunk":
+                chunks.append(
+                    {
+                        "chunk_id": p.get("chunk_id"),
+                        "document_id": ev.source_ref,
+                        "title": ev.source,
+                        "content": ev.content,
+                        "kb_id": p.get("kb_id"),
+                        "metadata": p.get("metadata"),
+                        "similarity": p.get("similarity"),
+                    }
+                )
+            elif ev.channel.value == "profile":
+                chunks.append(
+                    {
+                        "source": "profile",
+                        "entity_id": p.get("entity_id"),
+                        "entity_type": p.get("entity_type"),
+                        "title": ev.source,
+                        "content": ev.content,
+                        "key_facts": p.get("key_facts", []),
+                    }
+                )
+            elif ev.channel.value == "graph":
+                chunks.append(
+                    {
+                        "source": "graph",
+                        "entity_id": p.get("target_entity_id"),
+                        "entity_type": p.get("entity_type"),
+                        "title": ev.source,
+                        "content": ev.content,
+                    }
+                )
+            else:  # capability（AGGREGATION 结构化结果）
+                chunks.append(
+                    {
+                        "source": "capability",
+                        "title": ev.source,
+                        "content": f"结构化聚合：{ev.content}",
+                        "aggregate": p.get("aggregate"),
+                        "rows": p.get("rows"),
+                    }
+                )
+        return chunks, plan.citations
 
     citations = []
     for ch in chunks:
@@ -322,7 +366,9 @@ async def chat_sse(
         if embedding_dim is None:
             embedding_dim = getattr(settings, "embedding_dim", 1024)
         q_emb = await embed_query(query)
-        chunks, citations = await _retrieve(engine, tenant_id, role_id, query, q_emb, app, embedding_dim)
+        chunks, citations = await _retrieve(
+            engine, tenant_id, role_id, query, q_emb, app, embedding_dim, settings=settings
+        )
 
         # ⑥ 提示词 = app.system_prompt + 结构尾巴；上下文进 user 消息
         system = (app.get("system_prompt") or "").strip() + _SYSTEM_TAIL
@@ -331,11 +377,7 @@ async def chat_sse(
 
         # ⑦ LLM：模型三级解析
         override = await resolve_llm_override(engine, tenant_id, app)
-        chat_llm = (
-            LLMConnector(settings, rate_limiter=rate_limiter, model_override=override)
-            if override
-            else base_llm
-        )
+        chat_llm = LLMConnector(settings, rate_limiter=rate_limiter, model_override=override) if override else base_llm
 
         # ⑧ 流式生成（应用级生成参数：temperature/top_p/max_tokens）
         gen = app.get("generation") or {}

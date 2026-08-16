@@ -22,7 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -43,8 +43,8 @@ class EvidenceChannel(StrEnum):
 
 
 class Evidence(BaseModel):
-    """Evidence Set schema（§9.1 冻结）。一期为 recall 层通道直接映射（D5）；
-    conflict 恒 False（§9.2 消解 Phase D3）。"""
+    """Evidence Set schema（§9.1 冻结）。Phase D 启用角色层（§9.2）：
+    role=primary/auxiliary（§8.2 通道角色表）+ conflict 消解。"""
 
     evidence_id: str
     channel: EvidenceChannel
@@ -56,6 +56,7 @@ class Evidence(BaseModel):
     valid_to: datetime | None = None
     payload: dict = Field(default_factory=dict)  # channel 多态
     conflict: bool = False
+    role: Literal["primary", "auxiliary"] = "auxiliary"  # §9.2 主/佐证（D3）
 
 
 class TraceRecord(BaseModel):
@@ -157,6 +158,48 @@ def _mk_evidence(
         confidence=confidence,
         payload=payload or {},
     )
+
+
+# ── Task 5: 角色层 Evidence 组装（§8.2/§9.2，D3）────────────────────────────
+
+
+def _role_for(channel: EvidenceChannel, intent: Intent) -> Literal["primary", "auxiliary"]:
+    """§8.2 通道角色表：主证据 vs 佐证（与 recall RRF 正交）。"""
+    if intent in (Intent.FACT, Intent.ATTRIBUTE):
+        return "primary" if channel == EvidenceChannel.CHUNK else "auxiliary"
+    if intent in (Intent.RELATION, Intent.MULTI_HOP, Intent.LIST):
+        return "primary" if channel == EvidenceChannel.GRAPH else "auxiliary"
+    if intent in (Intent.AGGREGATION, Intent.COMPARISON, Intent.TREND):
+        return "primary" if channel == EvidenceChannel.CAPABILITY else "auxiliary"
+    if intent in (Intent.CAUSAL, Intent.MIXED):
+        # capability + graph 并重，chunk 佐证（解释材料）
+        return "primary" if channel in (EvidenceChannel.CAPABILITY, EvidenceChannel.GRAPH) else "auxiliary"
+    return "auxiliary"
+
+
+def apply_role_layer(evidence: list[Evidence], intent: Intent) -> list[Evidence]:
+    """角色层组装（§9.2）：主/佐证打标 + 排序 + 同 channel 冲突消解。
+
+    - role 由 §8.2 定（_role_for）
+    - 冲突消解：同 (channel, source_ref) 多条 → 保留 confidence 高者，其余 conflict=true
+      （graph 层 valid_to 过滤已由 graph_query 保证；chunk 相似度天然有序）
+    - 排序：primary 在前，confidence 降序（供 LLM 归纳时主证据优先）
+    """
+    for ev in evidence:
+        ev.role = _role_for(ev.channel, intent)
+    seen: dict[tuple[str, str], int] = {}
+    for i, ev in enumerate(evidence):
+        key = (ev.channel, ev.source_ref)
+        if key in seen:
+            j = seen[key]
+            if evidence[j].confidence >= ev.confidence:
+                ev.conflict = True
+            else:
+                evidence[j].conflict = True
+                evidence[j], evidence[i] = evidence[i], evidence[j]
+        else:
+            seen[key] = i
+    return sorted(evidence, key=lambda e: (0 if e.role == "primary" else 1, -e.confidence))
 
 
 # ── Task 2: select_plan 规则映射表（§11.2，10 类全覆盖 QP-11）──────────────────
@@ -389,7 +432,7 @@ async def plan_fact(query: StructuredQuery, *, ctx: QueryContext) -> PlanResult:
         tracer.finish({"top": top_k})
     return PlanResult(
         plan_name="plan_fact",
-        evidence=_evidence_from_items(items),
+        evidence=apply_role_layer(_evidence_from_items(items), query.intent),
         citations=_citations_from_items(items),
         trace=tracer.records,
         latency_ms=round((time.monotonic() - t0) * 1000, 1),
@@ -481,7 +524,7 @@ async def plan_relation(query: StructuredQuery, *, ctx: QueryContext, max_hops: 
 
     return PlanResult(
         plan_name="plan_relation",
-        evidence=_evidence_from_items(items),
+        evidence=apply_role_layer(_evidence_from_items(items), query.intent),
         citations=_citations_from_items(items),
         trace=tracer.records,
         latency_ms=round((time.monotonic() - t0) * 1000, 1),
@@ -489,20 +532,21 @@ async def plan_relation(query: StructuredQuery, *, ctx: QueryContext, max_hops: 
 
 
 async def plan_aggregation(query: StructuredQuery, *, ctx: QueryContext) -> PlanResult:
-    """plan_aggregation（§12 例 4，D2 方案 A）：resolve_with_entities 候选解析。
+    """plan_aggregation（§12 例 4，D1c：D2 边界解除）。
 
-    一期 capability 执行链未建成（connector.execute 仅 demo.echo）——有 query
-    候选 → trace 标注「capability 通道未就绪」，不 mock 假执行；无候选 → 显式
-    回落 plan_fact（§11.2）。Phase D1 接入 resolve_with_query + 执行器后重标。
+    resolve_with_query（§6.5，带 matched_entity_ids）→ 候选 → execute_capability_query
+    （内置 ontology 事实聚合执行器）→ Evidence(channel=capability)。
+    无候选 / 执行失败（无数据支撑）→ 显式回落 plan_fact（§11.2，D5）。
     """
     t0 = time.monotonic()
     tracer = _Tracer()
     qtext = ctx.query or ""
 
-    from earp_server.ontology.search import resolve_with_entities
+    from earp_server.ontology.capability_query import execute_capability_query
+    from earp_server.ontology.search import resolve_with_query
 
     tracer.step("CAPABILITY_QUERY", input_={"intent": qtext, "operation": query.operation.model_dump()})
-    candidates = await resolve_with_entities(ctx.engine, ctx.tenant_id, qtext)
+    candidates = await resolve_with_query(ctx.engine, ctx.tenant_id, query)
     query_cands = [c for c in candidates if c.get("type") == "query"]
     tracer.finish({"candidates": len(candidates), "query_candidates": len(query_cands)})
 
@@ -513,22 +557,47 @@ async def plan_aggregation(query: StructuredQuery, *, ctx: QueryContext) -> Plan
         sub.fallback_reason = "no query capability candidate → plan_fact"
         return sub
 
-    # 有候选但执行链未就绪（D2）：trace 标注，不假执行
-    tracer.step(
-        "CAPABILITY_QUERY",
-        input_={
-            "note": "capability 通道未就绪（Phase D1）",
-            "candidates": [c["capability_id"] for c in query_cands[:5]],
-        },
-    )
-    tracer.finish({"executed": False})
-    result = PlanResult(
-        plan_name="plan_aggregation",
-        trace=tracer.records,
-        fallback_reason="capability 通道未就绪（Phase D1 接入执行器）——已解析候选，未执行",
-        latency_ms=round((time.monotonic() - t0) * 1000, 1),
-    )
-    return result
+    # 执行内置聚合执行器（D1b）——首个候选执行成功即返回；失败尝试下个/plan_fact
+    for cand in query_cands[:3]:
+        tracer.step("CAPABILITY_QUERY", input_={"capability_id": cand["capability_id"], "execute": True})
+        out = await execute_capability_query(ctx.engine, ctx.tenant_id, cand, query, role_id=ctx.role_id)
+        if out is None:
+            tracer.finish({"executed": False, "reason": "no numeric/aggregate support"})
+            continue
+        tracer.finish({"executed": True, "rows": len(out.get("rows", [])), "aggregate": out.get("aggregate")})
+        ev = _mk_evidence(
+            EvidenceChannel.CAPABILITY,
+            content=str(out.get("aggregate") or ""),
+            source=str(cand.get("name") or cand["capability_id"]),
+            source_ref=f"capcall-{uuid.uuid4().hex[:10]}",
+            confidence=1.0,
+            payload={
+                "capability_id": cand["capability_id"],
+                "rows": out.get("rows", []),
+                "aggregate": out.get("aggregate"),
+                "matched_entity_ids": cand.get("matched_entity_ids", []),
+            },
+        )
+        return PlanResult(
+            plan_name="plan_aggregation",
+            evidence=apply_role_layer([ev], query.intent),
+            citations=[
+                {
+                    "source": "capability",
+                    "capability_id": cand["capability_id"],
+                    "title": cand.get("name") or "",
+                    "aggregate": out.get("aggregate"),
+                }
+            ],
+            trace=tracer.records,
+            latency_ms=round((time.monotonic() - t0) * 1000, 1),
+        )
+
+    # 全部候选执行失败 → 回落 plan_fact
+    sub = await plan_fact(query, ctx=ctx)
+    sub.plan_name = "plan_fact"
+    sub.fallback_reason = "capability query 无数据支撑（数值属性缺失）→ plan_fact"
+    return sub
 
 
 async def execute_plan(

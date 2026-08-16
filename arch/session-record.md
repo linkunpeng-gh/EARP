@@ -433,6 +433,35 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 会话续接（2026-08-16）— Phase D（能力闭环 D1 + 角色层 D3）已实施
+
+> 任务书：`tasks/query-understanding-phase-d-task-breakdown.md`（9 Task；D1/D2/D3 方案 A 已确认）
+> 设计：`arch/design/query-understanding-query-plan-design-v0.3.md`（§6.5/§8.2/§9.2/§16 Phase D）
+
+**会话主线**：解除 Phase C 的 D2 边界（plan_aggregation 从「候选解析+回落」升级为**真实聚合**）+ chat 软路由路径接入 planner + 角色层 Evidence 组装（tech-debt #10 清偿）。
+
+**关键产出（后端）**：
+- `ontology/search.py::resolve_with_query()`（§6.5 新签名）：接收 StructuredQuery，直接消费 entities.semantic_type（非重新 tokenize），返回带 **matched_entity_ids**（v0.2 缺陷闭合）；resolve_with_entities 保留（/plan M2 收窄路径）
+- `ontology/capability_query.py`（新建）：内置 ontology 事实聚合执行器——COUNT + group_by + 关系计数（facts join）+ 角色 data_domain_access 权限过滤（fail-closed）；SUM/AVG/MAX/MIN 无数值属性支撑返回 None（调用方回落，不假造）；**connector 保持无 DB**（执行器在 ontology 域直连 DB）
+- `plan_aggregation` 升级（D1c）：resolve_with_query → 执行器 → Evidence(channel=capability) + trace executed=true；「capability 通道未就绪」标注移除（D2 边界解除）；无候选/执行失败仍显式回落 plan_fact（D5）
+- **chat 接入 answer**（D1d）：chat_service._retrieve 软路由路径 → execute_plan（理解→select_plan→策略→PlanResult→chunks/citations）；kb_scope 限定路径保持 search_chunks；import-linter 加 3 条 ignore（conversation→ontology.planning/understanding/capability_query，P2 先例）；LLM 升级仅 settings 完整时触发（测试环境跳过）
+- **角色层**（D3）：Evidence 加 `role` 字段 + `_role_for`（§8.2 通道角色表）+ `apply_role_layer`（§9.2 冲突消解：同 (channel, source_ref) 保留 confidence 高者其余 conflict=true + primary 优先排序）；三策略 evidence 组装后过角色层
+
+**测试与验证**：`test_capability_query.py`（9 用例：resolve_with_query matched_entity_ids / COUNT + 权限 / 关系计数 / fail-closed / group_by / 角色层纯函数）+ test_planning 更新（plan_aggregation 执行语义）+ test_chat 回归（软路由走 planner）；**164 tests passed**（155 → +9）+ import-linter（3 条新 ignore 生效）+ OpenAPI 无变化 + ruff/pyright 零新增；dev 真模型 verify_planning：**select_plan 映射 111/111=100%**、执行分布 plan_fact 76 / plan_relation 32 / plan_aggregation **3（真实聚合，capability evidence 3）**、fallbacks 不再含「通道未就绪」、延迟全在预算内、非法 trace 0
+
+**顺手修复**：test_chat `_purge` 动态清理同 DD KB（跨租户语义 id 冲突，debt #7 模式）；chat_service route_query unused import
+
+**下一步（沿用优先级表）**：
+1. **P3 rerank 真模型验证**——待 rerank 环境（升级 Ollama + 拉 bge-reranker + `EARP_RERANK_PROVIDER=ollama`，零代码）
+2. **tech-debt 治理**：#12 TBox 审批流、#11 profile 过期管理（写时失效/读时 freshness）、#9 角色域权限、#7 business_capabilities 复合主键、#8 indexing_technique
+3. **M3 中台 importer + Enrichment**（PRD-2026-030）；**B6 评估集管理页**（routing_eval 落库 + 跑分可视化）
+4. **QU 二期**：chat 发布评审+可见范围（应用中心使用界面）、Phase F（通用 DAG/低置信度自适应规划）评估
+5. 8000 端口残留 API 进程（PID 97205/72523）可 kill
+
+**QU 链路当前完整闭环**：理解（QU 规则+LLM 升级）→ 规划（select_plan 3 策略 + Execution Trace）→ 检索（三层 RRF + 软路由）→ 执行（capability 聚合）→ 角色层 Evidence → Answer（chat）；Plan 层 gating 100% 通过
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |

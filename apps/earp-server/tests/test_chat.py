@@ -82,14 +82,19 @@ async def _purge(migration_url: str, tid: str) -> None:
     """语义 id（data_domains PK 单列跨租户冲突，known debt #7）跨测试共享——超级用户清理。"""
     eng = create_async_engine(migration_url)
     async with eng.begin() as conn:
+        # 动态覆盖所有租户中 data_domain 关联的 KB（跨租户语义 id 冲突，debt #7）
         await conn.execute(
             text(
-                "DELETE FROM chunks WHERE knowledge_base_id IN ('kb-fin', 'kb-alarm')"
+                "DELETE FROM chunks WHERE knowledge_base_id IN "
+                "(SELECT knowledge_base_id FROM knowledge_bases "
+                "WHERE data_domain_id IN ('finance_data', 'equipment_data'))"
             )
         )
         await conn.execute(
             text(
-                "DELETE FROM documents WHERE knowledge_base_id IN ('kb-fin', 'kb-alarm')"
+                "DELETE FROM documents WHERE knowledge_base_id IN "
+                "(SELECT knowledge_base_id FROM knowledge_bases "
+                "WHERE data_domain_id IN ('finance_data', 'equipment_data'))"
             )
         )
         await conn.execute(text("DELETE FROM knowledge_bases WHERE data_domain_id IN ('finance_data', 'equipment_data')"))
