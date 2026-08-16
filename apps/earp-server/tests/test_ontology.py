@@ -182,3 +182,16 @@ async def test_list_deprecate_and_fact_id(app_engine: AsyncEngine) -> None:
     fid = hops[0]["fact_id"]
     revoked = await abox_service.revoke_fact(app_engine, "ont-t3", fid)
     assert revoked["status"] == "revoked"
+
+
+async def test_list_entities_keyword_search(app_engine: AsyncEngine) -> None:
+    """M4：list_entities 支持 q 关键字搜索（名称/业务编码 ILIKE）。"""
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t4")
+    await abox_service.upsert_entity(app_engine, "ont-t4", "equipment", "CNC-01", business_code="CNC-01")
+    await abox_service.upsert_entity(app_engine, "ont-t4", "equipment", "CNC-02", business_code="CNC-02")
+    await abox_service.upsert_entity(app_engine, "ont-t4", "supplier", "上海某精机", business_code="SUP-1")
+
+    rows, total = await abox_service.list_entities(app_engine, "ont-t4", q="CNC", page_size=10)
+    assert total == 2
+    rows2, total2 = await abox_service.list_entities(app_engine, "ont-t4", q="精机", page_size=10)
+    assert total2 == 1 and rows2[0]["name"] == "上海某精机"

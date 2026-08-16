@@ -171,8 +171,9 @@ async def list_entities(
     status: str = "active",
     page: int = 1,
     page_size: int = 20,
+    q: str | None = None,
 ) -> dict:
-    """实体分页列表（M4 admin 实体管理页）。"""
+    """实体分页列表（M4 admin 实体管理页）。q 按名称/业务编码搜索。"""
     rows, total = await abox_service.list_entities(
         req.app.state.engine,
         req.state.tenant_id,
@@ -181,6 +182,7 @@ async def list_entities(
         status=status,
         page=page,
         page_size=page_size,
+        q=q,
     )
     return {"items": rows, "total": total, "page": page, "page_size": page_size}
 

@@ -83,6 +83,7 @@ async function loadList() {
   var et = document.getElementById('ent-type-filter').value;
   var dd = document.getElementById('ent-dd-filter').value;
   var url = '/v1/ontology/entities?page=' + PAGE + '&page_size=' + PAGE_SIZE
+    + (q ? '&q=' + encodeURIComponent(q) : '')
     + (et ? '&entity_type=' + encodeURIComponent(et) : '')
     + (dd ? '&data_domain_id=' + encodeURIComponent(dd) : '');
   try {
