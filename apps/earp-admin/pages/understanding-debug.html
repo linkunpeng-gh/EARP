@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Query Understanding Debug"><title>QU 调试 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body data-base=".." data-section="knowledge" data-sub="understanding-debug">
+<header id="app-header"></header>
+
+<main>
+
+<p class="breadcrumb"><a href="knowledge.html">&larr; Back to Knowledge Center</a></p>
+
+<div class="page-title"><div><h2>QU 调试 <span class="tag" style="background:#e0e7ff;color:#3730a3">调试工具</span></h2><p class="page-subtitle">Query Understanding 理解层调试 — Structured Query / 字段命中明细 / derive_needs / LLM 升级（Phase B）</p></div></div>
+
+<div class="tr-layout">
+
+  <!-- Left: Query Input + Context -->
+  <div class="tr-left">
+
+    <div class="panel" style="margin-bottom:1rem">
+      <h3 style="font-size:0.81rem;margin-bottom:0.5rem">Query</h3>
+      <textarea id="qu-query" rows="4" placeholder="输入用户查询，如：CNC-01 由哪家供应商制造" style="width:100%;font-family:inherit;font-size:0.81rem;resize:vertical;min-height:80px"></textarea>
+
+      <h3 style="font-size:0.81rem;margin:0.75rem 0 0.35rem">会话上下文（可选，指代消解）</h3>
+      <input id="qu-context" type="text" placeholder="上文实体 mention:type，逗号分隔，如：CNC-01:equipment" style="width:100%;font-family:inherit;font-size:0.78rem;padding:0.4rem 0.5rem;border:1px solid var(--border,#d6d8dd);border-radius:6px;box-sizing:border-box">
+      <div style="font-size:0.68rem;color:var(--text-quaternary,#6b6e75);margin-top:0.25rem">「它/该设备」等指代词将映射到最后一个上文实体</div>
+
+      <div style="margin-top:0.6rem;display:flex;gap:0.5rem">
+        <button class="primary" onclick="runQU()" style="flex:1">🧠 理解</button>
+        <button class="btn-outline btn-sm" onclick="clearAll()">Clear</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem"><h3 style="font-size:0.81rem;margin:0">说明</h3></div>
+      <div style="font-size:0.72rem;color:var(--text-tertiary,#6b6e75);line-height:1.7">
+        <div>· 一期可靠分类子集 = <b>FACT / RELATION / AGGREGATION</b>；其余 7 类显式回落（QP-14）</div>
+        <div>· relation 必须来自 TBox（relation_types 表动态候选，禁止发明）</div>
+        <div>· confidence = 规则覆盖率 − 0.2×歧义字段数（§6.4）；&lt; 0.7 触发 LLM 升级（只补未命中字段）</div>
+        <div>· 高置信查询零 LLM；LLM 不可达时保持规则结果（回落）</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right: Result -->
+  <div class="tr-right">
+    <div id="qu-result">
+      <div class="panel" style="color:var(--text-quaternary,#6b6e75);font-size:0.78rem;padding:1.5rem;text-align:center">输入查询后点击「🧠 理解」查看 Structured Query 分层结果</div>
+    </div>
+  </div>
+
+</div>
+
+</main>
+
+<script src="../js/app.js"></script>
+<script src="../js/nav.js"></script>
+<script>
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function tag(label, cls) { return '<span class="tag" style="' + (cls || '') + '">' + esc(label) + '</span>'; }
+
+function clearAll() {
+  document.getElementById('qu-query').value = '';
+  document.getElementById('qu-context').value = '';
+  document.getElementById('qu-result').innerHTML = '<div class="panel" style="color:var(--text-quaternary,#6b6e75);font-size:0.78rem;padding:1.5rem;text-align:center">输入查询后点击「🧠 理解」查看 Structured Query 分层结果</div>';
+}
+
+function parseContext() {
+  var raw = document.getElementById('qu-context').value.trim();
+  if (!raw) return null;
+  var last = [];
+  raw.split(/[,，]/).forEach(function (item) {
+    item = item.trim();
+    if (!item) return;
+    var parts = item.split(':');
+    if (parts.length >= 2) last.push({ mention: parts[0].trim(), semantic_type: parts.slice(1).join(':').trim() });
+  });
+  return last.length ? { last_entities: last } : null;
+}
+
+function runQU() {
+  var q = document.getElementById('qu-query').value.trim();
+  if (!q) { alert('请输入查询'); return; }
+  var box = document.getElementById('qu-result');
+  box.innerHTML = '<div class="panel" style="color:var(--text-quaternary,#6b6e75);font-size:0.78rem;padding:1.5rem;text-align:center">理解中...（低置信度会尝试 LLM 升级，需 API 服务可用）</div>';
+  EARP.fetchJSON('/v1/ontology/understanding/debug', {
+    method: 'POST',
+    body: JSON.stringify({ query: q, context: parseContext() }),
+  }).then(render).catch(function (e) {
+    box.innerHTML = '<div class="panel" style="color:#b91c1c;font-size:0.78rem;padding:1rem">调用失败: ' + esc(e && e.message ? e.message : String(e)) + '</div>';
+  });
+}
+
+function render(d) {
+  var sq = d.structured_query || {};
+  var fields = d.rule_fields || {};
+  var reasons = d.field_reasons || {};
+  var needs = d.derive_needs || {};
+  var hitBadge = function (hit) { return hit ? tag('✓ hit', 'background:#dcfce7;color:#166534') : tag('✗ miss', 'background:#fee2e2;color:#991b1b'); };
+  var h = '';
+
+  // ── 概览 ──
+  h += '<div class="panel" style="margin-bottom:0.75rem">';
+  h += '<div style="margin-bottom:0.4rem">查询: <strong>' + esc(d.query != null ? d.query : (sq.context || {}).query) + '</strong>';
+  if (d.llm_upgraded) h += ' ' + tag('🧠 LLM 升级', 'background:#ede9fe;color:#5b21b6');
+  h += ' ' + tag('confidence=' + Number(d.confidence != null ? d.confidence : sq.confidence).toFixed(2), 'background:#ecfdf5;color:#065f46');
+  h += '</div>';
+  h += '<div style="font-size:0.7rem;color:var(--text-tertiary,#6b6e75)">相关字段: ' + esc((d.relevant_fields || []).join(' / ')) + '</div>';
+  h += '</div>';
+
+  // ── Structured Query ──
+  h += '<div class="panel" style="margin-bottom:0.75rem">';
+  h += '<div class="params-title">Structured Query</div>';
+  h += '<table style="width:100%;border-collapse:collapse;font-size:0.75rem">';
+  h += '<tr><td style="padding:3px 4px;color:var(--text-tertiary,#6b6e75);width:110px">intent</td><td><b>' + esc(sq.intent) + '</b>'
+    + (fields.intent === 'miss' ? ' ' + tag('显式回落', 'background:#fef3c7;color:#92400e') + ' <span style="font-size:0.68rem;color:var(--text-quaternary)">' + esc(reasons.intent || '规则层未命中可靠子集关键词（QP-14）') + '</span>' : '')
+    + '</td></tr>';
+  h += '<tr><td style="padding:3px 4px;color:var(--text-tertiary,#6b6e75)">entities</td><td>' + renderEntities(sq.entities) + '</td></tr>';
+  h += '<tr><td style="padding:3px 4px;color:var(--text-tertiary,#6b6e75)">relations</td><td>' + renderRelations(sq.relations) + '</td></tr>';
+  h += '<tr><td style="padding:3px 4px;color:var(--text-tertiary,#6b6e75)">time</td><td>' + esc(JSON.stringify(sq.time || {})) + '</td></tr>';
+  h += '<tr><td style="padding:3px 4px;color:var(--text-tertiary,#6b6e75)">constraints</td><td>' + esc(JSON.stringify(sq.constraints || {})) + '</td></tr>';
+  h += '<tr><td style="padding:3px 4px;color:var(--text-tertiary,#6b6e75)">operation</td><td>' + esc(JSON.stringify(sq.operation || {})) + '</td></tr>';
+  h += '</table>';
+  h += '</div>';
+
+  // ── 字段命中明细 ──
+  h += '<div class="panel" style="margin-bottom:0.75rem">';
+  h += '<div class="params-title">规则层字段命中（confidence = 覆盖率 − 0.2×歧义）</div>';
+  h += '<table style="width:100%;border-collapse:collapse;font-size:0.75rem">';
+  Object.keys(fields).forEach(function (f) {
+    h += '<tr><td style="padding:3px 4px;color:var(--text-tertiary,#6b6e75);width:110px">' + esc(f) + '</td><td>' + hitBadge(fields[f] === 'hit') + ' '
+      + (reasons[f] ? '<span style="font-size:0.68rem;color:var(--text-quaternary)">' + esc(reasons[f]) + '</span>' : '') + '</td></tr>';
+  });
+  h += '</table>';
+  h += '</div>';
+
+  // ── derive_needs ──
+  h += '<div class="panel" style="margin-bottom:0.75rem">';
+  h += '<div class="params-title">derive_needs（§7 纯派生，不落库）</div>';
+  h += '<table style="width:100%;border-collapse:collapse;font-size:0.75rem">';
+  Object.keys(needs).forEach(function (k) {
+    h += '<tr><td style="padding:3px 4px;color:var(--text-tertiary,#6b6e75);width:160px">' + esc(k) + '</td><td>' + (needs[k] ? '✅' : '—') + '</td></tr>';
+  });
+  h += '</table>';
+  h += '</div>';
+
+  // ── relation 候选溯源（可折叠） ──
+  var cands = d.relation_candidates_used || [];
+  h += '<div class="panel">';
+  h += '<div class="params-title" style="cursor:pointer" onclick="var el=document.getElementById(\'cand-panel\');el.style.display=el.style.display===\'none\'?\'\':\'none\'">relation 候选溯源（' + cands.length + '） ▾</div>';
+  h += '<div id="cand-panel" style="display:none;font-size:0.7rem;color:var(--text-tertiary,#6b6e75);max-height:200px;overflow:auto">';
+  cands.forEach(function (c) {
+    h += '<div>' + esc(c.relation_type_id) + ' <span style="color:var(--text-quaternary)">(' + esc(c.source_type) + '→' + esc(c.target_type) + ')</span></div>';
+  });
+  h += '</div>';
+  h += '</div>';
+
+  document.getElementById('qu-result').innerHTML = h;
+}
+
+function renderEntities(list) {
+  if (!list || !list.length) return '<span style="color:var(--text-quaternary,#6b6e75)">—</span>';
+  return (list || []).map(function (e) {
+    return '<span class="tag" style="background:#e0f2fe;color:#075985">' + esc(e.mention) + ' <span style="opacity:0.7">' + esc(e.semantic_type || '?') + (e.role ? ' · ' + e.role : '') + '</span></span> ';
+  }).join('');
+}
+
+function renderRelations(list) {
+  if (!list || !list.length) return '<span style="color:var(--text-quaternary,#6b6e75)">—</span>';
+  return (list || []).map(function (r) {
+    return '<span class="tag" style="background:#fce7f3;color:#9d174d">' + esc(r.subject) + ' → ' + esc(r.relation) + (r.object_type ? ' → ' + esc(r.object_type) : '') + '</span> ';
+  }).join('');
+}
+</script>
+</body></html>

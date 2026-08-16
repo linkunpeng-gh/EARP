@@ -362,6 +362,41 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 会话续接（2026-08-16）— Phase B（QU 理解层）已实施
+
+> 任务书：`tasks/query-understanding-phase-b-task-breakdown.md`（14 Task + 前端 F1；D4/D7 讨论定稿方案 A）
+> 设计：`arch/design/query-understanding-query-plan-design-v0.3.md`（§5/§6/§7/§17）
+
+**会话主线**：规则优先 + LLM 低置信度升级的理解层独立建设（Phase B 净增量）——Structured Query schema 冻结落地、六维规则层（时间/实体/intent/relation/operation/约束）、置信度（§6.4 机械计算）、derive_needs 纯函数、LLM 升级（只补未命中字段 + TBox 过滤）、评估集（N=111）、debug 端点 + 前端调试视图。
+
+**关键产出（后端）**：
+- `ontology/understanding.py`（新建）：§6.2 Pydantic 冻结模型（Intent 10 枚举/TimeConstraint/EntityMention/RelationMention/Operation/AnswerRequirement/StructuredQuery）+ `_INTENT_KEYWORDS`（可靠子集 {FACT, RELATION, AGGREGATION}，其余 7 类显式回落 QP-14）+ 规则层六维 + `understand()` 主入口 + `derive_needs()`（§7 单源推导）+ `upgrade_with_llm()`（低置信度升级）
+- `connector.py::json_complete()`（新方法，D4 方案 A）：无 DB（model_override 参数化），ollama/openai JSON 单发，不可达返回 None 回落；`main.py::_llm_suggest` 保留薄封装（签名/响应不变，两处调用点零改动）
+- `POST /v1/ontology/understanding/debug`（D7）：StructuredQuery + 字段命中明细 + derive_needs + LLM 升级标记 + relation 候选溯源（复用 route_debug 分层可解释模式，§15）
+- **评估集** `tests/fixtures/understanding_eval.md`（N=111 标注查询）+ `test_understanding_eval.py`（机制层 runner）+ `scripts/verify_understanding.py`（dev 真 LLM）
+
+**关键产出（前端）**：`pages/understanding-debug.html`（QU 调试视图，标注调试工具）+ nav 抽屉「探索验证」组加「QU 调试」
+
+**规则层关键决策（实施中修正）**：
+1. AGG 关键词收紧：裸「多少」→「有多少/多少台/多少次」等复合量词（「更换周期是多少」是属性查询非聚合）
+2. 消歧顺序 AGGREGATION > RELATION > FACT（「哪个设备故障最多」聚合语义强于疑问词）
+3. RELATION 关键词去掉「哪些/供应商」（LIST 误伤）；「由什么/是什么引起的/生产什么/哪条」加入
+4. relation 提取只做「实体作 subject」被动模式（方向校验 source_type）；「谁负责 A产线」等主动疑问一期不提取（Phase C 范畴），方向校验失败不强行用首实体（避免 CNC-01→produces 类错误）
+5. `_llm_suggest` 抽取：D4 方案 A（json_complete 无 DB + 薄封装）——回归面 = 内部实现替换
+6. LLM 升级 relations/entities 额外允许「LLM 主动输出 + result 为空」（schema 校验=TBox 硬门槛）；intent 非法拒绝（合规率 100% 不破）
+
+**验证**：141 tests passed（102 → +39）+ import-linter + OpenAPI 基线同步（新端点）+ ruff/pyright 零新增；评估集机制层 **intent 100% / entity 100% / relation 100% / schema 0 违规**；dev 真模型（qwen2.5:1.5b 真 LLM 升级路径）**intent 95% / entity 100% / relation 100% / schema 0 违规 / 规则层 p95 8.7ms（预算 <50ms）**——全部超 §17 门槛（≥85%/≥90%/≥80%/100%），gating 通过可启动 Phase C
+
+**下一步（沿用 2026-08-16 优先级表）**：
+1. **Phase C（最小固定策略 Planner）**——§17 gating 已过；3 策略（plan_fact/plan_relation/plan_aggregation）按疼点启用；`select_plan` 规则映射表 + Execution Trace + `resolve_with_entities` 接入 plan_aggregation
+2. **Phase D**：D1 `resolve_with_query()` 落地；D2 ABox 反向邻接（已补 G1，收尾确认）；D3 角色层 Evidence 组装（tech-debt #10）
+3. **P3 rerank 真模型验证**——待 rerank 环境（本地 Ollama 0.32 无 /api/rerank；升级 + 拉 bge-reranker + `EARP_RERANK_PROVIDER=ollama`）
+4. **tech-debt 治理**：#12 TBox 审批流、#11 profile 过期管理、#9 角色域权限、#7 business_capabilities 复合主键、#8 indexing_technique
+5. **M3 中台 importer + Enrichment**（PRD-2026-030）；**B6 评估集管理页**（routing_eval 落库 + 跑分可视化）
+6. 8000 端口残留 API 进程（PID 97205/72523）可 kill；FDE 指南 FAQ 更新（纯中文实体已修）
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |

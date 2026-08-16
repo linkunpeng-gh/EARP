@@ -850,6 +850,26 @@ components:
           title: Rerank
       title: SystemSettingsIn
       type: object
+    UnderstandingDebugIn:
+      properties:
+        context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Context
+        query:
+          title: Query
+          type: string
+        threshold:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Threshold
+      required:
+      - query
+      title: UnderstandingDebugIn
+      type: object
     ValidationError:
       properties:
         ctx:
@@ -3142,6 +3162,42 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Knowledge Search Endpoint
+      tags:
+      - ontology
+  /v1/ontology/understanding/debug:
+    post:
+      description: 'Query Understanding 调试（Phase B Task 9，QU 设计 §15 可解释模式）。
+
+
+        输入 query + 可选会话上下文 → StructuredQuery（含各字段命中明细 + confidence
+
+        分项）+ derive_needs() 结果 + 是否 LLM 升级 + relation 候选溯源。
+
+        读端点、无写库、无迁移；复用 route_debug「分层可解释」展示模式。'
+      operationId: understanding_debug_v1_ontology_understanding_debug_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnderstandingDebugIn'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Understanding Debug V1 Ontology Understanding Debug
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Understanding Debug
       tags:
       - ontology
   /v1/sessions:

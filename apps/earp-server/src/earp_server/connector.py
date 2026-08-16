@@ -191,6 +191,65 @@ class LLMConnector:
             raise ConnectorError("LLM returned empty steps")
         return steps
 
+    async def json_complete(
+        self,
+        system: str,
+        user_prompt: str,
+        *,
+        model_override: dict | None = None,
+        temperature: float = 0.3,
+        timeout: float = 120,
+    ) -> dict | None:
+        """JSON 结构化单发（ollama /api/chat + openai /chat/completions）。
+
+        Phase B 决策 D4 方案 A：**无 DB 依赖**——model_override 由调用方解析
+        （同 resolve_llm_override 先例），None 时回退构造时 override/settings。
+        provider 不可达/响应非 JSON → 返回 None（调用方回落），不抛异常。
+        供 QU LLM 升级（understanding.upgrade_with_llm）与 suggest 系列共用。
+        """
+        override = model_override or self._model_override
+        provider = override.get("provider") or "ollama"
+        model_name = override.get("model_name") or self._model
+        base_url = (override.get("base_url") or self._base_url).rstrip("/")
+        api_key = override.get("api_key") or self._api_key
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            async with httpx.AsyncClient(timeout=timeout, transport=self._transport) as client:
+                if provider == "openai":
+                    resp = await client.post(
+                        f"{base_url}/chat/completions",
+                        json={
+                            "model": model_name,
+                            "messages": messages,
+                            "response_format": {"type": "json_object"},
+                            "temperature": temperature,
+                        },
+                        headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                    )
+                    resp.raise_for_status()
+                    content = resp.json()["choices"][0]["message"]["content"]
+                else:  # ollama
+                    resp = await client.post(
+                        f"{base_url}/api/chat",
+                        json={
+                            "model": model_name,
+                            "messages": messages,
+                            "format": "json",
+                            "stream": False,
+                            "options": {"temperature": temperature},
+                        },
+                    )
+                    resp.raise_for_status()
+                    content = resp.json()["message"]["content"]
+            data = json.loads(content)
+            return data if isinstance(data, dict) else None
+        except Exception as exc:
+            logger.warning("LLMConnector.json_complete: %s/%s failed: %s", provider, model_name, exc)
+            return None
+
     async def plan(
         self,
         prompt: str,

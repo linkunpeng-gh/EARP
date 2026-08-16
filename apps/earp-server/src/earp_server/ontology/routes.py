@@ -312,6 +312,52 @@ async def import_abox_endpoint(
     )
 
 
+class UnderstandingDebugIn(BaseModel):
+    query: str
+    context: dict | None = None  # {conversation_id?, last_entities?: [], last_intent?}
+    threshold: float | None = None  # 覆盖默认 0.7（评估/调参用，D5）
+
+
+@router.post("/understanding/debug")
+async def understanding_debug(req_body: UnderstandingDebugIn, req: Request) -> dict:
+    """Query Understanding 调试（Phase B Task 9，QU 设计 §15 可解释模式）。
+
+    输入 query + 可选会话上下文 → StructuredQuery（含各字段命中明细 + confidence
+    分项）+ derive_needs() 结果 + 是否 LLM 升级 + relation 候选溯源。
+    读端点、无写库、无迁移；复用 route_debug「分层可解释」展示模式。
+    """
+    from earp_server.ontology.understanding import (
+        build_structured_query,
+        derive_needs,
+        understand,
+        upgrade_with_llm,
+    )
+
+    engine = req.app.state.engine
+    tid = req.state.tenant_id
+    await _ensure_tbox(req)  # relation 候选依赖 TBox seed
+    result = await understand(engine, tid, req_body.query, context=req_body.context)
+    result = await upgrade_with_llm(
+        engine,
+        tid,
+        req_body.query,
+        result,
+        settings=req.app.state.settings,
+        threshold=req_body.threshold if req_body.threshold is not None else 0.7,
+    )
+    sq = build_structured_query(result)
+    return {
+        "structured_query": sq.model_dump(mode="json"),
+        "rule_fields": {f: ("hit" if v else "miss") for f, v in result.field_hits.items()},
+        "field_reasons": result.field_reasons,
+        "relevant_fields": sorted(result.relevant_fields),
+        "derive_needs": derive_needs(sq),
+        "llm_upgraded": result.llm_upgraded,
+        "relation_candidates_used": result.relation_candidates,
+        "confidence": result.confidence,
+    }
+
+
 @router.get("/search")
 async def knowledge_search_endpoint(
     req: Request,

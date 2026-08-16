@@ -122,11 +122,11 @@ class RoutingSuggestRequest(BaseModel):
 
 async def _llm_suggest(engine, tenant_id: str, settings: Settings, prompt: str) -> str:
     """AI-assist draft via the DB-configured default LLM (PRD-2026-031, env fallback).
-    Supports ollama (/api/chat) and openai (/chat/completions). Returns the
-    parsed JSON "description" field. 2026-08-09 C 决策: DB 模型优先。
-    """
-    import httpx
+    Returns the parsed JSON "description" field. 2026-08-09 C 决策: DB 模型优先。
 
+    Phase B 决策 D4 方案 A：薄封装——load_runtime_models 解析 model_override →
+    LLMConnector.json_complete → 抽 description 字段；签名/响应不变（调用点零改动）。
+    """
     llm_cfg: dict = {}
     try:
         from earp_server.admin import model_service as _ms
@@ -134,48 +134,18 @@ async def _llm_suggest(engine, tenant_id: str, settings: Settings, prompt: str) 
         llm_cfg = (await _ms.load_runtime_models(engine, tenant_id)).get("llm") or {}
     except Exception:
         logger.warning("_llm_suggest: load_runtime_models failed — env defaults", exc_info=True)
-    provider = llm_cfg.get("provider") or "ollama"
-    model_name = llm_cfg.get("model_name") or settings.ollama_chat_model
-    base_url = (llm_cfg.get("base_url") or settings.ollama_base_url).rstrip("/")
-    api_key = llm_cfg.get("api_key") or ""
-    system = "你是企业知识库的领域描述撰写助手。根据输入输出简洁准确的检索描述。"
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            if provider == "openai":
-                resp = await client.post(
-                    f"{base_url}/chat/completions",
-                    json={
-                        "model": model_name,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.3,
-                    },
-                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
-                )
-                resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"]["content"]
-            else:  # ollama
-                resp = await client.post(
-                    f"{base_url}/api/chat",
-                    json={
-                        "model": model_name,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "format": "json",
-                        "stream": False,
-                        "options": {"temperature": 0.3},
-                    },
-                )
-                resp.raise_for_status()
-                content = resp.json()["message"]["content"]
-        return json.loads(content).get("description", "")
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM 生成失败({provider}/{model_name}): {exc}") from exc
+    from earp_server.connector import LLMConnector
+
+    conn = LLMConnector(settings, model_override=llm_cfg or None)
+    data = await conn.json_complete(
+        "你是企业知识库的领域描述撰写助手。根据输入输出简洁准确的检索描述。",
+        prompt,
+    )
+    if data is None:
+        provider = llm_cfg.get("provider") or "ollama"
+        model_name = llm_cfg.get("model_name") or settings.ollama_chat_model
+        raise HTTPException(status_code=502, detail=f"LLM 生成失败({provider}/{model_name})")
+    return str(data.get("description", ""))
 
 
 class KBCreate(BaseModel):
