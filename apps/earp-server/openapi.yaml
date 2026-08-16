@@ -2849,6 +2849,13 @@ paths:
           - type: string
           - type: 'null'
           title: Kind
+      - in: query
+        name: status
+        required: false
+        schema:
+          default: active
+          title: Status
+          type: string
       responses:
         '200':
           content:
@@ -3007,6 +3014,13 @@ paths:
           - type: string
           - type: 'null'
           title: Source Type
+      - in: query
+        name: status
+        required: false
+        schema:
+          default: active
+          title: Status
+          type: string
       responses:
         '200':
           content:

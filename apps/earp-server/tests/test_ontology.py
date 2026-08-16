@@ -228,3 +228,25 @@ async def test_deprecate_relation_type(app_engine: AsyncEngine) -> None:
     # active 列表不再含它
     active = await tbox_service.list_relation_types(app_engine, "ont-t6")
     assert all(r["relation_type_id"] != "connected_to" for r in active)
+
+
+async def test_tbox_create_duplicate_and_deprecate_idempotent(app_engine: AsyncEngine) -> None:
+    """TBox 停用修复（2026-08-16）：
+    ① create 重复 → ValueError（409），已停用不再允许重新启用；
+    ② deprecate 幂等（已停用再停用返回 None）。
+    """
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t7")
+    # create 已存在（seed 的 equipment）→ 拒绝
+    import pytest
+
+    with pytest.raises(ValueError, match="已存在"):
+        await tbox_service.create_entity_type(app_engine, "ont-t7", "equipment", "设备")
+    # 新建 → 停用 → 再 create 同名 → 拒绝（不再允许重新启用）
+    await tbox_service.create_entity_type(app_engine, "ont-t7", "inverter", "逆变器", data_domain_id="equipment_data")
+    assert await tbox_service.deprecate_entity_type(app_engine, "ont-t7", "inverter") is not None
+    assert await tbox_service.deprecate_entity_type(app_engine, "ont-t7", "inverter") is None  # 幂等
+    with pytest.raises(ValueError, match="已停用"):
+        await tbox_service.create_entity_type(app_engine, "ont-t7", "inverter", "逆变器2")
+    # 关系类型同语义
+    with pytest.raises(ValueError, match="已存在"):
+        await tbox_service.create_relation_type(app_engine, "ont-t7", "manufactured_by", "制造", "equipment", "supplier", "N:1")

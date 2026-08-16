@@ -67,26 +67,31 @@ async def list_entity_types(
     req: Request,
     data_domain_id: str | None = None,
     kind: str | None = None,
+    status: str = "active",
 ) -> list[dict]:
     await _ensure_tbox(req)
     return await tbox_service.list_entity_types(
-        req.app.state.engine, req.state.tenant_id, data_domain_id=data_domain_id, kind=kind
+        req.app.state.engine, req.state.tenant_id,
+        data_domain_id=data_domain_id, kind=kind, status=status,
     )
 
 
 @router.post("/entity-types", status_code=201)
 async def create_entity_type(req_body: EntityTypeIn, req: Request) -> dict:
-    return await tbox_service.create_entity_type(
-        req.app.state.engine,
-        req.state.tenant_id,
-        req_body.entity_type_id,
-        req_body.name,
-        kind=req_body.kind,
-        description=req_body.description,
-        data_domain_id=req_body.data_domain_id,
-        attributes=req_body.attributes,
-        owner=req_body.owner,
-    )
+    try:
+        return await tbox_service.create_entity_type(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req_body.entity_type_id,
+            req_body.name,
+            kind=req_body.kind,
+            description=req_body.description,
+            data_domain_id=req_body.data_domain_id,
+            attributes=req_body.attributes,
+            owner=req_body.owner,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.post("/entity-types/{entity_type_id}/deprecate")
@@ -98,21 +103,30 @@ async def deprecate_entity_type(entity_type_id: str, req: Request) -> dict:
 
 
 @router.get("/relation-types")
-async def list_relation_types(req: Request, source_type: str | None = None) -> list[dict]:
-    return await tbox_service.list_relation_types(req.app.state.engine, req.state.tenant_id, source_type=source_type)
+async def list_relation_types(
+    req: Request,
+    source_type: str | None = None,
+    status: str = "active",
+) -> list[dict]:
+    return await tbox_service.list_relation_types(
+        req.app.state.engine, req.state.tenant_id, source_type=source_type, status=status,
+    )
 
 
 @router.post("/relation-types", status_code=201)
 async def create_relation_type(req_body: RelationTypeIn, req: Request) -> dict:
-    return await tbox_service.create_relation_type(
-        req.app.state.engine,
-        req.state.tenant_id,
-        req_body.relation_type_id,
-        req_body.name,
-        req_body.source_type,
-        req_body.target_type,
-        req_body.cardinality,
-    )
+    try:
+        return await tbox_service.create_relation_type(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req_body.relation_type_id,
+            req_body.name,
+            req_body.source_type,
+            req_body.target_type,
+            req_body.cardinality,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.post("/relation-types/{relation_type_id}/deprecate")

@@ -11,7 +11,10 @@
 <section style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;margin-bottom:14px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <h3 style="margin:0;font-size:0.9rem">实体类型（<span id="et-count">—</span>）</h3>
-    <button onclick="showEtModal()">+ 新增实体类型</button>
+    <div style="display:flex;gap:10px;align-items:center">
+      <label style="font-size:0.75rem"><input type="checkbox" id="et-show-dep" onchange="loadEt()"> 显示已停用</label>
+      <button onclick="showEtModal()">+ 新增实体类型</button>
+    </div>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
     <thead><tr>
@@ -30,7 +33,10 @@
 <section style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <h3 style="margin:0;font-size:0.9rem">关系类型（<span id="rt-count">—</span>）</h3>
-    <button onclick="showRtModal()">+ 新增关系类型</button>
+    <div style="display:flex;gap:10px;align-items:center">
+      <label style="font-size:0.75rem"><input type="checkbox" id="rt-show-dep" onchange="loadRt()"> 显示已停用</label>
+      <button onclick="showRtModal()">+ 新增关系类型</button>
+    </div>
   </div>
   <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
     <thead><tr>
@@ -121,8 +127,9 @@ async function init() {
 // ── 实体类型 ──────────────────────────────────────────────────────────────
 async function loadEt() {
   try {
-    var rows = await EARP.fetchJSON('/v1/ontology/entity-types');
-    document.getElementById('et-count').textContent = rows.length;
+    var showDep = document.getElementById('et-show-dep').checked;
+    var rows = await EARP.fetchJSON('/v1/ontology/entity-types' + (showDep ? '?status=all' : ''));
+    document.getElementById('et-count').textContent = rows.length + (showDep ? '（含已停用）' : '');
     var tb = document.getElementById('et-tbody');
     tb.innerHTML = rows.map(function (t) {
       var dep = t.status === 'deprecated';
@@ -137,6 +144,7 @@ async function loadEt() {
         + '</td></tr>';
     }).join('');
   } catch (e) { document.getElementById('et-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
+  // 页面加载后默认只显示 active——停用后行消失即生效；勾选「显示已停用」可见 deprecated 灰态
 }
 
 function showEtModal() {
@@ -172,8 +180,9 @@ async function depEt(id, name) {
 // ── 关系类型 ──────────────────────────────────────────────────────────────
 async function loadRt() {
   try {
-    var rows = await EARP.fetchJSON('/v1/ontology/relation-types');
-    document.getElementById('rt-count').textContent = rows.length;
+    var showDep = document.getElementById('rt-show-dep').checked;
+    var rows = await EARP.fetchJSON('/v1/ontology/relation-types' + (showDep ? '?status=all' : ''));
+    document.getElementById('rt-count').textContent = rows.length + (showDep ? '（含已停用）' : '');
     var tb = document.getElementById('rt-tbody');
     tb.innerHTML = rows.map(function (r) {
       var dep = r.status === 'deprecated';
@@ -188,8 +197,7 @@ async function loadRt() {
         + (dep ? '<span style="color:var(--text-quaternary)">—</span>' : '<a href="javascript:void(0)" onclick="depRt(\'' + esc(r.relation_type_id) + '\',\'' + esc(r.name) + '\')" style="color:var(--red)">停用</a>')
         + '</td></tr>';
     }).join('');
-  } catch (e) { document.getElementById('rt-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
-}
+  } catch (e) { document.getElementById('rt-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }}
 
 function showRtModal() {
   document.getElementById('rt-id').value = '';

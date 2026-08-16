@@ -87,6 +87,17 @@ async def create_entity_type(
 ) -> dict:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        existing = await conn.execute(
+            text("SELECT status FROM entity_types WHERE entity_type_id = :id AND tenant_id = :tid"),
+            {"id": entity_type_id, "tid": tenant_id},
+        )
+        row = existing.fetchone()
+        if row is not None:
+            # 2026-08-16：重复创建优雅拒绝（原为 500 主键冲突）。停用是软终态，
+            # 不提供「再次启用」（TBox 变更需治理，tech-debt #12）。
+            if row.status == "deprecated":
+                raise ValueError(f"实体类型已存在且已停用: {entity_type_id}（如需启用请走治理流程）")
+            raise ValueError(f"实体类型已存在: {entity_type_id}")
         await conn.execute(
             text(
                 "INSERT INTO entity_types "
@@ -118,8 +129,11 @@ async def list_entity_types(
 ) -> list[dict]:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        sql = "SELECT * FROM entity_types WHERE tenant_id = :tid AND status = :st"
-        params: dict = {"tid": tenant_id, "st": status}
+        sql = "SELECT * FROM entity_types WHERE tenant_id = :tid"
+        params: dict = {"tid": tenant_id}
+        if status != "all":  # all = 不过滤状态（含 deprecated）
+            sql += " AND status = :st"
+            params["st"] = status
         if data_domain_id:
             sql += " AND data_domain_id = :dd"
             params["dd"] = data_domain_id
@@ -132,13 +146,13 @@ async def list_entity_types(
 
 
 async def deprecate_entity_type(engine: AsyncEngine, tenant_id: str, entity_type_id: str) -> dict | None:
-    """Deprecate an entity type (TBox change requires approval — audit on caller side)."""
+    """Deprecate an entity type (软停用；已停用再次调用返回 None，幂等)."""
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         result = await conn.execute(
             text(
                 "UPDATE entity_types SET status = 'deprecated', updated_at = now() "
-                "WHERE entity_type_id = :id RETURNING entity_type_id, status"
+                "WHERE entity_type_id = :id AND status = 'active' RETURNING entity_type_id, status"
             ),
             {"id": entity_type_id},
         )
@@ -156,8 +170,11 @@ async def list_relation_types(
 ) -> list[dict]:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        sql = "SELECT * FROM relation_types WHERE tenant_id = :tid AND status = :st"
-        params: dict = {"tid": tenant_id, "st": status}
+        sql = "SELECT * FROM relation_types WHERE tenant_id = :tid"
+        params: dict = {"tid": tenant_id}
+        if status != "all":
+            sql += " AND status = :st"
+            params["st"] = status
         if source_type:
             sql += " AND source_type LIKE :src"
             params["src"] = f"%{source_type}%"
@@ -177,6 +194,15 @@ async def create_relation_type(
 ) -> dict:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        existing = await conn.execute(
+            text("SELECT status FROM relation_types WHERE relation_type_id = :id AND tenant_id = :tid"),
+            {"id": relation_type_id, "tid": tenant_id},
+        )
+        row = existing.fetchone()
+        if row is not None:
+            if row.status == "deprecated":
+                raise ValueError(f"关系类型已存在且已停用: {relation_type_id}（如需启用请走治理流程）")
+            raise ValueError(f"关系类型已存在: {relation_type_id}")
         await conn.execute(
             text(
                 "INSERT INTO relation_types "
