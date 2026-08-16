@@ -333,6 +333,11 @@ function doSearch() {
     document.getElementById('results-count').textContent =
       (items ? items.length : 0) + ' results (top_k=' + topK + ', mode=' + mode + (threshold !== null ? ', threshold=' + threshold : '') + ') — ' + scopeLabel(scope)
       + (mode === 'vector' ? ' · ⚠️ vector 模式无精确匹配，切 hybrid 查看 ⚡命中词' : '');
+    // P2：实体命中状态提示——无 profile/graph 时说明本次为纯文档召回（查询未命中实体）
+    var hasOnto = items.some(function (r) { return r.source === 'profile' || r.source === 'graph'; });
+    if (scope.type === 'global' && items && items.length && !hasOnto) {
+      document.getElementById('results-count').textContent += ' · ℹ️ 未命中实体（纯文档召回——查询含实体名时图谱/档案才参与，如「CNC-01 供应商」）';
+    }
     recordSearch(q, scope, items ? items.length : 0);
   }).catch(function(err) {
     if (mySeq !== searchSeq) return; // 过期请求的错误也丢弃
