@@ -431,18 +431,50 @@ function doRouteDebug() {
     var timings = dbg.timings || {};
     var rq = timings.route_query || {};
     var html = '';
-    html += '<div style="margin-bottom:0.4rem">查询: <strong>' + esc(dbg.query) + '</strong>' + (dbg.fallback_used ? ' <span class="tag" style="background:#fef3c7;color:#92400e">⚠ Level 2 空 → 全域 KB 兜底</span>' : '') + '</div>';
+    var onto = dbg.ontology_layers;
+    var ontoOff = (onto && !onto.triggered) ? esc((onto && onto.reason) || '未触发三层（无候选 DD，全租户 chunk 兜底）') : '';
+    html += '<div style="margin-bottom:0.4rem">查询: <strong>' + esc(dbg.query) + '</strong>' + (dbg.fallback_used ? ' <span class="tag" style="background:#fef3c7;color:#92400e">⚠ 全域 KB 兜底</span>' : '') + '</div>';
     html += '<div style="margin-bottom:0.5rem;font-size:0.7rem;color:var(--text-tertiary,#6b6e75)">'
-      + '⏱ 耗时 — L1 DD 路由 ' + (rq.dd_lanes_ms != null ? rq.dd_lanes_ms + 'ms' : '—')
-      + ' · L2 KB 定位 ' + (rq.kb_locate_ms != null ? rq.kb_locate_ms + 'ms' : '—')
+      + '⏱ 总耗时 ' + (timings.total_ms != null ? timings.total_ms + 'ms' : '—')
+      + '（DD 路由 ' + (rq.dd_lanes_ms != null ? rq.dd_lanes_ms + 'ms' : '—')
+      + ' · KB 定位 ' + (rq.kb_locate_ms != null ? rq.kb_locate_ms + 'ms' : '—')
       + ' · 向量明细 ' + (timings.dd_vector_ms != null ? timings.dd_vector_ms + 'ms' : '—')
       + ' · 覆盖/新鲜度 ' + (timings.coverage_freshness_ms != null ? timings.coverage_freshness_ms + 'ms' : '—')
-      + ' · KB 摘要 ' + (timings.kb_summaries_ms != null ? timings.kb_summaries_ms + 'ms' : '—')
-      + ' · 总 ' + (timings.total_ms != null ? timings.total_ms + 'ms' : '—')
+      + ' · KB 摘要 ' + (timings.kb_summaries_ms != null ? timings.kb_summaries_ms + 'ms' : '—') + '）'
       + '</div>';
-    // Level 1
-    html += '<div class="params-title">Level 1 — DD 路由</div>';
-    html += '<div style="margin:0.2rem 0 0.4rem 0">关键词命中: ' + (dbg.dd_keyword_hits.length ? dbg.dd_keyword_hits.map(esc).join(', ') : '<span style="color:var(--text-quaternary)">无</span>') + '</div>';
+
+    // Layer 1 — 实体检索（profile）
+    html += '<div class="params-title">Layer 1 — 实体检索（📇 档案）</div>';
+    if (ontoOff) {
+      html += '<div style="color:var(--text-quaternary)">' + ontoOff + '</div>';
+    } else if ((onto.profile || []).length) {
+      html += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem"><tr style="color:var(--text-tertiary)"><th style="text-align:left;padding:2px 4px">实体档案</th><th style="text-align:left">类型</th><th style="text-align:right">得分</th></tr>';
+      onto.profile.forEach(function (h) {
+        html += '<tr><td style="padding:2px 4px">' + esc(h.title || '') + '</td><td>' + esc(h.entity_type || '') + '</td><td style="text-align:right">' + Number(h.score).toFixed(3) + '</td></tr>';
+      });
+      html += '</table>';
+    } else {
+      html += '<div style="color:var(--text-quaternary)">无实体命中（查询未提及实体名）</div>';
+    }
+
+    // Layer 2 — 图谱检索（graph）
+    html += '<div class="params-title" style="margin-top:0.5rem">Layer 2 — 图谱检索（🕸 关系）</div>';
+    if (ontoOff) {
+      html += '<div style="color:var(--text-quaternary)">未触发（同 Layer 1）</div>';
+    } else if ((onto.graph || []).length) {
+      html += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem"><tr style="color:var(--text-tertiary)"><th style="text-align:left;padding:2px 4px">图谱关系</th><th style="text-align:left">目标类型</th><th style="text-align:right">跳数</th><th style="text-align:right">得分</th></tr>';
+      onto.graph.forEach(function (h) {
+        html += '<tr><td style="padding:2px 4px">' + esc(h.title || '') + '</td><td>' + esc(h.entity_type || '') + '</td><td style="text-align:right">' + (h.depth != null ? h.depth : '-') + '</td><td style="text-align:right">' + Number(h.score).toFixed(3) + '</td></tr>';
+      });
+      html += '</table>';
+    } else {
+      html += '<div style="color:var(--text-quaternary)">无图谱命中（实体无活跃事实）</div>';
+    }
+
+    // Layer 3 — 文档检索三级漏斗（DD → KB → chunk）
+    html += '<div class="params-title" style="margin-top:0.5rem">Layer 3 — 文档检索三级漏斗（DD 路由 → KB 定位 → chunk 召回）</div>';
+    // 3.1 DD 路由
+    html += '<div style="font-size:0.72rem;color:var(--text-tertiary);margin:0.2rem 0 0.1rem">3.1 DD 路由 — 关键词命中: ' + (dbg.dd_keyword_hits.length ? dbg.dd_keyword_hits.map(esc).join(', ') : '<span style="color:var(--text-quaternary)">无</span>') + '</div>';
     html += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem"><tr style="color:var(--text-tertiary)"><th style="text-align:left;padding:2px 4px">DD</th><th style="text-align:left">名称</th><th style="text-align:right">向量得分</th><th style="text-align:right">来源</th><th style="text-align:right">权限</th></tr>';
     dbg.dd_vector_candidates.forEach(function(c) {
       var cand = dbg.candidate_dds.find(function(x) { return x.data_domain_id === c.data_domain_id; });
@@ -452,8 +484,8 @@ function doRouteDebug() {
     });
     if (!dbg.dd_vector_candidates.length) html += '<tr><td colspan="5" style="color:var(--text-quaternary)">无向量候选（DD 未索引或描述为空）</td></tr>';
     html += '</table>';
-    // Level 2
-    html += '<div class="params-title" style="margin-top:0.5rem">Level 2 — KB 定位</div>';
+    // 3.2 KB 定位
+    html += '<div style="font-size:0.72rem;color:var(--text-tertiary);margin:0.3rem 0 0.1rem">3.2 KB 定位</div>';
     if (dbg.candidate_kbs.length) {
       html += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem"><tr style="color:var(--text-tertiary)"><th style="text-align:left;padding:2px 4px">KB</th><th style="text-align:left">名称</th><th style="text-align:right">得分</th><th style="text-align:left">摘要向量内容（KB名+描述+文档标题）</th></tr>';
       dbg.candidate_kbs.forEach(function(k) {
@@ -470,7 +502,30 @@ function doRouteDebug() {
     } else {
       html += '<div style="color:var(--text-quaternary)">无 KB 候选（KB 未建 summary 索引）</div>';
     }
-    // Coverage + freshness
+    // 3.3 chunk 文档召回
+    html += '<div style="font-size:0.72rem;color:var(--text-tertiary);margin:0.3rem 0 0.1rem">3.3 chunk 文档召回</div>';
+    if (ontoOff) {
+      html += '<div style="color:var(--text-quaternary)">未触发三层（全租户 chunk 兜底，无逐层明细）</div>';
+    } else if ((onto.chunk || []).length) {
+      html += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem"><tr style="color:var(--text-tertiary)"><th style="text-align:left;padding:2px 4px">文档片段</th><th style="text-align:left">KB</th><th style="text-align:right">得分</th></tr>';
+      onto.chunk.forEach(function (h) {
+        html += '<tr><td style="padding:2px 4px">' + esc(h.title || '') + '</td><td>' + esc(h.kb_name || '') + '</td><td style="text-align:right">' + Number(h.score).toFixed(3) + '</td></tr>';
+      });
+      html += '</table>';
+    } else {
+      html += '<div style="color:var(--text-quaternary)">无 chunk 命中</div>';
+    }
+
+    // 三层融合结果（RRF）
+    if (onto && onto.triggered && onto.fused && onto.fused.length) {
+      html += '<div class="params-title" style="margin-top:0.5rem">三层融合结果（RRF top）</div>';
+      html += onto.fused.map(function (f, i) {
+        var tag = f.source === 'profile' ? '📇' : (f.source === 'graph' ? '🕸' : '📄');
+        return '<span class="tag" style="margin:1px">' + tag + ' #' + (i + 1) + ' ' + esc(String(f.title || '').slice(0, 32)) + '</span>';
+      }).join('');
+    }
+
+    // Coverage + freshness（运维信息，放最后）
     html += '<div class="params-title" style="margin-top:0.5rem">描述覆盖自检 &amp; 新鲜度</div>';
     dbg.coverage.forEach(function(c) {
       var fresh = dbg.freshness.find(function(f) { return f.data_domain_id === c.data_domain_id; });
@@ -481,30 +536,6 @@ function doRouteDebug() {
       if (c.missing_kb_names && c.missing_kb_names.length) status.push('<span style="color:#b91c1c">覆盖缺失: ' + c.missing_kb_names.map(esc).join(', ') + '</span>');
       html += '<div style="padding:2px 4px">' + esc(c.name) + ' (' + esc(c.data_domain_id) + '): ' + status.join(' · ') + '</div>';
     });
-    // Level 3 — 三层检索（profile/graph/chunk）逐层命中明细（P2 增补）
-    var onto = dbg.ontology_layers;
-    if (onto) {
-      html += '<div class="params-title" style="margin-top:0.5rem">Level 3 — 三层检索（📇档案 / 🕸图谱 / 📄文档）</div>';
-      if (!onto.triggered) {
-        html += '<div style="color:var(--text-quaternary)">' + esc(onto.reason || '未触发三层') + '</div>';
-      } else {
-        var rows = [];
-        (onto.profile || []).forEach(function (h) { rows.push(['📇', esc(h.title || ''), h.score != null ? Number(h.score).toFixed(3) : '-']); });
-        (onto.graph || []).forEach(function (h) { rows.push(['🕸', esc(h.title || '') + (h.depth != null ? ' <span style="color:var(--text-quaternary)">depth ' + h.depth + '</span>' : ''), h.score != null ? Number(h.score).toFixed(3) : '-']); });
-        (onto.chunk || []).forEach(function (h) { rows.push(['📄', esc(h.title || '') + (h.kb_name ? ' <span style="color:var(--text-quaternary)">' + esc(h.kb_name) + '</span>' : ''), h.score != null ? Number(h.score).toFixed(3) : '-']); });
-        if (!rows.length) rows.push(['—', '<span style="color:var(--text-quaternary)">各层均无命中</span>', '-']);
-        html += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem"><tr style="color:var(--text-tertiary)"><th style="text-align:left;padding:2px 4px">通道</th><th style="text-align:left">命中</th><th style="text-align:right">得分</th></tr>';
-        rows.forEach(function (r) { html += '<tr><td style="padding:2px 4px">' + r[0] + '</td><td>' + r[1] + '</td><td style="text-align:right">' + r[2] + '</td></tr>'; });
-        html += '</table>';
-        if (onto.fused && onto.fused.length) {
-          html += '<div style="margin-top:0.3rem;font-size:0.72rem;color:var(--text-tertiary)">RRF 融合 top：</div>';
-          html += onto.fused.map(function (f, i) {
-            var tag = f.source === 'profile' ? '📇' : (f.source === 'graph' ? '🕸' : '📄');
-            return '<span class="tag" style="margin:1px">' + tag + ' #' + (i + 1) + ' ' + esc(String(f.title || '').slice(0, 32)) + '</span>';
-          }).join('');
-        }
-      }
-    }
     body.innerHTML = html;
   }).catch(function(err) {
     body.innerHTML = '<span style="color:var(--red)">路由调试失败: ' + esc(err.message) + '</span>';
