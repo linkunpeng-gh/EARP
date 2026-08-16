@@ -181,5 +181,18 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+
+// 从 URL 参数自动加载（实体管理页「图谱」直达）：?entity=<entity_id> 或 ?q=<名称>
+(function autoLoad() {
+  var params = new URLSearchParams(location.search);
+  var entityId = params.get('entity');
+  var q = params.get('q');
+  if (entityId) {
+    expand(entityId);
+  } else if (q) {
+    document.getElementById('entity-q').value = q;
+    explore();
+  }
+})();
 </script>
 </body></html>
