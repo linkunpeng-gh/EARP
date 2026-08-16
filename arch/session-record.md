@@ -336,6 +336,32 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 会话续接（2026-08-16）— FDE 使用反馈迭代 + TBox 管理页
+
+> 本会话从「P2 实施」延续到「FDE 反馈驱动的产品化迭代」，102 tests 全绿。
+
+**2026-08-16 新增交付**：
+- **TBox 类型管理页**（`pages/tbox.html`）：实体/关系类型新增与停用自助（ID 校验/类型多选/基数）；后端补 `deprecate_relation_type`；一期约束禁改集合/ID（tech-debt #12）
+- **路由调试三层明细**：`route_debug` 返回 ontology_layers（profile/graph/chunk 逐层命中 + RRF 融合），前端 Level 3 展示；按检索顺序重排（实体→图谱→文档漏斗）；分数尺度说明（不可跨层比较，RRF 用排名/rerank 仅文档层）
+- **实体识别修复**：`lookup_entities` 反向子串匹配——「主变压器是哪个公司生产的」等纯中文实体长查询现在命中实体层
+- **停用体验系列**：TBox/实体 create 重复优雅 409（禁自动重新启用，停用=软终态）；停用幂等；「显示已停用」开关（list 支持 status=all）；停用实体详情/图谱可查看（get_entity/compile_profile 放宽 deprecated，检索仍排除）
+- **知识中心抽屉分组**：文档知识（数据域/知识库）/ 结构化知识（类型管理/实体管理/实体导入）/ 探索验证（图谱探索/召回测试）——nav.js 支持 group 分组渲染
+- FDE 使用说明 `arch/guides/earp-fde-user-guide.md`（实体管理/导入/图谱/检索全流程 + 示例 + FAQ）
+
+**验证状态**：102 tests 全绿 + import-linter + OpenAPI 基线 + 多轮真 API 冒烟（导入/图谱/TBox/检索/停用全链路）
+
+**未完成清单（下次会话续接）**：
+1. **Phase B（QU 理解层）**——最大块（3-5 天）：TBox 缺口已解除、schema 已冻结（v0.3 §6.2）、评估门槛已定义（§17）；规则优先 + LLM 低置信度升级
+2. **P3 rerank 真模型验证**——待 rerank 环境（本地 Ollama 0.32 无 /api/rerank；升级 + 拉 bge-reranker + `EARP_RERANK_PROVIDER=ollama`，零代码）
+3. **tech-debt 治理**：#12 TBox 审批流（draft→approved + 审计 + 停用恢复路径）、#11 profile 无过期管理（写时失效/读时 freshness/enrichment 落 scheduler）、#9 角色域权限、#7 business_capabilities 复合主键、#8 indexing_technique
+4. **M3 中台 importer + Enrichment**（PRD-2026-030，P5）；**B6 评估集管理页**（P4）
+5. **M4 延伸**：TBox 管理页与审批流整合（#12）；FDE 指南 FAQ 更新（纯中文实体已修，可删对应条目）
+6. 8000 端口残留 API 进程（PID 97205）可 kill
+
+**知识中心当前能力**（8 项分 3 组）：文档知识（数据域/知识库）+ 结构化知识（类型管理/实体管理/实体导入）+ 探索验证（图谱探索/召回测试）——实体知识闭环（导入→管理→图谱→检索→档案）完整
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |
