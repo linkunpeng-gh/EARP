@@ -58,7 +58,7 @@ async def _entity_hits(
     return list(seen.values())[:top_k]
 
 
-async def knowledge_search(
+async def _knowledge_layers(
     engine: AsyncEngine,
     tenant_id: str,
     query: str,
@@ -77,18 +77,16 @@ async def knowledge_search(
     eventbus: EventBus | None = None,
     rerank: bool = True,
     rerank_top_n: int = 20,
-) -> list[dict]:
-    """Three-layer retrieval with RRF fusion (recall layer, QU design §8.1).
+) -> tuple[dict, list[dict]]:
+    """Three-layer recall computation (recall layer, QU design §8.1).
+
+    Returns (layers: {profile, graph, chunk}, fused: RRF top_k hits).
+    knowledge_search 返回 fused；route_debug 用 layers 做逐层明细展示。
 
     Layer 1/2 (profile/graph) scoped by data_domain_ids; Layer 3 (chunks)
-    scoped by knowledge_base_ids (precedence) falling back to
-    data_domain_ids — search_chunks already implements kb-over-dd precedence.
-
-    Returns up to top_k hits, each {source: profile|graph|chunk, key, title,
-    content, score(original), rrf_score}.  Permission model: chunks filtered by
-    DD + accessible_roles inside search_chunks; entity layer filtered by DD ids.
+    scoped by knowledge_base_ids (precedence) falling back to data_domain_ids.
     """
-    layers: list[list[dict]] = []
+    lane_lists: list[list[dict]] = []
 
     # ── Layer 1: entity lookup → Compiled Truth profile ──
     entities = await _entity_hits(
@@ -121,7 +119,7 @@ async def knowledge_search(
                 }
             )
     if profile_hits:
-        layers.append(profile_hits)
+        lane_lists.append(profile_hits)
 
     # ── Layer 2: graph traversal from matched entities ──
     graph_hits: list[dict] = []
@@ -138,10 +136,11 @@ async def knowledge_search(
                         "title": f"图谱：{h['relation_type_id']} → {h.get('target_name', h['target_entity_id'])}",
                         "content": f"{h['relation_type_id']} → {h.get('target_name', h['target_entity_id'])}",
                         "score": 1.0 / (1 + h["depth"]),
+                        "depth": h["depth"],
                     }
                 )
     if graph_hits:
-        layers.append(graph_hits)
+        lane_lists.append(graph_hits)
 
     # ── Layer 3: vector chunks (requires embedding; skip gracefully if unavailable) ──
     chunk_hits: list[dict] = []
@@ -173,12 +172,63 @@ async def knowledge_search(
         except Exception:
             logger.warning("knowledge_search: vector layer failed, skipping", exc_info=True)
     if chunk_hits:
-        layers.append(chunk_hits)
+        lane_lists.append(chunk_hits)
 
-    if not layers:
-        return []
+    if not lane_lists:
+        return {"profile": [], "graph": [], "chunk": []}, []
 
-    return _rrf_merge(layers, top_k)
+    return (
+        {"profile": profile_hits, "graph": graph_hits, "chunk": chunk_hits},
+        _rrf_merge(lane_lists, top_k),
+    )
+
+
+async def knowledge_search(
+    engine: AsyncEngine,
+    tenant_id: str,
+    query: str,
+    *,
+    embedding: list[float] | None = None,
+    role_id: str,
+    data_domain_ids: list[str] | None = None,
+    entity_type_ids: list[str] | None = None,
+    top_k: int = 5,
+    embedding_dim: int | None = None,
+    knowledge_base_ids: list[str] | None = None,
+    query_text: str = "",
+    mode: str = "vector",
+    threshold: float | None = None,
+    metadata_filters: dict | None = None,
+    eventbus: EventBus | None = None,
+    rerank: bool = True,
+    rerank_top_n: int = 20,
+) -> list[dict]:
+    """Three-layer retrieval with RRF fusion (recall layer, QU design §8.1).
+
+    Returns up to top_k hits, each {source: profile|graph|chunk, key, title,
+    content, score(original), rrf_score}. Permission model: chunks filtered by
+    DD + accessible_roles inside search_chunks; entity layer filtered by DD ids.
+    """
+    _, fused = await _knowledge_layers(
+        engine,
+        tenant_id,
+        query,
+        embedding=embedding,
+        role_id=role_id,
+        data_domain_ids=data_domain_ids,
+        entity_type_ids=entity_type_ids,
+        top_k=top_k,
+        embedding_dim=embedding_dim,
+        knowledge_base_ids=knowledge_base_ids,
+        query_text=query_text,
+        mode=mode,
+        threshold=threshold,
+        metadata_filters=metadata_filters,
+        eventbus=eventbus,
+        rerank=rerank,
+        rerank_top_n=rerank_top_n,
+    )
+    return fused
 
 
 def _rrf_merge(ranked_lists: list[list[dict]], top_k: int) -> list[dict]:

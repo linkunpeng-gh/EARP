@@ -434,3 +434,41 @@ async def test_routing_eval_pass_rate(migrated: str, app_url: str, monkeypatch) 
             misses.append((case["query"], case["expected_dd"], dd_ids))
     rate = hits / len(cases)
     assert rate >= 0.9, f"routing eval pass rate {rate:.0%} < 90%; misses: {misses}"
+
+
+async def test_route_debug_ontology_layers(migrated: str, app_url: str, monkeypatch) -> None:
+    """路由调试含三层检索（profile/graph/chunk）逐层明细（P2 增补）。
+
+    实体命中 → ontology_layers.triggered=True 且含 profile/graph 明细；
+    无候选 DD → triggered=False（决策 D4 全租户 chunk 兜底）。
+    """
+    from earp_server.ontology import abox_service, tbox_service
+
+    _install_stub(monkeypatch)
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "rt-dbg-onto"
+    await _seed_tenant(engine, migrated, tid)
+    await build_routing_index(engine, tid)
+    # 补实体图谱：CNC-01 —manufactured_by→ 上海某精机（equipment_data 域）
+    await tbox_service.init_tenant_tbox(engine, tid)
+    sup = await abox_service.upsert_entity(engine, tid, "supplier", "上海某精机", business_code="SUP-D", data_domain_id="equipment_data")
+    equip = await abox_service.upsert_entity(engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data")
+    await abox_service.add_fact(engine, tid, equip["entity_id"], "manufactured_by", sup["entity_id"])
+    await abox_service.compile_profile(engine, tid, equip["entity_id"])
+
+    q_emb = await embed_query("CNC-01 设备 报警 供应商")
+    dbg = await route_debug(engine, tid, "CNC-01 设备 报警 供应商", q_emb, "r-all")
+    onto = dbg.get("ontology_layers")
+    assert onto is not None, "route_debug 必须返回 ontology_layers"
+    assert onto["triggered"] is True
+    assert any(h["title"].startswith("CNC-01（实体档案）") for h in onto["profile"])
+    assert any("manufactured_by" in h["title"] for h in onto["graph"])
+    assert onto["fused"], "RRF 融合结果非空"
+    sources = {h["source"] for h in onto["fused"]}
+    assert "profile" in sources or "graph" in sources
+
+    # 无候选 DD 场景 → 不触发三层（D4）：角色无任何 DD 权限 → 候选 DD 被权限过滤为空
+    q_emb2 = await embed_query("CNC-01 设备 报警 供应商")
+    dbg2 = await route_debug(engine, tid, "CNC-01 设备 报警 供应商", q_emb2, "r-no-such-role")
+    onto2 = dbg2.get("ontology_layers")
+    assert onto2 is not None and onto2["triggered"] is False

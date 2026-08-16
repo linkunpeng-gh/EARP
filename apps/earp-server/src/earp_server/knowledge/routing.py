@@ -373,6 +373,51 @@ async def route_query(
 
 
 # ── Debug view (routing observability: every layer's scores) ────────────────
+async def _ontology_layers_debug(
+    engine: AsyncEngine,
+    tenant_id: str,
+    query: str,
+    query_embedding: list[float],
+    role_id: str,
+    candidate_dds: list[dict],
+    candidate_kbs: list[dict],
+) -> dict:
+    """三层检索（profile/graph/chunk）逐层命中明细——路由调试可观测（P2 增补）。
+
+    函数内 import 避免 knowledge.routing → ontology.search → knowledge.search_service
+    的模块级环。candidate_dds 空 → 不触发三层（与 /knowledge/search 决策 D4 一致）。
+    """
+    cand_dds = [d["data_domain_id"] for d in candidate_dds]
+    cand_kbs = [kb["knowledge_base_id"] for kb in candidate_kbs]
+    if not cand_dds:
+        return {"triggered": False, "reason": "无候选 DD（决策 D4：全租户 chunk 兜底，不触发三层）"}
+    from earp_server.ontology.search import _knowledge_layers
+
+    layers, fused = await _knowledge_layers(
+        engine, tenant_id, query,
+        embedding=query_embedding, role_id=role_id,
+        data_domain_ids=cand_dds,
+        knowledge_base_ids=cand_kbs or None,
+        top_k=5, embedding_dim=_ROUTING_DIM,
+        query_text=query, mode="hybrid",
+    )
+    return {
+        "triggered": True,
+        "profile": [
+            {k: h.get(k) for k in ("entity_id", "entity_type", "title", "score")} for h in layers["profile"][:5]
+        ],
+        "graph": [
+            {k: h.get(k) for k in ("entity_id", "entity_type", "title", "depth", "score")} for h in layers["graph"][:5]
+        ],
+        "chunk": [
+            {k: h.get(k) for k in ("chunk_id", "title", "kb_name", "score")} for h in layers["chunk"][:5]
+        ],
+        "fused": [
+            {k: h.get(k) for k in ("source", "title", "rrf_score")} for h in fused
+        ],
+    }
+
+
 async def route_debug(
     engine: AsyncEngine,
     tenant_id: str,
@@ -483,6 +528,10 @@ async def route_debug(
         "candidate_dds": result["candidate_dds"],
         "candidate_kbs": result["candidate_kbs"],
         "kb_summaries": kb_summaries,
+        "ontology_layers": await _ontology_layers_debug(
+            engine, tenant_id, query, query_embedding, role_id,
+            result["candidate_dds"], result["candidate_kbs"],
+        ),
         "timings": {
             "dd_vector_ms": round((t_coverage0 - t_dd_vec0) * 1000, 1),
             "coverage_freshness_ms": round((t_coverage1 - t_coverage0) * 1000, 1),

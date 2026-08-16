@@ -481,6 +481,30 @@ function doRouteDebug() {
       if (c.missing_kb_names && c.missing_kb_names.length) status.push('<span style="color:#b91c1c">覆盖缺失: ' + c.missing_kb_names.map(esc).join(', ') + '</span>');
       html += '<div style="padding:2px 4px">' + esc(c.name) + ' (' + esc(c.data_domain_id) + '): ' + status.join(' · ') + '</div>';
     });
+    // Level 3 — 三层检索（profile/graph/chunk）逐层命中明细（P2 增补）
+    var onto = dbg.ontology_layers;
+    if (onto) {
+      html += '<div class="params-title" style="margin-top:0.5rem">Level 3 — 三层检索（📇档案 / 🕸图谱 / 📄文档）</div>';
+      if (!onto.triggered) {
+        html += '<div style="color:var(--text-quaternary)">' + esc(onto.reason || '未触发三层') + '</div>';
+      } else {
+        var rows = [];
+        (onto.profile || []).forEach(function (h) { rows.push(['📇', esc(h.title || ''), h.score != null ? Number(h.score).toFixed(3) : '-']); });
+        (onto.graph || []).forEach(function (h) { rows.push(['🕸', esc(h.title || '') + (h.depth != null ? ' <span style="color:var(--text-quaternary)">depth ' + h.depth + '</span>' : ''), h.score != null ? Number(h.score).toFixed(3) : '-']); });
+        (onto.chunk || []).forEach(function (h) { rows.push(['📄', esc(h.title || '') + (h.kb_name ? ' <span style="color:var(--text-quaternary)">' + esc(h.kb_name) + '</span>' : ''), h.score != null ? Number(h.score).toFixed(3) : '-']); });
+        if (!rows.length) rows.push(['—', '<span style="color:var(--text-quaternary)">各层均无命中</span>', '-']);
+        html += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem"><tr style="color:var(--text-tertiary)"><th style="text-align:left;padding:2px 4px">通道</th><th style="text-align:left">命中</th><th style="text-align:right">得分</th></tr>';
+        rows.forEach(function (r) { html += '<tr><td style="padding:2px 4px">' + r[0] + '</td><td>' + r[1] + '</td><td style="text-align:right">' + r[2] + '</td></tr>'; });
+        html += '</table>';
+        if (onto.fused && onto.fused.length) {
+          html += '<div style="margin-top:0.3rem;font-size:0.72rem;color:var(--text-tertiary)">RRF 融合 top：</div>';
+          html += onto.fused.map(function (f, i) {
+            var tag = f.source === 'profile' ? '📇' : (f.source === 'graph' ? '🕸' : '📄');
+            return '<span class="tag" style="margin:1px">' + tag + ' #' + (i + 1) + ' ' + esc(String(f.title || '').slice(0, 32)) + '</span>';
+          }).join('');
+        }
+      }
+    }
     body.innerHTML = html;
   }).catch(function(err) {
     body.innerHTML = '<span style="color:var(--red)">路由调试失败: ' + esc(err.message) + '</span>';
