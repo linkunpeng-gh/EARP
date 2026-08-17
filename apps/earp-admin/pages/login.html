@@ -19,6 +19,21 @@
 <script src="../js/nav.js"></script>
 <script>
 // Wire to backend JWT auth: POST /auth/login -> store token -> dashboard.
+async function loginWith(tenantId, userId, roleId, errEl) {
+  var res = await fetch(EARP.apiBase + '/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tenant_id: tenantId, user_id: userId, role_id: roleId }),
+  });
+  var data = await res.json().catch(function() { return {}; });
+  if (!res.ok) {
+    showLoginError(errEl, (data.detail || res.status + ' ' + res.statusText));
+    return;
+  }
+  localStorage.setItem('earp_token', data.token);
+  window.location.href = '../index.html';
+}
+
 async function doLogin() {
   var tenantId = document.getElementById('login-tenant').value.trim();
   var userId = document.getElementById('login-user').value.trim();
@@ -32,19 +47,21 @@ async function doLogin() {
   btn.disabled = true;
   btn.textContent = 'Logging in...';
   try {
-    var res = await fetch(EARP.apiBase + '/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenant_id: tenantId, user_id: userId, role_id: roleId }),
-    });
-    var data = await res.json().catch(function() { return {}; });
-    if (!res.ok) {
-      showLoginError(errEl, (data.detail || res.status + ' ' + res.statusText));
-      return;
-    }
-    localStorage.setItem('earp_token', data.token);
-    window.location.href = '../index.html';
+    await loginWith(tenantId, userId, roleId, errEl);
   } catch (e) {
+    // 网络级失败：apiBase='/' 时 fetch 打到静态服务器（http://localhost:8080）而非 API——
+    // probe 标准 dev origin 重试（与 js/app.js fetchJSON 同模式）
+    if (EARP.apiBase !== 'http://127.0.0.1:8000') {
+      try {
+        var probe = await fetch('http://127.0.0.1:8000/health', { method: 'GET' });
+        if (probe.ok) {
+          EARP.apiBase = 'http://127.0.0.1:8000';
+          localStorage.setItem('earp_api_base', EARP.apiBase);
+          await loginWith(tenantId, userId, roleId, errEl);
+          return;
+        }
+      } catch (_) { /* probe failed — keep original error */ }
+    }
     showLoginError(errEl, 'Network error: ' + e.message + ' — ensure the API is reachable at ' + EARP.apiBase + '/auth/login');
   } finally {
     btn.disabled = false;

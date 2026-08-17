@@ -277,12 +277,18 @@ curl -N -X POST localhost:8000/chat_apps/$APP_KB/chat -H "Authorization: Bearer 
 
 ## D. 前端展示
 
-> 启动：`cd apps/earp-admin && python3 -m http.server 8080` → 浏览器打开 http://localhost:8080
+> **推荐：用 API 自带的同源静态托管（无 CORS/跨域问题）**——API 已挂载 /admin 目录：
+> ```bash
+> # 无需 python http.server！直接访问：
+> #   登录页    http://127.0.0.1:8000/admin/pages/login.html
+> #   首页      http://127.0.0.1:8000/admin/
+> ```
+> （备选：`cd apps/earp-admin && python3 -m http.server 8080` → http://localhost:8080/pages/login.html——login 页已加 probe 重试自动探测 API 8000，两种方式均可）
 > **必须先用 login.html 登录**（前端从 localStorage 取 token，未登录 401）：
 
-1. 浏览器打开 `http://localhost:8080/pages/login.html`
+1. 浏览器打开 `http://127.0.0.1:8000/admin/pages/login.html`（同源）
 2. 填：Tenant ID = `verify-planning`、User ID = `vp-user`、Role ID = `vp-role` → 点 Login
-3. 登录成功（token 存入 localStorage）后，打开任意页面即可调 API；切换租户需重新登录
+3. 登录成功跳转首页（token 存入 localStorage）后，打开任意页面即可调 API；切换租户需重新登录
 
 ### D1. QU 调试页（理解 + 运行策略）
 
