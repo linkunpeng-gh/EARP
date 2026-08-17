@@ -20,6 +20,10 @@
 | **实体档案（profile）** | 某个实体的"事实摘要"（Compiled Truth，检索时快速命中） | 实体卡片 |
 | **软路由** | 系统自动判断问题属于哪个数据域/知识库 | 查哪个书架 |
 | **三层检索** | profile（实体档案）+ graph（图谱）+ chunk（文档原文）三路召回融合 | 实体卡 + 关系图 + 原文 |
+| **Query Understanding**（理解层） | 先理解问题再检索——识别实体/关系/问题类型/时间/约束，产出结构化查询 | 先听懂问题再找答案 |
+| **Structured Query** | 理解层输出的结构化表示（intent + entities + relations + constraints + confidence） | 问题的“结构化翻译” |
+| **Knowledge Query Plan** | 按问题类型选策略（plan_fact/plan_relation/plan_aggregation）编排检索执行 | 根据问题类型选答题路线 |
+| **Evidence**（证据） | 每次检索/执行的结果带来源、置信度、主/佐证角色——回答可溯源 | 答题时注明“依据” |
 
 **关键认知**：
 1. **实体/事实与文档是两套知识**——实体图谱回答"谁、属于谁、由谁供应"（结构化）；文档（KB）回答"标准是什么、流程怎么走"（非结构化）。检索时两者融合。
@@ -203,6 +207,7 @@ CNC-02,located_in,PLANT-1,1.0
 - 问自然语言问题，回答带**引用溯源**：
   - 文档引用：「依据」卡（如《报销制度v1》）
   - **📇 实体 / 🕸 图谱**引用卡：回答涉及实体档案/图谱关系时出现
+  - **📊 聚合**引用卡：回答涉及统计聚合（多少台/多少次）时出现，卡上显示聚合值
 - 示例：问 `CNC-01 的供应商是谁` → 回答 + 引用卡 `🕸 图谱：manufactured_by → 上海某精机`
 
 ### 4.3 检索的完整链条（理解"为什么能答对"）
@@ -216,6 +221,55 @@ CNC-02,located_in,PLANT-1,1.0
      Layer 3 📄 文档原文（标准/流程）
   ↓ 融合排序 → 带引用的回答
 ```
+
+### 4.4 QU 调试（页面：知识中心 → 探索验证 → QU 调试）
+
+> 回答是「黑盒」？这个页面把系统**怎么理解你的问题、按什么策略回答**拆开给你看。
+> 与「召回测试」（看检索到没有）互补：QU 调试看**理解对不对、证据怎么组织**。
+
+#### ① 「🧠 理解」按钮 — Query Understanding 分层结果
+
+输入问题，系统展示如何理解它：
+
+| 字段 | 含义 | 示例（`CNC-01 由哪家供应商制造`） |
+|---|---|---|
+| **intent** | 问题类型（一期可靠分类） | `RELATION`（关系查询） |
+| **entities** | 识别到的实体提及 + 类型 | `CNC-01 · equipment` |
+| **relations** | 识别到的关系（必须来自 TBox） | `CNC-01 → manufactured_by → supplier` |
+| **time / constraints** | 时间表达 / 元数据过滤 | `2024 年` → constraints.year=2024 |
+| **confidence** | 规则命中覆盖率 − 歧义惩罚（≥0.7 直接出结果，<0.7 走 LLM 升级） | `0.8` |
+| **rule_fields** | 每个字段命中/未命中（未命中显示原因） | intent=hit / entities=hit |
+| **derive_needs** | 回答这个问题需要哪些检索通道 | relation_reasoning=true |
+
+**徽标解读**：
+- **🧠 LLM 升级**：低置信度时系统自动用 LLM 补齐未命中字段（只补缺失，不重做已命中）——通常出现在问法模糊/口语化的问题上
+- **显式回落**：问题类型属于一期未可靠分类的 7 类（比较/因果/趋势等）时，不静默当作普通文档问题，标注原因供你判断
+
+#### ② 「🗺 运行策略」按钮 — Knowledge Query Plan + 执行过程
+
+点击后在上方结果基础上继续展示：
+
+| 区块 | 含义 |
+|---|---|
+| **select_plan** | 按问题类型选的策略：`plan_fact`（文档事实）/ `plan_relation`（实体关系）/ `plan_aggregation`（统计聚合） |
+| **Execution Trace** | 每一步执行（如 `RESOLVE_ENTITY → GRAPH_QUERY`）的输入/输出/耗时——回答是**可重放**的 |
+| **Evidence Set** | 检索/执行到的证据，每条带：通道图标（📄文档 / 📇实体 / 🕸图谱 / 📊聚合）+ **主证据/佐证**徽标 + 置信度 + ⚠冲突标记 |
+
+**主证据/佐证规则**（回答以什么为主）：
+- `FACT`（文档事实）→ 📄 文档为主，📇/🕸 佐证
+- `RELATION`（关系）→ 🕸 图谱为主，📄 佐证
+- `AGGREGATION`（统计）→ 📊 聚合为主（能力执行结果）
+
+**示例（与 4.1/4.2 同租户）**：
+
+| 输入 | 理解结果 | 策略 | Evidence |
+|---|---|---|---|
+| `CNC-01 由哪家供应商制造` | RELATION + CNC-01 → manufactured_by | plan_relation | 🕸 图谱主证据（manufactured_by → 上海某精机） |
+| `2024 年财务部的报销制度是什么` | FACT + constraints.year=2024 | plan_fact | 📄 文档主证据 |
+| `CNC-01 有多少次故障` | AGGREGATION + COUNT | plan_aggregation | 📊 聚合主证据（count） |
+| `A产线和B产线的设备故障率对比` | 比较类 → **显式回落**（不静默） | plan_fact（回落标注） | 标注原因 |
+
+**一句话**：召回测试看“检索到没有”，QU 调试看“系统理解对不对、按什么策略组织证据”。
 
 ---
 
@@ -271,4 +325,19 @@ curl -s "localhost:8000/v1/ontology/entities/<entity_id>/graph?direction=backwar
 # 路由调试（看 DD/KB 命中与新鲜度）
 curl -X POST localhost:8000/knowledge/routing/debug -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"query":"设备报警"}'
+
+# QU 理解调试（Structured Query + 字段命中 + derive_needs + LLM 升级标记）
+curl -X POST localhost:8000/v1/ontology/understanding/debug -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"query":"CNC-01 由哪家供应商制造"}'
+
+# QU 完整链路调试（select_plan + Execution Trace + Evidence 角色层）
+curl -X POST localhost:8000/v1/ontology/understanding/plan-debug -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"query":"CNC-01 有多少次故障"}'
 ```
+
+## 8. QU 调试会话上下文（指代消解，可选）
+
+QU 调试页的「会话上下文」输入框支持多轮指代消解：上文提到的实体填进去，`它/该设备` 等指代词会映射到它：
+
+- 输入框格式：`mention:type`，逗号分隔，如 `CNC-01:equipment`
+- 示例：第一轮问 `CNC-01 的供应商是谁`，第二轮问 `它是哪家供应商生产的` 并在上下文填 `CNC-01:equipment` → 理解结果 entities 仍识别 CNC-01
