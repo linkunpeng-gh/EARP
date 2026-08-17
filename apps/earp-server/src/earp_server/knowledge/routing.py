@@ -44,6 +44,16 @@ _DATA_DOMAIN_KEYWORDS: dict[str, list[str]] = {
     "corporate_data": ["安全", "规范", "制度", "手册", "safety", "standards", "handbook"],
     "production_data": ["工单", "生产", "订单", "work order", "production", "order"],
     "supply_chain_data": ["供应商", "库存", "物料", "supplier", "inventory", "material"],
+    # tenant-demo 拼音 DD（2026-08-17 补：企业租户自定义 DD 的 keyword lane 支持——
+    # 与标准英文 id 重叠词多候选无害，route_query 权限过滤兜底）
+    "anquanhuanbao": ["安全环保", "环保", "安环"],
+    "zongheguanli": ["综合管理", "综合制度"],
+    "wuziciagou01": ["采购", "物资", "仓库"],
+    "shengchangyunxing": ["生产运行", "运行调度", "调度", "发电"],
+    "jihuacaiwu": ["财务", "报销", "预算", "计划财务"],
+    "shebeiyunwei": ["设备运维", "运维", "检修", "保养"],
+    "jishuguanli": ["技术管理", "技术协议", "金桥"],
+    "sales_data": ["销售", "客户"],
 }
 
 # vector dim for routing/summary embeddings — aligned with 0004 (bge-m3, 1024).
