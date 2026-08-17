@@ -138,3 +138,6 @@ tempCodeRunnerFile.py
 # Project-specific
 *.local.yaml
 *.local.json
+
+# 商务交付物（PPT 及生成脚本），不入库
+marketing/
