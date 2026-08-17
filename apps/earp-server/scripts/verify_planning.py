@@ -84,13 +84,24 @@ def _intent_from_label(label: str) -> Intent:
 
 
 async def _seed(engine, tid: str) -> None:
-    """实体图 + facts + KB/docs/chunks + query capability（plan_fact 检索 / plan_aggregation 候选）。"""
+    """实体图 + facts + KB/docs/chunks + query capability + 登录身份（plan_fact 检索 / plan_aggregation 候选）。"""
     from earp_server.knowledge.chunk_service import create_chunks
     from earp_server.knowledge.document_service import create_document
     from earp_server.knowledge.embedding_service import embed_chunks
     from earp_server.knowledge.routing import build_routing_index
 
     async with engine.begin() as conn:
+        # tenants 无 RLS（顶层表）；users RLS-scoped——登录身份（/auth/login 校验存在性）
+        await conn.execute(
+            text("INSERT INTO tenants (tenant_id, name, status) VALUES (:tid, :name, 'active') "
+                 "ON CONFLICT (tenant_id) DO NOTHING"),
+            {"tid": tid, "name": "Verify Planning"},
+        )
+        await conn.execute(
+            text("INSERT INTO users (user_id, tenant_id, name, email) "
+                 "VALUES ('vp-user', :tid, 'VP', 'vp@local') ON CONFLICT (user_id) DO NOTHING"),
+            {"tid": tid},
+        )
         for tbl in ("entity_timeline", "entity_profiles", "facts", "entities", "relation_types", "entity_types"):
             await conn.execute(text(f"DELETE FROM {tbl} WHERE tenant_id = :tid"), {"tid": tid})
         for tbl in ("chunks", "documents", "knowledge_bases", "data_domains"):

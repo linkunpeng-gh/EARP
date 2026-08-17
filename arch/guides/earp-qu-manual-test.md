@@ -43,12 +43,20 @@
 >   uv run python scripts/verify_planning.py
 > ```
 
-### 0.3 Token
+### 0.3 Token（两种方式）
 
+**方式一：login 端点（推荐——前端测试也用它）**
+```bash
+curl -s -X POST localhost:8000/auth/login -H 'Content-Type: application/json' \
+  -d '{"tenant_id":"verify-planning","user_id":"vp-user","role_id":"vp-role"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])" > /tmp/vp_token.txt
+TOKEN=$(cat /tmp/vp_token.txt)
+```
+
+**方式二：直接签发（等价，绕过存在性校验）**
 ```bash
 TOKEN=$(cd apps/earp-server && .venv/bin/python -c "
-import jwt; print(jwt.encode({'sub':'u1','tenant_id':'verify-planning','role_id':'vp-role','exp':9999999999},'earp-dev-secret-change-in-production',algorithm='HS256'))")
-echo $TOKEN
+import jwt; print(jwt.encode({'sub':'vp-user','tenant_id':'verify-planning','role_id':'vp-role','exp':9999999999},'earp-dev-secret-change-in-production',algorithm='HS256'))")
 ```
 
 ### 0.4 JSON 阅读辅助
@@ -270,7 +278,11 @@ curl -N -X POST localhost:8000/chat_apps/$APP_KB/chat -H "Authorization: Bearer 
 ## D. 前端展示
 
 > 启动：`cd apps/earp-admin && python3 -m http.server 8080` → 浏览器打开 http://localhost:8080
-> 登录态：API 端口 8000 已在后台跑，前端相对链接即可访问（或直接开 index.html）
+> **必须先用 login.html 登录**（前端从 localStorage 取 token，未登录 401）：
+
+1. 浏览器打开 `http://localhost:8080/pages/login.html`
+2. 填：Tenant ID = `verify-planning`、User ID = `vp-user`、Role ID = `vp-role` → 点 Login
+3. 登录成功（token 存入 localStorage）后，打开任意页面即可调 API；切换租户需重新登录
 
 ### D1. QU 调试页（理解 + 运行策略）
 
