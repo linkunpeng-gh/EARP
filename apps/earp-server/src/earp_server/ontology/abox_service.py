@@ -7,10 +7,13 @@ aggregation is rule-based in M1 (summary/key_facts/related_entities/stats).
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+logger = logging.getLogger(__name__)
 
 
 async def upsert_entity(
@@ -54,6 +57,16 @@ async def upsert_entity(
                     {"name": name, "attrs": json.dumps(attributes or {}), "dd": data_domain_id, "eid": eid},
                 )
                 await conn.commit()
+                # tech-debt #11：merge 写时失效（实体变更 → profile 重编译）+ timeline
+                await _invalidate_profiles(engine, tenant_id, [eid])
+                await _log_timeline(
+                    engine,
+                    tenant_id,
+                    eid,
+                    "entity.updated",
+                    {"entity_type_id": entity_type_id, "name": name},
+                    eid,
+                )
                 return {"entity_id": eid, "merged": True}
 
         await conn.execute(
@@ -76,6 +89,15 @@ async def upsert_entity(
             },
         )
         await conn.commit()
+    # tech-debt #11：新实体写 timeline（entity.created）；无 profile 无需失效（惰性编译兜底）
+    await _log_timeline(
+        engine,
+        tenant_id,
+        eid,
+        "entity.created",
+        {"entity_type_id": entity_type_id, "name": name},
+        eid,
+    )
     return {"entity_id": eid, "merged": False}
 
 
@@ -159,9 +181,7 @@ async def list_entities(
     w = " AND ".join(where)
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        total = (
-            await conn.execute(text(f"SELECT count(*) FROM entities WHERE {w}"), params)
-        ).scalar()
+        total = (await conn.execute(text(f"SELECT count(*) FROM entities WHERE {w}"), params)).scalar()
         rows = await conn.execute(
             text(
                 f"SELECT entity_id, entity_type_id, name, business_code, attributes, source_mode, "
@@ -187,6 +207,62 @@ async def deprecate_entity(engine: AsyncEngine, tenant_id: str, entity_id: str) 
         await conn.commit()
         r = result.fetchone()
         return dict(r._mapping) if r else None
+
+
+# ── tech-debt #11: profile 过期管理（写时失效 + timeline）──────────────────────
+
+
+async def _log_timeline(
+    engine: AsyncEngine,
+    tenant_id: str,
+    entity_id: str,
+    event_type: str,
+    payload: dict | None = None,
+    source_ref: str | None = None,
+) -> None:
+    """写 entity_timeline（recent_events 消费 + freshness 时间源之一）。失败不影响主操作。"""
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+            await conn.execute(
+                text(
+                    "INSERT INTO entity_timeline "
+                    "(entity_timeline_id, tenant_id, entity_id, event_type, payload, occurred_at, source_ref) "
+                    "VALUES (:id, :tid, :eid, :et, :p, now(), :ref)"
+                ),
+                {
+                    "id": f"tl-{uuid.uuid4().hex[:12]}",
+                    "tid": tenant_id,
+                    "eid": entity_id,
+                    "et": event_type,
+                    "p": json.dumps(payload or {}),
+                    "ref": source_ref,
+                },
+            )
+            await conn.commit()
+    except Exception:
+        logger.warning("_log_timeline failed for %s/%s", entity_id, event_type, exc_info=True)
+
+
+async def _profile_exists(engine: AsyncEngine, tenant_id: str, entity_id: str) -> bool:
+    """轻量 profile 存在性检查（避免 get_entity_profile 的 freshness 递归编译）。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(text("SELECT 1 FROM entity_profiles WHERE entity_id = :eid"), {"eid": entity_id})
+        return row.fetchone() is not None
+
+
+async def _invalidate_profiles(engine: AsyncEngine, tenant_id: str, entity_ids: list[str]) -> None:
+    """写时失效（D1）：已有 profile 的实体重编译；无 profile 跳过（惰性编译兜底）。
+
+    钩子失败不影响主操作（写事实是主操作，profile 重编译是补偿）。
+    """
+    for eid in entity_ids:
+        try:
+            if await _profile_exists(engine, tenant_id, eid):
+                await compile_profile(engine, tenant_id, eid)
+        except Exception:
+            logger.warning("_invalidate_profiles failed for %s", eid, exc_info=True)
 
 
 async def add_fact(
@@ -220,19 +296,39 @@ async def add_fact(
             },
         )
         await conn.commit()
+    # tech-debt #11：写时失效（source+target profile 重编译）+ timeline
+    await _invalidate_profiles(engine, tenant_id, [source_entity_id, target_entity_id])
+    await _log_timeline(
+        engine,
+        tenant_id,
+        source_entity_id,
+        "fact.added",
+        {"relation_type_id": relation_type_id, "target_entity_id": target_entity_id},
+        fid,
+    )
     return {"fact_id": fid, "status": "active"}
 
 
 async def revoke_fact(engine: AsyncEngine, tenant_id: str, fact_id: str, reason: str = "") -> dict | None:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        src = await conn.execute(text("SELECT source_entity_id FROM facts WHERE fact_id = :fid"), {"fid": fact_id})
+        src_row = src.fetchone()
         result = await conn.execute(
-            text("UPDATE facts SET status = 'revoked' WHERE fact_id = :fid RETURNING fact_id, status"),
+            text(
+                "UPDATE facts SET status = 'revoked', updated_at = now() WHERE fact_id = :fid RETURNING fact_id, status"
+            ),
             {"fid": fact_id},
         )
         await conn.commit()
         r = result.fetchone()
-        return dict(r._mapping) if r else None
+        if r is None:
+            return None
+    # tech-debt #11：写时失效（source profile）+ timeline
+    if src_row is not None:
+        await _invalidate_profiles(engine, tenant_id, [src_row.source_entity_id])
+        await _log_timeline(engine, tenant_id, src_row.source_entity_id, "fact.revoked", {"fact_id": fact_id}, fact_id)
+    return dict(r._mapping)
 
 
 async def graph_query(
@@ -312,6 +408,38 @@ async def graph_query(
         return [dict(r._mapping) for r in rows.fetchall()]
 
 
+async def find_stale_profiles(
+    engine: AsyncEngine,
+    tenant_id: str,
+    *,
+    max_n: int = 100,
+) -> list[str]:
+    """扫描需要重编译的实体（tech-debt #11 D3）：无 profile 或 compiled_at < last_change。
+
+    last_change 同 get_entity_profile 三源（timeline / facts.updated_at / entities.updated_at）。
+    """
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        rows = await conn.execute(
+            text(
+                "SELECT e.entity_id FROM entities e "
+                "LEFT JOIN entity_profiles p ON p.entity_id = e.entity_id "
+                "WHERE e.tenant_id = :tid AND e.status = 'active' "
+                "AND (p.entity_id IS NULL OR p.compiled_at < GREATEST("
+                "  COALESCE((SELECT MAX(t.occurred_at) FROM entity_timeline t "
+                "     WHERE t.entity_id = e.entity_id), '-infinity'::timestamptz), "
+                "  COALESCE((SELECT MAX(f.updated_at) FROM facts f "
+                "     WHERE f.source_entity_id = e.entity_id OR f.target_entity_id = e.entity_id), "
+                "     '-infinity'::timestamptz), "
+                "  COALESCE(e.updated_at, '-infinity'::timestamptz)"
+                ")) "
+                "LIMIT :n"
+            ),
+            {"tid": tenant_id, "n": max_n},
+        )
+        return [r.entity_id for r in rows.fetchall()]
+
+
 async def compile_profile(engine: AsyncEngine, tenant_id: str, entity_id: str) -> dict | None:
     """Rule-based Compiled Truth: aggregate entity + active facts + recent timeline."""
     async with engine.connect() as conn:
@@ -383,10 +511,18 @@ async def compile_profile(engine: AsyncEngine, tenant_id: str, entity_id: str) -
         )
         await conn.commit()
         r = result.fetchone()
+        assert r is not None
         return {"entity_id": r.entity_id, "profile_version": r.profile_version, "profile": profile}
 
 
 async def get_entity_profile(engine: AsyncEngine, tenant_id: str, entity_id: str) -> dict | None:
+    """Fetch profile with read-time freshness check (tech-debt #11 D2).
+
+    last_change = GREATEST(entity_timeline MAX, facts.updated_at MAX, entities.updated_at)
+    —— timeline 为主源（钩子写入），facts.updated_at/entities.updated_at 回退存量；
+    过期（compiled_at < last_change）→ 重编译并返回新值。knowledge_search 的
+    profile lane 复用本函数，自动获得校验（无需改检索代码）。
+    """
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         row = await conn.execute(
@@ -394,4 +530,24 @@ async def get_entity_profile(engine: AsyncEngine, tenant_id: str, entity_id: str
             {"eid": entity_id},
         )
         r = row.fetchone()
-        return dict(r._mapping) if r else None
+        if r is None:
+            return None
+        last_change = await conn.execute(
+            text(
+                "SELECT GREATEST("
+                "  COALESCE((SELECT MAX(occurred_at) FROM entity_timeline "
+                "     WHERE entity_id = :eid), '-infinity'::timestamptz), "
+                "  COALESCE((SELECT MAX(updated_at) FROM facts "
+                "     WHERE source_entity_id = :eid OR target_entity_id = :eid), "
+                "     '-infinity'::timestamptz), "
+                "  COALESCE((SELECT updated_at FROM entities WHERE entity_id = :eid), "
+                "     '-infinity'::timestamptz)"
+                ")"
+            ),
+            {"eid": entity_id},
+        )
+        last = last_change.scalar()
+        if last is not None and r.compiled_at < last:
+            # 过期 → 重编译（profile_version 递增）
+            return await compile_profile(engine, tenant_id, entity_id)
+        return dict(r._mapping)

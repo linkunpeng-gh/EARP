@@ -458,6 +458,28 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 4. **QU 二期**：chat 发布评审+可见范围（应用中心使用界面）、Phase F（通用 DAG/低置信度自适应规划）评估
 5. 8000 端口残留 API 进程（PID 97205/72523）可 kill
 
+---
+
+### 会话续接（2026-08-17）— tech-debt #11 profile 过期管理已清偿
+
+> 任务书：`tasks/techdebt-11-profile-staleness.md`（5 Task；D1-D4 方案 A 已确认）
+> 影响：QU v0.3 recall 层 profile lane 依赖——之前事实变更后 profile 一直给旧事实
+
+**关键产出**：
+- **migration 0017**：facts 加 `updated_at`（freshness 第三时间源，覆盖存量 revoke——facts 原无 updated_at，revoke 是 status 软删 created_at 不变）
+- **写时失效（D1）**：abox_service 加 `_log_timeline`（entity.created/updated + fact.added/revoked 写 entity_timeline——recent_events 首次生效）+ `_invalidate_profiles`（已有 profile 的实体重编译；`_profile_exists` 轻量检查避免 freshness 递归编译）；add_fact/revoke_fact/upsert_entity 接入（revoke 先查 source + updated_at 更新）
+- **读时 freshness（D2）**：get_entity_profile 集中校验——last_change = GREATEST(timeline MAX, facts.updated_at MAX, entities.updated_at) vs compiled_at，过期即重编译；knowledge_search 的 profile lane 复用该函数自动获得校验（检索代码零改动）
+- **scheduler enrichment（D3）**：scheduler 进程 idle → 心跳 + 每 EARP_ENRICHMENT_INTERVAL_SECONDS（默认 3600s）扫描所有租户 stale profile（`find_stale_profiles`：无 profile 或 compiled_at < last_change）批量重编译（规则聚合，LLM summary 留 M2）
+- 测试：`test_profile_staleness.py`（8 用例：add/revoke/merge 写时失效、绕过钩子存量变更读时重编译、timeline 事件、find_stale_profiles、scheduler enrichment 冒烟）
+
+**验证**：172 tests passed（164 → +8）+ import-linter + ruff/pyright 零新增（pyright 65，比基线 67 少 2——compile_profile r 断言修复顺带消了 2 个既有错误）；scheduler 本地实测 enrichment 38 profiles 重编译；顺手修复：scheduler.py 重写时丢失 `if __name__ == "__main__"` 块（-m 方式不调 main，test_entrypoints 抓到）
+
+**下一步（沿用优先级表）**：
+1. **tech-debt #12 TBox 审批流**（draft→approved + 审计 + 停用恢复）——知识资产方向治理最重的下一项
+2. **B6 评估集管理页**（三套评估落库 + 跑分可视化）；**#9 角色域权限**；**#7 capability 复合主键**
+3. **P3 rerank 真模型验证**（待 Ollama 升级）；**M3 中台 importer + Enrichment**
+4. **QU 二期**：chat 发布评审+可见范围、Phase F 评估
+
 **QU 链路当前完整闭环**：理解（QU 规则+LLM 升级）→ 规划（select_plan 3 策略 + Execution Trace）→ 检索（三层 RRF + 软路由）→ 执行（capability 聚合）→ 角色层 Evidence → Answer（chat）；Plan 层 gating 100% 通过
 
 ---
