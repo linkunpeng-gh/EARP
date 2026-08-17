@@ -6,8 +6,14 @@ SET LOCAL earp.tenant_id. Seeds per-tenant with ON CONFLICT DO NOTHING.
 
 from __future__ import annotations
 
+import json
+import logging
+import uuid
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+logger = logging.getLogger(__name__)
 
 # ── TBox seeds (ontology-layer-design §3.1/§3.2) ──────────────────────────────
 SEED_ENTITY_TYPES: list[dict] = [
@@ -280,3 +286,225 @@ async def find_capabilities_by_entity_type(
             {"tid": tenant_id, "et": entity_type_id},
         )
         return [dict(r._mapping) for r in rows.fetchall()]
+
+
+# ── tech-debt #12: TBox 审批流（tbox_changes 变更请求）────────────────────────
+
+
+async def _get_tbox_row(engine: AsyncEngine, tenant_id: str, table: str, target_id: str) -> dict | None:
+    """按 (id, tenant) 查实体/关系类型行（审批提交预检用）。table: entity_types | relation_types"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        rows = await conn.execute(
+            text(
+                f"SELECT * FROM {table} WHERE tenant_id = :tid AND "
+                f"{'entity_type_id' if table == 'entity_types' else 'relation_type_id'} = :id"
+            ),
+            {"tid": tenant_id, "id": target_id},
+        )
+        r = rows.fetchone()
+        return dict(r._mapping) if r else None
+
+
+async def submit_change(
+    engine: AsyncEngine,
+    tenant_id: str,
+    user_id: str,
+    *,
+    change_type: str,
+    action: str,
+    target_id: str,
+    payload: dict | None = None,
+) -> dict:
+    """提交 TBox 变更请求（pending）。create 预检目标 id 冲突（active 拒绝；deprecated 提示走恢复）。"""
+    if change_type not in ("entity_type", "relation_type"):
+        raise ValueError(f"非法 change_type: {change_type}")
+    if action not in ("create", "deprecate", "reactivate"):
+        raise ValueError(f"非法 action: {action}")
+    payload = payload or {}
+
+    if action == "create":
+        table = "entity_types" if change_type == "entity_type" else "relation_types"
+        existing = await _get_tbox_row(engine, tenant_id, table, target_id)
+        if existing is not None:
+            if existing["status"] == "deprecated":
+                raise ValueError(f"{change_type} 已存在且已停用: {target_id}（如需恢复请提交 reactivate 请求）")
+            raise ValueError(f"{change_type} 已存在: {target_id}")
+        if change_type == "entity_type":
+            if not payload.get("name"):
+                raise ValueError("create 实体类型缺少 name")
+        else:
+            for k in ("name", "source_type", "target_type"):
+                if not payload.get(k):
+                    raise ValueError(f"create 关系类型缺少 {k}")
+
+    cid = f"tc-{uuid.uuid4().hex[:12]}"
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        await conn.execute(
+            text(
+                "INSERT INTO tbox_changes (change_id, tenant_id, change_type, action, target_id, "
+                "payload, status, requested_by) "
+                "VALUES (:cid, :tid, :ct, :act, :tid2, :p, 'pending', :req)"
+            ),
+            {
+                "cid": cid,
+                "tid": tenant_id,
+                "ct": change_type,
+                "act": action,
+                "tid2": target_id,
+                "p": json.dumps(payload),
+                "req": user_id,
+            },
+        )
+        await conn.commit()
+    return {"change_id": cid, "status": "pending"}
+
+
+async def list_changes(engine: AsyncEngine, tenant_id: str, *, status: str | None = None) -> list[dict]:
+    """变更请求列表（审批区；pending 优先 + 新→旧）。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        sql = "SELECT * FROM tbox_changes WHERE tenant_id = :tid"
+        params: dict = {"tid": tenant_id}
+        if status:
+            sql += " AND status = :st"
+            params["st"] = status
+        sql += " ORDER BY (status = 'pending') DESC, created_at DESC"
+        rows = await conn.execute(text(sql), params)
+        return [dict(r._mapping) for r in rows.fetchall()]
+
+
+async def approve_change(
+    engine: AsyncEngine,
+    tenant_id: str,
+    reviewer: str,
+    change_id: str,
+) -> dict:
+    """审批通过：apply 真实变更（create/deprecate/reactivate）→ 请求 applied。
+
+    提交者不能审批自己（403）；apply 失败（并发冲突等）→ 抛错，请求保持 pending。
+    """
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text("SELECT * FROM tbox_changes WHERE change_id = :cid AND tenant_id = :tid"),
+            {"cid": change_id, "tid": tenant_id},
+        )
+        r = row.fetchone()
+        if r is None:
+            raise ValueError(f"变更请求不存在: {change_id}")
+        if r.status != "pending":
+            raise ValueError(f"变更请求状态非 pending: {r.status}")
+        if r.requested_by == reviewer:
+            raise PermissionError("不能审批自己提交的变更")
+
+    # apply（独立连接写类型表——RLS 自动按租户）
+    if r.action == "create":
+        p = r.payload
+        if r.change_type == "entity_type":
+            await create_entity_type(
+                engine,
+                tenant_id,
+                r.target_id,
+                p.get("name"),
+                kind=p.get("kind", "object"),
+                description=p.get("description"),
+                data_domain_id=p.get("data_domain_id"),
+                attributes=p.get("attributes"),
+                owner=p.get("owner"),
+            )
+        else:
+            await create_relation_type(
+                engine,
+                tenant_id,
+                r.target_id,
+                p.get("name"),
+                p.get("source_type", ""),
+                p.get("target_type", ""),
+                p.get("cardinality", "N:M"),
+            )
+    elif r.action == "deprecate":
+        if r.change_type == "entity_type":
+            await deprecate_entity_type(engine, tenant_id, r.target_id)
+        else:
+            await deprecate_relation_type(engine, tenant_id, r.target_id)
+    elif r.action == "reactivate":
+        if r.change_type == "entity_type":
+            await reactivate_entity_type(engine, tenant_id, r.target_id)
+        else:
+            await reactivate_relation_type(engine, tenant_id, r.target_id)
+    else:  # 理论不可达（submit 校验）
+        raise ValueError(f"非法 action: {r.action}")
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        await conn.execute(
+            text(
+                "UPDATE tbox_changes SET status = 'applied', reviewed_by = :r, reviewed_at = now() "
+                "WHERE change_id = :cid AND tenant_id = :tid"
+            ),
+            {"r": reviewer, "cid": change_id, "tid": tenant_id},
+        )
+        await conn.commit()
+    return {"change_id": change_id, "status": "applied"}
+
+
+async def reject_change(
+    engine: AsyncEngine,
+    tenant_id: str,
+    reviewer: str,
+    change_id: str,
+    reason: str,
+) -> dict:
+    """拒绝变更请求（pending → rejected + 原因）。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        result = await conn.execute(
+            text(
+                "UPDATE tbox_changes SET status = 'rejected', reviewed_by = :r, "
+                "review_reason = :reason, reviewed_at = now() "
+                "WHERE change_id = :cid AND tenant_id = :tid AND status = 'pending' "
+                "RETURNING change_id, status"
+            ),
+            {"r": reviewer, "reason": reason, "cid": change_id, "tid": tenant_id},
+        )
+        await conn.commit()
+        r = result.fetchone()
+        if r is None:
+            raise ValueError(f"变更请求不存在或非 pending: {change_id}")
+        return dict(r._mapping)
+
+
+async def reactivate_entity_type(engine: AsyncEngine, tenant_id: str, entity_type_id: str) -> dict | None:
+    """恢复实体类型（deprecated → active；幂等——非 deprecated 不生效返回 None）。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        result = await conn.execute(
+            text(
+                "UPDATE entity_types SET status = 'active', updated_at = now() "
+                "WHERE entity_type_id = :id AND tenant_id = :tid AND status = 'deprecated' "
+                "RETURNING entity_type_id, status"
+            ),
+            {"id": entity_type_id, "tid": tenant_id},
+        )
+        await conn.commit()
+        r = result.fetchone()
+        return dict(r._mapping) if r else None
+
+
+async def reactivate_relation_type(engine: AsyncEngine, tenant_id: str, relation_type_id: str) -> dict | None:
+    """恢复关系类型（deprecated → active；幂等）。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        result = await conn.execute(
+            text(
+                "UPDATE relation_types SET status = 'active' "
+                "WHERE relation_type_id = :id AND tenant_id = :tid AND status = 'deprecated' "
+                "RETURNING relation_type_id, status"
+            ),
+            {"id": relation_type_id, "tid": tenant_id},
+        )
+        await conn.commit()
+        r = result.fetchone()
+        return dict(r._mapping) if r else None

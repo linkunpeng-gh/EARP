@@ -850,6 +850,37 @@ components:
           title: Rerank
       title: SystemSettingsIn
       type: object
+    TboxChangeIn:
+      properties:
+        action:
+          title: Action
+          type: string
+        change_type:
+          title: Change Type
+          type: string
+        payload:
+          additionalProperties: true
+          default: {}
+          title: Payload
+          type: object
+        target_id:
+          title: Target Id
+          type: string
+      required:
+      - change_type
+      - action
+      - target_id
+      title: TboxChangeIn
+      type: object
+    TboxRejectIn:
+      properties:
+        reason:
+          title: Reason
+          type: string
+      required:
+      - reason
+      title: TboxRejectIn
+      type: object
     UnderstandingDebugIn:
       properties:
         context:
@@ -3162,6 +3193,130 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Knowledge Search Endpoint
+      tags:
+      - ontology
+  /v1/ontology/tbox/changes:
+    get:
+      operationId: list_tbox_changes_v1_ontology_tbox_changes_get
+      parameters:
+      - in: query
+        name: status
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Tbox Changes V1 Ontology Tbox Changes Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Tbox Changes
+      tags:
+      - ontology
+    post:
+      description: 提交 TBox 变更请求（pending）——新增/停用/恢复均走审批（D2）。
+      operationId: submit_tbox_change_v1_ontology_tbox_changes_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TboxChangeIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Submit Tbox Change V1 Ontology Tbox Changes Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Submit Tbox Change
+      tags:
+      - ontology
+  /v1/ontology/tbox/changes/{change_id}/approve:
+    post:
+      description: 审批通过（提交者不能审自己；apply 真实变更后 applied）。
+      operationId: approve_tbox_change_v1_ontology_tbox_changes__change_id__approve_post
+      parameters:
+      - in: path
+        name: change_id
+        required: true
+        schema:
+          title: Change Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Approve Tbox Change V1 Ontology Tbox Changes  Change
+                  Id  Approve Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Approve Tbox Change
+      tags:
+      - ontology
+  /v1/ontology/tbox/changes/{change_id}/reject:
+    post:
+      operationId: reject_tbox_change_v1_ontology_tbox_changes__change_id__reject_post
+      parameters:
+      - in: path
+        name: change_id
+        required: true
+        schema:
+          title: Change Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TboxRejectIn'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Reject Tbox Change V1 Ontology Tbox Changes  Change
+                  Id  Reject Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Reject Tbox Change
       tags:
       - ontology
   /v1/ontology/understanding/debug:

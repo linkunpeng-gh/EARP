@@ -5,7 +5,7 @@
 
 <main>
 
-<div class="page-title"><div><h2>类型管理（TBox）</h2><p class="page-subtitle">实体/关系类型字典 · 新增与停用自助，改类型集合/ID 需走治理（tech-debt #12）· <a href="entities.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">实体管理 →</a></p></div></div>
+<div class="page-title"><div><h2>类型管理（TBox）</h2><p class="page-subtitle">实体/关系类型字典 · 新增/停用/恢复均提交变更请求，审批通过后生效（tech-debt #12）· <a href="entities.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">实体管理 →</a></p></div></div>
 
 <!-- 实体类型 -->
 <section style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;margin-bottom:14px">
@@ -49,6 +49,26 @@
       <th style="text-align:right;padding:6px;border-bottom:1px solid var(--border-subtle)">操作</th>
     </tr></thead>
     <tbody id="rt-tbody"><tr><td colspan="7" style="padding:10px;text-align:center;color:var(--text-tertiary)">加载中…</td></tr></tbody>
+  </table>
+</section>
+
+<!-- 待审批变更（tech-debt #12） -->
+<section id="pending-section" style="display:none;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;margin-top:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <h3 style="margin:0;font-size:0.9rem">待审批变更（<span id="pc-count">0</span>）</h3>
+    <button class="btn-outline btn-sm" onclick="loadPending()">刷新</button>
+  </div>
+  <div style="font-size:0.72rem;color:var(--text-quaternary);margin-bottom:6px">提交的变更需其他用户审批后生效（不能审批自己的请求）</div>
+  <table style="width:100%;border-collapse:collapse;font-size:0.75rem">
+    <thead><tr>
+      <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-subtle)">请求人</th>
+      <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-subtle)">类型</th>
+      <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-subtle)">动作</th>
+      <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-subtle)">目标</th>
+      <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--border-subtle)">时间</th>
+      <th style="text-align:right;padding:4px 6px;border-bottom:1px solid var(--border-subtle)">操作</th>
+    </tr></thead>
+    <tbody id="pc-tbody"><tr><td colspan="6" style="padding:10px;text-align:center;color:var(--text-tertiary)">加载中…</td></tr></tbody>
   </table>
 </section>
 
@@ -140,7 +160,7 @@ async function loadEt() {
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(t.data_domain_id || '') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (dep ? '<span style="color:var(--red)">deprecated</span>' : 'active') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right">'
-        + (dep ? '<span style="color:var(--text-quaternary)">—</span>' : '<a href="javascript:void(0)" onclick="depEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--red)">停用</a>')
+        + (dep ? '<a href="javascript:void(0)" onclick="reactEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--green,#166534)">恢复</a>' : '<a href="javascript:void(0)" onclick="depEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--red)">停用</a>')
         + '</td></tr>';
     }).join('');
   } catch (e) { document.getElementById('et-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
@@ -163,18 +183,35 @@ async function saveEt() {
   var desc = document.getElementById('et-desc').value.trim();
   if (desc) body.description = desc;
   try {
-    await EARP.fetchJSON('/v1/ontology/entity-types', { method: 'POST', body: JSON.stringify(body) });
+    await EARP.fetchJSON('/v1/ontology/tbox/changes', { method: 'POST', body: JSON.stringify({
+      change_type: 'entity_type', action: 'create', target_id: id, payload: body
+    }) });
     document.getElementById('et-modal').style.display = 'none';
-    loadEt();
-  } catch (e) { alert('保存失败: ' + e.message); }
+    alert('已提交变更请求，审批通过后生效');
+    loadPending(); loadEt();
+  } catch (e) { alert('提交失败: ' + e.message); }
 }
 
 async function depEt(id, name) {
-  if (!confirm('确认停用实体类型「' + name + '」？停用后不再出现在新建/导入的类型下拉，存量实体保留。')) return;
+  if (!confirm('确认提交停用实体类型「' + name + '」的变更请求？审批通过后生效，存量实体保留。')) return;
   try {
-    await EARP.fetchJSON('/v1/ontology/entity-types/' + encodeURIComponent(id) + '/deprecate', { method: 'POST' });
-    loadEt();
-  } catch (e) { alert('停用失败: ' + e.message); }
+    await EARP.fetchJSON('/v1/ontology/tbox/changes', { method: 'POST', body: JSON.stringify({
+      change_type: 'entity_type', action: 'deprecate', target_id: id
+    }) });
+    alert('已提交停用请求，待审批');
+    loadPending(); loadEt();
+  } catch (e) { alert('提交失败: ' + e.message); }
+}
+
+async function reactEt(id, name) {
+  if (!confirm('确认提交恢复实体类型「' + name + '」的变更请求？审批通过后回到 active。')) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/tbox/changes', { method: 'POST', body: JSON.stringify({
+      change_type: 'entity_type', action: 'reactivate', target_id: id
+    }) });
+    alert('已提交恢复请求，待审批');
+    loadPending(); loadEt();
+  } catch (e) { alert('提交失败: ' + e.message); }
 }
 
 // ── 关系类型 ──────────────────────────────────────────────────────────────
@@ -194,7 +231,7 @@ async function loadRt() {
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(r.cardinality || '') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (dep ? '<span style="color:var(--red)">deprecated</span>' : 'active') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right">'
-        + (dep ? '<span style="color:var(--text-quaternary)">—</span>' : '<a href="javascript:void(0)" onclick="depRt(\'' + esc(r.relation_type_id) + '\',\'' + esc(r.name) + '\')" style="color:var(--red)">停用</a>')
+        + (dep ? '<a href="javascript:void(0)" onclick="reactRt(\'' + esc(r.relation_type_id) + '\',\'' + esc(r.name) + '\')" style="color:var(--green,#166534)">恢复</a>' : '<a href="javascript:void(0)" onclick="depRt(\'' + esc(r.relation_type_id) + '\',\'' + esc(r.name) + '\')" style="color:var(--red)">停用</a>')
         + '</td></tr>';
     }).join('');
   } catch (e) { document.getElementById('rt-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }}
@@ -217,18 +254,81 @@ async function saveRt() {
   if (!src.length || !tgt.length) { alert('源类型和目标类型至少各选一个'); return; }
   var body = { relation_type_id: id, name: name, source_type: src.join(','), target_type: tgt.join(','), cardinality: document.getElementById('rt-card').value };
   try {
-    await EARP.fetchJSON('/v1/ontology/relation-types', { method: 'POST', body: JSON.stringify(body) });
+    await EARP.fetchJSON('/v1/ontology/tbox/changes', { method: 'POST', body: JSON.stringify({
+      change_type: 'relation_type', action: 'create', target_id: id, payload: body
+    }) });
     document.getElementById('rt-modal').style.display = 'none';
-    loadRt();
-  } catch (e) { alert('保存失败: ' + e.message); }
+    alert('已提交变更请求，审批通过后生效');
+    loadPending(); loadRt();
+  } catch (e) { alert('提交失败: ' + e.message); }
 }
 
 async function depRt(id, name) {
-  if (!confirm('确认停用关系类型「' + name + '」？停用后新建/导入不再允许使用该关系，存量 facts 保留。')) return;
+  if (!confirm('确认提交停用关系类型「' + name + '」的变更请求？审批通过后生效，存量 facts 保留。')) return;
   try {
-    await EARP.fetchJSON('/v1/ontology/relation-types/' + encodeURIComponent(id) + '/deprecate', { method: 'POST' });
-    loadRt();
-  } catch (e) { alert('停用失败: ' + e.message); }
+    await EARP.fetchJSON('/v1/ontology/tbox/changes', { method: 'POST', body: JSON.stringify({
+      change_type: 'relation_type', action: 'deprecate', target_id: id
+    }) });
+    alert('已提交停用请求，待审批');
+    loadPending(); loadRt();
+  } catch (e) { alert('提交失败: ' + e.message); }
+}
+
+async function reactRt(id, name) {
+  if (!confirm('确认提交恢复关系类型「' + name + '」的变更请求？审批通过后回到 active。')) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/tbox/changes', { method: 'POST', body: JSON.stringify({
+      change_type: 'relation_type', action: 'reactivate', target_id: id
+    }) });
+    alert('已提交恢复请求，待审批');
+    loadPending(); loadRt();
+  } catch (e) { alert('提交失败: ' + e.message); }
+}
+
+// ── 待审批区（tech-debt #12）─────────────────────────────────────────────
+async function loadPending() {
+  try {
+    var rows = await EARP.fetchJSON('/v1/ontology/tbox/changes?status=pending');
+    var sec = document.getElementById('pending-section');
+    sec.style.display = rows.length ? '' : 'none';
+    document.getElementById('pc-count').textContent = rows.length;
+    var tb = document.getElementById('pc-tbody');
+    var actLabel = { create: '新增', deprecate: '停用', reactivate: '恢复' };
+    var typeLabel = { entity_type: '实体类型', relation_type: '关系类型' };
+    tb.innerHTML = rows.map(function (c) {
+      return '<tr>'
+        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.requested_by) + '</td>'
+        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(typeLabel[c.change_type] || c.change_type) + '</td>'
+        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(actLabel[c.action] || c.action) + '</td>'
+        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.target_id) + (c.payload && c.payload.name ? '（' + esc(c.payload.name) + '）' : '') + '</td>'
+        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle);color:var(--text-tertiary)">' + esc(String(c.created_at || '').slice(0, 19)) + '</td>'
+        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
+        + '<a href="javascript:void(0)" onclick="approveChange(\'' + esc(c.change_id) + '\')" style="color:var(--green,#166534);margin-right:8px">批准</a>'
+        + '<a href="javascript:void(0)" onclick="rejectChange(\'' + esc(c.change_id) + '\')" style="color:var(--red)">拒绝</a>'
+        + '</td></tr>';
+    }).join('');
+  } catch (e) { document.getElementById('pc-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
+}
+
+async function approveChange(changeId) {
+  if (!confirm('确认批准该变更请求？审批后立即生效。')) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/tbox/changes/' + encodeURIComponent(changeId) + '/approve', { method: 'POST' });
+    alert('已批准并生效');
+    loadPending(); loadEt(); loadRt();
+  } catch (e) { alert('审批失败: ' + e.message); }
+}
+
+async function rejectChange(changeId) {
+  var reason = prompt('拒绝原因：');
+  if (reason === null) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/tbox/changes/' + encodeURIComponent(changeId) + '/reject', {
+      method: 'POST', body: JSON.stringify({ reason: reason || '未说明' })
+    });
+    alert('已拒绝');
+    loadPending();
+  } catch (e) { alert('拒绝失败: ' + e.message); }
 }
 
 function esc(s) {

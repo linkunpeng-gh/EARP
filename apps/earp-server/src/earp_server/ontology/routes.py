@@ -71,8 +71,11 @@ async def list_entity_types(
 ) -> list[dict]:
     await _ensure_tbox(req)
     return await tbox_service.list_entity_types(
-        req.app.state.engine, req.state.tenant_id,
-        data_domain_id=data_domain_id, kind=kind, status=status,
+        req.app.state.engine,
+        req.state.tenant_id,
+        data_domain_id=data_domain_id,
+        kind=kind,
+        status=status,
     )
 
 
@@ -109,7 +112,10 @@ async def list_relation_types(
     status: str = "active",
 ) -> list[dict]:
     return await tbox_service.list_relation_types(
-        req.app.state.engine, req.state.tenant_id, source_type=source_type, status=status,
+        req.app.state.engine,
+        req.state.tenant_id,
+        source_type=source_type,
+        status=status,
     )
 
 
@@ -312,6 +318,120 @@ async def import_abox_endpoint(
     )
 
 
+# ── tech-debt #12: TBox 审批流（tbox_changes 变更请求）───────────────────────
+
+
+class TboxChangeIn(BaseModel):
+    change_type: str  # entity_type | relation_type
+    action: str  # create | deprecate | reactivate
+    target_id: str
+    payload: dict = {}
+
+
+class TboxRejectIn(BaseModel):
+    reason: str
+
+
+def _audit_tbox(bus, event_type: str, tenant_id: str, user_id: str, target_id: str, extra: dict | None = None) -> None:
+    """TBox 变更审计（对齐 chat_app_service._audit 模式；bus 为空静默跳过）。"""
+    if bus is None:
+        return
+    from earp_server.infra.eventbus import CloudEvent
+
+    bus.publish(
+        CloudEvent(
+            type=event_type,
+            source="earp-server/ontology",
+            tenant_id=tenant_id,
+            data={
+                "entity_type": "tbox",
+                "entity_id": target_id,
+                "user_id": user_id,
+                **(extra or {}),
+            },
+        )
+    )
+
+
+@router.post("/tbox/changes", status_code=201)
+async def submit_tbox_change(req_body: TboxChangeIn, req: Request) -> dict:
+    """提交 TBox 变更请求（pending）——新增/停用/恢复均走审批（D2）。"""
+    try:
+        change = await tbox_service.submit_change(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req.state.user_id,
+            change_type=req_body.change_type,
+            action=req_body.action,
+            target_id=req_body.target_id,
+            payload=req_body.payload,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    _audit_tbox(
+        req.app.state.eventbus,
+        "earp.tbox.change.submitted",
+        req.state.tenant_id,
+        req.state.user_id,
+        req_body.target_id,
+        {"change_id": change["change_id"], "change_type": req_body.change_type, "action": req_body.action},
+    )
+    return change
+
+
+@router.get("/tbox/changes")
+async def list_tbox_changes(req: Request, status: str | None = None) -> list[dict]:
+    return await tbox_service.list_changes(req.app.state.engine, req.state.tenant_id, status=status)
+
+
+@router.post("/tbox/changes/{change_id}/approve")
+async def approve_tbox_change(change_id: str, req: Request) -> dict:
+    """审批通过（提交者不能审自己；apply 真实变更后 applied）。"""
+    try:
+        result = await tbox_service.approve_change(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req.state.user_id,
+            change_id,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    _audit_tbox(
+        req.app.state.eventbus,
+        "earp.tbox.change.approved",
+        req.state.tenant_id,
+        req.state.user_id,
+        change_id,
+        {"status": result["status"]},
+    )
+    return result
+
+
+@router.post("/tbox/changes/{change_id}/reject")
+async def reject_tbox_change(change_id: str, req_body: TboxRejectIn, req: Request) -> dict:
+    try:
+        result = await tbox_service.reject_change(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req.state.user_id,
+            change_id,
+            req_body.reason,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    _audit_tbox(
+        req.app.state.eventbus,
+        "earp.tbox.change.rejected",
+        req.state.tenant_id,
+        req.state.user_id,
+        change_id,
+        {"reason": req_body.reason},
+    )
+    return result
+
+
 class UnderstandingDebugIn(BaseModel):
     query: str
     context: dict | None = None  # {conversation_id?, last_entities?: [], last_intent?}
@@ -348,8 +468,13 @@ async def understanding_plan_debug(req_body: UnderstandingDebugIn, req: Request)
     )
     sq = build_structured_query(result)
     sel, plan = await execute_plan(
-        engine, tid, req.state.role_id, req_body.query, sq,
-        settings=req.app.state.settings, context=req_body.context,
+        engine,
+        tid,
+        req.state.role_id,
+        req_body.query,
+        sq,
+        settings=req.app.state.settings,
+        context=req_body.context,
     )
     return {
         "query": req_body.query,
