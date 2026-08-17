@@ -480,6 +480,39 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 3. **P3 rerank 真模型验证**（待 Ollama 升级）；**M3 中台 importer + Enrichment**
 4. **QU 二期**：chat 发布评审+可见范围、Phase F 评估
 
+---
+
+### 会话续接（2026-08-17）— tech-debt #12 TBox 审批流已清偿 + 会话收尾
+
+> 任务书：`tasks/techdebt-12-tbox-approval.md`（6 Task；D1-D5 方案 A 已确认）
+
+**关键产出**：
+- **migration 0018**：tbox_changes 变更请求表（change_type/action/target_id/payload/status/请求人/审批人/原因 + RLS 三件套 + 显式 GRANT earp_app）
+- tbox_service：submit_change（create 预检冲突，deprecated 提示走恢复）/ list_changes / approve_change（apply 真实变更→applied；提交者不能审自己 403）/ reject_change（原因）/ reactivate_entity_type|relation_type（**恢复路径**闭环）
+- routes：POST/GET /v1/ontology/tbox/changes + approve/reject + 审计 earp.tbox.change.submitted/approved/rejected
+- 前端 tbox.html：新增/停用/恢复全部改为**提交变更请求** + 「待审批」区（批准/拒绝+原因）始终显示（无 pending 空态提示）+ 恢复按钮
+- 测试：test_tbox_approval 9 用例 + 前端冒烟 test-tbox-approval-smoke.cjs（8 场景）
+
+**验证**：181 tests passed（#11 后 172 → +9）+ import-linter + OpenAPI 基线（+155 行）+ ruff/pyright 零新增
+
+**顺手修复（FDE 反馈驱动）**：
+1. 右上角账号显示：nav.js renderMeta 原硬编码 `tenant-demo · Admin` 不读登录态 → login 存 earp_tenant_id/user_id/role_id + renderMeta 读登录态（JWT 解码兜底），链接改「切换/登录」
+2. tbox 待审批区：①无 pending 时 display:none 隐藏（改始终显示 + 空态提示）；②**init 缺 loadPending 调用**（页面加载后待审批区永远「加载中…」，需手动点刷新——python 替换未匹配实际格式静默漏掉）
+3. dev 环境加 u2 审批员（tenant-demo，单用户无法审批自己提交的请求——任务书风险 #3 实证）
+
+**遗留提醒**：
+1. **P3 rerank 真模型验证**：本地 Ollama 0.32.6 无 /api/rerank（404）——升级 + `ollama pull bge-reranker-v2-m3` + `EARP_RERANK_PROVIDER=ollama` 即生效（零代码）
+2. **审批人角色门禁未接入**（一期=任意非提交者）：roles.permissions 无 tbox 权限概念，随 #9 角色权限体系统一接入
+3. dev DB 新增 u2（tenant-demo）；8000 端口 API 进程带 EARP_OLLAMA_BASE_URL=127.0.0.1:11434 运行中
+4. 评估体系三套（routing/understanding/planning）仍是 markdown fixture + 脚本——B6 落库候选
+
+**下一步（沿用优先级表，下会话续接）**：
+1. **B6 评估集管理页**（三套评估落库 + admin 跑分可视化）——评估从「脚本验证」变「平台能力」
+2. **tech-debt #9 角色域权限**（roles 页开放配置 + Admin 全权限通用机制；审批人角色门禁随此接入）
+3. **tech-debt #7 business_capabilities 复合主键**（migration + 存量清理）
+4. **P3 rerank 真模型验证**（待 Ollama 升级，零代码）；**M3 中台 importer + Enrichment**（PRD-2026-030）
+5. **QU 二期**：chat 发布评审+可见范围（应用中心使用界面）、对话日志 UI（P7）、Phase F（通用 DAG）评估
+
 **QU 链路当前完整闭环**：理解（QU 规则+LLM 升级）→ 规划（select_plan 3 策略 + Execution Trace）→ 检索（三层 RRF + 软路由）→ 执行（capability 聚合）→ 角色层 Evidence → Answer（chat）；Plan 层 gating 100% 通过
 
 ---
