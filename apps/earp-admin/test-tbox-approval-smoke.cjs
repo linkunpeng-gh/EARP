@@ -47,17 +47,17 @@ global.EARP = {
     return {};
   },
 };
+const _origFetch = global.EARP.fetchJSON;
 
 (async () => {
 try {
   (0, eval)(biz);
     // loadPending 渲染
     await global.loadPending();
-    const sec = els['pending-section'];
     const tbody = els['pc-tbody'];
     const out = tbody.innerHTML;
     const checks = [
-      ['待审批区显示', sec.style.display !== 'none'],
+      ['待审批区渲染（有 pending 行）', out.includes('new_equip') && out.includes('新增')],
       ['请求人渲染', out.includes('u1')],
       ['动作标签（新增/停用）', out.includes('新增') && out.includes('停用')],
       ['目标+名称', out.includes('new_equip') && out.includes('新设备')],
@@ -71,6 +71,17 @@ try {
     const appr = calls.find(c => c.includes('/approve'));
     console.log((appr ? 'PASS' : 'FAIL') + '  approveChange 调 /tbox/changes/{id}/approve' + (appr ? ' (' + appr + ')' : ''));
     if (!appr) fail++;
+    // 空态：无 pending 时显示提示
+    global.EARP.fetchJSON = async (url, opts = {}) => {
+      if (url.includes('/tbox/changes?status=pending')) return [];
+      return {};
+    };
+    await global.loadPending();
+    const emptyOut = els['pc-tbody'].innerHTML;
+    console.log((emptyOut.includes('暂无待审批变更') ? 'PASS' : 'FAIL') + '  空态提示（无 pending 显示说明）');
+    if (!emptyOut.includes('暂无待审批变更')) fail++;
+    global.EARP.fetchJSON = _origFetch;
+
     // saveEt 提交变更请求（不再直调 /entity-types POST）
     ['et-id', 'et-name'].forEach(function (id) { if (!els[id]) els[id] = { value: '' }; });
     els['et-id'].value = 'new_x'; els['et-name'].value = '新X';

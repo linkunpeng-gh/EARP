@@ -53,7 +53,7 @@
 </section>
 
 <!-- 待审批变更（tech-debt #12） -->
-<section id="pending-section" style="display:none;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;margin-top:14px">
+<section id="pending-section" style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;margin-top:14px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <h3 style="margin:0;font-size:0.9rem">待审批变更（<span id="pc-count">0</span>）</h3>
     <button class="btn-outline btn-sm" onclick="loadPending()">刷新</button>
@@ -289,12 +289,14 @@ async function reactRt(id, name) {
 async function loadPending() {
   try {
     var rows = await EARP.fetchJSON('/v1/ontology/tbox/changes?status=pending');
-    var sec = document.getElementById('pending-section');
-    sec.style.display = rows.length ? '' : 'none';
     document.getElementById('pc-count').textContent = rows.length;
     var tb = document.getElementById('pc-tbody');
     var actLabel = { create: '新增', deprecate: '停用', reactivate: '恢复' };
     var typeLabel = { entity_type: '实体类型', relation_type: '关系类型' };
+    if (!rows.length) {
+      tb.innerHTML = '<tr><td colspan="6" style="padding:10px;text-align:center;color:var(--text-tertiary)">暂无待审批变更 — 新增/停用/恢复操作提交后在此审批</td></tr>';
+      return;
+    }
     tb.innerHTML = rows.map(function (c) {
       return '<tr>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.requested_by) + '</td>'
