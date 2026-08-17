@@ -23,6 +23,11 @@ function pageElements(ids) {
 function runPlanned(url, bodyDataset) {
   global.location = { search: url, pathname: '/pages/planned.html' };
   global.window = {};
+  global.localStorage = {
+    _s: {},
+    getItem(k) { return this._s[k] != null ? this._s[k] : null; },
+    setItem(k, v) { this._s[k] = v; },
+  };
   global.URLSearchParams = URLSearchParams;
   const ids = ['p-title', 'p-sub', 'pb-title', 'pb-desc', 'pb-phase', 'p-hint', 'p-grid', 'p-implemented-title', 'p-implemented'];
   const els = pageElements(ids);

@@ -36,6 +36,11 @@ function runScenario(name, bodyAttrs, url, asserts) {
   global.location = { search: url, pathname: '/' + name };
   global.URLSearchParams = URLSearchParams;
   global.window = {};
+  global.localStorage = {
+    _s: { earp_tenant_id: 'verify-planning', earp_user_id: 'vp-user', earp_token: '' },
+    getItem(k) { return this._s[k] != null ? this._s[k] : null; },
+    setItem(k, v) { this._s[k] = v; },
+  };
   global.document = {
     readyState: 'loading',
     listeners: {},
@@ -121,7 +126,7 @@ allOk = runScenario('planned.html', { base: '..', nav: 'full' }, '?section=capab
 allOk = runScenario('login.html', { base: '..', nav: 'none' }, '', ({ h, shell, main, fail }) => {
   if (h.includes('<nav>')) fail('login should have no nav');
   if (!h.includes('EARP')) fail('login brand missing');
-  if (!h.includes('Admin')) fail('login meta missing');
+  if (!h.includes('切换')) fail('login meta missing（应显示登录态/切换链接）');
   if (shell) fail('login should not wrap main in shell');
 });
 

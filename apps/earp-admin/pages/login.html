@@ -31,6 +31,9 @@ async function loginWith(tenantId, userId, roleId, errEl) {
     return;
   }
   localStorage.setItem('earp_token', data.token);
+  localStorage.setItem('earp_tenant_id', tenantId);
+  localStorage.setItem('earp_user_id', userId);
+  localStorage.setItem('earp_role_id', roleId);
   window.location.href = '../index.html';
 }
 
