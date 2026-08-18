@@ -603,6 +603,40 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 会话续接（2026-08-18）— T4/T2 顺手 + tech-debt #9 角色域权限已实施
+
+> 任务书：`tasks/b6-followup-techdebt.md`（T4 ✅ / T2 ✅，T1/T3 待开工）
+> 本会话从「B6 遗留技术债」续接：先确认真实基线（194 tests）→ 按建议序 T4 → T2 → #9。
+
+**基线确认**：194 tests 全绿（裸跑 pytest 曾挂起——shell 无 `EARP_OLLAMA_BASE_URL` 走了默认远程 10.188.2.230 经 Clash 代理挂死；需带 `EARP_OLLAMA_BASE_URL=http://127.0.0.1:11434` + `EARP_OLLAMA_CHAT_MODEL=qwen2.5:1.5b` 运行，与 dev API 进程同 env）
+
+**T4 test_routing 假命中盲区（顺手）**：`embed_chunks` 传 document_id（应传 create_chunks 返回的 chunk_ids）→ embedding 从未写入，NULL 向量靠 `ORDER BY <=>` 末位排序在候选少时仍「命中」= 假命中。修：传 cids + 新增回归断言（embedding IS NOT NULL + similarity 非 NULL，修复前必挂）
+
+**T2 connector LLM 超时根治**：`json_complete` 默认 120s → **30s**（超时回落 None，schema 合规不破）；`plan`/`_call_ollama` 120s → 30s + timeout 透传（挂起抛 ConnectorError → 调用方回落规则规划器）；`chat_stream` 保持 300s（流式合理）。新增 `test_connector_timeout.py` 6 用例——**真实 TCP 滞留服务器**验证超时机制（httpx MockTransport 不经过网络层，handler 内 sleep 不受 timeout 约束，必须真 socket；teardown 不能 await server.wait_closed()——Py3.12 下等 keep-alive 连接回收挂死）。llm 跑分根因闭环：111 例 × 120s → 30s 调用级上限 + 按 case 取消检查既有
+
+**#9 角色域权限（大块，完整交付）**：
+- migration 0021 roles.is_admin（读侧通用机制——admin 跳过 data_domain_access 域过滤，新建 DD 自动可见；替代 seed 特判，registry.seed_demo_tenant 简化 + r1 加 tbox.approve）
+- `policy/roles_service.py`（新）：roles CRUD（唯一性/scope 枚举/幽灵域 fail-closed 校验/最后一名 admin 保护）+ `role_domain_access` 共享域过滤 + `check_permission` 通用门禁
+- 三处 data_domain_access 读取方合一（policy_service/capability_query/knowledge.routing，import-linter ignore 一条）；capability_query admin → None 不过滤（**教训：勿用「allowed==全量」推断 admin**——实体 data_domain_id 可指向非 active DD 行）
+- **TBox 审批人角色门禁**：approve/reject 需 `tbox.approve` 权限或 admin（403）；`GET /tbox/changes` 每项附 can_approve（不泄露角色权限明细）
+- 前端 `pages/roles.html`（新，治理中心 Roles 点亮）+ tbox.html 待审批区按 can_approve 隐藏按钮
+- dev DB：r1 提升 is_admin + tbox.approve；保留 r-auditor（tbox.approve）作审批角色；存量租户需手动提升 admin（seed 只管新租户）
+
+**验证**：211 passed（194 → +17：connector_timeout 6 / roles_service 8 / tbox +2 / capability_query +1）+ import-linter + OpenAPI 基线同步 + ruff/pyright 零新增；前端冒烟 8 个全绿（roles 12 断言 + tbox +1 + planned 断言更新）；dev 真 API 冒烟全链路（CRUD/409/最后 admin 保护/TBox 无权限 403 → admin 通过 → applied）
+
+**下一步（沿用优先级表）**：
+1. **T1 Procrastinate worker 接入**（跑分后台任务 in-process → 队列 + stale running 恢复，最大块）
+2. **T3 评估集治理**（模板同步 / per-set 门槛 / SSE 进度）
+3. **#7 business_capabilities 复合主键**；**P3 rerank 真模型验证**（待 Ollama 升级）；**M3 中台 importer**
+4. **QU 二期**：chat 发布评审+可见范围、Phase F 评估
+
+**遗留提醒**：
+1. **测试运行需带 Ollama env**（见上「基线确认」）——否则默认远程 URL 经系统代理挂起（本次曾挂 3 次才定位）
+2. roles 页无「成员归属」展示（users 无 role FK，JWT 直带 role_id）——多用户角色分配属 Org/IdP 范畴，不在本期
+3. 8000 端口 API 进程（--reload）已热载新端点；dev DB 已到 0021
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |
