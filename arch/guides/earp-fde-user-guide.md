@@ -1,9 +1,9 @@
 # EARP 知识资产管理 — FDE 使用说明
 
-- 版本: v1.0
-- 日期: 2026-08-15
+- 版本: v1.1
+- 日期: 2026-08-17
 - 适用对象: FDE（一线部署/实施工程师）——负责为客户搭建和运营 EARP 知识资产
-- 适用范围: 实体管理 / 批量导入 / 图谱探索 / 知识检索（含三层检索与引用溯源）
+- 适用范围: 实体管理 / 批量导入 / 图谱探索 / 知识检索（含三层检索与引用溯源）/ 评估管理（跑分）
 - 前置: 服务已启动（API :8000）、Ollama embedding 可达、已通过 `pages/login.html` 登录获取 token
 
 ---
@@ -24,6 +24,8 @@
 | **Structured Query** | 理解层输出的结构化表示（intent + entities + relations + constraints + confidence） | 问题的“结构化翻译” |
 | **Knowledge Query Plan** | 按问题类型选策略（plan_fact/plan_relation/plan_aggregation）编排检索执行 | 根据问题类型选答题路线 |
 | **Evidence**（证据） | 每次检索/执行的结果带来源、置信度、主/佐证角色——回答可溯源 | 答题时注明“依据” |
+| **评估集（eval set）** | 一组「问题 + 期望答案」的标注用例，系统逐条跑分衡量检索/理解/规划质量 | 考卷 + 标准答案 |
+| **跑分（eval run）** | 把评估集全部用例跑一遍，输出各指标通过率 + 逐条明细，对照门槛判 ✅/❌ | 交卷出分
 
 **关键认知**：
 1. **实体/事实与文档是两套知识**——实体图谱回答"谁、属于谁、由谁供应"（结构化）；文档（KB）回答"标准是什么、流程怎么走"（非结构化）。检索时两者融合。
@@ -273,7 +275,99 @@ CNC-02,located_in,PLANT-1,1.0
 
 ---
 
-## 5. 数据准备最佳实践（FDE 标准流程）
+## 5. 评估管理（页面：知识中心 → 探索验证 → 评估管理）
+
+> 目的：把「检索 / 理解 / 规划」的质量变成**可量化的分数**。系统内置三套评估集（与 CI 同口径），一键跑分看门槛是否通过、哪些用例挂了、挂在哪一步——评估从“脚本验证”变成平台能力。
+
+### 5.1 三套内置评估集
+
+页面顶部是集合卡片区，每张卡显示：类型徽标 / 用例数 / **最近一次跑分**（✅ 通过 或 ❌ 未达标 + 各指标率）。
+
+| 评估集 | 用例数 | 衡量什么 | 门槛（gates） |
+|---|---|---|---|
+| 路由评估集（routing） | 5 | 问题能否路由到正确的数据域（DD） | DD 命中率 ≥ 90%（KB 命中为报告项） |
+| 理解层评估集（understanding） | 111 | QU 是否正确识别 intent/实体/关系、不产生 schema 违规 | intent ≥ 85% / 实体召回 ≥ 90% / 关系 ≥ 80% / schema 违规 = 0 |
+| Plan 层评估集（planning） | 111 | select_plan 是否按问题类型选中正确策略 | 策略命中率 ≥ 95% |
+
+> **理解层 vs Plan 层评估怎么区分**（两者用同一批 111 条 query，表面相似）：
+> - 理解层测「系统**认不认识**问题」——六维提取（intent/实体/关系/时间/约束）逐字段精确匹配；失败 = 实体没认出/关系没提取/类型判错
+> - Plan 层测「系统**怎么执行**」——按问题类型选策略（plan_fact 文档检索 / plan_relation 关系查询 / plan_aggregation 聚合），只复用 intent 标注做映射判定；失败 = 选了错误路线
+> - 理解层是上游（产出 StructuredQuery），Plan 层是下游（拿理解结果决定执行路线）——分开评分才能定位问题在「认错」还是「选错」
+> - 例：「华东一厂有多少台设备」→ 理解层期望 intent=AGGREGATION+entities=[华东一厂:plant]+operation=COUNT；Plan 层期望 plan_aggregation（由 AGGREGATION 映射）
+> - 注意：Plan 层 rules 跑分稳定 100% 是正常的——映射表是纯函数（确定性）；真正有区分度的是 **LLM 跑分**（真实理解→真实策略执行）与策略执行质量（trace 合法性/延迟/回落）
+> - 类比：理解层 = 医生诊断对不对（识别）；Plan 层 = 诊断后开什么治疗方案（决策）
+
+每张卡两个跑分按钮：
+- **规则层跑分**：几秒出结果，与 CI 同口径（确定性，可复现）——日常回归用这个
+- **LLM 跑分**：走真 LLM 升级路径（较慢），评估「低置信度由 LLM 补齐」后的实际效果——需要 Ollama 可达
+
+### 5.2 跑分过程与判定
+
+1. 点「规则层跑分」或「LLM 跑分」→ 系统后台逐条执行，状态 ⏳ running（页面约 2 秒自动轮询刷新）
+2. 完成后集合卡 / 跑分历史自动更新 ✅/❌
+3. 每个指标对照门槛判定通过/不通过，**全部通过 → 集合卡显示 ✅ 通过**；任一不达标 → ❌ 并标红对应指标
+
+**停止跑分**：跑分历史里 running 行有「停止」按钮——LLM 跑分（111 例 × 真模型升级）可能很慢，卡住或不想等可直接停止：已执行的用例结果保留，状态标记「已取消」，不再继续。
+
+> **跑分是「诚实报告」**：租户里没有评估用例引用的数据（如期望的数据域、实体不存在）时，对应指标**如实偏低**并显示失败原因——这提示你补数据，或按客户数据加自定义用例（见 5.4）。不是系统坏了。
+
+### 5.3 查看跑分明细（失败原因一眼可见）
+
+点「跑分历史」某一行 → 展开明细：逐用例 ✅/❌ + 实际输出 + **失败原因**。
+
+| 失败原因示例 | 含义 | 排查方向 |
+|---|---|---|
+| `DD 未命中: finance_data` | 该问题没路由到期望数据域 | 数据域描述质量（知识库页填好描述）、权限（角色无该域访问） |
+| `KB 未命中: 费用报销流程手册` | 路由到域但 KB 摘要没匹配上 | KB 名称/摘要与问题用词差异大 |
+| `实体未命中` | 期望实体在租户里不存在或名称不匹配 | 补建/导入实体；对齐名称 |
+| `关系未命中` | 期望关系没提取出来 | TBox 关系方向与问法不匹配（如 `manufactured_by` 只允许 设备→供应商） |
+| `策略不符: plan_fact ≠ plan_relation` | select_plan 选了别的策略 | 通常是理解层 intent 判错——先用 QU 调试看理解结果 |
+| `schema 违规: xxx` | 输出了 TBox 之外的关系 | 联系开发（正常不应发生） |
+
+> **Plan 层跑分的「执行结果」**：每条用例的「实际」列会显示策略函数**真实执行**的记录——Execution Trace（如 `DD_ROUTING → KB_ROUTING → VECTOR_SEARCH → FUSION_RERANK`）、evidence 通道与数量、耗时。规则层跑分也执行（用标注 intent 构造输入，验证策略执行质量）；执行失败（如 embedding 不可达）不拉低策略命中率，trace 为空并在明细标注。真实理解→执行链路看 LLM 跑分。
+
+### 5.4 管理用例（增 / 启停 / 删 + 自定义集合）
+
+**改内置评估集**：点集合卡进入详情 → 用例表（query / 期望 / 备注 / 停用·删除）→「新增用例」：
+
+| 集合类型 | 新增用例要填的期望字段 |
+|---|---|
+| 路由 | query + 期望数据域 DD + 期望知识库（可空） |
+| 理解 | query + intent（下拉）+ 实体（`mention:type;…`）+ 关系（`relation;…`，必须 ∈ TBox） |
+| Plan | query + intent 标注（FACT/RELATION/AGGREGATION/…） |
+
+**新建自定义评估集**：集合区末尾「＋ 新建自定义评估集」→ 选类型 + 命名 → 从 0 用例开始，按客户数据建用例。
+
+**理解层「期望」字段说明**（新增用例时的下拉/输入框含义）：
+
+| 字段 | 含义 | 合法值来源 |
+|---|---|---|
+| intent | 问题类型 | 10 类枚举 + FALLBACK（见下表）；下拉选项与系统校验同一来源 |
+| 实体 mention:type | 期望识别的实体（`CNC-01:equipment`，分号分隔多个） | type 必须 ∈ TBox 实体类型（设备/供应商/工厂…） |
+| 关系 relation;… | 期望识别的关系（分号分隔多个） | **只允许 TBox 已有 12 类**（manufactured_by/located_in/belongs_to/supplied_by/caused_by…） |
+
+| intent 值 | 含义 | 计分规则 |
+|---|---|---|
+| FACT / RELATION / AGGREGATION | 文档事实 / 实体关系 / 统计聚合 | **可靠子集**：跑分必须精确命中才计通过 |
+| FALLBACK | 期望系统「显式回落」而非硬分类（如比较/趋势/因果类） | 回落即正确 |
+| ATTRIBUTE / LIST / MULTI_HOP / COMPARISON / TREND / CAUSAL / MIXED | 属性值 / 列举 / 多跳 / 对比 / 趋势 / 因果 / 混合 | 一期不设门槛（系统回落，不静默当普通问题） |
+
+> intent 类型定义在 QU 设计 v0.3 §6.2（代码 `understanding.py::Intent`）；实体/关系类型来自 **TBox**（类型管理页可查，12 类冻结关系 + 13 种种子实体类型）。
+
+> 停用用例不参与跑分；删除不可恢复（建议先停用观察再删）。
+
+### 5.5 FDE 标准流程（评估驱动迭代）
+
+```
+① 基线：三套内置评估集跑分（规则层）→ 记录当前通过率
+② 调优：按明细失败原因补数据 / 改描述 / 建关系 → 重跑看分数变化
+③ 覆盖：为客户建 custom 评估集（收集客户高频问题 → 标注期望 DD/KB/实体）
+④ 交付：Chat 演示前跑一遍全绿再交付；上线后定期回归
+```
+
+---
+
+## 6. 数据准备最佳实践（FDE 标准流程）
 
 推荐顺序（每步验证再往下）：
 
@@ -294,7 +388,7 @@ CNC-02,located_in,PLANT-1,1.0
 
 ---
 
-## 6. 常见问题排查（FAQ）
+## 7. 常见问题排查（FAQ）
 
 | 现象 | 可能原因 | 排查/解决 |
 |---|---|---|
@@ -304,10 +398,34 @@ CNC-02,located_in,PLANT-1,1.0
 | 导入报"关系类型不存在" | relation_type_id 拼写错或不在 TBox | 打开实体导入页 TBox 一览核对 |
 | chat 回答没有引用 | 检索没命中（问题在知识外）或回答没用到资料 | 用召回测试确认能命中；拒答是正常行为（知识外不编造） |
 | 纯中文实体名搜不到 | 实体识别分词局限（已知，Phase B 解决） | 用完整实体名或带英文/数字的编码搜索 |
+| 评估跑分 ❌ 不达标 | ① 评估数据不在本租户（期望 DD/实体不存在）② 数据质量（描述/关系）问题 | ① 看明细失败原因——多是数据缺失，按 5.5 补数据或加 custom 用例 ② 数据域描述 / TBox 关系方向 |
+| 规则层与 LLM 跑分结果不同 | 规则层=确定性基线（CI 同口径）；LLM=真模型升级理解层，模糊问法可能不同 | 验收/回归以规则层为基线；LLM 跑分评估升级效果 |
+| 想给客户建专属评估 | 内置评估集是标准种子数据，客户数据不同 | 新建 custom 评估集：收集客户高频问题 → 标注期望 DD/KB/实体（5.4） |
+| 回答/跑分不对，怀疑理解或 Plan 层 | 见下「7.1 判断理解 vs Plan 问题」 | 分层定位（先理解、后 Plan、再下游） |
+
+### 7.1 判断理解 vs Plan 问题（分层定位）
+
+**口诀：先理解层（输入），再 Plan 层（决策），最后下游（检索/聚合）**。Plan 层是「忠实执行者」，吃理解层的输出（StructuredQuery）——输入错了下游全错，Plan 层无责。
+
+**Step 1 — 看理解层对不对**（QU 调试页「🧠 理解」/ `understanding/debug`）：输入同一句话看 StructuredQuery——intent 判对了吗？实体/关系提取到了吗？**输出错 → 问题在理解层**，不用再往下查。
+
+**Step 2 — 理解对，再看策略选对没有**（QU 调试页「🗺 运行策略」/ `plan-debug`）：plan_name ≠ 期望策略 → **Plan 层映射问题**；plan_name 对但证据空/检索失败 → **策略执行/更下游**（软路由、三层检索）。
+
+| 理解层输出 | select_plan 策略 | 问题归属 |
+|---|---|---|
+| ❌ 错 | （策略基于错输入） | **理解层**（源头错） |
+| ✅ 对 | ❌ 错 | **Plan 层映射** |
+| ✅ 对 | ✅ 对 | 策略执行 / 更下游 |
+
+**例 1**：「CNC-01 有多少次故障」回答做了文档检索而非聚合 → 先看 intent：`AGGREGATION` 则 **Plan 层**（映射问题）；`FACT` 则 **理解层**（聚合关键词没触发）。
+
+**例 2**：「A产线由谁负责」回答空 → entities 对但 relations 空 → **理解层**关系提取失败（主动疑问方向校验不过，Phase C 已知边界），plan_relation 选得没错但没东西可查。
+
+**平台化定位**：理解层评估集指标低 → 理解层问题；理解层全绿但 Plan 层（LLM 跑分）失败 → Plan 层问题——两套评估集分开跑就是为了切一刀定位（§5.1）。
 
 ---
 
-## 7. 附：常用验证命令（进阶，可选）
+## 8. 附：常用验证命令（进阶，可选）
 
 ```bash
 # token（以 verify-ontology 租户为例）
@@ -333,11 +451,131 @@ curl -X POST localhost:8000/v1/ontology/understanding/debug -H "Authorization: B
 # QU 完整链路调试（select_plan + Execution Trace + Evidence 角色层）
 curl -X POST localhost:8000/v1/ontology/understanding/plan-debug -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"query":"CNC-01 有多少次故障"}'
+
+# 评估跑分：列表 / 触发（后台任务）/ 查结果（轮询到 completed）
+curl -s localhost:8000/v1/evaluations/sets -H "Authorization: Bearer $TOKEN"
+curl -s -X POST "localhost:8000/v1/evaluations/sets/evs-<tenant>-planning/runs?mode=rules" -H "Authorization: Bearer $TOKEN"
+curl -s localhost:8000/v1/evaluations/runs/<run_id> -H "Authorization: Bearer $TOKEN"
 ```
 
-## 8. QU 调试会话上下文（指代消解，可选）
+## 9. QU 调试会话上下文（指代消解，可选）
 
 QU 调试页的「会话上下文」输入框支持多轮指代消解：上文提到的实体填进去，`它/该设备` 等指代词会映射到它：
 
 - 输入框格式：`mention:type`，逗号分隔，如 `CNC-01:equipment`
 - 示例：第一轮问 `CNC-01 的供应商是谁`，第二轮问 `它是哪家供应商生产的` 并在上下文填 `CNC-01:equipment` → 理解结果 entities 仍识别 CNC-01
+
+---
+
+## 10. 附：理解层（Query Understanding）实现原理（技术参考）
+
+> 给 FDE 的「为什么系统这样理解问题」参考。核心代码：`earp_server/ontology/understanding.py`。
+> 使用入口见 §4.4 QU 调试页（把原理可视化）；验收门槛见 §5 评估管理的理解层评估集。
+
+### 10.1 一句话原理
+
+**双引擎**：规则层（快、确定性、与 CI 同口径）优先，低置信度时 LLM 升级补齐。把一句自然语言拆成**六维结构化表示**（Structured Query，QU v0.3 §6.2 冻结 schema），交给 Plan 层编排检索。
+
+### 10.2 六维拆解
+
+| 维度 | 提取什么 | 例：「2024 年华东一厂有多少台设备」 |
+|---|---|---|
+| intent | 问题类型（10 类枚举） | AGGREGATION（聚合） |
+| entities | 实体提及 + 类型 | 华东一厂:plant |
+| relations | 关系（必须来自 TBox） | 无 |
+| time | 相对时间表达 | 无 |
+| constraints | 元数据过滤维度 | {"year": 2024} |
+| operation | 聚合操作 | COUNT |
+
+### 10.3 规则层各维机制
+
+**① intent — 关键词表 + 消歧顺序**
+- 每个类型一张关键词表（FACT：「是什么/定义/制度/流程…」；RELATION：「谁/哪家/由谁/属于…」；AGGREGATION：「有多少/数量/统计/最多/平均…」）
+- 多类同时命中 → 固定消歧顺序：**AGGREGATION > RELATION > FACT**（「哪个设备故障最多」聚合语义强于疑问词）
+- 10 类只有 3 类可靠（FACT/RELATION/AGGREGATION）；其余 7 类关键词表不设，命中不了**显式回落**（§4.4「显式回落」徽标）
+
+**② entities — 双向子串匹配 + 指代消解**
+- 双向子串：实体名包含查询词（name ILIKE %查询%）+ 查询包含实体名（查询 LIKE %name%）——「主变压器是哪个公司生产的」能命中实体「主变压器」
+- 指代消解：query 含「它/该设备」且无实体命中 → 用上文上下文实体顶上（§9 会话上下文）
+- 产出 mention + semantic_type，不解析具体 entity_id（Plan 层职责）
+
+**③ relations — 动词词典 + TBox 候选 + 方向校验**
+- 动词表：「制造→manufactured_by」「供应→supplied_by」「属于→belongs_to」…
+- 候选关系**动态从 TBox 拉取**（查 relation_types 表，不硬编码）——所以类型管理页改 TBox 会影响关系识别
+- 只做「实体作主语」的被动提取，且校验主语类型 ∈ 关系源类型（manufactured_by 只允许 设备→供应商；方向错直接跳过，不强行提取）
+
+**④ time / constraints — 正则**：「昨天/最近三个月」→ time；「2024 年」→ constraints.year（绝对年份走元数据过滤维度，分开建模）
+
+**⑤ operation — 聚合词**：「有多少→COUNT / 平均→AVG / 最多→MAX」…（裸「多少」不算，要「有多少/多少台」复合量词，避免「更换周期是多少」误判为聚合）
+
+### 10.4 置信度（机械计算，可解释）
+
+```
+① relevant_fields：判定哪些维度与问题相关（未涉及的维度不拉低分）
+   例：「2024 年华东一厂有多少台设备」→ 相关 = {intent, entities, constraints, operation}
+② rule_coverage = 命中相关维度数 / 相关维度总数
+③ 歧义惩罚：intent 多候选扣 0.2
+④ confidence = coverage − 惩罚（0~1）
+```
+
+≥ 阈值（0.7）→ 直接产出（零 LLM）；< 0.7 → 触发 LLM 升级。QU 调试页展示 confidence 与各字段命中明细。
+
+### 10.5 LLM 升级（低置信度时）
+
+- **只补未命中字段**（省 token，不重做已命中）
+- prompt 给出 TBox 关系候选集，**禁止发明关系**（intent ∈ 10 类枚举、relation ∈ TBox 是硬校验）
+- LLM 不可达/输出非法 → 保持规则结果（schema 合规率 100% 不破）
+
+### 10.6 完整链路（例子）
+
+```
+「2024 年华东一厂有多少台设备」
+  ↓ understand() 六维提取
+  intent=AGGREGATION · entities=[华东一厂:plant] · operation=COUNT · constraints={year:2024}
+  confidence = 4/4 − 0 = 1.0 → 不需 LLM
+  ↓ StructuredQuery → select_plan → plan_aggregation（聚合策略）
+  ↓ resolve_with_entities → 聚合执行器 → 带证据的回答
+```
+
+### 10.7 验收门槛（为什么评估集这样判定）
+
+理解层正确性由评估集量化（QU v0.3 §17）：**intent ≥ 85% / 实体召回 ≥ 90% / 关系 ≥ 80% / schema 违规 = 0**。规则层是 CI 同口径（确定性可复现）；LLM 跑分评估低置信度升级路径的实际效果。
+
+---
+
+## 11. 附：Plan 层（Knowledge Query Plan）实现原理（技术参考）
+
+> 给 FDE 的「系统按什么路线回答」参考。核心代码：`earp_server/ontology/planning.py`。
+> 使用入口见 §4.4 QU 调试「运行策略」（select_plan + Execution Trace + Evidence）；验收见 §5 评估管理的 Plan 层评估集。
+
+### 11.1 一句话原理
+
+理解层产出 StructuredQuery 后，**select_plan 按问题类型从 3 种固定策略中选一条执行路线**（一期固定策略，非 LLM 自由规划；Phase F 才评估通用 DAG）。映射是**纯函数、确定性**——同样的 intent 永远选同样的策略。
+
+### 11.2 三种策略
+
+| 策略 | 干什么 | 执行链路 |
+|---|---|---|
+| plan_fact | 文档事实检索 | 软路由 → 三层检索（profile/graph/chunk RRF）→ 证据 |
+| plan_relation | 实体关系查询 | 实体解析 → 图遍历（graph_query）→ 无事实则文档补证 |
+| plan_aggregation | 统计聚合 | 实体解析 → 聚合执行器（COUNT/group_by 等） |
+
+### 11.3 10 类 intent → 策略映射表（§11.2）
+
+| intent | 策略 | 备注 |
+|---|---|---|
+| FACT | plan_fact | 文档事实 |
+| RELATION / ATTRIBUTE / LIST | plan_relation | 解析失败回落 plan_fact |
+| MULTI_HOP | plan_relation | 多跳：max_hops=2 |
+| AGGREGATION / COMPARISON / TREND | plan_aggregation | 无 capability → plan_fact |
+| CAUSAL / MIXED | plan_fact | **显式回落**（标注原因，不硬做因果分析） |
+| （兜底） | plan_fact | 理论不可达（intent 必填枚举），防未定义落点 |
+
+### 11.4 两级回落（策略层也不空手而归）
+
+- **策略选择级**：CAUSAL/MIXED 不硬做 → 显式回落 plan_fact（QU 调试可见 fallback_reason）
+- **策略执行级**：plan_relation 解析不到实体 → plan_fact；plan_aggregation 无 capability 候选 → plan_fact
+
+### 11.5 与评估的关系
+
+Plan 层评估集「策略命中率 ≥ 95%」测的就是：**标注 intent → 映射表 → 选中的策略 == 期望策略**（如 AGGREGATION 期望 plan_aggregation，FALLBACK 回落即正确）。rules 跑分稳定 100% 属正常（纯函数）；LLM 跑分才有区分度（真实理解 → 真实策略执行）与策略执行质量（trace 合法性/延迟/回落）。
