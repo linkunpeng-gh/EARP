@@ -8,7 +8,7 @@ from alembic import command
 
 from tests.conftest import alembic_config
 
-EXPECTED_TABLES = 39  # tenants+baseline+0005/6/8/9/14+0018(tbox_changes)
+EXPECTED_TABLES = 43  # tenants+baseline+0005/6/8/9/14+0018(tbox_changes)+0019(eval 4 表)
 
 
 @pytest.fixture(scope="module")
@@ -51,9 +51,9 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
         assert row is not None and int(row[0]) == 1  # superuser bypasses RLS
 
     command.downgrade(cfg, "0014_chat_apps")
-    # head=0018：回退 0018(tbox_changes 表) + 0017(加列) + 0016(纯 UPDATE) + 0015(加列) → 0014；
-    # 0018 的表被回退 → 表数 = EXPECTED_TABLES - 1；断言退到 0014 后 upgrade 可重放
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 1
+    # head=0019：回退 0019(eval 4 表) + 0018(tbox_changes 表) + 0017(加列) + 0016(纯 UPDATE) + 0015(加列) → 0014；
+    # 0019/0018 的表被回退 → 表数 = EXPECTED_TABLES - 5；断言退到 0014 后 upgrade 可重放
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 5
 
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 评估管理"><title>评估管理 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body data-base=".." data-section="knowledge" data-sub="eval-sets">
+<header id="app-header"></header>
+
+<main>
+
+<div class="page-title"><div><h2>评估管理</h2><p class="page-subtitle">三套评估集（路由 / 理解 / Plan）落库跑分 —— 评估从脚本验证变平台能力</p></div></div>
+
+<!-- ── 集合卡片区 ── -->
+<div id="sets-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px"></div>
+
+<!-- ── 选中集合：用例 + 跑分历史 ── -->
+<div id="set-detail" style="display:none;margin-top:16px">
+
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+    <button class="btn-outline btn-sm" onclick="selectSet(null)">&larr; 全部集合</button>
+    <h3 id="sd-title" style="margin:0;font-size:0.95rem"></h3>
+    <span id="sd-kind-badge" class="badge"></span>
+    <span id="sd-count" style="font-size:0.75rem;color:var(--text-quaternary)"></span>
+    <span style="flex:1"></span>
+    <button class="btn-outline btn-sm" onclick="runEval('rules')">▶ 运行（规则层）</button>
+    <button class="btn-outline btn-sm" onclick="runEval('llm')">▶ 运行（LLM 升级）</button>
+  </div>
+
+  <div class="panel" style="margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <h3 style="font-size:0.81rem;margin:0">用例 <span style="font-weight:400;color:var(--text-quaternary)">（新增/编辑/启停）</span></h3>
+      <button id="cases-toggle" class="btn-outline btn-sm" style="display:none" onclick="toggleCases()">展开全部</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+      <thead><tr style="text-align:left;color:var(--text-quaternary);font-size:0.72rem">
+        <th style="padding:6px">#</th><th style="padding:6px">query</th><th style="padding:6px">期望</th><th style="padding:6px">备注</th><th style="padding:6px"></th>
+      </tr></thead>
+      <tbody id="cases-tbody"></tbody>
+    </table>
+
+    <div id="case-add" class="form-row" style="margin-top:12px;align-items:flex-end;flex-wrap:wrap">
+      <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px">
+        <label style="font-size:0.7rem;color:var(--text-quaternary)">新增用例 — query</label>
+        <input id="nc-query" style="width:100%" placeholder="查询语句">
+      </div>
+      <div id="nc-fields" style="display:flex;flex-direction:column;gap:4px;flex:2;min-width:320px">
+        <label style="font-size:0.7rem;color:var(--text-quaternary)" id="nc-fields-label">期望字段</label>
+        <div id="nc-fields-inputs" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      </div>
+      <button class="primary" onclick="addCase()">添加用例</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3 style="font-size:0.81rem;margin-bottom:8px">跑分历史</h3>
+    <div id="runs-empty" class="empty-state" style="display:none">暂无跑分记录 — 点击「运行」开始第一次评估</div>
+    <table id="runs-table" style="width:100%;border-collapse:collapse;font-size:0.78rem;display:none">
+      <thead><tr style="text-align:left;color:var(--text-quaternary);font-size:0.72rem">
+        <th style="padding:6px">开始时间</th><th style="padding:6px">模式</th><th style="padding:6px">状态</th>
+        <th style="padding:6px">指标</th><th style="padding:6px">gates</th><th style="padding:6px">耗时</th><th style="padding:6px"></th>
+      </tr></thead>
+      <tbody id="runs-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- 跑分明细 -->
+  <div id="run-detail" style="display:none;margin-top:14px" class="panel">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <h3 style="font-size:0.85rem;margin:0">跑分明细</h3><span id="rd-meta" style="font-size:0.72rem;color:var(--text-quaternary)"></span>
+      <span style="flex:1"></span>
+      <button id="rd-toggle" class="btn-outline btn-sm" style="display:none" onclick="toggleRunCases()">展开全部</button>
+      <button class="btn-outline btn-sm" onclick="document.getElementById('run-detail').style.display='none'">关闭</button>
+    </div>
+    <div id="rd-metrics" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"></div>
+    <table style="width:100%;border-collapse:collapse;font-size:0.75rem">
+      <thead><tr style="text-align:left;color:var(--text-quaternary);font-size:0.7rem">
+        <th style="padding:5px">#</th><th style="padding:5px">query</th><th style="padding:5px">结果</th><th style="padding:5px">实际</th><th style="padding:5px">失败原因</th><th style="padding:5px">ms</th>
+      </tr></thead>
+      <tbody id="rd-tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+</main>
+
+<script src="../js/nav.js"></script>
+<script src="../js/app.js"></script>
+<script>
+var SETS = [], CUR = null, RUNS = [], POLL_TIMER = null;
+var CASES_EXPANDED = false, CASES_LIMIT = 10;   // 用例列表折叠（大集合如理解层 111 条）
+var RUN_EXPANDED = false, RUN_LIMIT = 20, CUR_RUN_ID = null;  // 跑分明细折叠
+
+var KIND_META = {
+  routing:       { label: '路由',       color: 'var(--accent-text)',  hint: 'expected: {"data_domain_id": "...", "knowledge_base_id": "..."}' },
+  understanding: { label: '理解',       color: 'var(--green)',        hint: 'expected: {"intent": "FACT", "entities": [], "relations": []}' },
+  planning:      { label: 'Plan',       color: '#b57edc',             hint: 'expected: {"intent_label": "FACT"}' },
+};
+var INTENTS = ['FACT','RELATION','AGGREGATION','FALLBACK','ATTRIBUTE','LIST','MULTI_HOP','COMPARISON','TREND','CAUSAL','MIXED'];
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function fmtTime(t) { if (!t) return '—'; var d = new Date(t); return d.toLocaleString('zh-CN', { hour12: false }); }
+function pct(v) { return (v * 100).toFixed(0) + '%'; }
+
+// ── 指标中文名 + 门槛格式化 ──
+var METRIC_LABELS = {
+  dd_accuracy: 'DD 路由命中', kb_accuracy: 'KB 命中', intent_accuracy: 'intent 准确率',
+  entity_recall: '实体召回', relation_accuracy: '关系准确率', schema_violations: 'schema 违规',
+  strategy_hit_rate: '策略命中率', n: '用例数', passed: '通过', vector_lane: '向量通道',
+  llm_upgraded: 'LLM 升级', error: '错误',
+};
+function fmtThr(v) { return typeof v === 'number' && v > 0 && v <= 1 ? pct(v) : String(v); }
+function thrText(thr) { return thr === 0 ? '= 0' : '≥ ' + fmtThr(thr); }
+function thresholdsHtml(s) {
+  var t = s.thresholds || {};
+  var keys = Object.keys(t);
+  if (!keys.length) return '';
+  return '<div style="font-size:0.68rem;color:var(--text-tertiary)">门槛：'
+    + keys.map(function (k) { return esc(METRIC_LABELS[k] || k) + ' ' + thrText(t[k]); }).join(' · ')
+    + '</div>';
+}
+
+// ── 集合卡片 ──
+function latestBadge(s) {
+  var lr = s.latest_run;
+  if (!lr || lr.status !== 'completed') return '<span style="font-size:0.7rem;color:var(--text-quaternary)">尚无跑分</span>';
+  var ok = lr.gates && lr.gates.overall;
+  var color = ok ? 'var(--green)' : 'var(--red)';
+  var metrics = Object.keys(lr.summary || {}).filter(function (k) { return ['dd_accuracy','kb_accuracy','intent_accuracy','entity_recall','relation_accuracy','strategy_hit_rate','schema_violations'].indexOf(k) >= 0; })
+    .map(function (k) { return (METRIC_LABELS[k] || k) + ' ' + (typeof lr.summary[k] === 'number' && lr.summary[k] <= 1 ? pct(lr.summary[k]) : lr.summary[k]); }).join(' · ');
+  return '<div style="font-size:0.75rem;color:' + color + ';font-weight:600">' + (ok ? '✅ 通过' : '❌ 未达标') + '</div>'
+    + '<div style="font-size:0.68rem;color:var(--text-tertiary);margin-top:2px">' + esc(metrics || '') + '</div>'
+    + '<div style="font-size:0.65rem;color:var(--text-quaternary);margin-top:2px">' + fmtTime(lr.finished_at) + ' · ' + lr.mode + '</div>';
+}
+
+function renderSets() {
+  var grid = document.getElementById('sets-grid');
+  if (!SETS.length) { grid.innerHTML = '<div class="empty-state">暂无评估集</div>'; return; }
+  grid.innerHTML = SETS.map(function (s) {
+    var meta = KIND_META[s.kind] || { label: s.kind, color: 'var(--text-quaternary)' };
+    return '<div class="panel" style="cursor:pointer;border-top:3px solid ' + meta.color + ';display:flex;flex-direction:column;gap:6px" onclick="selectSet(\'' + s.eval_set_id + '\')">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span class="badge" style="background:' + meta.color + ';color:#fff">' + meta.label + '</span>'
+      + '<span style="font-weight:600;font-size:0.85rem">' + esc(s.name) + '</span>'
+      + (s.source === 'custom' ? '<span style="font-size:0.65rem;color:var(--text-quaternary)">custom</span>' : '')
+      + '<span style="flex:1"></span>'
+      + '<span style="font-size:0.7rem;color:var(--text-quaternary)">' + s.case_count + ' 用例</span>'
+      + '</div>'
+      + '<div style="font-size:0.72rem;color:var(--text-tertiary)">' + esc(s.description || '') + '</div>'
+      + thresholdsHtml(s)
+      + latestBadge(s)
+      + '<div style="display:flex;gap:6px;margin-top:2px">'
+      + '<button class="btn-outline btn-sm" onclick="event.stopPropagation();runEvalFor(\'' + s.eval_set_id + '\',\'rules\')">规则层跑分</button>'
+      + '<button class="btn-outline btn-sm" onclick="event.stopPropagation();runEvalFor(\'' + s.eval_set_id + '\',\'llm\')">LLM 跑分</button>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+  // 新建集合卡
+  grid.innerHTML += '<div class="panel" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px;border-style:dashed;min-height:120px" onclick="newSetModal()">'
+    + '<div style="font-size:1.4rem;color:var(--text-quaternary)">＋</div><div style="font-size:0.75rem;color:var(--text-quaternary)">新建自定义评估集</div></div>';
+}
+
+// ── 选中集合详情 ──
+async function selectSet(id) {
+  if (POLL_TIMER) { clearInterval(POLL_TIMER); POLL_TIMER = null; }
+  CUR = null;
+  document.getElementById('set-detail').style.display = id ? 'block' : 'none';
+  if (!id) return;
+  var s = await EARP.fetchJSON('/v1/evaluations/sets/' + encodeURIComponent(id));
+  CUR = s;
+  var meta = KIND_META[s.kind] || {};
+  document.getElementById('sd-title').textContent = s.name;
+  var kb = document.getElementById('sd-kind-badge');
+  kb.textContent = meta.label || s.kind; kb.style.background = meta.color || ''; kb.style.color = '#fff';
+  document.getElementById('sd-count').textContent = s.cases.length + ' 用例' + (s.enabled ? '' : '（集合已停用）');
+  CASES_EXPANDED = false;  // 切换集合重置折叠状态
+  renderCases();
+  renderCaseForm();
+  await loadRuns();
+}
+
+function renderCases() {
+  var tb = document.getElementById('cases-tbody');
+  if (!CUR || !CUR.cases.length) { tb.innerHTML = '<tr><td colspan="5" style="padding:10px;text-align:center;color:var(--text-tertiary)">无用例</td></tr>'; updateCasesToggle(); return; }
+  var total = CUR.cases.length;
+  var list = CASES_EXPANDED ? CUR.cases : CUR.cases.slice(0, CASES_LIMIT);
+  tb.innerHTML = list.map(function (c, i) {
+    var exp = c.expected || {};
+    var expText = CUR.kind === 'routing' ? (exp.data_domain_id || '') + (exp.knowledge_base_id ? ' → ' + exp.knowledge_base_id : '')
+      : CUR.kind === 'planning' ? (exp.intent_label || '')
+      : (exp.intent || '') + (exp.relations && exp.relations.length ? ' · ' + exp.relations.join(';') : '');
+    return '<tr style="' + (c.enabled ? '' : 'opacity:.5') + '">'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (i + 1) + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.query) + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);font-size:0.72rem;color:var(--text-tertiary)">' + esc(expText) + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);font-size:0.7rem;color:var(--text-quaternary)">' + esc(c.note || '') + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
+      + '<button class="btn-outline btn-sm" onclick="toggleCase(\'' + c.case_id + '\',' + !c.enabled + ')">' + (c.enabled ? '停用' : '启用') + '</button> '
+      + '<button class="btn-outline btn-sm" style="color:var(--red)" onclick="delCase(\'' + c.case_id + '\')">删</button>'
+      + '</td></tr>';
+  }).join('');
+  if (!CASES_EXPANDED && total > CASES_LIMIT) {
+    tb.innerHTML += '<tr><td colspan="5" style="padding:6px;text-align:center;font-size:0.72rem;color:var(--text-quaternary)">… 共 ' + total + ' 条，已显示前 ' + CASES_LIMIT + ' 条（点右上角「展开全部」查看）</td></tr>';
+  }
+  updateCasesToggle();
+}
+
+function updateCasesToggle() {
+  var btn = document.getElementById('cases-toggle');
+  if (!btn) return;
+  var total = (CUR && CUR.cases) ? CUR.cases.length : 0;
+  if (total > CASES_LIMIT) {
+    btn.style.display = '';
+    btn.textContent = CASES_EXPANDED ? '收起' : '展开全部 (' + total + ')';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function toggleCases() {
+  CASES_EXPANDED = !CASES_EXPANDED;
+  renderCases();
+}
+
+function renderCaseForm() {
+  var kind = CUR.kind;
+  var wrap = document.getElementById('nc-fields-inputs');
+  if (kind === 'routing') {
+    wrap.innerHTML = '<input id="nc-dd" placeholder="期望 data_domain_id (如 finance_data)" style="flex:1;min-width:180px">'
+      + '<input id="nc-kb" placeholder="期望 knowledge_base_id（可空）" style="flex:1;min-width:150px">';
+  } else if (kind === 'planning') {
+    wrap.innerHTML = '<select id="nc-intent" style="flex:1;min-width:150px">' + INTENTS.map(function (i) { return '<option>' + i + '</option>'; }).join('') + '</select>';
+  } else {
+    wrap.innerHTML = '<select id="nc-intent" style="min-width:120px">' + INTENTS.map(function (i) { return '<option>' + i + '</option>'; }).join('') + '</select>'
+      + '<input id="nc-entities" placeholder="实体 mention:type;…" style="flex:1;min-width:140px">'
+      + '<input id="nc-relations" placeholder="关系 relation;…（TBox）" style="flex:1;min-width:140px">';
+  }
+  document.getElementById('nc-fields-label').textContent = '期望字段 — ' + (KIND_META[kind] ? KIND_META[kind].hint : '');
+}
+
+function buildExpected() {
+  var kind = CUR.kind;
+  if (kind === 'routing') {
+    return { data_domain_id: document.getElementById('nc-dd').value.trim(), knowledge_base_id: document.getElementById('nc-kb').value.trim() || null };
+  }
+  if (kind === 'planning') {
+    return { intent_label: document.getElementById('nc-intent').value };
+  }
+  var entities = [];
+  (document.getElementById('nc-entities').value || '').split(';').forEach(function (s) {
+    s = s.trim(); if (!s) return;
+    var m = s.split(':');
+    entities.push({ mention: m[0].trim(), semantic_type: (m[1] || 'object').trim() });
+  });
+  var relations = (document.getElementById('nc-relations').value || '').split(';').map(function (s) { return s.trim(); }).filter(Boolean);
+  return { intent: document.getElementById('nc-intent').value, entities: entities, relations: relations };
+}
+
+async function addCase() {
+  var q = document.getElementById('nc-query').value.trim();
+  if (!q) { alert('请填写 query'); return; }
+  await EARP.fetchJSON('/v1/evaluations/sets/' + encodeURIComponent(CUR.eval_set_id) + '/cases', {
+    method: 'POST', body: JSON.stringify({ query: q, expected: buildExpected() }),
+  });
+  document.getElementById('nc-query').value = '';
+  await selectSet(CUR.eval_set_id);
+  await reloadSets();
+}
+
+async function toggleCase(cid, enabled) {
+  await EARP.fetchJSON('/v1/evaluations/cases/' + encodeURIComponent(cid), {
+    method: 'PUT', body: JSON.stringify({ enabled: enabled }),
+  });
+  await selectSet(CUR.eval_set_id);
+}
+
+async function delCase(cid) {
+  if (!confirm('删除该用例？')) return;
+  await EARP.fetchJSON('/v1/evaluations/cases/' + encodeURIComponent(cid), { method: 'DELETE' });
+  await selectSet(CUR.eval_set_id);
+  await reloadSets();
+}
+
+// ── 跑分 ──
+async function runEvalFor(setId, mode) {
+  var out = await EARP.fetchJSON('/v1/evaluations/sets/' + encodeURIComponent(setId) + '/runs?mode=' + mode, { method: 'POST' });
+  await reloadSets();
+  if (CUR && CUR.eval_set_id === setId) { await loadRuns(); pollRun(out.run_id); }
+}
+
+async function runEval(mode) {
+  if (!CUR) return;
+  await runEvalFor(CUR.eval_set_id, mode);
+}
+
+function pollRun(runId) {
+  if (POLL_TIMER) clearInterval(POLL_TIMER);
+  POLL_TIMER = setInterval(async function () {
+    try {
+      var r = await EARP.fetchJSON('/v1/evaluations/runs/' + encodeURIComponent(runId));
+      if (r.status !== 'running') {
+        clearInterval(POLL_TIMER); POLL_TIMER = null;
+        await reloadSets();
+        await loadRuns();
+        showRunDetail(runId);
+      }
+    } catch (e) { clearInterval(POLL_TIMER); POLL_TIMER = null; }
+  }, 2000);
+}
+
+async function loadRuns() {
+  if (!CUR) return;
+  RUNS = (await EARP.fetchJSON('/v1/evaluations/runs?eval_set_id=' + encodeURIComponent(CUR.eval_set_id))).items || [];
+  var empty = document.getElementById('runs-empty');
+  var table = document.getElementById('runs-table');
+  if (!RUNS.length) { empty.style.display = 'block'; table.style.display = 'none'; return; }
+  empty.style.display = 'none'; table.style.display = '';
+  document.getElementById('runs-tbody').innerHTML = RUNS.map(function (r) {
+    var st = r.status === 'completed' ? '<span style="color:var(--accent-text)">completed</span>'
+      : r.status === 'running' ? '<span style="color:var(--accent-text)">⏳ running…</span>'
+      : r.status === 'cancelled' ? '<span style="color:var(--text-quaternary)">已取消</span>'
+      : '<span style="color:var(--red)">failed</span>';
+    var gateOk = r.gates && r.gates.overall !== undefined
+      ? (r.gates.overall ? '<span style="color:var(--green)" title="全部指标达标">✅ 达标</span>' : '<span style="color:var(--red)" title="至少一个指标未达门槛">❌ 未达标</span>')
+      : '';
+    var metrics = Object.keys(r.summary || {}).filter(function (k) { return ['dd_accuracy','intent_accuracy','entity_recall','relation_accuracy','strategy_hit_rate'].indexOf(k) >= 0; })
+      .map(function (k) { return k + '=' + pct(r.summary[k]); }).join(' ');
+    var dur = '—';
+    if (r.started_at && r.finished_at) dur = ((new Date(r.finished_at) - new Date(r.started_at)) / 1000).toFixed(1) + 's';
+    return '<tr style="cursor:pointer" onclick="showRunDetail(\'' + r.run_id + '\')">'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + fmtTime(r.started_at) + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + r.mode + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + st + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);font-size:0.7rem;color:var(--text-tertiary)">' + esc(metrics || (r.summary && r.summary.error ? 'error: ' + r.summary.error : '')) + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);font-size:0.7rem">' + gateOk + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + dur + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
+      + (r.status === 'running' ? '<button class="btn-outline btn-sm" style="color:var(--red)" onclick="event.stopPropagation();cancelRun(\'' + r.run_id + '\')">停止</button> ' : '')
+      + '▶</td></tr>';
+  }).join('');
+}
+
+async function cancelRun(runId) {
+  if (!confirm('停止该跑分？已执行的用例结果保留，状态标记为已取消。')) return;
+  try {
+    await EARP.fetchJSON('/v1/evaluations/runs/' + encodeURIComponent(runId) + '/cancel', { method: 'POST' });
+    if (POLL_TIMER) { clearInterval(POLL_TIMER); POLL_TIMER = null; }
+    await loadRuns();
+  } catch (err) { alert('取消失败: ' + err.message); }
+}
+
+async function showRunDetail(runId, keepExpand) {
+  var r = await EARP.fetchJSON('/v1/evaluations/runs/' + encodeURIComponent(runId));
+  CUR_RUN_ID = runId;
+  if (!keepExpand) RUN_EXPANDED = false;  // 首次打开明细重置折叠
+  var d = document.getElementById('run-detail');
+  d.style.display = 'block';
+  document.getElementById('rd-meta').textContent = runId + ' · ' + r.mode + ' · ' + fmtTime(r.started_at);
+  var metricsHtml = Object.keys(r.summary || {}).filter(function (k) { return ['n','passed','dd_accuracy','kb_accuracy','intent_accuracy','entity_recall','relation_accuracy','schema_violations','strategy_hit_rate','vector_lane','llm_upgraded','error'].indexOf(k) >= 0; })
+    .map(function (k) {
+      var v = r.summary[k];
+      var vs = typeof v === 'number' && v <= 1 && v >= 0 ? pct(v) : v;
+      var label = METRIC_LABELS[k] || k;
+      var thr = (CUR && CUR.thresholds) ? CUR.thresholds[k] : undefined;
+      var gate = (r.gates || {})[k];
+      var thrHtml = '';
+      if (gate !== undefined && thr !== undefined) {
+        thrHtml = '<br><span style="font-size:0.68rem;color:var(--text-quaternary)">门槛 ' + thrText(thr)
+          + '</span> <span style="font-size:0.68rem;color:' + (gate ? 'var(--green)' : 'var(--red)') + '">' + (gate ? '✅' : '❌') + '</span>';
+      }
+      return '<div style="background:var(--bg-subtle);border-radius:6px;padding:6px 10px;font-size:0.75rem"><span style="color:var(--text-quaternary)">' + esc(label) + '</span><br><b>' + esc(vs) + '</b>' + thrHtml + '</div>';
+    }).join('');
+  document.getElementById('rd-metrics').innerHTML = metricsHtml;
+  var allResults = r.results || [];
+  var shown = RUN_EXPANDED ? allResults : allResults.slice(0, RUN_LIMIT);
+  document.getElementById('rd-tbody').innerHTML = shown.map(function (res, i) {
+    var why = [];
+    var det = res.detail || {};
+    if (det.dd_ok === false) why.push('DD 未命中: ' + det.expected_dd);
+    if (det.kb_ok === false) why.push('KB 未命中: ' + det.expected_kb);
+    if (det.intent_ok === false) why.push('intent 未命中');
+    if (det.entity_hits && det.entity_hits.length && det.entity_hits.some(function (h) { return !h; })) why.push('实体未命中');
+    if (det.relation_ok === false) why.push('关系未命中');
+    if (det.schema_violations && det.schema_violations.length) why.push('schema 违规: ' + det.schema_violations.join(','));
+    if (det.expected_plan && res.actual && res.actual.plan_name !== det.expected_plan) why.push('策略不符: ' + res.actual.plan_name + ' ≠ ' + det.expected_plan);
+    var act = res.actual || {};
+    // 「实际」列可读化：Plan 层展示 Execution Trace 步骤串 + evidence 通道徽标；其余 JSON 悬停查看
+    var actFriendly = '';
+    if ((act.trace || []).length) {
+      actFriendly += '<span style="color:var(--accent-text)" title="Execution Trace">' + act.trace.join(' → ') + '</span>';
+    }
+    if ((act.evidence_channels || []).length) {
+      actFriendly += (actFriendly ? '<br>' : '') + '<span style="color:var(--text-tertiary)">📊 ' + act.evidence_channels.join(' · ') + (act.evidence_count != null ? '（' + act.evidence_count + ' 条证据）' : '') + '</span>';
+    }
+    if (!actFriendly && act.plan_name) actFriendly = act.plan_name;
+    if (!actFriendly) actFriendly = '—';
+    var actualText = JSON.stringify(act);
+    return '<tr>'
+      + '<td style="padding:5px;border-bottom:1px solid var(--border-subtle)">' + (i + 1) + '</td>'
+      + '<td style="padding:5px;border-bottom:1px solid var(--border-subtle)">' + esc(res.query) + '</td>'
+      + '<td style="padding:5px;border-bottom:1px solid var(--border-subtle)">' + (res.passed ? '<span style="color:var(--green)">✅</span>' : '<span style="color:var(--red)">❌</span>') + '</td>'
+      + '<td style="padding:5px;border-bottom:1px solid var(--border-subtle);font-size:0.7rem;color:var(--text-tertiary);max-width:340px" title="' + esc(actualText) + '">' + actFriendly + '</td>'
+      + '<td style="padding:5px;border-bottom:1px solid var(--border-subtle);font-size:0.7rem;color:var(--red)">' + esc(why.join('；')) + '</td>'
+      + '<td style="padding:5px;border-bottom:1px solid var(--border-subtle)">' + (res.latency_ms != null ? res.latency_ms : '—') + '</td></tr>';
+  }).join('');
+  // 折叠控制（大跑分如理解层 111 例）
+  var toggle = document.getElementById('rd-toggle');
+  if (toggle) {
+    if (allResults.length > RUN_LIMIT) {
+      toggle.style.display = '';
+      toggle.textContent = RUN_EXPANDED ? '收起' : '展开全部 (' + allResults.length + ')';
+      if (!RUN_EXPANDED) {
+        document.getElementById('rd-tbody').innerHTML += '<tr><td colspan="6" style="padding:6px;text-align:center;font-size:0.72rem;color:var(--text-quaternary)">… 共 ' + allResults.length + ' 条，已显示前 ' + RUN_LIMIT + ' 条（点「展开全部」查看）</td></tr>';
+      }
+    } else {
+      toggle.style.display = 'none';
+    }
+  }
+  d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function toggleRunCases() {
+  RUN_EXPANDED = !RUN_EXPANDED;
+  if (CUR_RUN_ID) showRunDetail(CUR_RUN_ID, true);  // keepExpand：不重置折叠状态
+}
+
+// ── 新建集合 ──
+function newSetModal() {
+  var kind = prompt('评估类型（routing / understanding / planning）:', 'understanding');
+  if (!kind) return;
+  var name = prompt('集合名称:', '');
+  if (!name) return;
+  EARP.fetchJSON('/v1/evaluations/sets', { method: 'POST', body: JSON.stringify({ kind: kind, name: name }) })
+    .then(function () { return reloadSets(); })
+    .catch(function (e) { alert(e.message); });
+}
+
+async function reloadSets() {
+  SETS = (await EARP.fetchJSON('/v1/evaluations/sets')).items || [];
+  renderSets();
+}
+
+async function init() {
+  await reloadSets();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body></html>

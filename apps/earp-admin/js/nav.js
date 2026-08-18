@@ -50,6 +50,7 @@
       { label: '图谱探索', sub: 'entity-graph', path: '{b}/pages/entity-graph.html', group: '探索验证' },
       { label: '召回测试', sub: 'test-retrieval', path: '{b}/pages/test-retrieval.html', group: '探索验证' },
       { label: 'QU 调试', sub: 'understanding-debug', path: '{b}/pages/understanding-debug.html', group: '探索验证' },
+      { label: '评估管理', sub: 'eval-sets', path: '{b}/pages/eval-sets.html', group: '探索验证' },
     ],
     capability: [
       { label: '能力注册', sub: 'capabilities', path: '{b}/pages/capabilities.html' },

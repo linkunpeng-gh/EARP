@@ -401,6 +401,70 @@ components:
       - name
       title: EntityTypeIn
       type: object
+    EvalCaseIn:
+      properties:
+        expected:
+          additionalProperties: true
+          title: Expected
+          type: object
+        note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Note
+        query:
+          minLength: 1
+          title: Query
+          type: string
+      required:
+      - query
+      - expected
+      title: EvalCaseIn
+      type: object
+    EvalCaseUpdate:
+      properties:
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        expected:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Expected
+        note:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Note
+        query:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Query
+      title: EvalCaseUpdate
+      type: object
+    EvalSetIn:
+      properties:
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        kind:
+          title: Kind
+          type: string
+        name:
+          minLength: 1
+          title: Name
+          type: string
+      required:
+      - kind
+      - name
+      title: EvalSetIn
+      type: object
     FactIn:
       properties:
         confidence:
@@ -2507,6 +2571,307 @@ paths:
       summary: Stream Invoke
       tags:
       - streaming
+  /v1/evaluations/cases/{case_id}:
+    delete:
+      operationId: delete_eval_case_v1_evaluations_cases__case_id__delete
+      parameters:
+      - in: path
+        name: case_id
+        required: true
+        schema:
+          title: Case Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Delete Eval Case V1 Evaluations Cases  Case Id  Delete
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete Eval Case
+      tags:
+      - evaluations
+    put:
+      operationId: update_eval_case_v1_evaluations_cases__case_id__put
+      parameters:
+      - in: path
+        name: case_id
+        required: true
+        schema:
+          title: Case Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvalCaseUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Eval Case V1 Evaluations Cases  Case Id  Put
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Eval Case
+      tags:
+      - evaluations
+  /v1/evaluations/runs:
+    get:
+      description: 跑分历史（可按评估集过滤）。
+      operationId: list_eval_runs_v1_evaluations_runs_get
+      parameters:
+      - in: query
+        name: eval_set_id
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Eval Set Id
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response List Eval Runs V1 Evaluations Runs Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Eval Runs
+      tags:
+      - evaluations
+  /v1/evaluations/runs/{run_id}:
+    get:
+      description: 跑分明细（+逐用例结果）。
+      operationId: get_eval_run_v1_evaluations_runs__run_id__get
+      parameters:
+      - in: path
+        name: run_id
+        required: true
+        schema:
+          title: Run Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Eval Run V1 Evaluations Runs  Run Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Eval Run
+      tags:
+      - evaluations
+  /v1/evaluations/runs/{run_id}/cancel:
+    post:
+      description: '取消进行中的跑分（FDE 反馈：llm 模式可挂数小时）。
+
+
+        running → cancelled（后台任务每 case 前检查后提前终止）；
+
+        已完成/已取消 → 幂等返回当前态；不存在 → 404。'
+      operationId: cancel_eval_run_v1_evaluations_runs__run_id__cancel_post
+      parameters:
+      - in: path
+        name: run_id
+        required: true
+        schema:
+          title: Run Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Cancel Eval Run V1 Evaluations Runs  Run Id  Cancel
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Cancel Eval Run
+      tags:
+      - evaluations
+  /v1/evaluations/sets:
+    get:
+      description: 评估集列表（+case_count + 最新跑分摘要）。
+      operationId: list_eval_sets_v1_evaluations_sets_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response List Eval Sets V1 Evaluations Sets Get
+                type: object
+          description: Successful Response
+      summary: List Eval Sets
+      tags:
+      - evaluations
+    post:
+      description: 新建自定义评估集。
+      operationId: create_eval_set_v1_evaluations_sets_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvalSetIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Eval Set V1 Evaluations Sets Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Eval Set
+      tags:
+      - evaluations
+  /v1/evaluations/sets/{eval_set_id}:
+    get:
+      description: 集合详情 + 用例列表。
+      operationId: get_eval_set_v1_evaluations_sets__eval_set_id__get
+      parameters:
+      - in: path
+        name: eval_set_id
+        required: true
+        schema:
+          title: Eval Set Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Eval Set V1 Evaluations Sets  Eval Set Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Eval Set
+      tags:
+      - evaluations
+  /v1/evaluations/sets/{eval_set_id}/cases:
+    post:
+      operationId: add_eval_case_v1_evaluations_sets__eval_set_id__cases_post
+      parameters:
+      - in: path
+        name: eval_set_id
+        required: true
+        schema:
+          title: Eval Set Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvalCaseIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Add Eval Case V1 Evaluations Sets  Eval Set Id  Cases
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Add Eval Case
+      tags:
+      - evaluations
+  /v1/evaluations/sets/{eval_set_id}/runs:
+    post:
+      description: 触发跑分（后台任务，D4）。mode=rules 规则层快速 / llm 真 LLM 升级。
+      operationId: start_eval_run_v1_evaluations_sets__eval_set_id__runs_post
+      parameters:
+      - in: path
+        name: eval_set_id
+        required: true
+        schema:
+          title: Eval Set Id
+          type: string
+      - in: query
+        name: mode
+        required: false
+        schema:
+          default: rules
+          pattern: ^(rules|llm)$
+          title: Mode
+          type: string
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Start Eval Run V1 Evaluations Sets  Eval Set Id  Runs
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Start Eval Run
+      tags:
+      - evaluations
   /v1/ontology/capabilities/by-entity-type/{entity_type_id}:
     get:
       description: Reverse lookup for Resolution Engine candidate narrowing (planner-spec

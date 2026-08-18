@@ -68,6 +68,7 @@ from earp_server.knowledge.embedding_service import embed_chunks, embed_query
 from earp_server.knowledge.file_parser import FileParseError, extract_text
 from earp_server.knowledge.routing import build_routing_index, route_debug, route_query
 from earp_server.knowledge.search_service import search_chunks
+from earp_server.ontology.eval_routes import router as eval_router
 from earp_server.ontology.routes import router as ontology_router
 from earp_server.planner.task_planner import SimpleTaskPlanner
 from earp_server.runtime.invoke import router as invoke_router
@@ -473,6 +474,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(invoke_router)
     app.include_router(ontology_router)
+    app.include_router(eval_router)
     app.include_router(model_routes_router)
 
     # ── Capability Registry ──
