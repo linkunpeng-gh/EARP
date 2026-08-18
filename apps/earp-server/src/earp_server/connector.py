@@ -139,6 +139,7 @@ class LLMConnector:
         prompt: str,
         *,
         capabilities: list[dict[str, Any]] | None = None,
+        timeout: float = 30,  # noqa: ASYNC109 — 传给 httpx 调用级超时，非 asyncio.timeout 场景
     ) -> list[dict[str, Any]]:
         """Call Ollama /api/chat with JSON format, return parsed steps."""
         system = _build_plan_system_prompt(capabilities)
@@ -154,7 +155,7 @@ class LLMConnector:
             "options": {"temperature": 0.1},
         }
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
@@ -198,7 +199,7 @@ class LLMConnector:
         *,
         model_override: dict | None = None,
         temperature: float = 0.3,
-        timeout: float = 120,
+        timeout: float = 30,
     ) -> dict | None:
         """JSON 结构化单发（ollama /api/chat + openai /chat/completions）。
 
@@ -206,6 +207,8 @@ class LLMConnector:
         （同 resolve_llm_override 先例），None 时回退构造时 override/settings。
         provider 不可达/响应非 JSON → 返回 None（调用方回落），不抛异常。
         供 QU LLM 升级（understanding.upgrade_with_llm）与 suggest 系列共用。
+        timeout: 调用级超时（T2 2026-08-18：120s → 30s，防 llm 跑分超时累积挂起）；
+        超时回落 None，schema 合规不破。
         """
         override = model_override or self._model_override
         provider = override.get("provider") or "ollama"
@@ -256,12 +259,14 @@ class LLMConnector:
         *,
         tools: list[dict] | None = None,
         capabilities: list[dict[str, Any]] | None = None,
+        timeout: float = 30,  # noqa: ASYNC109 — 传给 httpx 调用级超时，非 asyncio.timeout 场景
     ) -> list[dict[str, Any]]:
         """Generate a Plan via LLM with structured output + cache.
 
         Phase 2: real Ollama call with JSON mode + Redis/memory cache.
         Phase 3: dynamic capability injection + plan validation.
         Falls back to RuleIntentPlanner if Ollama is unreachable.
+        timeout: 调用级超时（T2 2026-08-18：30s 默认，防上游挂起）。
         """
         # 1. Check cache
         cache_key = f"{self._model}||{prompt}||{json.dumps(capabilities or [])}"
@@ -279,7 +284,7 @@ class LLMConnector:
                 import time
 
                 t0 = time.monotonic()
-                steps = await self._call_ollama(prompt, capabilities=capabilities)
+                steps = await self._call_ollama(prompt, capabilities=capabilities, timeout=timeout)
                 latency_ms = int((time.monotonic() - t0) * 1000)
                 if self.tracer:
                     self.tracer.trace_llm(

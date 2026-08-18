@@ -317,11 +317,22 @@ async def test_metadata_filtering_and_editing(migrated: str, app_url: str, monke
         engine, tid, "kb-fin", "2024年报销标准：住宿每天500元。", title="2024报销标准",
         metadata={"year": "2024", "department": "财务部"},
     )
-    await create_chunks(engine, tid, doc["document_id"], "2024年报销标准：住宿每天500元。")
-    await embed_chunks(engine, tid, [doc["document_id"]])
+    cids = await create_chunks(engine, tid, doc["document_id"], "2024年报销标准：住宿每天500元。")
+    await embed_chunks(engine, tid, cids)
     doc2 = await create_document(engine, tid, "kb-fin", "2025年报销标准：住宿每天600元。", title="2025报销标准")
-    await create_chunks(engine, tid, doc2["document_id"], "2025年报销标准：住宿每天600元。")
-    await embed_chunks(engine, tid, [doc2["document_id"]])
+    cids2 = await create_chunks(engine, tid, doc2["document_id"], "2025年报销标准：住宿每天600元。")
+    await embed_chunks(engine, tid, cids2)
+
+    # T4 回归：embedding 必须真实写入（此前传 document_id 导致 NULL 向量假命中）
+    async with tenant_session(engine, tid) as session:
+        rows = await session.execute(
+            text(
+                "SELECT chunk_id, embedding IS NOT NULL AS has_vec FROM chunks "
+                "WHERE chunk_id = ANY(:cids)"
+            ),
+            {"cids": cids + cids2},
+        )
+        assert all(r.has_vec for r in rows.fetchall()), "chunk embeddings must be written"
 
     # auto fields injected with stable ids + common defaults
     async with tenant_session(engine, tid) as session:
@@ -339,6 +350,15 @@ async def test_metadata_filtering_and_editing(migrated: str, app_url: str, monke
     uploaded_at = md["uploaded_at"]
 
     q_emb = await embed_query("报销标准")
+
+    # 假命中防护：向量车道命中必须带真实相似度（NULL embedding 已不可能入选）
+    hits_raw = await search_chunks(
+        engine, tid, q_emb, "r-all", top_k=10, knowledge_base_ids=["kb-fin"],
+        embedding_dim=DIM,
+    )
+    assert len(hits_raw) == 2
+    assert all(h["similarity"] is not None for h in hits_raw), "similarity must be non-NULL"
+
     hits = await search_chunks(
         engine, tid, q_emb, "r-all", top_k=10, knowledge_base_ids=["kb-fin"],
         metadata_filters={"year": 2024}, embedding_dim=DIM,
