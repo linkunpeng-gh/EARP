@@ -599,6 +599,10 @@ async function suggestKbSummary() {
 // ── Doc-level metadata editing (C-9: manual fields, auto fields rejected) ──
 var docMetaState = { docId: null, kbSchema: [] };
 
+// HTML 转义（全局——editDocMetadata 与 autoMetaHtml 共用；原局部定义导致
+// autoMetaHtml 词法不可见：保存元数据后 updated_at 有值 → 二次打开 ReferenceError）
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]; }); }
+
 function editDocMetadata(docId) {
   var kb = state.kbs.find(function(k) { return k.knowledge_base_id === state.selectedKB; });
   var schema = (kb && kb.metadata_schema) || [];
@@ -609,7 +613,6 @@ function editDocMetadata(docId) {
   var modal = document.getElementById('doc-meta-modal');
   if (!modal) { createDocMetaModal(); modal = document.getElementById('doc-meta-modal'); }
   var form = document.getElementById('doc-meta-form');
-  var esc = function(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]; }); };
   if (!schema.length) {
     form.innerHTML = '<div style="color:var(--text-tertiary);font-size:0.78rem;padding:0.5rem 0">该 KB 未配置元数据字段（metadata_schema）。可在「编辑 Knowledge Base」中添加。</div>'
       + autoMetaHtml(current);
