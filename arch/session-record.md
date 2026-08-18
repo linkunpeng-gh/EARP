@@ -517,6 +517,92 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 会话续接（2026-08-17）— B6 评估集管理已实施（三套评估落库 + 跑分可视化）
+
+> 任务书：`tasks/b6-eval-management-task-breakdown.md`（8 Task；D1-D7 决策已对齐）
+> 依据：`arch/design/2026-08-09-enterprise-retrieval-design.md` §7/§8 ⑥「评估集落库 + 验收」
+
+**会话主线**：三套评估（routing 5 / understanding 111 / planning 111）从 markdown fixture 落库为平台能力——评估集管理（按租户惰性种子 + 用例 CRUD）+ 跑分引擎（rules 规则层 / llm 真 LLM 两模式，后台任务，按 §17/设计 §7 门槛判定 gates）+ admin 可视化页面。
+
+**关键产出（后端）**：
+- **migration 0019**：eval_sets / eval_cases / eval_runs / eval_run_cases 四表（tenant-scoped + RLS 三件套 + 显式 GRANT earp_app；eval_run_cases 补 tenant_id 列——RLS 策略需要）
+- `ontology/eval_seed.py`（由 `scripts/gen_eval_seed.py` 从 fixtures 生成，提交入库；fixtures 保持 CI 真源）——内置三套种子，`ensure_eval_sets` 按租户惰性初始化（tbox 先例，幂等）
+- `ontology/eval_service.py`：评估集 CRUD（create/add/update/delete + kind 校验）+ 跑分引擎——`start_run`（running 并发 409）+ `run_eval_task`（后台执行，异常兜底 failed + error）
+  - 三 kind 评分对齐 CI runner：routing（embed_query 异常降级 keyword lane + route_query top-5 期望 DD ∈ 候选；kb 报告项不 gate）/ understanding（understand 规则层 + llm 模式 upgrade_with_llm；intent 可靠子集计分 FALLBACK 回落即中、实体提及召回、relation 期望 ⊆ 结果、schema ∈ TBox）/ planning（rules=select_plan 纯映射 ≥95%，llm=execute_plan 端到端）
+  - gates 判定（D5）：routing dd ≥0.90 / understanding intent ≥0.85 + entity ≥0.90 + relation ≥0.80 + schema=0 / planning strategy ≥0.95；overall = 全过
+- `ontology/eval_routes.py`：`/v1/evaluations` 7 端点（sets/cases/runs + 跑分触发后台 asyncio 任务，EventBus 先例；同集合并发 409；空用例集显式 failed）
+
+**关键产出（前端）**：`pages/eval-sets.html`（知识中心「探索验证」组新增「评估管理」）——集合卡片（kind 徽标/用例数/最新跑分率 + gates ✅❌ + 规则层/LLM 跑分按钮）+ 选中集合用例管理（增/启停/删，kind 相关表单）+ 跑分历史表 + 跑分明细（逐用例 passed/actual/失败原因，running 2s 轮询）
+
+**FDE 指南**：`arch/guides/earp-fde-user-guide.md` v1.0 → v1.1（新增 §5 评估管理：三套内置评估集/跑分与判定/明细排查表/用例管理与 custom 集合/评估驱动迭代流程；FAQ +3 条、验证命令 +3 条、概念速览 +2 行）
+
+**测试与验证**：
+- `test_eval_service.py` 12 用例（种子幂等与 fixture 一致性/跨租户隔离/用例 CRUD/custom 集合/三 kind 跑分 gates/并发冲突/失败兜底/无实体租户如实低分回归）；`test_migrations` EXPECTED_TABLES 39→43 + downgrade -5；`test_rls` 38→42；前端冒烟 test-eval-sets-smoke.cjs 12 场景
+- **193 tests passed**（181 → +12）+ import-linter + OpenAPI 基线（+330 行）+ ruff 零新增 + pyright 24=24 零新增（main.py I001 / understanding UP042 为既有）
+- **dev 真库冒烟（bge-m3 + ollama）**：tenant-demo 惰性种子 3 套 → planning rules 111/111=100% ✅；verify-planning understanding rules **111/111 全门槛通过**（intent 1.0 / entity 1.0 / relation 1.0 / schema 0，与 CI 口径一致）；verify-planning routing 真语义 **dd_accuracy 0.8**（唯一 miss=hr_data 不存在，如实低分）；tenant-demo understanding 如实低分（entity 0.018/relation 0.045——评估实体不在 demo 租户）证明平台诚实报告
+
+**顺手修复（验证中发现）**：
+1. **eval_run_cases 缺 tenant_id**（RLS 策略报 UndefinedColumn）——4 表全部 tenant-scoped 保持一致
+2. **_aggregate entity_recall bug**：`sum(len(entity_hits))` 把期望实体数当命中数（tenant-demo 跑分暴露 entity_recall 虚高 1.0）——改数命中的 True；补回归测试（无实体租户 → 如实 0.018 含 ctx 指代消解合法命中）
+3. **start_run 前缺惰性种子**：直接 POST /runs 对未访问租户 404——路由加 `_ensure`（与 /sets 一致）
+4. JSONB 参数统一 json.dumps（text() 查询无法适配 dict，对齐 tbox_service 先例）
+
+**下一步（沿用优先级表）**：
+1. **tech-debt #9 角色域权限**（roles 页开放配置 + Admin 全权限；审批人角色门禁随此接入）
+2. **tech-debt #7 business_capabilities 复合主键**（migration + 存量清理）
+3. **P3 rerank 真模型验证**（待 Ollama 升级 + bge-reranker，零代码）；**M3 中台 importer + Enrichment**（PRD-2026-030）
+4. **QU 二期**：chat 发布评审+可见范围、对话日志 UI（P7）、Phase F 评估；评估集扩展（llm 模式全量跑分、SSE 进度、跨租户模板共享）
+
+**遗留提醒**：
+1. 跑分后台任务为 in-process（asyncio.create_task）——多进程部署需 Procrastinate worker（记 tech-debt）
+2. builtin 评估用例假设标准种子数据集（finance_data/equipment_data/hr_data + 标准实体）；自定义租户（如 tenant-demo）跑分如实低分——admin 按自有数据加 custom 用例
+3. 8000 端口 API 进程（--reload）已热载新端点；dev DB 已到 0019
+
+### 追加（2026-08-18）— FDE 反馈：文档元数据保存后无法二次打开（esc 作用域泄漏）
+
+**现象**：修改某文件的元数据后，再点该文件的 🏷️ 元数据按钮无反应（弹窗打不开）。
+
+**根因**：knowledge.html 中 `autoMetaHtml()`（全局函数）引用 `esc()`——但 `esc` 是 `editDocMetadata` **函数内部的局部 var**，词法作用域不可见。首次打开不触发：KB 无 metadata_schema 且文档 metadata 为空时 autoMetaHtml 全走「无值」分支（不调用 esc）；**保存后后端写入 updated_at → 二次打开 autoMetaHtml 渲染自动字段值 → ReferenceError: esc is not defined → editDocMetadata 中断 → 弹窗打不开**。
+
+**修复**：`esc` 提升为全局函数（`function esc(s)` 移到 docMetaState 声明处，editDocMetadata 删局部定义；其它页面 esc 均为全局，仅 knowledge.html 泄漏）。
+
+**验证**：`test-docmeta-smoke.cjs`（新建，11 断言：首开/保存/二次打开/有 schema 回填）；修复前 git stash 对比精确复现 ReferenceError，修复后 11/11 全过；全量前端冒烟绿。
+
+### 追加（2026-08-18）— 跑分取消能力（FDE 反馈：llm 跑分卡死无法停止）
+
+**现象**：理解层评估集 llm 模式跑分（111 例 × 真模型升级）从 08-17 15:02 挂到 08-18 仍 running——无取消机制，只能重启进程或改 DB。
+
+**根因**：llm 模式每例低置信度触发 upgrade_with_llm（真 qwen 调用，json_complete 超时 120s）+ execute_plan 端到端，111 例 × 超时累积可挂数小时/卡死；后台任务无取消入口。
+
+**落地**：
+- **migration 0020**：eval_runs.status CHECK 加 `'cancelled'`（无新表）
+- eval_service：`cancel_run`（running → cancelled + finished_at；已完成/已取消幂等返回当前态；不存在 → None）+ `_is_running` 检查——run_eval_task 每 case 前查 status != running 提前终止（不覆盖 cancelled，已执行结果保留）
+- routes：`POST /v1/evaluations/runs/{run_id}/cancel`
+- 前端：跑分历史 running 行「停止」按钮（确认后 POST cancel）+ cancelled 状态显示「已取消」
+- 测试：test_eval_service +1（cancel 状态机：running→cancelled / 任务提前终止无 results / 幂等 / 已完成不破坏 / 404）→ 14 用例
+- FDE 指南 §5.2 补「停止跑分」说明
+
+**验证**：dev 真 API 停掉卡死的 evr-26782bdbdb9e → cancelled（15 条已执行结果保留，finished_at 写入）；13+1 tests + import-linter + OpenAPI 基线（+35）+ ruff/pyright 零新增；前端冒烟 17 项全绿（+停止按钮/已取消断言）
+
+**遗留**：卡死根因（LLM 调用超时累积）未根治——llm 跑分建议限制用例数或先规则层；connector 超时与 llm 跑分取消粒度（按 case 而非按 LLM 调用中断）留后续（记 tech-debt）。
+
+> **遗留任务书**：`tasks/b6-followup-techdebt.md`（T1 队列 worker / T2 LLM 超时根治 / T3 评估集治理 / T4 test_routing 假命中盲区）——本会话遗留已补记为可执行任务，下会话按序执行。
+
+### 追加（2026-08-18）— 评估页大集合折叠/展开（FDE 反馈：理解层 111 条影响查看）
+
+- **用例列表**：默认显示前 10 条 + 底部提示「共 N 条，已显示前 10 条」；标题栏「展开全部 (N) / 收起」按钮（>10 条才显示；切换集合自动重置折叠）
+- **跑分明细**：默认前 20 条 + 提示 + 「展开全部 (N) / 收起」（每次打开明细重置；toggle 保留展开态 keepExpand）
+- 测试：test-eval-sets-smoke.cjs +6 断言（明细折叠 20/22、用例折叠 10/12、展开按钮文案）→ 21 项全绿；纯前端零后端改动
+- **FDE 指南 §5.4**：补「理解层期望字段说明」（intent 10 类 + FALLBACK 含义与计分规则表、实体/关系类型的 TBox 来源）
+- **FDE 指南 §10（新附录）**：理解层实现原理技术参考——双引擎 + 六维拆解 + 规则层各维机制（关键词表/双向子串/动词词典+TBox 候选+方向校验/正则/聚合词）+ 置信度机械计算 + LLM 升级 + 完整链路示例 + 验收门槛（§9 指代消解归位、§10 附录置末）
+- **FDE 指南 §5.1**：补「理解层 vs Plan 层评估怎么区分」说明（认识问题 vs 执行决策、判定口径差异、rules 100% 属正常、医生诊断类比）
+- **FDE 指南 §11（新附录）**：Plan 层实现原理技术参考——3 种策略（plan_fact/plan_relation/plan_aggregation）+ 10 类 intent 映射表（§11.2）+ 两级回落 + 与评估关系（rules 100% 属正常的解释）
+- **FDE 指南 §7.1**：补「判断理解 vs Plan 问题」分层排障方法论（先理解后 Plan 再下游、判定矩阵、两个实例、平台化评估定位）
+- **FDE 反馈修复**：Plan 层评估集 rules 跑分明细原来只有 select_plan 映射（无执行结果，FDE 困惑）——rules 模式映射判定不变（gates/CI 口径），**同时执行策略函数并记录 trace/evidence/耗时**进 actual/detail（执行失败不拉低命中率，异常兜底）；dev 实测 111/111 带 trace；指南 §5.3 补「Plan 层跑分的执行结果」说明
+- **前端明细可读化**：跑分明细「实际」列由 JSON 截断改为友好渲染——Plan 层展示 Execution Trace 步骤串（`DD_ROUTING → KB_ROUTING → VECTOR_SEARCH`）+ 📊 evidence 通道徽标（通道 + 条数），完整 JSON 悬停查看；冒烟 +2 断言
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |
