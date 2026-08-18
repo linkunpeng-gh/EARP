@@ -250,21 +250,12 @@ async def build_routing_index(
     return stats
 
 
-# ── Permission helpers (inlined to avoid knowledge→policy cross-domain import;
-#    mirrors policy_service.check_data_domain_access) ─────────────────────────
+# ── Permission helpers（tech-debt #9：共享实现见 policy.roles_service.role_domain_access——
+#    原内联镜像 policy_service，三处重复合一；import-linter ignore 见 pyproject）───────────
 async def _allowed_domain_ids(conn, tenant_id: str, role_id: str, requested: list[str]) -> set[str]:
-    if not requested:
-        return set()
-    row = await conn.execute(
-        text("SELECT data_domain_access FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
-        {"rid": role_id, "tid": tenant_id},
-    )
-    r = row.fetchone()
-    if r is None:
-        return set()
-    access_list = r._mapping.get("data_domain_access") or []
-    allowed = {entry["data_domain_id"] for entry in access_list if "data_domain_id" in entry}
-    return {did for did in requested if did in allowed}
+    from earp_server.policy.roles_service import role_domain_access
+
+    return await role_domain_access(conn, tenant_id, role_id, requested)
 
 
 # ── Query routing ────────────────────────────────────────────────────────────

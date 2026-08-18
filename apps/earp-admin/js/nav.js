@@ -68,7 +68,7 @@
     ],
     governance: [
       { label: 'Audit', sub: 'audit', path: '{b}/pages/audit.html' },
-      { label: 'Roles', sub: 'roles', planned: 'governance/roles' },
+      { label: 'Roles', sub: 'roles', path: '{b}/pages/roles.html' },
       { label: 'Org', sub: 'org', planned: 'governance/org' },
       { label: 'Tenants', sub: 'tenants', planned: 'governance/tenants' },
       { label: 'Policy', sub: 'policy', planned: 'governance/policy' },
@@ -115,11 +115,6 @@
       label: '插件管理', section: 'plugins', phase: '规划中', priority: '—',
       desc: '插件生命周期管理（安装 / 启停 / 版本），随 roadmap 点亮。',
       related: [],
-    },
-    'governance/roles': {
-      label: 'Roles', section: 'governance', phase: '规划中', priority: 'P8',
-      desc: '角色与权限管理页（tech-debt #9：roles 页开放配置 + Admin 全权限通用机制）。',
-      related: [['Audit', '{b}/pages/audit.html']],
     },
     'governance/org': {
       label: 'Org', section: 'governance', phase: '规划中', priority: '—',

@@ -306,8 +306,10 @@ async function loadPending() {
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.target_id) + (c.payload && c.payload.name ? '（' + esc(c.payload.name) + '）' : '') + '</td>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle);color:var(--text-tertiary)">' + esc(String(c.created_at || '').slice(0, 19)) + '</td>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
-        + '<a href="javascript:void(0)" onclick="approveChange(\'' + esc(c.change_id) + '\')" style="color:var(--green,#166534);margin-right:8px">批准</a>'
-        + '<a href="javascript:void(0)" onclick="rejectChange(\'' + esc(c.change_id) + '\')" style="color:var(--red)">拒绝</a>'
+        + (c.can_approve
+          ? '<a href="javascript:void(0)" onclick="approveChange(\'' + esc(c.change_id) + '\')" style="color:var(--green,#166534);margin-right:8px">批准</a>'
+            + '<a href="javascript:void(0)" onclick="rejectChange(\'' + esc(c.change_id) + '\')" style="color:var(--red)">拒绝</a>'
+          : '<span style="color:var(--text-quaternary)" title="当前角色无 tbox.approve 权限（或非 admin）">无审批权限</span>')
         + '</td></tr>';
     }).join('');
   } catch (e) { document.getElementById('pc-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }

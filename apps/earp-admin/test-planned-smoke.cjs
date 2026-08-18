@@ -84,10 +84,12 @@ r = runPlanned('?section=capability', { base: '..' });
 if (!r.els['p-grid'].innerHTML.includes('连接器')) fail('capability overview missing connector');
 if (!r.els['p-implemented'].innerHTML.includes('capabilities.html')) fail('implemented links missing');
 
-// 4) governance item: ?section=governance&item=roles
-r = runPlanned('?section=governance&item=roles', { base: '..' });
-if (!r.els['pb-phase'].textContent.includes('P8')) fail('roles priority missing P8');
+// 4) governance item: ?section=governance&item=org（Roles 已实现，不再出现在规划中）
+r = runPlanned('?section=governance&item=org', { base: '..' });
 if (!r.els['p-sub'].textContent.includes('治理中心')) fail('subtitle section wrong');
+// tech-debt #9：roles 已点亮 → 规划中列表不再含 roles
+r = runPlanned('?section=governance&item=roles', { base: '..' });
+if (r.els['pb-phase'] && r.els['pb-phase'].textContent.includes('P8')) fail('roles should no longer be planned (tech-debt #9)');
 
 console.log(ok ? '✓ planned.html rendering OK' : '✗ planned.html rendering FAILED');
 process.exit(ok ? 0 : 1);

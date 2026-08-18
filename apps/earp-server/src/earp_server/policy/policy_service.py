@@ -79,20 +79,18 @@ async def check_data_domain_access(
     role_id: str,
     requested_domain_ids: list[str],
 ) -> list[str]:
-    """Return subset of requested_domain_ids the role can access."""
+    """Return subset of requested_domain_ids the role can access.
+
+    tech-debt #9：is_admin 角色全权限（跳过 data_domain_access 过滤）——
+    统一实现见 roles_service.role_domain_access（knowledge.routing 同源）。
+    """
     if not requested_domain_ids:
         return []
+    from earp_server.policy.roles_service import role_domain_access
+
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        row = await conn.execute(
-            text("SELECT data_domain_access FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
-            {"rid": role_id, "tid": tenant_id},
-        )
-        r = row.fetchone()
-        if r is None:
-            return []
-        access_list = r._mapping.get("data_domain_access") or []
-        allowed = {entry["data_domain_id"] for entry in access_list if "data_domain_id" in entry}
+        allowed = await role_domain_access(conn, tenant_id, role_id, requested_domain_ids)
     return [did for did in requested_domain_ids if did in allowed]
 
 

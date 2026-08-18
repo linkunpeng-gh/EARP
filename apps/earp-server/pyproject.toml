@@ -113,6 +113,8 @@ ignore_imports = [
     "earp_server.connector -> earp_server.planner.business_dictionary",
     "earp_server.connector -> earp_server.orchestrator.types",
     "earp_server.planner.service -> earp_server.knowledge.routing",  # D-13: keyword table lives in knowledge domain
+    # tech-debt #9: knowledge.routing 复用 policy.roles_service.role_domain_access（域过滤单一实现）
+    "earp_server.knowledge.routing -> earp_server.policy.roles_service",
     # P1 问答链路一期：conversation.chat_service 是 RAG 编排层——检索/路由/LLM 均为编排依赖
     "earp_server.conversation.chat_service -> earp_server.knowledge.embedding_service",
     "earp_server.conversation.chat_service -> earp_server.knowledge.search_service",

@@ -117,6 +117,32 @@ async def test_execute_count_entities_with_permission(migrated: str, app_url: st
     assert not out.get("permission_denied")
 
 
+async def test_execute_admin_role_bypasses_domain_filter(migrated: str, app_url: str) -> None:
+    """tech-debt #9：is_admin 角色全权限——other_data 实体也计入（不过滤）。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "cap-t3b"
+    scene = await _seed(engine, tid, suffix="-t3b")
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(
+            text("UPDATE roles SET is_admin = TRUE WHERE role_id = :rid AND tenant_id = :tid"),
+            {"rid": scene["role"], "tid": tid},
+        )
+        await conn.commit()
+
+    q = StructuredQuery(
+        intent=Intent.AGGREGATION,
+        confidence=0.9,
+        operation=Operation(aggregate="COUNT"),
+        entities=[EntityMention(mention="CNC-01", semantic_type="equipment")],
+    )
+    out = await execute_capability_query(engine, tid, {"capability_id": scene["cap"]}, q, role_id=scene["role"])
+    assert out is not None
+    assert out["aggregate"]["count"] == 2  # admin 全权限：CNC-01 + CNC-X1 都计入
+
+
 async def test_execute_relation_count(migrated: str, app_url: str) -> None:
     engine = create_async_engine(app_url, pool_pre_ping=True)
     tid = "cap-t4"

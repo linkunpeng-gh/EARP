@@ -381,18 +381,29 @@ async def submit_tbox_change(req_body: TboxChangeIn, req: Request) -> dict:
 
 @router.get("/tbox/changes")
 async def list_tbox_changes(req: Request, status: str | None = None) -> list[dict]:
-    return await tbox_service.list_changes(req.app.state.engine, req.state.tenant_id, status=status)
+    """变更请求列表；每项附 can_approve（tech-debt #9 审批人角色门禁，前端据此
+    隐藏/显示审批按钮——不向客户端泄露角色权限明细）。"""
+    from earp_server.policy.roles_service import check_permission
+
+    engine = req.app.state.engine
+    tid = req.state.tenant_id
+    changes = await tbox_service.list_changes(engine, tid, status=status)
+    can_approve = await check_permission(engine, tid, req.state.role_id, "tbox.approve")
+    for c in changes:
+        c["can_approve"] = can_approve
+    return changes
 
 
 @router.post("/tbox/changes/{change_id}/approve")
 async def approve_tbox_change(change_id: str, req: Request) -> dict:
-    """审批通过（提交者不能审自己；apply 真实变更后 applied）。"""
+    """审批通过（审批人角色门禁：tbox.approve 或 admin；提交者不能审自己）。"""
     try:
         result = await tbox_service.approve_change(
             req.app.state.engine,
             req.state.tenant_id,
             req.state.user_id,
             change_id,
+            role_id=req.state.role_id,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
@@ -418,7 +429,10 @@ async def reject_tbox_change(change_id: str, req_body: TboxRejectIn, req: Reques
             req.state.user_id,
             change_id,
             req_body.reason,
+            role_id=req.state.role_id,
         )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     _audit_tbox(

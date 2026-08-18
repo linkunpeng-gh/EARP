@@ -22,20 +22,33 @@ logger = logging.getLogger(__name__)
 
 
 async def _allowed_domain_ids(engine: AsyncEngine, tenant_id: str, role_id: str | None) -> list[str] | None:
-    """角色 data_domain_access（route_query 同语义）。role_id None → 不过滤（None）。"""
+    """角色可用数据域（capability_query 权限过滤）。role_id None → 不过滤（None）。
+
+    tech-debt #9：is_admin 角色 → None（全权限，不过滤）；其余按 data_domain_access
+    白名单（fail-closed）——不推断（实体 data_domain_id 可指向非 active DD 行）。
+    """
     if role_id is None:
         return None
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        rows = await conn.execute(
-            text("SELECT data_domain_access FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
+        row = await conn.execute(
+            text(
+                "SELECT is_admin, data_domain_access FROM roles "
+                "WHERE role_id = :rid AND tenant_id = :tid"
+            ),
             {"rid": role_id, "tid": tenant_id},
         )
-        r = rows.fetchone()
-        if r is None or not r.data_domain_access:
+        r = row.fetchone()
+        if r is None:
+            return []
+        if r.is_admin:
+            return None
+        if not r.data_domain_access:
             return []
         return [
-            str(d["data_domain_id"]) for d in r.data_domain_access if isinstance(d, dict) and d.get("data_domain_id")
+            str(d["data_domain_id"])
+            for d in r.data_domain_access
+            if isinstance(d, dict) and d.get("data_domain_id")
         ]
 
 

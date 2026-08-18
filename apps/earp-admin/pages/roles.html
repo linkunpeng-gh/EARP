@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 角色与权限管理"><title>角色管理 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body data-base=".." data-section="governance" data-sub="roles">
+<header id="app-header"></header>
+
+<main>
+
+<div class="page-title"><div><h2>角色与权限</h2><p class="page-subtitle">角色域权限管理（tech-debt #9）· <b>Admin 角色全权限</b>（is_admin 跳过数据域过滤，新建数据域自动可见）· 其余角色按 data_domain_access 白名单 · 审批人角色门禁：角色需 <code>tbox.approve</code> 权限（或 admin）方可审批 TBox 变更</p></div></div>
+
+<section style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <h3 style="margin:0;font-size:0.9rem">角色（<span id="role-count">—</span>）</h3>
+    <button onclick="openRoleModal()">+ 新建角色</button>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+    <thead><tr>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">角色 ID</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">名称</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">类型</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">数据域</th>
+      <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">权限</th>
+      <th style="text-align:right;padding:6px;border-bottom:1px solid var(--border-subtle)">操作</th>
+    </tr></thead>
+    <tbody id="role-tbody"><tr><td colspan="6" style="padding:10px;text-align:center;color:var(--text-tertiary)">加载中…</td></tr></tbody>
+  </table>
+</section>
+
+<!-- 角色编辑模态 -->
+<div id="role-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
+  <div style="max-width:520px;margin:8vh auto;background:var(--bg-panel);border-radius:10px;padding:18px">
+    <h3 id="role-modal-title" style="margin:0 0 12px">新建角色</h3>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">角色 ID *（小写英文/下划线，可留空自动生成；创建后不可改）
+      <input id="r-id" style="display:block;width:100%;margin-top:4px" placeholder="如 r-auditor"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">名称 *
+      <input id="r-name" style="display:block;width:100%;margin-top:4px" placeholder="如 审计员"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">数据范围（data_scope）
+      <select id="r-scope" style="display:block;width:100%;margin-top:4px">
+        <option value="self">self（本人）</option>
+        <option value="department">department（部门）</option>
+        <option value="org">org（组织）</option>
+        <option value="all">all（全部）</option>
+      </select></label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;margin-bottom:8px;cursor:pointer">
+      <input type="checkbox" id="r-admin"> Admin 角色（is_admin：跳过数据域过滤，全权限；可审批 TBox 变更）
+    </label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">数据域访问（data_domain_access，admin 角色可不选）
+      <div id="r-dds" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:0.75rem"></div>
+    </label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">权限（permissions，逗号分隔；内置 <code>tbox.approve</code> 为 TBox 审批权限）
+      <input id="r-perms" style="display:block;width:100%;margin-top:4px" placeholder="demo.echo, query.users, tbox.approve"></label>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button onclick="closeRoleModal()">取消</button>
+      <button onclick="saveRole()" style="background:var(--green);color:#fff">保存</button>
+    </div>
+  </div>
+</div>
+
+</main>
+<script src="../js/nav.js"></script>
+<script src="../js/app.js"></script>
+<script>
+var DDS = [], editRole = null;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+async function init() {
+  try {
+    var ddRes = await EARP.fetchJSON('/api/data-domains');
+    DDS = ddRes.items || ddRes || [];
+    renderDdChecks();
+  } catch (e) { /* DD 拉取失败不阻塞角色列表 */ }
+  loadRoles();
+}
+
+function renderDdChecks() {
+  var box = document.getElementById('r-dds');
+  box.innerHTML = DDS.length
+    ? DDS.map(function (d) {
+        var checked = editRole && (editRole.is_admin || (editRole.data_domain_access || []).some(function (x) { return x.data_domain_id === d.data_domain_id; }));
+        return '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;background:var(--bg-elevated,#fff);border:1px solid var(--border-subtle);border-radius:6px;padding:4px 8px">'
+          + '<input type="checkbox" value="' + esc(d.data_domain_id) + '"' + (checked ? ' checked' : '') + '> '
+          + esc(d.name || d.data_domain_id) + ' <span style="color:var(--text-quaternary)">(' + esc(d.data_domain_id) + ')</span></label>';
+      }).join('')
+    : '<span style="color:var(--text-quaternary)">暂无数据域 — 先在「数据域」页创建</span>';
+}
+
+async function loadRoles() {
+  try {
+    var roles = await EARP.fetchJSON('/api/roles');
+    document.getElementById('role-count').textContent = roles.length;
+    var tb = document.getElementById('role-tbody');
+    if (!roles.length) { tb.innerHTML = '<tr><td colspan="6" style="padding:10px;text-align:center;color:var(--text-tertiary)">暂无角色</td></tr>'; return; }
+    tb.innerHTML = roles.map(function (r) {
+      var perms = (r.permissions || []).map(function (p) { return '<code>' + esc(p) + '</code>'; }).join(' ');
+      var dds = r.is_admin
+        ? '<span style="color:var(--green,#166534);font-weight:600">全域（admin）</span>'
+        : (r.data_domain_access || []).map(function (d) { return '<code>' + esc(d.data_domain_id) + '</code>'; }).join(' ') || '<span style="color:var(--text-quaternary)">—</span>';
+      return '<tr>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)"><code>' + esc(r.role_id) + '</code></td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(r.name) + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (r.is_admin
+            ? '<span style="color:var(--green,#166534);font-weight:600">Admin</span>'
+            : '<span style="color:var(--text-tertiary)">普通</span>') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + dds + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (perms || '<span style="color:var(--text-quaternary)">—</span>') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
+        + '<a href="javascript:void(0)" onclick="openRoleModal(\'' + esc(r.role_id) + '\')" style="color:var(--accent-text);margin-right:10px">编辑</a>'
+        + '<a href="javascript:void(0)" onclick="delRole(\'' + esc(r.role_id) + '\')" style="color:var(--red)">删除</a>'
+        + '</td></tr>';
+    }).join('');
+  } catch (e) { document.getElementById('role-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
+}
+
+async function openRoleModal(roleId) {
+  editRole = null;
+  document.getElementById('r-id').disabled = false;
+  document.getElementById('r-id').value = '';
+  document.getElementById('r-name').value = '';
+  document.getElementById('r-scope').value = 'self';
+  document.getElementById('r-admin').checked = false;
+  document.getElementById('r-perms').value = '';
+  document.getElementById('role-modal-title').textContent = '新建角色';
+  if (roleId) {
+    try {
+      editRole = await EARP.fetchJSON('/api/roles/' + encodeURIComponent(roleId));
+      document.getElementById('role-modal-title').textContent = '编辑角色：' + editRole.role_id;
+      document.getElementById('r-id').value = editRole.role_id;
+      document.getElementById('r-id').disabled = true;  // 创建后不可改
+      document.getElementById('r-name').value = editRole.name || '';
+      document.getElementById('r-scope').value = editRole.data_scope || 'self';
+      document.getElementById('r-admin').checked = !!editRole.is_admin;
+      document.getElementById('r-perms').value = (editRole.permissions || []).join(', ');
+    } catch (e) { alert('加载角色失败: ' + e.message); return; }
+  }
+  renderDdChecks();
+  document.getElementById('role-modal').style.display = 'block';
+}
+
+function closeRoleModal() { document.getElementById('role-modal').style.display = 'none'; }
+
+function selectedDds() {
+  return Array.prototype.slice.call(document.querySelectorAll('#r-dds input:checked')).map(function (el) { return { data_domain_id: el.value }; });
+}
+
+async function saveRole() {
+  var name = document.getElementById('r-name').value.trim();
+  if (!name) { alert('角色名称不能为空'); return; }
+  var body = {
+    name: name,
+    role_id: editRole ? editRole.role_id : (document.getElementById('r-id').value.trim() || null),
+    permissions: document.getElementById('r-perms').value.split(/[,，\s]+/).filter(Boolean),
+    data_scope: document.getElementById('r-scope').value,
+    data_domain_access: selectedDds(),
+    is_admin: document.getElementById('r-admin').checked,
+  };
+  try {
+    if (editRole) {
+      await EARP.fetchJSON('/api/roles/' + encodeURIComponent(editRole.role_id), { method: 'PUT', body: JSON.stringify(body) });
+    } else {
+      await EARP.fetchJSON('/api/roles', { method: 'POST', body: JSON.stringify(body) });
+    }
+    closeRoleModal();
+    loadRoles();
+  } catch (e) { alert((editRole ? '更新' : '创建') + '失败: ' + e.message); }
+}
+
+async function delRole(roleId) {
+  if (!confirm('确认删除角色 ' + roleId + '？删除后不可恢复。')) return;
+  try {
+    await EARP.fetchJSON('/api/roles/' + encodeURIComponent(roleId), { method: 'DELETE' });
+    loadRoles();
+  } catch (e) { alert('删除失败: ' + e.message); }
+}
+
+init();
+</script>
+</body></html>

@@ -380,11 +380,18 @@ async def approve_change(
     tenant_id: str,
     reviewer: str,
     change_id: str,
+    *,
+    role_id: str = "",
 ) -> dict:
     """审批通过：apply 真实变更（create/deprecate/reactivate）→ 请求 applied。
 
+    tech-debt #9 审批人角色门禁：角色需 tbox.approve 权限或 is_admin；
     提交者不能审批自己（403）；apply 失败（并发冲突等）→ 抛错，请求保持 pending。
     """
+    from earp_server.policy.roles_service import check_permission
+
+    if not await check_permission(engine, tenant_id, role_id, "tbox.approve"):
+        raise PermissionError("当前角色无 tbox.approve 权限，不能审批 TBox 变更")
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         row = await conn.execute(
@@ -456,8 +463,14 @@ async def reject_change(
     reviewer: str,
     change_id: str,
     reason: str,
+    *,
+    role_id: str = "",
 ) -> dict:
-    """拒绝变更请求（pending → rejected + 原因）。"""
+    """拒绝变更请求（pending → rejected + 原因）。审批人角色门禁同 approve。"""
+    from earp_server.policy.roles_service import check_permission
+
+    if not await check_permission(engine, tenant_id, role_id, "tbox.approve"):
+        raise PermissionError("当前角色无 tbox.approve 权限，不能审批 TBox 变更")
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         result = await conn.execute(

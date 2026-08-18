@@ -42,11 +42,14 @@ _STANDARD_DATA_DOMAINS: tuple[tuple[str, str], ...] = (
 )
 
 # Demo role with permissions matching the Business Dictionary capabilities.
+# tech-debt #9：is_admin=True 全权限通用机制——不再查租户 DD 配 data_domain_access
+# （seed 特判移除，新建 DD 自动可见）；tbox.approve 供 TBox 审批人角色门禁。
 _DEMO_ROLE = {
     "role_id": "r1",
     "name": "Admin",
-    "permissions": ["demo.echo", "query.users", "create.alarm", "query.alarms"],
+    "permissions": ["demo.echo", "query.users", "create.alarm", "query.alarms", "tbox.approve"],
     "data_scope": "all",
+    "is_admin": True,
 }
 
 
@@ -92,17 +95,12 @@ async def seed_demo_tenant(engine: AsyncEngine, tenant_id: str) -> None:
             ),
             {"uid": "u1", "tid": tenant_id},
         )
-        # Admin role gets domain-wide access: seed data_domain_access with all
-        # active domains of this tenant (empty = no domain access, fail-closed).
-        dd_rows = await conn.execute(
-            text("SELECT data_domain_id FROM data_domains WHERE tenant_id = :tid AND status = 'active'"),
-            {"tid": tenant_id},
-        )
-        all_dd_access = [{"data_domain_id": r.data_domain_id} for r in dd_rows.fetchall()]
+        # Admin role gets domain-wide access: is_admin=True（tech-debt #9 通用机制）——
+        # 跳过 data_domain_access 域过滤，新建 DD 自动可见（seed 特判移除）。
         await conn.execute(
             text(
-                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
-                "VALUES (:rid, :tid, :name, :perms, :scope, :ddacc) "
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access, is_admin) "
+                "VALUES (:rid, :tid, :name, :perms, :scope, '[]', TRUE) "
                 "ON CONFLICT (role_id) DO NOTHING"
             ),
             {
@@ -111,7 +109,6 @@ async def seed_demo_tenant(engine: AsyncEngine, tenant_id: str) -> None:
                 "name": _DEMO_ROLE["name"],
                 "perms": _DEMO_ROLE["permissions"],
                 "scope": _DEMO_ROLE["data_scope"],
-                "ddacc": json.dumps(all_dd_access),
             },
         )
         for dd_id, dd_name in _STANDARD_DATA_DOMAINS:

@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from earp_server.admin.model_routes import router as model_routes_router
+from earp_server.admin.roles_routes import router as roles_router
 from earp_server.audit.consumer import audit_handler_factory
 from earp_server.capability.registry import TokenBucketRateLimiter, discover, list_for_planning, seed_demo_tenant
 from earp_server.config import Settings
@@ -476,6 +477,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(ontology_router)
     app.include_router(eval_router)
     app.include_router(model_routes_router)
+    app.include_router(roles_router)
 
     # ── Capability Registry ──
     @app.post("/capabilities", status_code=201, tags=["capabilities"])

@@ -756,6 +756,75 @@ components:
       - cardinality
       title: RelationTypeIn
       type: object
+    RoleIn:
+      properties:
+        data_domain_access:
+          default: []
+          items:
+            additionalProperties: true
+            type: object
+          title: Data Domain Access
+          type: array
+        data_scope:
+          default: self
+          title: Data Scope
+          type: string
+        is_admin:
+          default: false
+          title: Is Admin
+          type: boolean
+        name:
+          title: Name
+          type: string
+        permissions:
+          default: []
+          items:
+            type: string
+          title: Permissions
+          type: array
+        role_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role Id
+      required:
+      - name
+      title: RoleIn
+      type: object
+    RoleUpdate:
+      properties:
+        data_domain_access:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Data Domain Access
+        data_scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Data Scope
+        is_admin:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Admin
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        permissions:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Permissions
+      title: RoleUpdate
+      type: object
     RoutingDebugRequest:
       properties:
         query:
@@ -1301,6 +1370,137 @@ paths:
       summary: List Providers
       tags:
       - models
+  /api/roles:
+    get:
+      operationId: list_roles_api_roles_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Roles Api Roles Get
+                type: array
+          description: Successful Response
+      summary: List Roles
+      tags:
+      - roles
+    post:
+      operationId: create_role_api_roles_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Role Api Roles Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Role
+      tags:
+      - roles
+  /api/roles/{role_id}:
+    delete:
+      operationId: delete_role_api_roles__role_id__delete
+      parameters:
+      - in: path
+        name: role_id
+        required: true
+        schema:
+          title: Role Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Delete Role Api Roles  Role Id  Delete
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete Role
+      tags:
+      - roles
+    get:
+      operationId: get_role_api_roles__role_id__get
+      parameters:
+      - in: path
+        name: role_id
+        required: true
+        schema:
+          title: Role Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Role Api Roles  Role Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Role
+      tags:
+      - roles
+    put:
+      operationId: update_role_api_roles__role_id__put
+      parameters:
+      - in: path
+        name: role_id
+        required: true
+        schema:
+          title: Role Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Role Api Roles  Role Id  Put
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Role
+      tags:
+      - roles
   /api/system-model-settings:
     get:
       operationId: get_system_settings_api_system_model_settings_get
@@ -3562,6 +3762,9 @@ paths:
       - ontology
   /v1/ontology/tbox/changes:
     get:
+      description: '变更请求列表；每项附 can_approve（tech-debt #9 审批人角色门禁，前端据此
+
+        隐藏/显示审批按钮——不向客户端泄露角色权限明细）。'
       operationId: list_tbox_changes_v1_ontology_tbox_changes_get
       parameters:
       - in: query
@@ -3621,7 +3824,7 @@ paths:
       - ontology
   /v1/ontology/tbox/changes/{change_id}/approve:
     post:
-      description: 审批通过（提交者不能审自己；apply 真实变更后 applied）。
+      description: 审批通过（审批人角色门禁：tbox.approve 或 admin；提交者不能审自己）。
       operationId: approve_tbox_change_v1_ontology_tbox_changes__change_id__approve_post
       parameters:
       - in: path

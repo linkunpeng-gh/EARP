@@ -20,9 +20,11 @@ function mkEl() {
 const els = {};
 const pendingRows = [
   { change_id: 'tc-1', requested_by: 'u1', change_type: 'entity_type', action: 'create',
-    target_id: 'new_equip', payload: { name: '新设备' }, created_at: '2026-08-17T10:00:00+00:00' },
+    target_id: 'new_equip', payload: { name: '新设备' }, created_at: '2026-08-17T10:00:00+00:00', can_approve: true },
   { change_id: 'tc-2', requested_by: 'u1', change_type: 'relation_type', action: 'deprecate',
-    target_id: 'manufactured_by', payload: {}, created_at: '2026-08-17T10:01:00+00:00' },
+    target_id: 'manufactured_by', payload: {}, created_at: '2026-08-17T10:01:00+00:00', can_approve: true },
+  { change_id: 'tc-3', requested_by: 'u2', change_type: 'entity_type', action: 'reactivate',
+    target_id: 'old_type', payload: {}, created_at: '2026-08-17T10:02:00+00:00', can_approve: false },
 ];
 const calls = [];
 global.document = {
@@ -61,8 +63,10 @@ try {
       ['请求人渲染', out.includes('u1')],
       ['动作标签（新增/停用）', out.includes('新增') && out.includes('停用')],
       ['目标+名称', out.includes('new_equip') && out.includes('新设备')],
-      ['批准按钮', out.includes('approveChange')],
-      ['拒绝按钮', out.includes('rejectChange')],
+      ['批准按钮（can_approve=true）', out.includes('approveChange')],
+      ['拒绝按钮（can_approve=true）', out.includes('rejectChange')],
+      // tech-debt #9 审批人角色门禁：can_approve=false → 隐藏按钮 + 提示
+      ['无权限行提示（can_approve=false）', out.includes('无审批权限') && !out.includes("approveChange('tc-3'")],
     ];
     let fail = 0;
     checks.forEach(([name, ok]) => { console.log((ok ? 'PASS' : 'FAIL') + '  ' + name); if (!ok) fail++; });
