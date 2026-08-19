@@ -101,15 +101,18 @@ Start → Knowledge（查历史投诉）→ Condition: VIP? → 分支话术 →
 | F2 | flow 执行器：DAG JSON → workflow_dsl 编译 → 对话节点适配层（LLM/Knowledge/Chat History/Condition 最小集） | F1 |
 | F3 | QU/Plan 节点化（execute_plan 包装为节点）+ Capability 节点（复用审批/审计） | F2 |
 | F4 | Human Approval 节点（挂起/恢复/超时/SSE 通知） | F3 |
-| F5 | 前端图编辑器最小可用 + 节点调试 + 冒烟 | F2-F4 |
+| F5a | 前端最小可用（**决策门前**）：flow_schema JSON 编辑（textarea + 校验：节点白名单/边可达/无环）+ SVG 只读渲染（复用 entity-graph 思路）+ 节点步进调试（逐节点输入/输出/token） | F2-F4 |
+| **决策门** | FDE 真实使用 flow 模式（建 N 个 flow）后评估：拖拽编辑是否为刚需 | F5a |
+| F5b | 前端拖拽编辑器（**决策门通过后**）：vendored **Drawflow**（UMD 单文件 ~11KB，DOM 节点内嵌配置表单，MIT）替换 JSON 编辑 + 节点配置面板（LLM prompt + 变量引用选择器 `{{#node.output#}}`、检索参数、条件）+ 拖拽/连线/校验/保存。file:// 直开，不引 React | 决策门 |
 | F6 | 评估：flow 模式端到端验证（示例 A/B 场景）+ 会话上下文联动（指代消解在 flow 内生效） | F5 |
 
 ## 8. 不做什么（YAGNI）
 
-- 不发明新编排语言——DAG JSON 描述（复用 workflow_dsl 语义）
+- 不发明新编排语言——DAG JSON 描述（**图形状直接对齐 Dify/graphon 的 `{nodes:[{id,type,data}], edges:[{source,target}]}`**，ReactFlow 兼容——2026-08-18 决策：预留接口位，无论最终接 Drawflow 还是 ReactFlow，schema 不变）
 - 一期无循环节点 / 并行执行 / 复杂会话状态机（Phase F 开放）
 - 不把 QU 改手工——auto 模式保持，QU 是图内节点而非被替代
 - 不做「图热编辑生效」——flow 修改需重新发布（对齐 chat_apps 发布评审，二期可见范围一并做）
+- **一期不引 React/ReactFlow**（破坏 file:// 与 vanilla 栈）；拖拽编辑器候选 = vendored Drawflow（框架无关 UMD 单文件，决策门后）
 
 ## 9. 开放问题
 
