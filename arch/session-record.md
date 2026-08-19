@@ -635,6 +635,20 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 2. roles 页无「成员归属」展示（users 无 role FK，JWT 直带 role_id）——多用户角色分配属 Org/IdP 范畴，不在本期
 3. 8000 端口 API 进程（--reload）已热载新端点；dev DB 已到 0021
 
+### 追加（2026-08-18）— #9 漏洞修复：search_chunks 域门禁（FDE 反馈：单域角色可召回其他部门）
+
+**现象**：普通角色只授权一个部门（数据域），召回测试可召回其他部门数据。
+
+**根因**：`search_chunks._build_conditions` 只按 `kb.accessible_roles`（大多为空 → 全放行）过滤，**不按角色 `data_domain_access` 过滤** → 三条泄露路径：① 无候选 DD 全租户 chunk 兜底（/knowledge/search + plan_fact）；② plan_relation graph 无事实 RAG 补证（无 scope）；③ **显式 data_domain_ids/knowledge_base_ids 可绕过**（请求体自传其他域，chat kb_scope 同源）。
+
+**修复**：search_chunks 一律解析角色允许域（`_role_scope_domains` → policy.roles_service 共享实现，import-linter ignore 一条）并与检索范围交叠——admin 不过滤；角色缺失/空授权 fail-closed；NULL 域 KB 不在允许集（严格过滤）。双保险于 route_query 候选过滤。
+
+**验证**：test_search_role_gate.py 4 用例（修复前 4 全挂/修复后全过）；test_rerank/test_knowledge_pipeline 补角色 seed（域门禁后无 roles 行 = fail-closed，r-any → rr-any/kbpipe-any 避免单列主键冲突）；**215 passed** + ruff/pyright 零新增；dev 真 API：单域角色搜「制度」只回 shebeiyunwei 域 KB、显式传 jihuacaiwu → 0 结果、admin 不受影响。
+
+**顺手**：右上角用户信息补 role id（tenant · user · role，nav.js renderMeta + jwtMeta 兜底；nav 冒烟 +1 断言）。
+
+**遗留观察（未修，随 #9 后续）**：`/ontology/entities/lookup`、`/ontology/entities`（M4 实体管理）端点不做角色域过滤——普通角色可枚举/查询任意域实体（实体层与 chunk 层门禁不对称）；knowledge_search 的 profile/graph lane 依赖调用方传候选 DD（plan 路径已过滤），独立端点未收敛。下个 FDE 反馈若涉及实体层可见性再统一接入（可复用 role_domain_access）。
+
 ---
 
 ### 历史待办
