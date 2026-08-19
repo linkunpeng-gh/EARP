@@ -661,6 +661,16 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **验证**：test_search_role_gate +1（构造 top-3 候选全被滤掉场景，修复前挂/后过；admin 对照可见其他域）；**216 passed** + ruff/pyright 零新增；dev 真 API：r3 查「制度」兜底只回本域 KB，/knowledge/search 0 结果 → 10 条本域结果。
 
+### 追加（2026-08-18）— 管理端门禁：角色/数据域/模型配置变更仅 Admin（FDE 反馈：r3 可直接改权限）
+
+**现象**：普通角色（r3）登录后可直接在 roles 页面修改权限（含自提 admin）——`/api/roles*` 及 `/api/data-domains`、`/api/model-configs` 变更端点完全无门禁（任何登录角色可调）。
+
+**修复**：`roles_service.is_admin_role()` 共享检查 → `/api/roles*`（router 级依赖）+ `/api/data-domains` POST/DELETE/PATCH + `/api/model-configs` POST/PUT/DELETE/test + `/api/system-model-settings` PUT 全部 403 封堵；只读端点（列表/下拉）保持开放（不泄露 credentials）。前端 roles.html 403 → 「仅 Admin 角色可访问」门禁提示。
+
+**验证**：test_admin_gate.py 3 用例（角色/数据域/模型配置：非 admin 全 403、admin 正常、只读开放）；roles 冒烟 +1；**219 passed** + ruff/pyright 零新增（main.py I001 既有）+ OpenAPI 无变化；dev 真 API r3 403 / r1 200。
+
+**同类遗留（未修）**：`/v1/ontology` 写端点（实体导入/实体管理/文档上传等）仍无管理门禁——普通角色可上传文档/导入实体到其权限域（读侧已由域门禁限制，写侧未收敛）；审计 earp.* 事件目前无权限门禁（应仅 admin 可查）。随后续治理统一接入 is_admin 门禁。
+
 ---
 
 ### 历史待办
