@@ -20,24 +20,24 @@
 - `eval_run_cases`：逐 case 结果落库——进度 = `count(eval_run_cases where run_id) / 启用用例数`
 - 端点：`GET/POST /sets`、`GET /sets/{id}`、`POST /sets/{id}/cases`、`PUT/DELETE /cases/{id}`、`POST /sets/{id}/runs`、`POST /runs/{id}/cancel`、`GET /runs`、`GET /runs/{id}`
 - 前端 `eval-sets.html`：集合卡（kind 徽标/用例数/最新跑分/gates）+ 用例管理 + 跑分历史 + 明细（轮询已有）
-- 基线：220 tests 全绿；dev DB 到 0021
+- 基线：**223 tests 全绿**（T1 已完成：`eval_jobs.py` eval.run 任务 + migration 0022 heartbeat_at + `recover_stale_runs` + worker 启动注册/恢复）；dev DB 到 **0022**
 
 ## 既定决策（开工前置确认）
 
 | # | 决策点 | 倾向方案 |
 |:-:|:---|:---|
-| D4-1 | 版本记录 | `eval_sets.seed_version INT`（migration 0022——**编号与 T1 心跳列协调**：T1 先行则 T1 占 0022、本任务 0023；本任务先行则占 0022。custom 集合 seed_version NULL）；`eval_seed.py` 加 `SEED_VERSION = 1`，ensure_eval_sets 写当前版本 |
+| D4-1 | 版本记录 | `eval_sets.seed_version INT`（**migration 0023**——T1 已占 0022 心跳列；custom 集合 seed_version NULL）；`eval_seed.py` 加 `SEED_VERSION = 1`，ensure_eval_sets 写当前版本 |
 | D4-2 | 同步语义 | `POST /sets/{id}/sync`（admin 门禁对齐 roles）：仅 builtin 集合可用；重建 builtin 用例（DELETE builtin 来源 + 重插种子用例），**custom 用例不动**；seed_version 更新为当前 |
 | D4-3 | 跨租户复制 | `GET /sets/{id}/export`（JSON：name/kind/thresholds/cases）+ `POST /sets/import`（目标租户建 custom 集合）——导出无敏感字段 |
 | D4-4 | **builtin/custom 用例区分**（已核实：eval_cases **无来源列**） | migration 给 eval_cases 加 `source VARCHAR(16) NOT NULL DEFAULT 'builtin'`；**存量回填**：`UPDATE eval_cases SET source = (SELECT source FROM eval_sets WHERE eval_set_id = eval_cases.eval_set_id)`（builtin 集合的存量用例标 builtin，custom 集合标 custom）；种子插入写 'builtin'，`add_eval_case` 写 'custom'。同步 = `DELETE WHERE source='builtin'` + 重插种子 |
 | D6-1 | 覆盖语义 | `PUT /sets/{id}` 支持 `thresholds`：**服务端合并默认**（`{**THRESHOLDS[kind], **override}` 全量存储）——避免部分覆盖导致其他 gates 缺指标；校验指标名 ∈ gated metrics + 数值范围 0-1（schema_violations 允许整数） |
 | D6-2 | 生效 | 判定逻辑零改动（run_eval_task 已读 set.thresholds）；门槛编辑仅 admin（对齐 roles 门禁） |
-| D5-1 | 进度形态 | 最小：`GET /runs/{id}` 响应加 `progress: {completed, total, percent}`（polling 已有直连）——eval_run_cases 计数 + 启用用例数；SSE 流（`GET /runs/{id}/progress`）为可选增强，T1 心跳就绪后可升级 |
-| D5-2 | 依赖 T1 | 若 T1（队列+心跳）未完成：进度仍可用（计数驱动）；T1 完成后心跳可补「活跃」信号。**本任务不阻塞** |
+| D5-1 | 进度形态 | 最小：`GET /runs/{id}` 响应加 `progress: {completed, total, percent}`（polling 已有直连）——eval_run_cases 计数 + 启用用例数；**T1 已完成**——run_eval_task 已有每 case heartbeat（`heartbeat` 参数），SSE 流（`GET /runs/{id}/progress`）可直接做（心跳作活跃信号） |
+| D5-2 | T1 依赖 | **已解除**（T1 完成：队列 + 心跳 + worker 就绪）——进度可用心跳作 alive 信号，SSE 增强不再可选待定 |
 
 ## Task 拆解（建议执行序 1 → 2 → 3 → 4 → 5）
 
-### Task 1 — migration 0022/0023：eval_sets.seed_version + 门槛校验基座（0.5 天）
+### Task 1 — migration 0023：eval_sets.seed_version + eval_cases.source（0.5 天）
 **文件**：`migrations/versions/00XX_eval_sets_seed_version.py`（新）、`eval_seed.py`
 - migration：`ALTER TABLE eval_sets ADD COLUMN IF NOT EXISTS seed_version INT` + `ALTER TABLE eval_cases ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'builtin'` + **存量回填**（D4-4：按所属集合 source 回填 eval_cases.source）
 - `eval_seed.py`：`SEED_VERSION = 1` + `GATED_METRICS: dict[str, list[str]]`（每 kind 的 gated 指标名清单，与 THRESHOLDS 对齐）
@@ -92,7 +92,7 @@ Task 2 与 Task 3 可并行（不同端点）；Task 4 依赖 eval_run_cases 落
 
 ## 风险提示
 
-1. **migration 编号与 T1 冲突**：T1（心跳列）与 T3（seed_version）都可能在 0022——**开工前确认 T1 是否已先行**，避免 alembic head 冲突
+1. **migration 编号**：T1 已占 0022（heartbeat）——本任务用 **0023**（seed_version + eval_cases.source），已定，无冲突
 2. **eval_cases 来源标记**：已核实无 source 列 → D4-4 已定（加列 + 按集合回填 + 种子/API 各自写）。**存量租户的「builtin 集合里手工加的用例」会被回填成 builtin、同步时被覆盖**——可接受（同步前前端提示），文档注明
 3. **门槛部分覆盖**：客户端只传一个指标 → 服务端必须合并默认（否则 run_eval_task 的 gates 判定缺指标报错）——D6-1 已定，勿偷懒直接覆盖
 4. **同步是破坏性操作**：确认弹窗 + 前端提示「将覆盖内置题，custom 题保留」；admin 门禁（roles 体系既有）
