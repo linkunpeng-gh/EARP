@@ -744,6 +744,23 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **FDE 指南**：无需变更（F0 无用户可见功能，F1 flow 模式才涉及）。
 
+### 会话续接（2026-08-19）— Chatflow F1: flow_schema 落库 + orchestration 模式（migration 0024）
+
+**任务书**：`tasks/chatflow-f1-flow-schema-task-breakdown.md`（D1-D7 决策：migration 0024 / 节点类型白名单参数化 / 扩展类型只做结构校验 / orchestration 语义与发布门禁 / 端点 / import-linter / 测试策略，执行序 1→5）。基线 264 tests 全绿。
+
+**实现（按执行序）**：
+1. **workflow_dsl 参数化**（F0 校验复用）：`validate_workflow(graph, *, allowed_types=NODE_TYPES)` 默认行为不变；新增 `FLOW_NODE_TYPES = NODE_TYPES ∪ {capability(step 声明别名), llm, knowledge, qu, chat_history, human_approval, tool, mcp}`（设计稿 §3 全节点类型）+ `validate_flow_schema(schema)` 包装；fan-out ≤1 检查推广到所有非 condition 节点（图级约束）；扩展类型只做通用结构校验（节点级 data 校验 F2+ 适配层负责）
+2. **migration 0024**：`chat_apps.orchestration VARCHAR(16) NOT NULL DEFAULT 'auto' CHECK IN ('auto','flow')` + `flow_schema JSONB`；存量行 auto+NULL 后端兼容；列级改动 RLS 不动
+3. **service + 端点**（chat_app_service.py + main.py）：`_check_flow_fields`（orchestration 白名单；flow 模式 schema 必填 + validate_flow_schema；auto 模式传 schema 也校验——坏图存不进去、切回 flow 不重画）；`_UPDATABLE`/create/update/_row_to_dict/list 加两字段；**publish 门禁**：flow 模式强制重校验（§9 开放问题 1 落地：flow 变更纳入发布评审）；ChatAppCreate/ChatAppUpdate 加字段（默认 auto 前端零改动）；import-linter 例外 `conversation.chat_app_service -> orchestrator.workflow_dsl`（图校验单一实现）
+4. **单测**：`tests/test_chat_app_flow.py` 17 用例——create（默认 auto/flow 合法/扩展类型图/缺 schema/环/orchestration 非法/auto 坏图）+ update（切 flow 用已有 schema/坏图不落库/auto→flow→auto 保留/published 回 draft）+ publish 门禁（合法过/手工改坏图拒/auto 不受门禁）+ 路由级 422 透传（含 JWT）
+5. **质量门**：281 passed（264 + 17）+ import-linter + ruff/pyright 零新增（pyright 24==24；ruff 14<17——format 顺手修了 3 个存量，main.py 存量 I001 未动）+ OpenAPI 基线 +21 行（仅 ChatApp schema 两字段）
+
+**dev 真 API 实测**（8000 --reload + dev DB 到 0024）：① 建 flow app（顺序图 3 节点）→ 201 orchestration=flow；② 自环坏图 → 422 `invalid flow_schema: self-loop; F0 无并行…`（错误信息明确）；③ publish → 200 published（门禁过）；④ GET 往返 flow_schema 内容等价（JSONB 键序无关，dict 值比较成立）。
+
+**遗留**：① F1 只存不跑——扩展类型节点（qu/llm/human_approval…）无执行（F2 适配层报「节点类型未实现」）；② flow 变更的「重新测试发布」提示未做（前端 F5a 时补）；③ publish 门禁只校验结构，不校验语义（如 condition 引用的 node 存在性——运行时求值兜底）。
+
+**FDE 指南**：无需变更（flow 模式无用户可见功能，F2 执行端点/F5a 页面才涉及）。
+
 ---
 
 ### 历史待办

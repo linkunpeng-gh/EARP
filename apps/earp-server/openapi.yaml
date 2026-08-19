@@ -61,9 +61,19 @@ components:
           default: ''
           title: Description
           type: string
+        flow_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Flow Schema
         name:
           minLength: 1
           title: Name
+          type: string
+        orchestration:
+          default: auto
+          title: Orchestration
           type: string
         system_prompt:
           anyOf:
@@ -86,6 +96,12 @@ components:
           - type: string
           - type: 'null'
           title: Description
+        flow_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Flow Schema
         generation:
           anyOf:
           - additionalProperties: true
@@ -109,6 +125,11 @@ components:
           - type: string
           - type: 'null'
           title: Name
+        orchestration:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Orchestration
         retrieval:
           anyOf:
           - additionalProperties: true

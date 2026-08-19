@@ -52,6 +52,12 @@ class ConditionExpr(BaseModel):
 
 
 NODE_TYPES: frozenset[str] = frozenset({"start", "end", "step", "condition"})
+# Chatflow F1 声明层白名单（设计稿 §3 全节点类型）：F0 执行引擎只实现 step/condition，
+# 扩展类型（llm/knowledge/…）F1 可存（结构校验），F2+ 节点适配层各自实现执行。
+FLOW_NODE_TYPES: frozenset[str] = NODE_TYPES | frozenset(
+    # capability = step 的声明别名（设计稿 §3 Capability 节点，data.capability_call 同 step 校验）
+    {"capability", "llm", "knowledge", "qu", "chat_history", "human_approval", "tool", "mcp"}
+)
 CONDITION_HANDLES: frozenset[str] = frozenset({"true", "false"})
 BranchSide = Literal["then", "else"]
 
@@ -106,8 +112,17 @@ class CompiledWorkflow:
 # ── 校验 ─────────────────────────────────────────────────────────────────────
 
 
-def validate_workflow(graph: dict[str, Any] | WorkflowGraph) -> list[str]:
-    """Return a list of validation errors (empty = valid). F5a 前端校验复用。"""
+def validate_workflow(
+    graph: dict[str, Any] | WorkflowGraph,
+    *,
+    allowed_types: frozenset[str] = NODE_TYPES,
+) -> list[str]:
+    """Return a list of validation errors (empty = valid). F5a 前端校验复用。
+
+    allowed_types: 节点类型白名单。F0 默认 NODE_TYPES；F1 声明层（flow_schema）
+    传 FLOW_NODE_TYPES（设计稿 §3 全量）——扩展类型只做通用图结构校验，
+    节点级 data 校验由对应节点适配层（F2+）负责。
+    """
     errors: list[str] = []
     if isinstance(graph, WorkflowGraph):
         g = graph
@@ -132,8 +147,8 @@ def validate_workflow(graph: dict[str, Any] | WorkflowGraph) -> list[str]:
 
     # 节点类型白名单
     for n in g.nodes:
-        if n.type not in NODE_TYPES:
-            errors.append(f"node {n.id}: unknown type {n.type!r} (allowed: {sorted(NODE_TYPES)})")
+        if n.type not in allowed_types:
+            errors.append(f"node {n.id}: unknown type {n.type!r} (allowed: {sorted(allowed_types)})")
 
     # 恰一 start / 恰一 end
     starts = [n.id for n in g.nodes if n.type == "start"]
@@ -178,7 +193,8 @@ def validate_workflow(graph: dict[str, Any] | WorkflowGraph) -> list[str]:
         if outgoing[end_id]:
             errors.append("end node must have no outgoing edges")
 
-    # 节点级约束（F0: 无并行 fan-out；condition 恰 2 分支边；step 必带 capability_call）
+    # 节点级约束（F0: 无并行 fan-out——所有非 condition 节点；condition 恰 2 分支边；
+    # step 必带 capability_call；扩展类型只做通用结构校验）
     for n in g.nodes:
         outs = outgoing.get(n.id, [])
         if n.type == "condition":
@@ -205,14 +221,12 @@ def validate_workflow(graph: dict[str, Any] | WorkflowGraph) -> list[str]:
                 parts = left.split(".")
                 if len(parts) < 2 or parts[1] != "output":
                     errors.append(f"condition {n.id}: left must be '<node_id>.output.<path>', got {left!r}")
-        elif n.type == "step":
+        else:
             if len(outs) > 1:
-                errors.append(f"step {n.id}: F0 无并行 — at most 1 outgoing edge (got {len(outs)})")
-            if not isinstance(n.data.get("capability_call"), dict):
-                errors.append(f"step {n.id}: data.capability_call (dict) required")
-        elif n.type in ("start", "end"):
-            if len(outs) > 1:
-                errors.append(f"{n.type} {n.id}: at most 1 outgoing edge (got {len(outs)})")
+                errors.append(f"{n.type} {n.id}: F0 无并行 — at most 1 outgoing edge (got {len(outs)})")
+            if n.type in ("step", "capability"):
+                if not isinstance(n.data.get("capability_call"), dict):
+                    errors.append(f"{n.type} {n.id}: data.capability_call (dict) required")
 
     # 无环 + 全节点可达（仅当引用/唯一性错误不存在时才有意义）
     if start_id and end_id and len(by_id) == len(node_ids) and not missing_edge_ref:
@@ -281,6 +295,14 @@ def _reachable_backward(end: str, incoming: dict[str, list[WorkflowEdge]]) -> se
 
 
 # ── 编译 ─────────────────────────────────────────────────────────────────────
+
+
+def validate_flow_schema(schema: dict[str, Any]) -> list[str]:
+    """Chatflow F1: flow_schema 声明层校验（节点类型白名单 = 设计稿 §3 全量）。
+
+    仅结构校验（白名单/边/无环/可达）；节点级 data 校验由 F2+ 适配层负责。
+    """
+    return validate_workflow(schema, allowed_types=FLOW_NODE_TYPES)
 
 
 def compile_workflow(graph: dict[str, Any] | WorkflowGraph) -> CompiledWorkflow:

@@ -128,4 +128,7 @@ ignore_imports = [
     "earp_server.conversation.chat_service -> earp_server.ontology.planning",
     "earp_server.conversation.chat_service -> earp_server.ontology.understanding",
     "earp_server.conversation.chat_service -> earp_server.ontology.capability_query",
+    # Chatflow F1: flow_schema 声明层校验复用 orchestrator workflow_dsl（F0 编译校验单一实现，
+    # 图结构校验不重复实现——chat_app_service 是 flow 声明的入口）
+    "earp_server.conversation.chat_app_service -> earp_server.orchestrator.workflow_dsl",
 ]

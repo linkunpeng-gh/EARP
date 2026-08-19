@@ -238,6 +238,8 @@ class ChatAppCreate(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
     system_prompt: str | None = None  # None → DB 默认模板
+    orchestration: str = "auto"  # Chatflow F1: auto | flow（默认 auto，前端零改动）
+    flow_schema: dict[str, Any] | None = None  # flow 模式必填，图校验（F0 白名单扩展）
 
 
 class ChatAppUpdate(BaseModel):
@@ -249,6 +251,8 @@ class ChatAppUpdate(BaseModel):
     generation: dict[str, Any] | None = None
     model_config_id: str | None = None
     context_turns: int | None = None
+    orchestration: str | None = None
+    flow_schema: dict[str, Any] | None = None
 
 
 class ChatRequest(BaseModel):
@@ -1115,6 +1119,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 req_body.description,
                 bus=req.app.state.eventbus,
                 system_prompt=req_body.system_prompt,
+                orchestration=req_body.orchestration,
+                flow_schema=req_body.flow_schema,
             )
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e)) from e

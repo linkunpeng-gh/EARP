@@ -97,7 +97,7 @@ Start → Knowledge（查历史投诉）→ Condition: VIP? → 分支话术 →
 | Task | 内容 | 依赖 |
 |------|------|------|
 | **F0** | **workflow 真实化**（前置）✅ **已完成 (2026-08-19)**：声明式 JSON schema（Sequential/Conditional）+ compile 接线 MultiStepExecutor + Conditional 运行时求值/分支选择 + 单测（顺序/分支/嵌套/空图）——见 `tasks/chatflow-f0-workflow-task-breakdown.md` | — |
-| F1 | migration：chat_apps.orchestration（auto\|flow）+ flow_schema JSONB + 校验（节点类型白名单） | F0 |
+| **F1** | **migration：chat_apps.orchestration（auto\|flow）+ flow_schema JSONB + 校验（节点类型白名单）** ✅ **已完成 (2026-08-19)**——见 `tasks/chatflow-f1-flow-schema-task-breakdown.md` | F0 |
 | F2 | flow 执行器：DAG JSON → workflow_dsl 编译 → 对话节点适配层（LLM/Knowledge/Chat History/Condition 最小集） | F1 |
 | F3 | QU/Plan 节点化（execute_plan 包装为节点）+ Capability 节点（复用审批/审计） | F2 |
 | F4 | Human Approval 节点（挂起/恢复/超时/SSE 通知） | F3 |

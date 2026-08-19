@@ -19,8 +19,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.infra.eventbus import CloudEvent
+from earp_server.orchestrator.workflow_dsl import validate_flow_schema
 
 _VALID_MODES = ("vector", "hybrid")
+_ORCHESTRATIONS = ("auto", "flow")
 _DEFAULT_RETRIEVAL = {"mode": "hybrid", "top_k": 5, "threshold": 0.0}
 _DEFAULT_GENERATION = {"temperature": 0.7, "top_p": 0.9, "max_tokens": 1024}
 _STATUSES = ("draft", "published")
@@ -33,6 +35,8 @@ _UPDATABLE = (
     "generation",
     "model_config_id",
     "context_turns",
+    "orchestration",
+    "flow_schema",
 )
 
 
@@ -97,11 +101,34 @@ def _validate_generation(generation: dict[str, Any] | None) -> dict[str, Any]:
     return g
 
 
+def _check_flow_fields(app: dict[str, Any] | None, fields: dict[str, Any]) -> None:
+    """Chatflow F1: orchestration/flow_schema 校验。
+
+    - orchestration ∈ {auto, flow}
+    - flow 模式：flow_schema 必填（非空 dict）且通过图校验（复用 F0 validate_workflow）
+    - auto 模式：flow_schema 传了也校验（坏图存不进去；切回 flow 不重画）
+    """
+    orchestration = fields.get("orchestration", (app or {}).get("orchestration", "auto"))
+    if orchestration not in _ORCHESTRATIONS:
+        raise ValueError(f"orchestration must be one of {_ORCHESTRATIONS}")
+    schema = fields.get("flow_schema", (app or {}).get("flow_schema"))
+    if orchestration == "flow":
+        if not isinstance(schema, dict) or not schema:
+            raise ValueError("flow_schema is required when orchestration='flow'")
+    if schema is not None and not isinstance(schema, dict):
+        raise ValueError("flow_schema must be an object")
+    if isinstance(schema, dict) and schema:
+        errors = validate_flow_schema(schema)
+        if errors:
+            raise ValueError("invalid flow_schema: " + "; ".join(errors))
+
+
 def _row_to_dict(row) -> dict[str, Any]:
     d = dict(row._mapping)
     d["kb_scope"] = _jsonb(d.get("kb_scope")) or []
     d["retrieval"] = _jsonb(d.get("retrieval")) or dict(_DEFAULT_RETRIEVAL)
     d["generation"] = _jsonb(d.get("generation")) or dict(_DEFAULT_GENERATION)
+    d["flow_schema"] = _jsonb(d.get("flow_schema"))
     return d
 
 
@@ -114,30 +141,51 @@ async def create_chat_app(
     *,
     bus=None,
     system_prompt: str | None = None,
+    orchestration: str = "auto",
+    flow_schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a chat agent (status=draft). name is required (前端新建模态已校验)."""
     name = (name or "").strip()
     if not name:
         raise ValueError("name is required")
+    _check_flow_fields(None, {"orchestration": orchestration, "flow_schema": flow_schema})
     chat_app_id = f"app-{uuid.uuid4().hex[:12]}"
+    flow_json = json.dumps(flow_schema) if flow_schema is not None else None
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         if system_prompt is None:
             # 不传 → 用 DB 默认模板（migration 0014 DEFAULT）
             await conn.execute(
                 text(
-                    "INSERT INTO chat_apps (chat_app_id, tenant_id, name, description, created_at, updated_at) "
-                    "VALUES (:id, :tid, :name, :desc, now(), now())"
+                    "INSERT INTO chat_apps (chat_app_id, tenant_id, name, description, "
+                    "orchestration, flow_schema, created_at, updated_at) "
+                    "VALUES (:id, :tid, :name, :desc, :orch, :flow, now(), now())"
                 ),
-                {"id": chat_app_id, "tid": tenant_id, "name": name, "desc": description.strip()},
+                {
+                    "id": chat_app_id,
+                    "tid": tenant_id,
+                    "name": name,
+                    "desc": description.strip(),
+                    "orch": orchestration,
+                    "flow": flow_json,
+                },
             )
         else:
             await conn.execute(
                 text(
-                    "INSERT INTO chat_apps (chat_app_id, tenant_id, name, description, system_prompt, created_at, updated_at) "
-                    "VALUES (:id, :tid, :name, :desc, :prompt, now(), now())"
+                    "INSERT INTO chat_apps (chat_app_id, tenant_id, name, description, system_prompt, "
+                    "orchestration, flow_schema, created_at, updated_at) "
+                    "VALUES (:id, :tid, :name, :desc, :prompt, :orch, :flow, now(), now())"
                 ),
-                {"id": chat_app_id, "tid": tenant_id, "name": name, "desc": description.strip(), "prompt": system_prompt},
+                {
+                    "id": chat_app_id,
+                    "tid": tenant_id,
+                    "name": name,
+                    "desc": description.strip(),
+                    "prompt": system_prompt,
+                    "orch": orchestration,
+                    "flow": flow_json,
+                },
             )
         await conn.commit()
     _audit(bus, "earp.chat_app.created", tenant_id, user_id, chat_app_id, {"name": name})
@@ -149,7 +197,7 @@ async def list_chat_apps(engine: AsyncEngine, tenant_id: str) -> list[dict[str, 
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         rows = await conn.execute(
             text(
-                "SELECT chat_app_id, name, description, status, created_at, updated_at "
+                "SELECT chat_app_id, name, description, status, orchestration, created_at, updated_at "
                 "FROM chat_apps WHERE tenant_id = :tid ORDER BY created_at DESC"
             ),
             {"tid": tenant_id},
@@ -160,10 +208,12 @@ async def list_chat_apps(engine: AsyncEngine, tenant_id: str) -> list[dict[str, 
 async def get_chat_app(engine: AsyncEngine, tenant_id: str, chat_app_id: str) -> dict[str, Any] | None:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        row = (await conn.execute(
-            text("SELECT * FROM chat_apps WHERE chat_app_id = :id AND tenant_id = :tid"),
-            {"id": chat_app_id, "tid": tenant_id},
-        )).first()
+        row = (
+            await conn.execute(
+                text("SELECT * FROM chat_apps WHERE chat_app_id = :id AND tenant_id = :tid"),
+                {"id": chat_app_id, "tid": tenant_id},
+            )
+        ).first()
         return _row_to_dict(row) if row else None
 
 
@@ -180,6 +230,10 @@ async def update_chat_app(
     app = await get_chat_app(engine, tenant_id, chat_app_id)
     if app is None:
         return None
+
+    # Chatflow F1: orchestration/flow_schema 校验（合并库内现值：切 flow 时用已有 schema）
+    if "orchestration" in fields or "flow_schema" in fields:
+        _check_flow_fields(app, fields)
 
     sets: list[str] = []
     params: dict[str, Any] = {"id": chat_app_id, "tid": tenant_id}
@@ -209,6 +263,12 @@ async def update_chat_app(
             await _check_model_config(engine, tenant_id, val)
             sets.append("model_config_id = :model_config_id")
             params["model_config_id"] = val
+        elif key == "orchestration":
+            sets.append("orchestration = :orchestration")
+            params["orchestration"] = val
+        elif key == "flow_schema":
+            sets.append("flow_schema = :flow_schema")
+            params["flow_schema"] = json.dumps(val)
         elif key == "context_turns":
             sets.append("context_turns = :context_turns")
             params["context_turns"] = max(1, min(20, int(val)))
@@ -260,12 +320,19 @@ async def delete_chat_app(engine: AsyncEngine, tenant_id: str, user_id: str, cha
     return True
 
 
-async def publish_chat_app(engine: AsyncEngine, tenant_id: str, user_id: str, chat_app_id: str, *, bus=None) -> dict[str, Any] | None:
-    """draft → published. Idempotent: already-published returns current state."""
+async def publish_chat_app(
+    engine: AsyncEngine, tenant_id: str, user_id: str, chat_app_id: str, *, bus=None
+) -> dict[str, Any] | None:
+    """draft → published. Idempotent: already-published returns current state.
+
+    Chatflow F1: orchestration='flow' 时强制重校验 flow_schema（发布评审覆盖
+    flow 变更——设计稿 §9 开放问题 1 落地）；校验失败拒绝发布。
+    """
     app = await get_chat_app(engine, tenant_id, chat_app_id)
     if app is None:
         return None
     if app["status"] != "published":
+        _check_flow_fields(app, {})
         async with engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
             await conn.execute(
