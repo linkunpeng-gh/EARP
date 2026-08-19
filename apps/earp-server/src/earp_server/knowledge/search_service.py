@@ -21,6 +21,36 @@ logger = logging.getLogger(__name__)
 RRF_K = 60
 
 
+async def _role_scope_domains(
+    engine: AsyncEngine, tenant_id: str, role_id: str
+) -> set[str] | None:
+    """角色 data_domain_access 域门禁（tech-debt #9 漏洞修复 2026-08-18）。
+
+    返回 None = admin/全权限（不附加过滤）；set = 角色允许域（空集 = fail-closed
+    无结果）。统一实现 policy.roles_service.role_domain_access（routing 同源，
+    import-linter ignore 见 pyproject）。
+    """
+    from earp_server.policy.roles_service import role_domain_access
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text("SELECT is_admin FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
+            {"rid": role_id, "tid": tenant_id},
+        )
+        r = row.fetchone()
+        if r is None:
+            return set()  # 角色缺失 → fail-closed
+        if r.is_admin:
+            return None  # admin 全权限，不过滤
+        rows = await conn.execute(
+            text("SELECT data_domain_id FROM data_domains WHERE tenant_id = :tid AND status = 'active'"),
+            {"tid": tenant_id},
+        )
+        all_dds = [row2.data_domain_id for row2 in rows.fetchall()]
+        return await role_domain_access(conn, tenant_id, role_id, all_dds)
+
+
 def _build_conditions(
     params: dict[str, Any],
     *,
@@ -29,6 +59,7 @@ def _build_conditions(
     data_domain_ids: list[str] | None,
     knowledge_base_ids: list[str] | None,
     metadata_filters: dict[str, Any] | None = None,
+    role_domain_ids: set[str] | None = None,
 ) -> str:
     """Shared WHERE clause for both vector and text lanes (RLS-scoped).
 
@@ -39,6 +70,10 @@ def _build_conditions(
     metadata_filters uses JSONB containment (d.metadata @> ...) so the
     jsonb_path_ops GIN index on documents.metadata serves it (2026-08-09
     enterprise-retrieval design §4.2 — values must match stored JSON types).
+
+    role_domain_ids（tech-debt #9 2026-08-18 漏洞修复）：角色 data_domain_access
+    域门禁——非 admin 角色一律与允许域交叠（NULL 域 KB 不在允许集内 → 严格过滤）；
+    admin/未传入 → 不附加。覆盖无 scope 全租户兜底、显式 KB/DD scope 三条泄露路径。
     """
     conditions = ["c.tenant_id = :tid"]
     params["tid"] = tenant_id
@@ -61,6 +96,10 @@ def _build_conditions(
     conditions.append(
         "(kb.accessible_roles IS NULL OR kb.accessible_roles = '{}' OR :rid = ANY(kb.accessible_roles))"
     )
+
+    if role_domain_ids is not None:
+        conditions.append("kb.data_domain_id = ANY(:rdds)")
+        params["rdds"] = sorted(role_domain_ids)
 
     return " AND ".join(conditions)
 
@@ -245,6 +284,7 @@ async def search_chunks(
         "qemb2": embedding_str,
         "lim": top_k,
     }
+    role_dds = await _role_scope_domains(engine, tenant_id, role_id)
     where_clause = _build_conditions(
         params,
         tenant_id=tenant_id,
@@ -252,6 +292,7 @@ async def search_chunks(
         data_domain_ids=data_domain_ids,
         knowledge_base_ids=knowledge_base_ids,
         metadata_filters=metadata_filters,
+        role_domain_ids=role_dds,
     )
 
     try:

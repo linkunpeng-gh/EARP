@@ -102,6 +102,16 @@ async def test_search_chunks_rerank_integration(migrated: str, app_url: str, mon
             ),
             {"t": tid},
         )
+        # tech-debt #9 域门禁：测试角色需授权该域（此前无 roles 行 = fail-closed 空结果）
+        await s.execute(
+            text(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
+                "data_domain_access, is_admin) VALUES "
+                "('rr-any', :t, 'rr-tester', '{}', 'all', "
+                "'[{\"data_domain_id\": \"rr_dd\"}]', FALSE) ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
     doc = await create_document(engine, tid, "rr-kb", "报销标准：住宿500元。设备维护说明。", title="rr-doc")
     cids = await create_chunks(engine, tid, doc["document_id"], "报销标准：住宿500元。设备维护说明。")
     await embed_chunks(engine, tid, cids)
@@ -112,7 +122,7 @@ async def test_search_chunks_rerank_integration(migrated: str, app_url: str, mon
     monkeypatch.setattr(ext_reranker, "_reranker", None)
     monkeypatch.setattr(ext_reranker, "_RERANKER_INIT", True)
     no_rr = await search_chunks(
-        engine, tid, emb, "r-any", top_k=5, knowledge_base_ids=["rr-kb"],
+        engine, tid, emb, "rr-any", top_k=5, knowledge_base_ids=["rr-kb"],
         query_text="报销", mode="hybrid", embedding_dim=DIM, rerank=True,
     )
     assert no_rr and "rerank_score" not in (no_rr[0] if no_rr else {})
@@ -121,7 +131,7 @@ async def test_search_chunks_rerank_integration(migrated: str, app_url: str, mon
     rk = _OrderedReranker()
     monkeypatch.setattr(ext_reranker, "_reranker", rk)
     with_rr = await search_chunks(
-        engine, tid, emb, "r-any", top_k=5, knowledge_base_ids=["rr-kb"],
+        engine, tid, emb, "rr-any", top_k=5, knowledge_base_ids=["rr-kb"],
         query_text="报销", mode="hybrid", embedding_dim=DIM, rerank=True,
     )
     assert with_rr

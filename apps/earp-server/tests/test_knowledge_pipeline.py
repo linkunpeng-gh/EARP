@@ -67,6 +67,16 @@ async def test_knowledge_pipeline_full_cycle(migrated: str, app_url: str, monkey
             ),
             {"tid": tid},
         )
+        # tech-debt #9 域门禁：测试角色需授权该域（此前无 roles 行 = fail-closed 空结果）
+        await session.execute(
+            text(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
+                "data_domain_access, is_admin) VALUES "
+                "('kbpipe-any', :tid, 'pipeline-tester', '{}', 'all', "
+                "'[{\"data_domain_id\": \"equipment_data\"}]', FALSE) ON CONFLICT DO NOTHING"
+            ),
+            {"tid": tid},
+        )
 
     doc = await create_document(engine, tid, "kbp-1", "CNC 设备操作手册。主轴轴承每 6 个月更换一次。", "CNC Manual")
     assert doc["document_id"].startswith("doc-")
@@ -92,6 +102,6 @@ async def test_knowledge_pipeline_full_cycle(migrated: str, app_url: str, monkey
 
     # search: same content → top-1 chunk should be from our doc
     q_emb = await embed_query("主轴轴承更换周期")
-    hits = await search_chunks(engine, tid, q_emb, role_id="r-any", top_k=3, embedding_dim=DIM)
+    hits = await search_chunks(engine, tid, q_emb, role_id="kbpipe-any", top_k=3, embedding_dim=DIM)
     assert hits, "search must return at least one chunk"
     assert hits[0]["document_id"] == doc["document_id"]
