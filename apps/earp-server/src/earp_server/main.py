@@ -901,12 +901,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Document not found")
 
     # ── Data Domains Admin (PRD-2026-028 §6.6) ──
+    async def _require_admin(req: Request) -> None:
+        """管理端门禁（2026-08-18 越权修复）：仅 is_admin 角色可变更管理数据。"""
+        from earp_server.policy.roles_service import is_admin_role
+
+        if not await is_admin_role(req.app.state.engine, req.state.tenant_id, req.state.role_id):
+            raise HTTPException(status_code=403, detail="仅 Admin 角色可执行此操作")
+
     @app.get("/api/data-domains", tags=["knowledge"])
     async def list_data_domains_endpoint(req: Request) -> list[dict[str, Any]]:
         return await list_data_domains(req.app.state.engine, req.state.tenant_id)
 
     @app.post("/api/data-domains", status_code=201, tags=["knowledge"])
     async def create_data_domain_endpoint(req_body: DataDomainCreate, req: Request) -> dict[str, Any]:
+        await _require_admin(req)
         return await create_data_domain(
             req.app.state.engine,
             req.state.tenant_id,
@@ -919,6 +927,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.delete("/api/data-domains/{data_domain_id}", status_code=200, tags=["knowledge"])
     async def delete_data_domain_endpoint(data_domain_id: str, req: Request) -> dict[str, Any]:
+        await _require_admin(req)
         try:
             return await delete_data_domain(req.app.state.engine, req.state.tenant_id, data_domain_id)
         except DataDomainInUseError as exc:
@@ -929,6 +938,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         data_domain_id: str, req_body: DataDomainUpdate, req: Request
     ) -> dict[str, Any]:
         """Edit data domain basic attributes (name / description / classification / owner / routing)."""
+        await _require_admin(req)
         updated = await update_data_domain(
             req.app.state.engine,
             req.state.tenant_id,

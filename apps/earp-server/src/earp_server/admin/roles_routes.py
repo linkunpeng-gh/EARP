@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from earp_server.policy import roles_service
 
-router = APIRouter(prefix="/api", tags=["roles"])
+
+async def _require_admin(req: Request) -> None:
+    """管理端门禁（2026-08-18 越权修复）：仅 is_admin 角色可管理角色。
+    任意登录角色此前可直接改权限（含自提 admin）——403 封堵。
+    """
+    if not await roles_service.is_admin_role(
+        req.app.state.engine, req.state.tenant_id, req.state.role_id
+    ):
+        raise HTTPException(status_code=403, detail="仅 Admin 角色可管理角色")
+
+
+router = APIRouter(
+    prefix="/api",
+    tags=["roles"],
+    dependencies=[Depends(_require_admin)],
+)
 
 
 class RoleIn(BaseModel):

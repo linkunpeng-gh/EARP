@@ -11,6 +11,14 @@ from earp_server.infra import model_registry
 router = APIRouter(prefix="/api", tags=["models"])
 
 
+async def _require_admin(req: Request) -> None:
+    """管理端门禁（2026-08-18 越权修复）：仅 is_admin 角色可变更模型配置。"""
+    from earp_server.policy.roles_service import is_admin_role
+
+    if not await is_admin_role(req.app.state.engine, req.state.tenant_id, req.state.role_id):
+        raise HTTPException(status_code=403, detail="仅 Admin 角色可执行此操作")
+
+
 class ModelConfigIn(BaseModel):
     provider: str
     model_type: str
@@ -45,6 +53,7 @@ async def list_providers(req: Request) -> list[dict]:
 
 @router.post("/model-configs", status_code=201)
 async def create_model_config(req_body: ModelConfigIn, req: Request) -> dict:
+    await _require_admin(req)
     try:
         return await model_service.create_model_config(
             req.app.state.engine,
@@ -65,6 +74,7 @@ async def list_model_configs(req: Request, model_type: str | None = None) -> lis
 
 @router.put("/model-configs/{config_id}")
 async def update_model_config(config_id: str, req_body: ModelConfigUpdate, req: Request) -> dict:
+    await _require_admin(req)
     updated = await model_service.update_model_config(
         req.app.state.engine,
         req.state.tenant_id,
@@ -80,6 +90,7 @@ async def update_model_config(config_id: str, req_body: ModelConfigUpdate, req: 
 
 @router.delete("/model-configs/{config_id}", status_code=204)
 async def delete_model_config(config_id: str, req: Request) -> None:
+    await _require_admin(req)
     deleted, error = await model_service.delete_model_config(req.app.state.engine, req.state.tenant_id, config_id)
     if error:
         raise HTTPException(status_code=409, detail=error)
@@ -89,6 +100,7 @@ async def delete_model_config(config_id: str, req: Request) -> None:
 
 @router.post("/model-configs/{config_id}/test")
 async def test_model_config(config_id: str, req: Request) -> dict:
+    await _require_admin(req)
     return await model_service.test_connection(req.app.state.engine, req.state.tenant_id, config_id)
 
 
@@ -99,6 +111,7 @@ async def get_system_settings(req: Request) -> dict:
 
 @router.put("/system-model-settings")
 async def set_system_settings(req_body: SystemSettingsIn, req: Request) -> dict:
+    await _require_admin(req)
     mapping = {k: v for k, v in req_body.model_dump().items() if v}
     try:
         return await model_service.set_system_model_settings(req.app.state.engine, req.state.tenant_id, mapping)

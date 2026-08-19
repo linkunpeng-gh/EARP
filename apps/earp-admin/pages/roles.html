@@ -112,7 +112,16 @@ async function loadRoles() {
         + '<a href="javascript:void(0)" onclick="delRole(\'' + esc(r.role_id) + '\')" style="color:var(--red)">删除</a>'
         + '</td></tr>';
     }).join('');
-  } catch (e) { document.getElementById('role-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
+  } catch (e) {
+    // 2026-08-18 越权修复：非 Admin 角色 403 → 门禁提示（隐藏管理 UI）
+    if (e.status === 403) {
+      document.getElementById('role-tbody').innerHTML = '';
+      var sec = document.querySelector('main > section');
+      if (sec) sec.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--text-tertiary)">🔒 角色管理仅 Admin 角色可访问——当前登录角色无管理权限（如需管理请以 Admin 角色登录）</div>';
+      return;
+    }
+    document.getElementById('role-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>';
+  }
 }
 
 async function openRoleModal(roleId) {

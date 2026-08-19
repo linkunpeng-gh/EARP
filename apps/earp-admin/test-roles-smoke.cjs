@@ -96,6 +96,20 @@ try {
   console.log((deleted ? 'PASS' : 'FAIL') + '  delRole DELETE /api/roles/{id}' + (deleted ? ' (' + deleted + ')' : ''));
   if (!deleted) fail++;
 
+  // 2026-08-18 越权修复：非 admin 角色 → 403 → 门禁提示（隐藏管理 UI）
+  const err403 = new Error('403 Forbidden'); err403.status = 403;
+  global.EARP.fetchJSON = async (url) => { throw err403; };
+  const el403 = { innerHTML: 'keep', querySelector: () => null };
+  const sec403 = { innerHTML: 'orig' };
+  const origGet = global.document.getElementById;
+  global.document.getElementById = (id) => id === 'role-tbody' ? el403 : (els[id] || (els[id] = mkEl()));
+  global.document.querySelector = () => sec403;
+  await global.loadRoles();
+  const gateOk = el403.innerHTML === '' && sec403.innerHTML.includes('仅 Admin 角色可访问');
+  console.log((gateOk ? 'PASS' : 'FAIL') + '  非 admin 403 → 门禁提示（仅 Admin 角色可访问）');
+  if (!gateOk) fail++;
+  global.document.getElementById = origGet;
+
   process.exit(fail ? 1 : 0);
 } catch (e) {
   console.log('SMOKE ERROR:', e.message);

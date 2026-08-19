@@ -61,6 +61,20 @@ async def check_permission(
         return bool(r.is_admin) or permission in (r.permissions or [])
 
 
+async def is_admin_role(engine, tenant_id: str, role_id: str) -> bool:
+    """管理端门禁（2026-08-18 越权修复）：仅 is_admin 角色可执行管理操作
+    （角色 CRUD / 数据域变更 / 模型配置变更）。
+    """
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text("SELECT is_admin FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
+            {"rid": role_id, "tid": tenant_id},
+        )
+        r = row.fetchone()
+        return bool(r and r.is_admin)
+
+
 async def list_roles(engine, tenant_id: str) -> list[dict[str, Any]]:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
