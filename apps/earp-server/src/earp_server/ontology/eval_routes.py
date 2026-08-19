@@ -7,7 +7,6 @@ POST /runs 立即返回 run_id（status=running），GET /runs/{id} 轮询结果
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -145,16 +144,16 @@ async def start_eval_run(
     except eval_service.EvalError as exc:
         raise _to_http(exc) from exc
 
-    async def _background() -> None:
-        await eval_service.run_eval_task(
-            req.app.state.engine,
-            req.state.tenant_id,
-            run["run_id"],
-            settings=req.app.state.settings,
-            role_id=req.state.role_id,
-        )
-
-    asyncio.create_task(_background())
+    # T1: 入队（worker 进程消费 eval.run）；不再 API 内 create_task——
+    # 多进程部署下 API 重启不丢任务，worker 中断由 stale 恢复兜底。
+    await req.app.state.queue.enqueue(
+        "eval.run",
+        {
+            "tenant_id": req.state.tenant_id,
+            "run_id": run["run_id"],
+            "role_id": req.state.role_id,
+        },
+    )
     return run
 
 

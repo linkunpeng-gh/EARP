@@ -43,6 +43,7 @@ from earp_server.infra.db import build_engine, check_db
 from earp_server.infra.eventbus import EventBus
 from earp_server.infra.ext import init_all
 from earp_server.infra.redis_eventbus import RedisStreamsEventBus
+from earp_server.infra.task_queue import ProcrastinateTaskQueue
 from earp_server.knowledge.admin_service import (
     DataDomainInUseError,
     create_data_domain,
@@ -275,6 +276,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.settings = cfg
         app.state.engine = build_engine(cfg)
+        # T1: 任务队列 — API 进程只 enqueue（worker 进程消费 eval.run 等）。
+        # 连接失败不阻塞启动（/ready 语义：DB 不可达时 503，AC-01）；
+        # enqueue 时连接错误会在请求层暴露。
+        queue = ProcrastinateTaskQueue(cfg)
+        try:
+            await queue.open()
+            await queue.assert_schema()
+        except Exception:  # noqa: BLE001 — DB 未就绪/迁移未跑时应用仍可起
+            logger.warning("task queue init failed — enqueue will fail until DB/schema ready", exc_info=True)
+        app.state.queue = queue
         if cfg.app_env in ("dev", "test"):
             app.state.eventbus = EventBus()  # test/dev: in-process, no Redis dependency
         else:
@@ -348,6 +359,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             tracer.flush()
+            await queue.close()
             await app.state.engine.dispose()
 
     app = FastAPI(title=APP_TITLE, version=APP_VERSION, lifespan=lifespan)

@@ -1,7 +1,7 @@
 # 任务清单 — B6 遗留与评估平台化技术债（补记）
 
-**状态：T4 ✅ / T2 ✅（2026-08-18）**；T1 任务书已定稿（`tasks/t1-eval-worker-task-breakdown.md`，含 D1-D4 决策 + 心跳方案）待开工；T3 待开工
-**依据**：B6 评估集管理交付（2026-08-18，`arch/session-record.md`）+ FDE 反馈迭代（取消能力/折叠/阈值/执行明细）
+**状态：T4 ✅ / T2 ✅ / T1 ✅（2026-08-19）**；T3 待开工
+**依据**：B6 评估集管理交付（2026-08-18，`arch/session-record.md`）+ FDE 反馈迭代（取消能力/折叠/阈值/执行明细）+ T1 跑分 worker 接入（2026-08-19，任务书 `tasks/t1-eval-worker-task-breakdown.md`）
 **关联**：session-record「下一步（沿用优先级表）」——#9 角色域权限 / #7 复合主键 / P3 rerank / M3 importer / QU 二期均为既有清单，不在此重复建任务书
 **日期**：2026-08-18
 
@@ -46,11 +46,11 @@ B6 把三套评估（routing/understanding/planning）落库 + 跑分可视化�
 - `json_complete` 显式 timeout（30s）+ 超时回落；chat_stream 保持 300s（流式合理）
 - 验证：mock 挂起超时回落测试；llm 跑分 dev 冒烟
 
-### Task 3 — T1 Procrastinate worker 接入（最大块）
+### Task 3 — T1 Procrastinate worker 接入（最大块）✅ 2026-08-19
 **文件**：`apps/earp-server/src/earp_server/ontology/eval_service.py`、`infra/queue_schema.py`（如需）、`entrypoints/worker.py`
-- run_eval_task → queue job；start_run 返回后入队（running）；worker 消费执行
-- stale running 恢复（D2）
-- 验证：worker 进程实测 llm/rules 跑分；模拟进程中断 → stale 恢复
+- run_eval_task → queue job；start_run 返回后入队（running）；worker 消费执行 —— ✅（`ontology/eval_jobs.py` 注册 eval.run；API lifespan 建 queue 入队；worker 注册+消费）
+- stale running 恢复（D2）—— ✅（migration 0022 heartbeat_at + `recover_stale_runs` 心跳 TTL 判定，worker 启动扫描）
+- 验证：worker 进程实测 llm/rules 跑分；模拟进程中断 → stale 恢复 —— ✅（dev 实测全链路，见 session-record 补记）
 
 ### Task 4 — T3 评估集治理（平台化扩展）
 **文件**：`apps/earp-server/src/earp_server/ontology/eval_service.py`、`eval_routes.py`、`apps/earp-admin/pages/eval-sets.html`

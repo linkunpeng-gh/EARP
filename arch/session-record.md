@@ -625,7 +625,7 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 **验证**：211 passed（194 → +17：connector_timeout 6 / roles_service 8 / tbox +2 / capability_query +1）+ import-linter + OpenAPI 基线同步 + ruff/pyright 零新增；前端冒烟 8 个全绿（roles 12 断言 + tbox +1 + planned 断言更新）；dev 真 API 冒烟全链路（CRUD/409/最后 admin 保护/TBox 无权限 403 → admin 通过 → applied）
 
 **下一步（沿用优先级表）**：
-1. **T1 Procrastinate worker 接入**——任务书已定稿 `tasks/t1-eval-worker-task-breakdown.md`（D1-D4：队列复用/心跳 stale 判定/async 桥接待验证/测试策略），按执行序 1→5
+1. **T1 Procrastinate worker 接入**——✅ 已完成（2026-08-19，见下方追加补记）；跑分由独立 worker 进程消费 + 心跳 stale 恢复
 2. **T3 评估集治理**（模板同步 / per-set 门槛 / SSE 进度）
 3. **#7 business_capabilities 复合主键**；**P3 rerank 真模型验证**（待 Ollama 升级）；**M3 中台 importer**
 4. **QU 二期**：chat 发布评审+可见范围、Phase F 评估
@@ -682,6 +682,30 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 **验证**：test_ontology_search +1（实体层脱离路由候选生效 + 跨域实体 fail-closed，修复前挂/后过）；fixture 补 data_domain_id + 角色 seed（实体层域门禁后 NULL 域实体不可见——既有 fixture 无域实体依赖「不设 data_domain_ids 即不滤」的旧语义）；**220 passed** + ruff/pyright 零新增；dev 真 API：r1/r3 查「张建国」profile+graph 均生效（r3 兜底路径亦然）、「高温报警」（无该实体）仍 chunk-only 如实。
 
 **遗留观察**：graph lane 多跳可达实体未按域过滤（matched 实体已域限，但 graph_query 目标实体可跨域——如设备域实体关系的供应商在销售域）；chat 软路由路径已随 plan_fact 修复。后续可对 graph 目标补角色域过滤（与实体层同源）。
+
+### 追加（2026-08-19）— T1 跑分接入 Procrastinate worker + stale 恢复（任务书定稿交付）
+
+**任务书**：`tasks/t1-eval-worker-task-breakdown.md`（D1-D4 决策：队列复用/心跳 stale 判定/async 桥接待验证/测试策略，执行序 1→5）。
+
+**D1b 先行验证（Task 1）**：procrastinate 3.9 worker 为 async 模式，spike S1/S3 已用 `async def` 任务验证（100 任务/2 worker 全过 + async SQLAlchemy 会话共存）——**原生支持 async task，无需 asyncio.run 桥接**。
+
+**实现（按执行序）**：
+1. **任务注册**：`ontology/eval_jobs.py`（新）——`register(queue)` 注册 `eval.run`，payload `{tenant_id, run_id, role_id}`；job 从 worker 侧 `Settings()` 构造 engine（env 一致），调 `run_eval_task` + 每 case 心跳回调；`run_eval_task` 加可选 `heartbeat` 参数（既有服务直调零改动）
+2. **API 入队**：main.py lifespan 建 `ProcrastinateTaskQueue`（open + assert_schema，失败容忍——/ready 503 语义保持，AC-01 不动）→ `app.state.queue`；`start_eval_run` 删 `asyncio.create_task` 改 `enqueue`，返回体不变（前端零改动）
+3. **心跳 + stale**：migration 0022 `eval_runs.heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT now()` + 索引；`config.eval_run_ttl=3600`（`EARP_EVAL_RUN_TTL`）；`eval_service.recover_stale_runs` 逐租户扫描（tenants 无 RLS，scheduler 先例）`running AND heartbeat_at < now()-TTL` → failed + `summary.error=interrupted`；worker 启动时注册任务 + 恢复（恢复失败不阻塞启动）
+
+**验证**：新增 `tests/test_eval_worker.py` 3 用例（真 worker 消费队列 → completed / stale 恢复只标僵尸不误杀新鲜/cancelled/completed / heartbeat 每 case 报到刷新）——**223 passed**（220 基线 + 3）+ import-linter + OpenAPI 无变化 + ruff/pyright 零新增；既有 13 个 eval 服务测试直调模式零改动全绿。
+
+**dev 真 API 实测**（rules + llm 两种模式经 worker）：
+- rules：routing（5 例）+ understanding（111 例）经 worker completed，指标如实
+- llm：understanding llm 走 deepseek provider（每 case ~10s，111 例 ≈ 30min——正是心跳方案要防误杀的合法时长）；2 用例 custom 集 llm run completed（llm_upgraded=2，gates 如实）；cancel 端点经队列路径 running → cancelled、job 提前终止
+- **API 重启不丢任务**：触发 understanding rules → 立即 kill API 进程 → worker 独立消费 completed/111 → 重启 API 正常
+- **僵尸恢复**：SIGKILL worker（llm 跑分中，2 case done）→ 手动把心跳改旧 2h（模拟进程死久）→ 重启 worker 启动日志 `recover_stale_runs: 1 stale eval runs marked failed (interrupted)` → failed + summary.error=interrupted；已 completed run 不受影响
+- 前端零改动（返回体 running+run_id 不变，轮询照常）
+
+**遗留**：① 后续可把 stale 扫描落到 scheduler 定期（本次仅 worker 启动时，任务书已记）；② eval.run job 默认 max_attempts=3（retry=3 → 4 次执行）——失败重试对已 failed 的 run 是无害 no-op（_is_running 提前返回）；③ graph lane 多跳可达实体域过滤（上段遗留）未动。
+
+**FDE 指南**：§5.2 补「跑分由独立 worker 进程执行」+ 排障表「跑分一直 ⏳ running → worker 未启动」。
 
 ---
 

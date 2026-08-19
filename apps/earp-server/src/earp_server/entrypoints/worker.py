@@ -21,6 +21,26 @@ async def _run() -> int:
         await queue.open()
         await queue.assert_schema()
 
+        # T1: 注册业务任务（eval.run 等）——worker 消费队列前必须注册
+        from earp_server.ontology import eval_jobs
+
+        eval_jobs.register(queue)
+
+        # T1 D2: stale 恢复——进程中断遗留的 running 僵尸标 failed（interrupted）。
+        # 心跳新鲜的在跑任务不动；cancelled/completed/failed 不碰。
+        from earp_server.infra.db import build_engine
+        from earp_server.ontology import eval_service
+
+        engine = build_engine(settings)
+        try:
+            n = await eval_service.recover_stale_runs(engine, ttl_seconds=settings.eval_run_ttl)
+            if n:
+                logger.warning("stale recovery: %d eval runs marked failed (interrupted)", n)
+        except Exception:  # noqa: BLE001 — 恢复失败不阻塞 worker 启动
+            logger.exception("recover_stale_runs failed — continuing")
+        finally:
+            await engine.dispose()
+
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):

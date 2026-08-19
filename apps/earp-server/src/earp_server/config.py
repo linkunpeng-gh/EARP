@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     # ── LLM Cache ──
     llm_cache_ttl: int = 3600  # seconds (1 hour)
 
+    # ── Eval run stale recovery (T1 D2) ──
+    # running 任务心跳超过该时长 → worker 启动标记 failed（interrupted）。
+    # 心跳方案：job 内每 case 更新 heartbeat_at；勿回退 started_at 一刀切
+    # （llm 跑分 111 例 × 30s 超时 ≈ 55min，TTL=1h 会误杀合法在跑任务）。
+    eval_run_ttl: int = 3600  # seconds (EARP_EVAL_RUN_TTL)
+
     # ── Observability (M15) ──
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""

@@ -1,6 +1,6 @@
 # 任务清单 — T1: 跑分接入 Procrastinate worker + stale running 恢复
 
-**状态：规划定稿，待开工**
+**状态：✅ 已完成（2026-08-19）**，验证见 `arch/session-record.md`（追加 2026-08-19 段）
 **依据**：`tasks/b6-followup-techdebt.md` T1（最大块）+ `arch/session-record.md`（2026-08-18 补记）
 **关联**：B6 评估集管理交付遗留——跑分后台任务 in-process（`asyncio.create_task`），仅 API 进程内有效；进程重启则 running 变僵尸，多进程部署不可用
 **日期**：2026-08-18

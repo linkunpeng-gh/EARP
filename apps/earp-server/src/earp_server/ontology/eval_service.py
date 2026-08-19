@@ -14,6 +14,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy import text
@@ -660,6 +661,7 @@ async def run_eval_task(
     *,
     settings: Any = None,
     role_id: str = "r-all",
+    heartbeat: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """后台跑分执行（D4）：逐 case 评分落库 → 汇总 gates → completed/failed。
 
@@ -711,6 +713,8 @@ async def run_eval_task(
                 # 被取消（cancelled）→ 提前终止，不写 completed/failed
                 logger.info("eval run %s cancelled — stopping early", run_id)
                 return
+            if heartbeat is not None:  # T1 D2：每 case 前报到，stale 判定用 heartbeat_at
+                await heartbeat()
             if kind == "routing":
                 res = await _eval_routing_case(engine, tenant_id, role_id, case)
             elif kind == "understanding":
@@ -741,6 +745,36 @@ async def run_eval_task(
             summary={"error": str(exc)},
             gates={},
         )
+
+
+async def recover_stale_runs(engine: AsyncEngine, *, ttl_seconds: int = 3600) -> int:
+    """进程中断遗留的 running 僵尸 → failed（T1 D2/D3，心跳 stale 判定）。
+
+    worker 启动时调用：只处理 running 且 heartbeat_at 早于 now()-TTL 的行
+    （心跳新鲜的合法在跑任务不动）；cancelled/completed/failed 不碰。
+    summary.error='interrupted'（中断语义 = 进程终止，非业务失败）。
+    多租户：running 行跨租户（RLS），逐租户扫描（tenants 无 RLS，scheduler 先例）。
+    返回标记为 failed 的行数。
+    """
+    async with engine.connect() as conn:
+        tenants = (await conn.execute(text("SELECT tenant_id FROM tenants"))).fetchall()
+    n = 0
+    for t in tenants:
+        async with tenant_session(engine, t.tenant_id) as session:
+            res = await session.execute(
+                text(
+                    "WITH upd AS (UPDATE eval_runs SET status = 'failed', "
+                    "summary = '{\"error\": \"interrupted\"}'::jsonb, gates = '{}'::jsonb, "
+                    "finished_at = now() "
+                    "WHERE status = 'running' AND heartbeat_at < now() - make_interval(secs => :ttl) "
+                    "RETURNING run_id) SELECT count(*) FROM upd"
+                ),
+                {"ttl": ttl_seconds},
+            )
+            n += int(res.scalar_one() or 0)
+    if n:
+        logger.warning("recover_stale_runs: %d stale eval runs marked failed (interrupted)", n)
+    return n
 
 
 async def _is_running(engine: AsyncEngine, tenant_id: str, run_id: str) -> bool:
