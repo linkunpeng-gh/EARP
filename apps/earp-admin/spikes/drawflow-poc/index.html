@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Drawflow Demo — EARP Chatflow 风格</title>
+<link rel="stylesheet" href="drawflow.min.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #1f2329; }
+  h1 { font-size: 15px; margin: 10px 14px; color: #444; }
+  h1 small { color: #999; font-weight: normal; }
+  .wrap { display: flex; height: calc(100vh - 44px); }
+  /* 左侧节点面板 */
+  #palette { width: 150px; background: #fff; border-right: 1px solid #e5e6e8; padding: 8px; overflow-y: auto; }
+  #palette h3 { font-size: 11px; color: #999; margin: 4px 2px 8px; text-transform: uppercase; letter-spacing: .5px; }
+  .drag-drawflow { display: block; padding: 7px 10px; margin: 4px 0; border: 1px solid #e0e1e3; border-radius: 6px; font-size: 12px; cursor: grab; user-select: none; background: #fff; }
+  .drag-drawflow:hover { border-color: #5b8ff9; color: #5b8ff9; }
+  .drag-drawflow .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  /* 画布 */
+  #canvas-wrap { flex: 1; position: relative; }
+  #drawflow { width: 100%; height: 100%; background: #fafbfc; }
+  .btn-bar { position: absolute; top: 8px; right: 8px; z-index: 10; display: flex; gap: 6px; }
+  .btn-bar button { font-size: 12px; padding: 5px 10px; border: 1px solid #d9d9d9; border-radius: 5px; background: #fff; cursor: pointer; }
+  .btn-bar button:hover { border-color: #5b8ff9; color: #5b8ff9; }
+  /* 节点样式 */
+  .drawflow-node { width: 190px; background: #fff; border: 1px solid #e2e3e5; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .title { padding: 6px 10px; font-size: 12px; font-weight: 600; color: #fff; border-radius: 8px 8px 0 0; }
+  .t-start   { background: #52c41a; } .t-llm { background: #5b8ff9; } .t-knowledge { background: #9254de; }
+  .t-condition{ background: #faad14; } .t-tool { background: #13c2c2; } .t-human { background: #fa8c16; } .t-answer { background: #36cfc9; }
+  .node-body { padding: 8px 10px; font-size: 11px; color: #555; }
+  .node-body .cfg { margin: 3px 0; }
+  .node-body .cfg b { color: #888; font-weight: normal; }
+  .node-body input, .node-body select, .node-body textarea { width: 100%; font-size: 11px; padding: 3px 5px; border: 1px solid #e0e1e3; border-radius: 4px; margin-top: 2px; }
+  .node-body textarea { resize: vertical; min-height: 34px; }
+  .var-tip { color: #9254de; font-family: monospace; font-size: 10px; background: #f6f0ff; padding: 1px 4px; border-radius: 3px; }
+  /* 端口颜色 */
+  .drawflow .connection .main-path { stroke: #5b8ff9; stroke-width: 2.5; }
+  /* 输出 JSON 弹层 */
+  #json-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 99; }
+  #json-modal .box { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 560px; max-height: 70vh; background: #fff; border-radius: 8px; padding: 14px; overflow: auto; }
+  #json-modal pre { background: #282c34; color: #abb2bf; font-size: 11px; padding: 10px; border-radius: 6px; overflow: auto; max-height: 48vh; }
+
+  /* ── 暗色主题（EARP 风格）——body.dark 切换，纯 CSS ── */
+  body.dark { background: #1a1d24; color: #d5d8e0; }
+  body.dark h1 { color: #c8ccd6; }
+  body.dark h1 small { color: #6b7280; }
+  body.dark #palette { background: #22262f; border-color: #333846; }
+  body.dark #palette h3 { color: #7a8194; }
+  body.dark .drag-drawflow { background: #262b36; border-color: #3a4150; color: #c8ccd6; }
+  body.dark .drag-drawflow:hover { border-color: #5b8ff9; color: #8fb4ff; }
+  body.dark #drawflow { background: #181b21; }
+  body.dark .btn-bar button { background: #262b36; border-color: #3a4150; color: #c8ccd6; }
+  body.dark .btn-bar button:hover { border-color: #5b8ff9; color: #8fb4ff; }
+  body.dark .drawflow-node { background: #22262f; border-color: #3a4150; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  body.dark .node-body { color: #aab1bf; }
+  body.dark .node-body input, body.dark .node-body select, body.dark .node-body textarea {
+    background: #181b21; border-color: #3a4150; color: #d5d8e0; }
+  body.dark .var-tip { background: #2a2540; color: #a78bfa; }
+  body.dark .drawflow .connection .main-path { stroke: #7aa2f7; }
+  body.dark #json-modal .box { background: #22262f; color: #d5d8e0; }
+  body.dark #json-modal pre { background: #101216; }
+  /* 端口圆点：Drawflow 默认白底黑边，暗色下换浅 */
+  body.dark .drawflow .input, body.dark .drawflow .output { background: #0d1117; border-color: #5b8ff9; }
+</style>
+</head>
+<body>
+<h1>Drawflow 效果预览 — EARP Chatflow 风格 <small>(维修工单示例：Start → 知识检索 → 条件 → 能力/回答)</small></h1>
+<div class="wrap">
+  <div id="palette">
+    <h3>节点面板</h3>
+    <span class="drag-drawflow" data-node="start"><span class="dot" style="background:#52c41a"></span>开始</span>
+    <span class="drag-drawflow" data-node="llm"><span class="dot" style="background:#5b8ff9"></span>LLM 生成</span>
+    <span class="drag-drawflow" data-node="knowledge"><span class="dot" style="background:#9254de"></span>知识检索</span>
+    <span class="drag-drawflow" data-node="condition"><span class="dot" style="background:#faad14"></span>条件判断</span>
+    <span class="drag-drawflow" data-node="tool"><span class="dot" style="background:#13c2c2"></span>能力调用</span>
+    <span class="drag-drawflow" data-node="human"><span class="dot" style="background:#fa8c16"></span>人工确认</span>
+    <span class="drag-drawflow" data-node="answer"><span class="dot" style="background:#36cfc9"></span>回答</span>
+    <p style="font-size:10px;color:#aaa;margin-top:10px">从面板拖到画布，或双击节点标题删除；滚轮缩放、拖背景平移；右侧圆点连左侧圆点。</p>
+  </div>
+  <div id="canvas-wrap">
+    <div class="btn-bar">
+      <button id="theme-btn" onclick="toggleTheme()">🌙 暗色（EARP 风格）</button>
+      <button onclick="showJson()">导出 JSON（EARP schema）</button>
+      <button onclick="clearFlow()">清空</button>
+      <button onclick="loadSample()">载入示例</button>
+    </div>
+    <div id="drawflow"></div>
+  </div>
+</div>
+<div id="json-modal" onclick="this.style.display='none'"><div class="box" onclick="event.stopPropagation()">
+  <h3 style="margin:0 0 8px;font-size:13px">导出 — EARP 预留 schema（{nodes:[{id,type,data}], edges:[{source,target}]}）</h3>
+  <pre id="json-out"></pre>
+</div></div>
+
+<script>
+window.addEventListener('error', function (e) {
+  var pre = document.createElement('pre');
+  pre.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:#fdd;color:#900;font-size:11px;padding:8px;max-width:100%;white-space:pre-wrap';
+  pre.textContent = 'ERR: ' + e.message + '\n' + (e.error && e.error.stack || '').split('\n').slice(0, 8).join('\n');
+  document.body.appendChild(pre);
+});
+</script>
+<script src="drawflow.min.js"></script>
+<script>
+var editor = new Drawflow(document.getElementById('drawflow'));
+editor.start();
+editor.reroute = true;
+editor.reroute_fix_curvature = true;
+
+// 节点定义：inputs/outputs 端口数 + HTML（含配置表单）
+var NODE_DEFS = {
+  start:     { name: '开始',      cls: 't-start',    inputs: 0, outputs: 1, html: '<div class="node-body">用户消息进入</div>' },
+  llm:       { name: 'LLM 生成',  cls: 't-llm',      inputs: 1, outputs: 1, html: '<div class="node-body"><div class="cfg"><b>Prompt</b><textarea>基于以上资料回答用户问题</textarea></div><div class="cfg"><b>引用变量</b> <span class="var-tip">{{#kb.output#}}</span></div></div>' },
+  knowledge: { name: '知识检索',  cls: 't-knowledge',inputs: 1, outputs: 1, html: '<div class="node-body"><div class="cfg"><b>检索模式</b><select><option>软路由（三层）</option><option>限定知识库</option></select></div><div class="cfg"><b>TopK</b> <input value="5"></div></div>' },
+  condition: { name: '条件判断',  cls: 't-condition',inputs: 1, outputs: 2, html: '<div class="node-body"><div class="cfg"><b>条件</b><input value="{{#tool.status#}} == faulty"></div><div class="cfg" style="color:#999">输出1=满足 · 输出2=否则</div></div>' },
+  tool:      { name: '能力调用',  cls: 't-tool',     inputs: 1, outputs: 1, html: '<div class="node-body"><div class="cfg"><b>能力</b><select><option>query_equipment_status</option><option>create_maintenance_order</option></select></div><div class="cfg"><b>审批</b> <select><option>走审批</option><option>直连</option></select></div></div>' },
+  human:     { name: '人工确认',  cls: 't-human',    inputs: 1, outputs: 1, html: '<div class="node-body"><div class="cfg">等待人工批准后继续</div></div>' },
+  answer:    { name: '回答',      cls: 't-answer',   inputs: 1, outputs: 0, html: '<div class="node-body">生成最终答复 + 引用落库</div>' },
+};
+
+function nodeHtml(type) { return '<div class="title ' + NODE_DEFS[type].cls + '">' + NODE_DEFS[type].name + '</div>' + NODE_DEFS[type].html; }
+
+function addNode(type, x, y) {
+  var d = NODE_DEFS[type];
+  // typenode 不传（默认 false）→ 直接用 HTML 字符串渲染；传字符串会走 Vue 注册组件路径（未 registerNode → 崩）
+  var id = editor.addNode(d.name, d.inputs, d.outputs, x, y, d.cls, { type: type }, nodeHtml(type));
+  return id;
+}
+
+// 载入示例（维修工单：Start → 知识检索 → 条件 →(yes) 能力调用 → 人工确认 → 回答 / (no) → 回答）
+function loadSample() {
+  clearFlow();
+  var s = addNode('start', 80, 120);
+  var kb = addNode('knowledge', 360, 100);
+  var cond = addNode('condition', 660, 140);
+  var tool = addNode('tool', 980, 40);
+  var human = addNode('human', 1300, 40);
+  var a1 = addNode('answer', 980, 320);
+  var a2 = addNode('answer', 1300, 320);
+  editor.addConnection(s, kb, 'output_1', 'input_1');
+  editor.addConnection(kb, cond, 'output_1', 'input_1');
+  editor.addConnection(cond, tool, 'output_1', 'input_1');
+  editor.addConnection(cond, a1, 'output_2', 'input_1');
+  editor.addConnection(tool, human, 'output_1', 'input_1');
+  editor.addConnection(human, a2, 'output_1', 'input_1');
+}
+
+// 导出为 EARP 预留 schema（nodes/edges，ReactFlow 兼容）
+// Drawflow export 结构：{drawflow:{Home:{data:{<id>:{id,name,data,type,outputs:{<idx>:{connections:[{node,output}]}}}}}}}
+function toEarpSchema() {
+  var ex = editor.export();
+  var data = (ex.drawflow && ex.drawflow.Home && ex.drawflow.Home.data) || {};
+  var ids = Object.keys(data);
+  var nodes = ids.map(function (id) {
+    var n = data[id];
+    return { id: String(n.id), type: (n.data && n.data.type) || 'unknown', data: {} };
+  });
+  var edges = [];
+  ids.forEach(function (id) {
+    var n = data[id];
+    Object.keys(n.outputs || {}).forEach(function (outIdx) {
+      (n.outputs[outIdx].connections || []).forEach(function (c) {
+        edges.push({ source: String(n.id), target: String(c.node), sourceHandle: outIdx, targetHandle: String(c.output) });
+      });
+    });
+  });
+  return { nodes: nodes, edges: edges };
+}
+
+function showJson() { document.getElementById('json-out').textContent = JSON.stringify(toEarpSchema(), null, 2); document.getElementById('json-modal').style.display = 'block'; }
+function clearFlow() { var f = document.getElementById('drawflow'); f.innerHTML = ''; editor = new Drawflow(f); editor.start(); editor.reroute = true; }
+
+// 面板拖拽 → 画布（纯鼠标拖拽 + 跟随幽灵图；不用 draggable 避免原生 HTML5 拖拽冲突）
+var wrap = document.getElementById('canvas-wrap');
+var draggingEl = null, ghost = null;
+
+function makeGhost(el) {
+  var g = document.createElement('div');
+  g.textContent = el.textContent;
+  g.style.cssText = 'position:fixed;z-index:999;pointer-events:none;padding:7px 10px;font-size:12px;background:#fff;border:1px solid #5b8ff9;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);opacity:.9;transform:translate(-50%,-50%)';
+  document.body.appendChild(g);
+  return g;
+}
+
+document.querySelectorAll('.drag-drawflow').forEach(function (el) {
+  el.addEventListener('mousedown', function (e) {
+    e.preventDefault(); // 防文本选择
+    draggingEl = el;
+    ghost = makeGhost(el);
+    ghost.style.left = e.clientX + 'px';
+    ghost.style.top = e.clientY + 'px';
+  });
+  el.addEventListener('dblclick', function () { addNode(el.dataset.node, 120 + Math.random() * 300, 100 + Math.random() * 200); });
+});
+
+document.addEventListener('mousemove', function (e) {
+  if (draggingEl && ghost) {
+    ghost.style.left = e.clientX + 'px';
+    ghost.style.top = e.clientY + 'px';
+  }
+});
+
+document.addEventListener('mouseup', function (e) {
+  if (draggingEl) {
+    var rect = wrap.getBoundingClientRect();
+    var inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+    if (inside) {
+      addNode(draggingEl.dataset.node, e.clientX - rect.left - 90, e.clientY - rect.top - 20);
+    }
+    draggingEl = null;
+    if (ghost) { ghost.remove(); ghost = null; }
+  }
+});
+
+try {
+  function toggleTheme() {
+  var d = document.body.classList.toggle('dark');
+  document.getElementById('theme-btn').textContent = d ? '☀️ 亮色' : '🌙 暗色（EARP 风格）';
+}
+loadSample();
+} catch (err) {
+  var pre2 = document.createElement('pre');
+  pre2.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:#fdd;color:#900;font-size:11px;padding:8px;white-space:pre-wrap';
+  pre2.textContent = 'loadSample ERR: ' + (err && err.stack || err);
+  document.body.appendChild(pre2);
+}
+  // 自检：节点数写入 title
+  document.title = 'NODES=' + document.querySelectorAll('.drawflow-node').length;
+</script>
+</body>
+</html>
