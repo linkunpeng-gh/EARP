@@ -707,6 +707,25 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **FDE 指南**：§5.2 补「跑分由独立 worker 进程执行」+ 排障表「跑分一直 ⏳ running → worker 未启动」。
 
+### 追加（2026-08-19）— T3 评估集治理：模板同步 / per-set 门槛 / 跑分进度（任务书定稿交付）
+
+**任务书**：`tasks/t3-eval-governance-task-breakdown.md`（D4 模板同步 / D6 per-set 门槛 / D5 进度，执行序 1 → (2,3) → 4 → 5）。T1 完成后开工（migration 0023，进度复用心跳/轮询）。
+
+**实现**：
+1. **migration 0023**：`eval_sets.seed_version INT`（custom NULL）+ `eval_cases.source VARCHAR(16) NOT NULL DEFAULT 'builtin'` + **存量回填**（按所属集合 source 回填——builtin 集合→builtin，custom→custom）；`eval_seed.py` 生成脚本加 `SEED_VERSION=1` + `GATED_METRICS`（routing 仅 dd_accuracy 参与 gate——kb_accuracy 是报告项，**保持既有行为不回归**；understanding/planning 与 THRESHOLDS 对齐）；`ensure_eval_sets` 写 seed_version + 种子用例 source='builtin'；`add_eval_case` 写 'custom'
+2. **per-set 门槛**：`update_eval_set`（服务端**合并默认** `{**THRESHOLDS[kind], **override}` 全量存储——防部分覆盖缺指标；校验指标名 ∈ GATED_METRICS + 数值 0-1 + schema_violations 非负整数）；`PUT /sets/{id}`（admin 门禁，端点级依赖——评估列表对普通角色保持开放）
+3. **模板同步/导出导入**：`sync_builtin_set`（仅 builtin；DELETE source='builtin' 重插种子 → custom 保留；seed_version 更新）；`export_eval_set`（name/kind/thresholds/cases，无敏感字段）/ `import_eval_set`（目标租户建 custom，id 自动生成，expected 校验）；`POST /sets/{id}/sync`、`GET /sets/{id}/export`、`POST /sets/import`（均 admin）
+4. **跑分进度**：`get_run` 响应加 `progress {completed, total, percent}`（eval_run_cases 计数 / 启用用例数；取消后冻结不回落）；前端 running 行进度条（pollRun 原地更新 DOM，不整表重建）+ 历史 running 行自动轮询
+5. **前端**：集合卡「↻ 同步内置模板」（builtin 且 seed_version < 当前时显示）/「导出」；「导入评估集（JSON）」虚线卡 + file input；同步确认弹窗（破坏性操作提示）
+
+**验证**：`tests/test_eval_governance.py` 8 用例（合并默认/未知指标/数值范围/schema_violations 整数/同步覆盖 builtin 保留 custom + 幂等/非 builtin 拒绝/导出导入往返/import 校验/running 进度 0-N→100/取消冻结）——**231 passed**（223 + 8）+ import-linter + OpenAPI 基线同步（+173 行：4 新端点 + EvalSetUpdate/EvalSetImport schema）+ ruff/pyright 零新增；前端冒烟 **30 断言全绿**（+6：同步按钮条件/导出/导入/进度条）
+
+**dev 真 API 实测**：① 老租户（seed_version NULL）routing 集：加 custom 用例 → `POST /sync` → seed_version=1、5 内置重建 + custom 保留（source 区分正确）；② `PUT` 部分覆盖 `{intent_accuracy:0.5}` → 响应合并默认全量（entity_recall 0.9/relation_accuracy 0.8/schema_violations 0 保留）；非法指标 400 明确报错；非 admin（r3）403；③ llm 2 用例集跑分中 `GET /runs/{id}` progress **1/2=50%** 中间态 → completed 2/2=100%；④ 导出 custom 集 JSON → 导入 → 新 custom 集合（2 用例）往返一致
+
+**遗留**：① SSE 流式进度未做（轮询进度条已满足 FDE 需求，任务书标可选）；② 同步按钮的「版本落后」判断依赖前端 SEED_VERSION 常量（模板升级发版时同步）；③ 存量「builtin 集合里手工加的用例」被回填为 builtin、同步时会被覆盖（任务书风险 2 已注明，同步确认弹窗提示）。
+
+**FDE 指南**：§5 新增 5.1b（模板同步/门槛编辑/导出导入说明）+ 5.2/5.3 进度条说明。
+
 ---
 
 ### 历史待办

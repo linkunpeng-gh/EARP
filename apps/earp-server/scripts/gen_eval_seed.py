@@ -41,6 +41,18 @@ _THRESHOLDS = {
     "planning": {"strategy_hit_rate": 0.95},
 }
 
+# D4-1: 内置模板版本——模板改进后递增，老租户同步可见（eval_sets.seed_version）
+_SEED_VERSION = 1
+
+# T3 D6: 每 kind 参与 gate 判定的指标名清单（门槛覆盖校验用；
+# 注意：routing 仅 dd_accuracy 参与 gate——kb_accuracy 是报告项（既有行为，
+# 保持；understanding/planning 与 _THRESHOLDS 键对齐）
+_GATED_METRICS: dict[str, list[str]] = {
+    "routing": ["dd_accuracy"],
+    "understanding": ["intent_accuracy", "entity_recall", "relation_accuracy", "schema_violations"],
+    "planning": ["strategy_hit_rate"],
+}
+
 _DESCRIPTIONS = {
     "routing": "路由评估集（设计 §7）——软路由/元数据过滤/三层检索验收基线",
     "understanding": "Query Understanding 评估集（QU v0.3 §17）——规则层 + LLM 升级路径验收基线",
@@ -131,6 +143,11 @@ def _emit() -> str:
         "planning": {"name": _NAMES["planning"], "description": _DESCRIPTIONS["planning"], "cases": _build_planning()},
     }
     out = [HEADER, "THRESHOLDS: dict[str, dict[str, float]] = " + json.dumps(_THRESHOLDS, ensure_ascii=False, indent=2)]
+    out.append("")
+    out.append(f"SEED_VERSION: int = {_SEED_VERSION}")
+    out.append("")
+    out.append("GATED_METRICS: dict[str, list[str]] = " + json.dumps(_GATED_METRICS, ensure_ascii=False, indent=2))
+    out.append("")
     out.append("")
     out.append("BUILTIN_EVAL_SETS: dict[str, dict] = {")
     for kind, spec in sets.items():

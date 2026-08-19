@@ -117,6 +117,56 @@ function thresholdsHtml(s) {
     + '</div>';
 }
 
+// ── T3 治理：模板同步 / 导出 / 导入（admin 门禁——后端 403 时 alert 提示）──
+var SEED_VERSION = 1;  // 内置模板版本（对齐 eval_seed.SEED_VERSION；模板升级时同步）
+
+function showSyncBtn(s) {
+  // 仅 builtin 且版本落后（老租户 seed_version NULL）显示「同步内置模板」
+  if (s.source !== 'builtin') return '';
+  var v = s.seed_version === null || s.seed_version === undefined ? -1 : s.seed_version;
+  if (v >= SEED_VERSION) return '';
+  return '<button class="btn-outline btn-sm" onclick="event.stopPropagation();syncSet(\'' + s.eval_set_id + '\')" title="同步最新内置模板（覆盖内置题，custom 题保留）">↻ 同步内置模板</button>';
+}
+
+async function syncSet(id) {
+  if (!confirm('同步内置模板？将覆盖该集合的内置用例（custom 自定义用例保留）。')) return;
+  try {
+    var out = await EARP.fetchJSON('/v1/evaluations/sets/' + encodeURIComponent(id) + '/sync', { method: 'POST' });
+    alert('同步完成：' + out.case_count + ' 用例（版本 ' + out.seed_version + '）');
+    await reloadSets();
+    if (CUR && CUR.eval_set_id === id) await selectSet(id);
+  } catch (err) { alert('同步失败: ' + err.message); }
+}
+
+function exportBtn(s) {
+  return '<button class="btn-outline btn-sm" onclick="event.stopPropagation();exportSet(\'' + s.eval_set_id + '\')">导出</button>';
+}
+
+async function exportSet(id) {
+  try {
+    var data = await EARP.fetchJSON('/v1/evaluations/sets/' + encodeURIComponent(id) + '/export');
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'eval-set-' + data.kind + '-' + (data.source === 'custom' ? 'custom' : 'builtin') + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (err) { alert('导出失败: ' + err.message); }
+}
+
+function importSet() { document.getElementById('import-file').click(); }
+
+async function onImportFile(ev) {
+  var f = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!f) return;
+  try {
+    var data = JSON.parse(await f.text());
+    var out = await EARP.fetchJSON('/v1/evaluations/sets/import', { method: 'POST', body: JSON.stringify(data) });
+    alert('导入成功：' + out.name + '（' + out.case_count + ' 用例）');
+    await reloadSets();
+  } catch (err) { alert('导入失败: ' + err.message); }
+}
+
 // ── 集合卡片 ──
 function latestBadge(s) {
   var lr = s.latest_run;
@@ -149,12 +199,18 @@ function renderSets() {
       + '<div style="display:flex;gap:6px;margin-top:2px">'
       + '<button class="btn-outline btn-sm" onclick="event.stopPropagation();runEvalFor(\'' + s.eval_set_id + '\',\'rules\')">规则层跑分</button>'
       + '<button class="btn-outline btn-sm" onclick="event.stopPropagation();runEvalFor(\'' + s.eval_set_id + '\',\'llm\')">LLM 跑分</button>'
+      + showSyncBtn(s)
+      + '<span style="flex:1"></span>'
+      + exportBtn(s)
       + '</div>'
       + '</div>';
   }).join('');
-  // 新建集合卡
+  // 新建集合卡 + 导入卡
   grid.innerHTML += '<div class="panel" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px;border-style:dashed;min-height:120px" onclick="newSetModal()">'
-    + '<div style="font-size:1.4rem;color:var(--text-quaternary)">＋</div><div style="font-size:0.75rem;color:var(--text-quaternary)">新建自定义评估集</div></div>';
+    + '<div style="font-size:1.4rem;color:var(--text-quaternary)">＋</div><div style="font-size:0.75rem;color:var(--text-quaternary)">新建自定义评估集</div></div>'
+    + '<div class="panel" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px;border-style:dashed;min-height:120px" onclick="importSet()" title="从 JSON 文件导入评估集（跨租户复制）">'
+    + '<div style="font-size:1.2rem;color:var(--text-quaternary)">⇪</div><div style="font-size:0.75rem;color:var(--text-quaternary)">导入评估集（JSON）</div></div>'
+    + '<input type="file" id="import-file" accept=".json" style="display:none" onchange="onImportFile(event)">';
 }
 
 // ── 选中集合详情 ──
@@ -300,9 +356,25 @@ function pollRun(runId) {
         await reloadSets();
         await loadRuns();
         showRunDetail(runId);
+      } else if (r.progress) {
+        // T3: 原地更新进度条（无需整表重建）
+        var cell = document.querySelector('#runs-tbody tr[data-run="' + runId + '"] td:nth-child(3)');
+        if (cell) {
+          var st = '<span style="color:var(--accent-text)">⏳ running…</span>';
+          cell.innerHTML = st + progressBar(r.progress);
+        }
       }
     } catch (e) { clearInterval(POLL_TIMER); POLL_TIMER = null; }
   }, 2000);
+}
+
+function progressBar(p) {
+  if (!p || !p.total) return '';
+  var pct = Math.max(0, Math.min(100, p.percent || 0));
+  return '<div style="margin-top:3px;font-size:0.65rem;color:var(--text-quaternary)">'
+    + '<div style="display:flex;justify-content:space-between"><span>进度</span><span>' + p.completed + '/' + p.total + '</span></div>'
+    + '<div style="background:var(--border-subtle);border-radius:4px;height:5px;margin-top:2px">'
+    + '<div style="width:' + pct + '%;height:100%;background:var(--accent-text);border-radius:4px"></div></div></div>';
 }
 
 async function loadRuns() {
@@ -324,10 +396,10 @@ async function loadRuns() {
       .map(function (k) { return k + '=' + pct(r.summary[k]); }).join(' ');
     var dur = '—';
     if (r.started_at && r.finished_at) dur = ((new Date(r.finished_at) - new Date(r.started_at)) / 1000).toFixed(1) + 's';
-    return '<tr style="cursor:pointer" onclick="showRunDetail(\'' + r.run_id + '\')">'
+    return '<tr style="cursor:pointer" data-run="' + r.run_id + '" onclick="showRunDetail(\'' + r.run_id + '\')">'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + fmtTime(r.started_at) + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + r.mode + '</td>'
-      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + st + '</td>'
+      + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + st + progressBar(r.status === 'running' ? r.progress : null) + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);font-size:0.7rem;color:var(--text-tertiary)">' + esc(metrics || (r.summary && r.summary.error ? 'error: ' + r.summary.error : '')) + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);font-size:0.7rem">' + gateOk + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + dur + '</td>'
@@ -335,6 +407,9 @@ async function loadRuns() {
       + (r.status === 'running' ? '<button class="btn-outline btn-sm" style="color:var(--red)" onclick="event.stopPropagation();cancelRun(\'' + r.run_id + '\')">停止</button> ' : '')
       + '▶</td></tr>';
   }).join('');
+  // T3: 历史里 running 行自动轮询进度（pollRun 更新进度条，复用 2s 间隔）
+  var running = RUNS.find(function (r) { return r.status === 'running'; });
+  if (running && !POLL_TIMER) pollRun(running.run_id);
 }
 
 async function cancelRun(runId) {

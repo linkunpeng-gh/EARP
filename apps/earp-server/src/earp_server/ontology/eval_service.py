@@ -21,7 +21,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.infra.db import tenant_session
-from earp_server.ontology.eval_seed import BUILTIN_EVAL_SETS, KIND_ORDER, THRESHOLDS
+from earp_server.ontology.eval_seed import (
+    BUILTIN_EVAL_SETS,
+    GATED_METRICS,
+    KIND_ORDER,
+    SEED_VERSION,
+    THRESHOLDS,
+)
 from earp_server.ontology.understanding import Intent
 
 logger = logging.getLogger(__name__)
@@ -29,12 +35,6 @@ logger = logging.getLogger(__name__)
 VALID_KINDS = ("routing", "understanding", "planning")
 VALID_MODES = ("rules", "llm")
 
-# 参与 gate 判定的指标（其余为报告项，如 routing.kb_accuracy / understanding.llm_upgraded 等）
-_GATED_METRICS = {
-    "routing": ("dd_accuracy",),
-    "understanding": ("intent_accuracy", "entity_recall", "relation_accuracy", "schema_violations"),
-    "planning": ("strategy_hit_rate",),
-}
 
 
 class EvalError(Exception):
@@ -53,8 +53,9 @@ async def ensure_eval_sets(engine: AsyncEngine, tenant_id: str) -> None:
             set_id = f"evs-{tenant_id}-{kind}"
             await session.execute(
                 text(
-                    "INSERT INTO eval_sets (eval_set_id, tenant_id, kind, name, description, source, thresholds) "
-                    "VALUES (:sid, :tid, :kind, :name, :desc, 'builtin', :thr) ON CONFLICT DO NOTHING"
+                    "INSERT INTO eval_sets (eval_set_id, tenant_id, kind, name, description, source, thresholds, "
+                    "seed_version) VALUES (:sid, :tid, :kind, :name, :desc, 'builtin', :thr, :ver) "
+                    "ON CONFLICT DO NOTHING"
                 ),
                 {
                     "sid": set_id,
@@ -63,13 +64,15 @@ async def ensure_eval_sets(engine: AsyncEngine, tenant_id: str) -> None:
                     "name": spec["name"],
                     "desc": spec["description"],
                     "thr": json.dumps(THRESHOLDS[kind]),
+                    "ver": SEED_VERSION,
                 },
             )
             for i, case in enumerate(spec["cases"], 1):
                 await session.execute(
                     text(
-                        "INSERT INTO eval_cases (case_id, tenant_id, eval_set_id, sort_order, query, expected, note) "
-                        "VALUES (:cid, :tid, :sid, :ord, :q, :exp, :note) ON CONFLICT DO NOTHING"
+                        "INSERT INTO eval_cases (case_id, tenant_id, eval_set_id, sort_order, query, expected, note, "
+                        "source) VALUES (:cid, :tid, :sid, :ord, :q, :exp, :note, 'builtin') "
+                        "ON CONFLICT DO NOTHING"
                     ),
                     {
                         "cid": f"evc-{tenant_id}-{kind}-{i:03d}",
@@ -217,8 +220,8 @@ async def add_eval_case(
         ord_val = int(max_ord or 0) + 1
         await session.execute(
             text(
-                "INSERT INTO eval_cases (case_id, tenant_id, eval_set_id, sort_order, query, expected, note) "
-                "VALUES (:cid, :tid, :sid, :ord, :q, :exp, :note)"
+                "INSERT INTO eval_cases (case_id, tenant_id, eval_set_id, sort_order, query, expected, note, source) "
+                "VALUES (:cid, :tid, :sid, :ord, :q, :exp, :note, 'custom')"
             ),
             {
                 "cid": case_id,
@@ -344,7 +347,11 @@ async def list_runs(engine: AsyncEngine, tenant_id: str, eval_set_id: str | None
 
 
 async def get_run(engine: AsyncEngine, tenant_id: str, run_id: str) -> dict | None:
-    """跑分明细 + 逐用例结果（join eval_cases 取 query/expected 供展示）。"""
+    """跑分明细 + 逐用例结果（join eval_cases 取 query/expected 供展示）。
+
+    T3 D5：响应附带 progress（completed=已落库 case 数 / total=启用用例数），
+    前端轮询即可渲染进度条（取消后 completed 冻结不回落）。
+    """
     async with tenant_session(engine, tenant_id) as session:
         row = (
             await session.execute(
@@ -366,6 +373,18 @@ async def get_run(engine: AsyncEngine, tenant_id: str, run_id: str) -> dict | No
             )
         ).fetchall()
         run["results"] = [dict(r._mapping) for r in results]
+        total = (
+            await session.execute(
+                text("SELECT count(*) FROM eval_cases WHERE eval_set_id = :sid AND enabled"),
+                {"sid": run["eval_set_id"]},
+            )
+        ).scalar_one()
+        completed = len(run["results"])
+        run["progress"] = {
+            "completed": completed,
+            "total": int(total),
+            "percent": round(completed / int(total) * 100, 1) if int(total) else 0,
+        }
         return run
 
 
@@ -620,7 +639,7 @@ def _aggregate(kind: str, results: list[dict], thresholds: dict) -> tuple[dict, 
             "strategy_hit_rate": round(sum(r["plan_ok"] for r in results) / n, 4) if n else 1.0,
         }
     gates: dict[str, bool] = {}
-    for metric in _GATED_METRICS[kind]:
+    for metric in GATED_METRICS[kind]:
         thr = thresholds.get(metric)
         if thr is None:
             gates[metric] = True
@@ -732,7 +751,7 @@ async def run_eval_task(
             run_id,
             kind,
             mode,
-            {k: v for k, v in summary.items() if k in _GATED_METRICS[kind]},
+            {k: v for k, v in summary.items() if k in GATED_METRICS[kind]},
             gates,
         )
     except Exception as exc:  # noqa: BLE001 — 后台任务兜底
@@ -807,3 +826,183 @@ async def _insert_result(engine: AsyncEngine, tenant_id: str, run_id: str, case_
                 "lat": res["latency_ms"],
             },
         )
+
+
+# ── 治理（T3）：per-set 门槛 / 模板同步 / 导出导入 ─────────────────────────
+def _validate_thresholds(kind: str, override: dict) -> dict:
+    """校验并合并默认门槛（D6-1）：服务端合并默认全量存储（防部分覆盖丢指标）。
+
+    指标名 ∈ GATED_METRICS[kind]；数值 0-1（schema_violations 允许非负整数）。
+    """
+    unknown = [k for k in override if k not in GATED_METRICS[kind]]
+    if unknown:
+        raise EvalError(f"未知门槛指标: {'、'.join(unknown)}（允许: {'/'.join(GATED_METRICS[kind])}）")
+    merged = dict(THRESHOLDS[kind])
+    for k, v in override.items():
+        if k == "schema_violations":
+            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+                raise EvalError("schema_violations 门槛必须是非负整数（0 = 必须为 0）")
+        elif isinstance(v, bool) or not isinstance(v, (int, float)) or not (0 <= v <= 1):
+            raise EvalError(f"{k} 门槛必须是 0-1 之间的数值")
+        merged[k] = v
+    return merged
+
+
+async def update_eval_set(
+    engine: AsyncEngine,
+    tenant_id: str,
+    set_id: str,
+    *,
+    thresholds: dict | None = None,
+    enabled: bool | None = None,
+) -> dict | None:
+    """per-set 门槛/启停更新（T3 D6）：部分覆盖合并默认全量存储，判定逻辑零改动。"""
+    async with tenant_session(engine, tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT * FROM eval_sets WHERE eval_set_id = :sid AND tenant_id = :tid"),
+                {"sid": set_id, "tid": tenant_id},
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        cur = dict(row._mapping)
+        new_thr = cur["thresholds"] or {}
+        if thresholds is not None:
+            new_thr = _validate_thresholds(cur["kind"], thresholds)
+        new_en = enabled if enabled is not None else cur["enabled"]
+        await session.execute(
+            text(
+                "UPDATE eval_sets SET thresholds = :thr, enabled = :en, updated_at = now() "
+                "WHERE eval_set_id = :sid"
+            ),
+            {"thr": json.dumps(new_thr), "en": new_en, "sid": set_id},
+        )
+    return {"eval_set_id": set_id, "kind": cur["kind"], "thresholds": new_thr, "enabled": new_en}
+
+
+async def sync_builtin_set(engine: AsyncEngine, tenant_id: str, set_id: str) -> dict | None:
+    """同步内置模板（T3 D4-2）：仅 builtin；重建 builtin 用例（custom 保留）+ 版本更新。
+
+    幂等：同步前后题量一致；custom 用例不动（D4-4 source 列区分）。
+    破坏性：覆盖内置题（前端需确认弹窗）。
+    """
+    async with tenant_session(engine, tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT * FROM eval_sets WHERE eval_set_id = :sid AND tenant_id = :tid"),
+                {"sid": set_id, "tid": tenant_id},
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        cur = dict(row._mapping)
+        if cur["source"] != "builtin":
+            raise EvalError("仅内置评估集可同步模板")
+        kind = cur["kind"]
+        spec = BUILTIN_EVAL_SETS[kind]
+        await session.execute(
+            text("DELETE FROM eval_cases WHERE eval_set_id = :sid AND source = 'builtin'"),
+            {"sid": set_id},
+        )
+        for i, case in enumerate(spec["cases"], 1):
+            await session.execute(
+                text(
+                    "INSERT INTO eval_cases (case_id, tenant_id, eval_set_id, sort_order, query, expected, note, "
+                    "source) VALUES (:cid, :tid, :sid, :ord, :q, :exp, :note, 'builtin') ON CONFLICT DO NOTHING"
+                ),
+                {
+                    "cid": f"evc-{tenant_id}-{kind}-{i:03d}",
+                    "tid": tenant_id,
+                    "sid": set_id,
+                    "ord": i,
+                    "q": case["query"],
+                    "exp": json.dumps(case["expected"]),
+                    "note": case.get("note") or "",
+                },
+            )
+        await session.execute(
+            text("UPDATE eval_sets SET seed_version = :ver, updated_at = now() WHERE eval_set_id = :sid"),
+            {"ver": SEED_VERSION, "sid": set_id},
+        )
+        cnt = (
+            await session.execute(
+                text("SELECT count(*) FROM eval_cases WHERE eval_set_id = :sid"), {"sid": set_id}
+            )
+        ).scalar_one()
+    return {"eval_set_id": set_id, "source": "builtin", "seed_version": SEED_VERSION, "case_count": int(cnt)}
+
+
+async def export_eval_set(engine: AsyncEngine, tenant_id: str, set_id: str) -> dict | None:
+    """导出集合（T3 D4-3）：name/kind/description/thresholds/cases（无租户/敏感字段，id 自动生成）。"""
+    s = await get_eval_set(engine, tenant_id, set_id)
+    if s is None:
+        return None
+    return {
+        "kind": s["kind"],
+        "name": s["name"],
+        "description": s.get("description") or "",
+        "source": s["source"],
+        "thresholds": s["thresholds"] or {},
+        "cases": [
+            {"query": c["query"], "expected": c["expected"], "note": c.get("note") or ""}
+            for c in s["cases"]
+        ],
+    }
+
+
+async def import_eval_set(
+    engine: AsyncEngine,
+    tenant_id: str,
+    *,
+    name: str,
+    kind: str,
+    description: str | None = None,
+    thresholds: dict | None = None,
+    cases: list[dict],
+) -> dict:
+    """导入集合（T3 D4-3）：目标租户建 custom 集合（id 自动生成），用例 source='custom'。"""
+    if kind not in VALID_KINDS:
+        raise EvalError(f"kind 必须是 {'/'.join(VALID_KINDS)}")
+    if not name or not name.strip():
+        raise EvalError("name 不能为空")
+    if not cases:
+        raise EvalError("cases 不能为空")
+    merged = _validate_thresholds(kind, thresholds or {})
+    set_id = f"evs-{tenant_id}-{kind}-{uuid.uuid4().hex[:6]}"
+    async with tenant_session(engine, tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO eval_sets (eval_set_id, tenant_id, kind, name, description, source, thresholds, "
+                "seed_version) VALUES (:sid, :tid, :kind, :name, :desc, 'custom', :thr, NULL)"
+            ),
+            {
+                "sid": set_id,
+                "tid": tenant_id,
+                "kind": kind,
+                "name": name.strip(),
+                "desc": description or "",
+                "thr": json.dumps(merged),
+            },
+        )
+        for i, c in enumerate(cases, 1):
+            q = (c.get("query") or "").strip()
+            if not q:
+                raise EvalError(f"第 {i} 条用例 query 不能为空")
+            _validate_expected(kind, c.get("expected") or {})
+            await session.execute(
+                text(
+                    "INSERT INTO eval_cases (case_id, tenant_id, eval_set_id, sort_order, query, expected, note, "
+                    "source) VALUES (:cid, :tid, :sid, :ord, :q, :exp, :note, 'custom')"
+                ),
+                {
+                    "cid": f"evc-{tenant_id}-{uuid.uuid4().hex[:10]}",
+                    "tid": tenant_id,
+                    "sid": set_id,
+                    "ord": i,
+                    "q": q,
+                    "exp": json.dumps(c.get("expected") or {}),
+                    "note": c.get("note") or "",
+                },
+            )
+    return {"eval_set_id": set_id, "kind": kind, "name": name.strip(), "source": "custom", "case_count": len(cases)}

@@ -24,6 +24,24 @@ THRESHOLDS: dict[str, dict[str, float]] = {
   }
 }
 
+SEED_VERSION: int = 1
+
+GATED_METRICS: dict[str, list[str]] = {
+  "routing": [
+    "dd_accuracy"
+  ],
+  "understanding": [
+    "intent_accuracy",
+    "entity_recall",
+    "relation_accuracy",
+    "schema_violations"
+  ],
+  "planning": [
+    "strategy_hit_rate"
+  ]
+}
+
+
 BUILTIN_EVAL_SETS: dict[str, dict] = {
     'routing': {
         'name': '路由评估集',

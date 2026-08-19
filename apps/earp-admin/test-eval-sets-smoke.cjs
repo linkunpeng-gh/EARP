@@ -98,6 +98,13 @@ try {
     ['门槛显示（≥ 90%）', grid.includes('门槛') && grid.includes('DD 路由命中 ≥ 90%')],
     ['新建集合卡片', grid.includes('新建自定义评估集')],
     ['规则层/LLM 跑分按钮', grid.includes('规则层跑分') && grid.includes('LLM 跑分')],
+    // T3: 治理操作
+    ['同步内置模板按钮（老 builtin 集 seed_version 落后）', grid.includes('同步内置模板')],
+    ['导出按钮', grid.includes('>导出<')],
+    ['导入评估集卡片', grid.includes('导入评估集')],
+    ['同步按钮隐藏（builtin 已最新版本）', !global.showSyncBtn({ source: 'builtin', seed_version: 1, eval_set_id: 'x' }).includes('同步')],
+    ['同步按钮隐藏（custom 集）', !global.showSyncBtn({ source: 'custom', eval_set_id: 'x' }).includes('同步')],
+    ['进度条渲染（N/总数 + 百分比）', global.progressBar({ completed: 2, total: 5, percent: 40 }).includes('2/5') && global.progressBar({ completed: 2, total: 5, percent: 40 }).includes('40%')],
   ];
 
   // 2) 选中集合 → 用例表 + 表单

@@ -446,6 +446,38 @@ components:
           title: Query
       title: EvalCaseUpdate
       type: object
+    EvalSetImport:
+      description: 跨租户导入（T3 D4-3）：目标租户建 custom 集合（id 自动生成）。
+      properties:
+        cases:
+          items:
+            $ref: '#/components/schemas/EvalCaseIn'
+          title: Cases
+          type: array
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        kind:
+          title: Kind
+          type: string
+        name:
+          minLength: 1
+          title: Name
+          type: string
+        thresholds:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Thresholds
+      required:
+      - kind
+      - name
+      - cases
+      title: EvalSetImport
+      type: object
     EvalSetIn:
       properties:
         description:
@@ -464,6 +496,22 @@ components:
       - kind
       - name
       title: EvalSetIn
+      type: object
+    EvalSetUpdate:
+      description: per-set 门槛/启停（T3 D6）：thresholds 部分覆盖（服务端合并默认）。
+      properties:
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        thresholds:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Thresholds
+      title: EvalSetUpdate
       type: object
     FactIn:
       properties:
@@ -2970,6 +3018,34 @@ paths:
       summary: Create Eval Set
       tags:
       - evaluations
+  /v1/evaluations/sets/import:
+    post:
+      description: 导入集合（T3 D4-3，admin）：目标租户建 custom 集合（id 自动生成）。
+      operationId: import_eval_set_v1_evaluations_sets_import_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvalSetImport'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Import Eval Set V1 Evaluations Sets Import Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Import Eval Set
+      tags:
+      - evaluations
   /v1/evaluations/sets/{eval_set_id}:
     get:
       description: 集合详情 + 用例列表。
@@ -2997,6 +3073,43 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Get Eval Set
+      tags:
+      - evaluations
+    put:
+      description: 'per-set 门槛/启停（T3 D6，admin）：thresholds 部分覆盖合并默认全量存储。
+
+
+        校验失败（未知指标/数值越界）→ 400；评估集不存在 → 404。'
+      operationId: update_eval_set_v1_evaluations_sets__eval_set_id__put
+      parameters:
+      - in: path
+        name: eval_set_id
+        required: true
+        schema:
+          title: Eval Set Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvalSetUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Eval Set V1 Evaluations Sets  Eval Set Id  Put
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Eval Set
       tags:
       - evaluations
   /v1/evaluations/sets/{eval_set_id}/cases:
@@ -3032,6 +3145,36 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Add Eval Case
+      tags:
+      - evaluations
+  /v1/evaluations/sets/{eval_set_id}/export:
+    get:
+      description: 导出集合（T3 D4-3，admin）：JSON 载荷（无租户/敏感字段，可跨租户导入）。
+      operationId: export_eval_set_v1_evaluations_sets__eval_set_id__export_get
+      parameters:
+      - in: path
+        name: eval_set_id
+        required: true
+        schema:
+          title: Eval Set Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Export Eval Set V1 Evaluations Sets  Eval Set Id  Export
+                  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Export Eval Set
       tags:
       - evaluations
   /v1/evaluations/sets/{eval_set_id}/runs:
@@ -3070,6 +3213,36 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Start Eval Run
+      tags:
+      - evaluations
+  /v1/evaluations/sets/{eval_set_id}/sync:
+    post:
+      description: 同步内置模板（T3 D4-2，admin）：重建 builtin 用例（custom 保留）+ 版本更新。
+      operationId: sync_eval_set_v1_evaluations_sets__eval_set_id__sync_post
+      parameters:
+      - in: path
+        name: eval_set_id
+        required: true
+        schema:
+          title: Eval Set Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Sync Eval Set V1 Evaluations Sets  Eval Set Id  Sync
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Sync Eval Set
       tags:
       - evaluations
   /v1/ontology/capabilities/by-entity-type/{entity_type_id}:

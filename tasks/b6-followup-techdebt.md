@@ -1,7 +1,7 @@
 # 任务清单 — B6 遗留与评估平台化技术债（补记）
 
-**状态：T4 ✅ / T2 ✅ / T1 ✅（2026-08-19）**；T3 待开工
-**依据**：B6 评估集管理交付（2026-08-18，`arch/session-record.md`）+ FDE 反馈迭代（取消能力/折叠/阈值/执行明细）+ T1 跑分 worker 接入（2026-08-19，任务书 `tasks/t1-eval-worker-task-breakdown.md`）
+**状态：T4 ✅ / T2 ✅ / T1 ✅ / T3 ✅（2026-08-19）**；B6 遗留全部闭环
+**依据**：B6 评估集管理交付（2026-08-18，`arch/session-record.md`）+ FDE 反馈迭代（取消能力/折叠/阈值/执行明细）+ T1 跑分 worker 接入（2026-08-19，任务书 `tasks/t1-eval-worker-task-breakdown.md`）+ T3 评估集治理（2026-08-19，任务书 `tasks/t3-eval-governance-task-breakdown.md`）
 **关联**：session-record「下一步（沿用优先级表）」——#9 角色域权限 / #7 复合主键 / P3 rerank / M3 importer / QU 二期均为既有清单，不在此重复建任务书
 **日期**：2026-08-18
 
@@ -52,12 +52,12 @@ B6 把三套评估（routing/understanding/planning）落库 + 跑分可视化�
 - stale running 恢复（D2）—— ✅（migration 0022 heartbeat_at + `recover_stale_runs` 心跳 TTL 判定，worker 启动扫描）
 - 验证：worker 进程实测 llm/rules 跑分；模拟进程中断 → stale 恢复 —— ✅（dev 实测全链路，见 session-record 补记）
 
-### Task 4 — T3 评估集治理（平台化扩展）
+### Task 4 — T3 评估集治理（平台化扩展）✅ 2026-08-19
 **文件**：`apps/earp-server/src/earp_server/ontology/eval_service.py`、`eval_routes.py`、`apps/earp-admin/pages/eval-sets.html`
-- SEED_VERSION + 内置模板同步（D4）
-- per-set 门槛 PUT（D6）
-- SSE 进度（D5，可选）
-- 验证：模板同步不动 custom 用例；门槛覆盖生效
+- SEED_VERSION + 内置模板同步（D4）—— ✅（migration 0023 seed_version + eval_cases.source；`POST /sets/{id}/sync` 重建 builtin 保留 custom）
+- per-set 门槛 PUT（D6）—— ✅（`PUT /sets/{id}` 合并默认 + 指标校验，admin 门禁）
+- SSE 进度（D5，可选）—— ✅ 进度条版（`GET /runs/{id}` progress 字段 + 前端轮询进度条；SSE 留作可选增强未做）
+- 验证：模板同步不动 custom 用例；门槛覆盖生效 —— ✅（test_eval_governance 8 用例 + dev 实测，见 session-record 补记）
 
 ## 验收
 

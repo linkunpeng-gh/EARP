@@ -10,13 +10,23 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from earp_server.ontology import eval_service
+from earp_server.policy import roles_service
 
 router = APIRouter(prefix="/v1/evaluations", tags=["evaluations"])
 logger = logging.getLogger(__name__)
+
+
+async def _require_admin(req: Request) -> None:
+    """治理门禁（T3，对齐 roles 门禁）：模板同步/门槛编辑/导出导入仅 admin。
+
+    只读端点（列表/详情/跑分）保持开放（普通角色可看评估与跑分）。
+    """
+    if not await roles_service.is_admin_role(req.app.state.engine, req.state.tenant_id, req.state.role_id):
+        raise HTTPException(status_code=403, detail="仅 Admin 角色可执行该操作")
 
 
 class EvalSetIn(BaseModel):
@@ -36,6 +46,23 @@ class EvalCaseUpdate(BaseModel):
     expected: dict[str, Any] | None = None
     note: str | None = None
     enabled: bool | None = None
+
+
+class EvalSetUpdate(BaseModel):
+    """per-set 门槛/启停（T3 D6）：thresholds 部分覆盖（服务端合并默认）。"""
+
+    thresholds: dict[str, Any] | None = None
+    enabled: bool | None = None
+
+
+class EvalSetImport(BaseModel):
+    """跨租户导入（T3 D4-3）：目标租户建 custom 集合（id 自动生成）。"""
+
+    kind: str
+    name: str = Field(min_length=1)
+    description: str | None = None
+    thresholds: dict[str, Any] | None = None
+    cases: list[EvalCaseIn]
 
 
 def _to_http(exc: eval_service.EvalError) -> HTTPException:
@@ -81,6 +108,65 @@ async def get_eval_set(eval_set_id: str, req: Request) -> dict[str, Any]:
     if s is None:
         raise HTTPException(status_code=404, detail="评估集不存在")
     return s
+
+
+@router.put("/sets/{eval_set_id}", dependencies=[Depends(_require_admin)])
+async def update_eval_set(eval_set_id: str, req_body: EvalSetUpdate, req: Request) -> dict[str, Any]:
+    """per-set 门槛/启停（T3 D6，admin）：thresholds 部分覆盖合并默认全量存储。
+
+    校验失败（未知指标/数值越界）→ 400；评估集不存在 → 404。
+    """
+    try:
+        out = await eval_service.update_eval_set(
+            req.app.state.engine,
+            req.state.tenant_id,
+            eval_set_id,
+            thresholds=req_body.thresholds,
+            enabled=req_body.enabled,
+        )
+    except eval_service.EvalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if out is None:
+        raise HTTPException(status_code=404, detail="评估集不存在")
+    return out
+
+
+@router.post("/sets/{eval_set_id}/sync", dependencies=[Depends(_require_admin)])
+async def sync_eval_set(eval_set_id: str, req: Request) -> dict[str, Any]:
+    """同步内置模板（T3 D4-2，admin）：重建 builtin 用例（custom 保留）+ 版本更新。"""
+    try:
+        out = await eval_service.sync_builtin_set(req.app.state.engine, req.state.tenant_id, eval_set_id)
+    except eval_service.EvalError as exc:
+        raise _to_http(exc) from exc
+    if out is None:
+        raise HTTPException(status_code=404, detail="评估集不存在")
+    return out
+
+
+@router.get("/sets/{eval_set_id}/export", dependencies=[Depends(_require_admin)])
+async def export_eval_set(eval_set_id: str, req: Request) -> dict[str, Any]:
+    """导出集合（T3 D4-3，admin）：JSON 载荷（无租户/敏感字段，可跨租户导入）。"""
+    out = await eval_service.export_eval_set(req.app.state.engine, req.state.tenant_id, eval_set_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail="评估集不存在")
+    return out
+
+
+@router.post("/sets/import", status_code=201, dependencies=[Depends(_require_admin)])
+async def import_eval_set(req_body: EvalSetImport, req: Request) -> dict[str, Any]:
+    """导入集合（T3 D4-3，admin）：目标租户建 custom 集合（id 自动生成）。"""
+    try:
+        return await eval_service.import_eval_set(
+            req.app.state.engine,
+            req.state.tenant_id,
+            name=req_body.name,
+            kind=req_body.kind,
+            description=req_body.description,
+            thresholds=req_body.thresholds,
+            cases=[c.model_dump() for c in req_body.cases],
+        )
+    except eval_service.EvalError as exc:
+        raise _to_http(exc) from exc
 
 
 @router.post("/sets/{eval_set_id}/cases", status_code=201)
