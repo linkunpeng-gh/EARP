@@ -671,6 +671,18 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **同类遗留（未修）**：`/v1/ontology` 写端点（实体导入/实体管理/文档上传等）仍无管理门禁——普通角色可上传文档/导入实体到其权限域（读侧已由域门禁限制，写侧未收敛）；审计 earp.* 事件目前无权限门禁（应仅 admin 可查）。随后续治理统一接入 is_admin 门禁。
 
+### 追加（2026-08-18）— 实体层与路由解耦：profile/graph 按角色允许域生效（FDE：召回测试 profile/graph 不生效）
+
+**现象**：召回测试中 profile/graph 层经常不生效（实体明明存在且有 profile）。
+
+**根因**：L1/L2 实体层按「路由候选 DD」限定域——实体名不在 DD 描述中，软路由对齐性差（如「张建国」路由候选 [anquanhuanbao, sales_data, jishuguanli] 不含其实体域 shengchangyunxing）→ 实体查找被域过滤掉 → profile/graph 静默为空。另有：D4 兜底路径（cand_dds 空）完全不触发三层。
+
+**修复**：① `_knowledge_layers` L1/L2 实体层改按**角色允许域**限定（`_role_scope_domains` 共享实现；admin 不限域；角色缺失/无授权 fail-closed）——与文档层路由解耦，权限不变；② `/knowledge/search` 与 plan_fact 的 D4 兜底改走三层（此前纯 chunk → 实体类查询完全不触发）；③ route_debug ontology_layers 兜底照常触发（fallback_mode 标注）。
+
+**验证**：test_ontology_search +1（实体层脱离路由候选生效 + 跨域实体 fail-closed，修复前挂/后过）；fixture 补 data_domain_id + 角色 seed（实体层域门禁后 NULL 域实体不可见——既有 fixture 无域实体依赖「不设 data_domain_ids 即不滤」的旧语义）；**220 passed** + ruff/pyright 零新增；dev 真 API：r1/r3 查「张建国」profile+graph 均生效（r3 兜底路径亦然）、「高温报警」（无该实体）仍 chunk-only 如实。
+
+**遗留观察**：graph lane 多跳可达实体未按域过滤（matched 实体已域限，但 graph_query 目标实体可跨域——如设备域实体关系的供应商在销售域）；chat 软路由路径已随 plan_fact 修复。后续可对 graph 目标补角色域过滤（与实体层同源）。
+
 ---
 
 ### 历史待办
