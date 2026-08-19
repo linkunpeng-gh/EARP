@@ -83,20 +83,38 @@ async def _knowledge_layers(
     Returns (layers: {profile, graph, chunk}, fused: RRF top_k hits).
     knowledge_search 返回 fused；route_debug 用 layers 做逐层明细展示。
 
-    Layer 1/2 (profile/graph) scoped by data_domain_ids; Layer 3 (chunks)
-    scoped by knowledge_base_ids (precedence) falling back to data_domain_ids.
+    Layer 1/2 (profile/graph) scoped by ROLE's allowed domains（2026-08-18 FDE
+    修复：不再按路由候选 DD 限定——实体名不在 DD 描述中，路由对齐性差时实体层
+    被静默滤掉，profile/graph 不生效；权限由角色允许域保证，admin 不限域）；
+    Layer 3 (chunks) scoped by knowledge_base_ids (precedence) falling back
+    to data_domain_ids（文档层保持路由对齐）。
     """
     lane_lists: list[list[dict]] = []
 
     # ── Layer 1: entity lookup → Compiled Truth profile ──
-    entities = await _entity_hits(
-        engine,
-        tenant_id,
-        query,
-        entity_type_ids=entity_type_ids,
-        data_domain_ids=data_domain_ids,
-        top_k=top_k,
-    )
+    from earp_server.knowledge.search_service import _role_scope_domains
+
+    entity_dds = await _role_scope_domains(engine, tenant_id, role_id)
+    entities: list[dict] = []
+    if entity_dds is None:
+        # admin/全权限：不限域
+        entities = await _entity_hits(
+            engine,
+            tenant_id,
+            query,
+            entity_type_ids=entity_type_ids,
+            top_k=top_k,
+        )
+    elif entity_dds:
+        entities = await _entity_hits(
+            engine,
+            tenant_id,
+            query,
+            entity_type_ids=entity_type_ids,
+            data_domain_ids=sorted(entity_dds),
+            top_k=top_k,
+        )
+    # 空集（角色无域授权）→ fail-closed 无实体
     profile_hits: list[dict] = []
     if entities:
         for ent in entities[:top_k]:

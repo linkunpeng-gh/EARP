@@ -430,12 +430,10 @@ async def _ontology_layers_debug(
     """三层检索（profile/graph/chunk）逐层命中明细——路由调试可观测（P2 增补）。
 
     函数内 import 避免 knowledge.routing → ontology.search → knowledge.search_service
-    的模块级环。candidate_dds 空 → 不触发三层（与 /knowledge/search 决策 D4 一致）。
+    的模块级环。cand_dds 空（D4 兜底）也触发（2026-08-18 FDE 修复后兜底走三层）。
     """
     cand_dds = [d["data_domain_id"] for d in candidate_dds]
     cand_kbs = [kb["knowledge_base_id"] for kb in candidate_kbs]
-    if not cand_dds:
-        return {"triggered": False, "reason": "无候选 DD（决策 D4：全租户 chunk 兜底，不触发三层）"}
     from earp_server.ontology.search import _knowledge_layers
 
     layers, fused = await _knowledge_layers(
@@ -444,7 +442,7 @@ async def _ontology_layers_debug(
         query,
         embedding=query_embedding,
         role_id=role_id,
-        data_domain_ids=cand_dds,
+        data_domain_ids=cand_dds or None,
         knowledge_base_ids=cand_kbs or None,
         top_k=5,
         embedding_dim=_ROUTING_DIM,
@@ -453,6 +451,7 @@ async def _ontology_layers_debug(
     )
     return {
         "triggered": True,
+        "fallback_mode": not cand_dds,
         "profile": [
             {k: h.get(k) for k in ("entity_id", "entity_type", "title", "score")} for h in layers["profile"][:5]
         ],

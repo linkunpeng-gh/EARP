@@ -38,12 +38,49 @@ def _install_stub(monkeypatch):
     return provider
 
 
-async def _seed_entity_graph(engine: AsyncEngine, tid: str) -> dict:
-    """CNC-01 (equipment) —manufactured_by→ 上海某精机 (supplier); 高温报警 → CNC-01."""
+async def _seed_entity_graph(engine: AsyncEngine, migration_url: str, tid: str) -> dict:
+    """CNC-01 (equipment) —manufactured_by→ 上海某精机 (supplier); 高温报警 → CNC-01.
+
+    2026-08-18 实体层域门禁后：实体需带 data_domain_id + seed 角色（role_id 单列
+    主键 → migration 引擎 purge）。
+    """
     await tbox_service.init_tenant_tbox(engine, tid)
-    sup = await abox_service.upsert_entity(engine, tid, "supplier", "上海某精机", business_code="SUP-1")
-    equip = await abox_service.upsert_entity(engine, tid, "equipment", "CNC-01", business_code="CNC-01")
-    alarm = await abox_service.upsert_entity(engine, tid, "alarm", "高温报警")
+    from sqlalchemy import text as _t
+
+    eng = create_async_engine(migration_url)
+    async with eng.begin() as conn:
+        await conn.execute(_t("DELETE FROM roles WHERE role_id = 'r-any'"))
+    await eng.dispose()
+
+    async with engine.connect() as conn:
+        await conn.execute(_t(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(
+            _t(
+                "INSERT INTO data_domains (data_domain_id, tenant_id, name, description, "
+                "data_classification, status) VALUES "
+                "('equipment_data', :t, '设备数据', '设备', 'internal', 'active') ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
+        await conn.execute(
+            _t(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
+                "data_domain_access, is_admin) VALUES "
+                "('r-any', :t, 'tester', '{}', 'all', "
+                "'[{\"data_domain_id\": \"equipment_data\"}]', FALSE) ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
+        await conn.commit()
+    sup = await abox_service.upsert_entity(
+        engine, tid, "supplier", "上海某精机", business_code="SUP-1", data_domain_id="equipment_data"
+    )
+    equip = await abox_service.upsert_entity(
+        engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
+    )
+    alarm = await abox_service.upsert_entity(
+        engine, tid, "alarm", "高温报警", data_domain_id="equipment_data"
+    )
     await abox_service.add_fact(engine, tid, equip["entity_id"], "manufactured_by", sup["entity_id"])
     await abox_service.add_fact(engine, tid, alarm["entity_id"], "caused_by", equip["entity_id"])
     await abox_service.compile_profile(engine, tid, equip["entity_id"])
@@ -54,7 +91,7 @@ async def test_knowledge_search_profile_layer(migrated: str, app_url: str, monke
     _install_stub(monkeypatch)
     engine = create_async_engine(app_url, pool_pre_ping=True)
     tid = "osr-t1"
-    await _seed_entity_graph(engine, tid)
+    await _seed_entity_graph(engine, migrated, tid)
 
     # query matches entity name → profile layer hit first
     hits = await search.knowledge_search(engine, tid, "CNC-01", role_id="r-any", top_k=5, embedding_dim=DIM)
@@ -70,7 +107,7 @@ async def test_knowledge_search_fallback_no_embedding(migrated: str, app_url: st
     """No embedding provider → profile/graph layers still work (vector degrades)."""
     engine = create_async_engine(app_url, pool_pre_ping=True)
     tid = "osr-t2"
-    await _seed_entity_graph(engine, tid)
+    await _seed_entity_graph(engine, migrated, tid)
 
     hits = await search.knowledge_search(engine, tid, "上海某精机", role_id="r-any", top_k=5)
     assert hits
@@ -306,3 +343,34 @@ def test_knowledge_search_endpoint_soft_route_three_layer(
         assert items
         sources = {i.get("source") for i in items}
         assert "profile" in sources or "graph" in sources
+
+
+async def test_entity_lane_scoped_by_role_domains_not_routing(
+    migrated: str, app_url: str, monkeypatch
+) -> None:
+    """2026-08-18 FDE 修复：实体层按角色允许域（非路由候选 DD）限定。
+
+    路由候选错选 finance_data（文档层信号），但实体 CNC-01 在 equipment_data
+    → 修复前 profile/graph 被候选 DD 滤掉不生效；修复后实体层按角色域独立生效。
+    跨域实体（财务系统，finance_data）对 role_eq 仍 fail-closed。
+    """
+    provider = _install_stub(monkeypatch)
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "p2-t6"
+    scene = await _seed_p2_routing_scene(engine, tid, suffix="-t6")
+
+    emb = (await provider.embed(["CNC-01 设备"]))[0]
+    hits = await search.knowledge_search(
+        engine, tid, "CNC-01", embedding=emb, role_id=scene["role_eq"], top_k=5,
+        data_domain_ids=["finance_data"], embedding_dim=DIM,
+    )
+    assert hits, "must return hits"
+    assert any(h["source"] == "profile" for h in hits), "实体层应脱离路由候选生效"
+
+    # 跨域实体 fail-closed：role_eq 无 finance 权限 → 财务系统不可出现在实体层
+    emb2 = (await provider.embed(["财务系统"]))[0]
+    hits2 = await search.knowledge_search(
+        engine, tid, "财务系统", embedding=emb2, role_id=scene["role_eq"], top_k=5,
+        embedding_dim=DIM,
+    )
+    assert not any(h["source"] in ("profile", "graph") for h in hits2), "跨域实体应被角色域过滤"

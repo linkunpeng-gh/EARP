@@ -487,8 +487,11 @@ async def test_route_debug_ontology_layers(migrated: str, app_url: str, monkeypa
     sources = {h["source"] for h in onto["fused"]}
     assert "profile" in sources or "graph" in sources
 
-    # 无候选 DD 场景 → 不触发三层（D4）：角色无任何 DD 权限 → 候选 DD 被权限过滤为空
+    # 无候选 DD 场景（D4 兜底）→ 2026-08-18 起三层照常触发（fallback_mode=true，
+    # 与 /knowledge/search 兜底路径一致）；角色缺失 → 实体/chunk 层 fail-closed 全空
     q_emb2 = await embed_query("CNC-01 设备 报警 供应商")
     dbg2 = await route_debug(engine, tid, "CNC-01 设备 报警 供应商", q_emb2, "r-no-such-role")
     onto2 = dbg2.get("ontology_layers")
-    assert onto2 is not None and onto2["triggered"] is False
+    assert onto2 is not None and onto2["triggered"] is True
+    assert onto2["fallback_mode"] is True
+    assert onto2["profile"] == [] and onto2["graph"] == [] and onto2["chunk"] == []

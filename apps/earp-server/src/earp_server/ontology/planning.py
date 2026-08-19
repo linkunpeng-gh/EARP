@@ -366,7 +366,6 @@ async def plan_fact(query: StructuredQuery, *, ctx: QueryContext) -> PlanResult:
     cand_dds = [dd["data_domain_id"] for dd in routed.get("candidate_dds", [])]
     cand_kbs = [kb["knowledge_base_id"] for kb in routed.get("candidate_kbs", [])]
 
-    from earp_server.knowledge.search_service import search_chunks
     from earp_server.ontology.search import knowledge_search
 
     items: list[dict] = []
@@ -400,30 +399,36 @@ async def plan_fact(query: StructuredQuery, *, ctx: QueryContext) -> PlanResult:
             items = []
         tracer.finish({"items": len(items)})
     else:
-        # 无候选 DD → 全租户 chunk 兜底（P2 D4 语义）
-        tracer.step("VECTOR_SEARCH", input_={"mode": "hybrid", "fallback": "whole-tenant"})
+        # 无候选 DD → 三层检索兜底（P2 D4 语义 + 2026-08-18 FDE 修复：
+        # 此前纯 chunk 兜底 → 实体类查询 profile/graph 完全不触发）
+        tracer.step("VECTOR_SEARCH", input_={"mode": "hybrid", "fallback": "three-layer"})
         q_emb = routed.get("_q_emb")
         if q_emb is None:
             items = []  # embedding 不可达 → 向量层优雅降级（无候选 DD 时无可检索内容）
         else:
+            from earp_server.ontology.search import knowledge_search
+
             try:
-                items = await search_chunks(
+                items = await knowledge_search(
                     ctx.engine,
                     ctx.tenant_id,
-                    q_emb,
-                    ctx.role_id,
-                    top_k=top_k,
-                    embedding_dim=getattr(ctx.settings, "embedding_dim", 1024) if ctx.settings else 1024,
+                    qtext,
+                    embedding=q_emb,
+                    role_id=ctx.role_id,
                     knowledge_base_ids=cand_kbs or None,
-                    threshold=0.0,
+                    top_k=top_k,
+                    embedding_dim=(
+                        getattr(ctx.settings, "embedding_dim", 1024) if ctx.settings else 1024
+                    ),
                     query_text=qtext,
                     mode="hybrid",
+                    threshold=0.0,
                     metadata_filters=query.constraints or None,
                     eventbus=None,
                     rerank=True,
                 )
             except Exception:
-                logger.exception("plan_fact: search_chunks fallback failed")
+                logger.exception("plan_fact: knowledge_search fallback failed")
                 items = []
         tracer.finish({"items": len(items)})
 

@@ -645,12 +645,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     rerank=True,
                     rerank_top_n=req.app.state.settings.rerank_top_n,
                 )
-            # 无候选 DD → 全租户 chunk 兜底（原行为，决策 D4）
+            # 无候选 DD → 三层检索兜底（决策 D4 语义 + 2026-08-18 FDE 修复：
+            # 此前纯 chunk 兜底 → 实体类查询（如「张建国」）profile/graph 完全不触发；
+            # 现在实体层按角色允许域、chunk 层按候选 KB/角色域，权限不变）
             kb_ids = cand_kbs or None
             logger.info(
-                "search soft-routing fallback: query=%r no candidate DD → whole-tenant chunk (candidate_kbs=%s)",
+                "search soft-routing fallback: query=%r no candidate DD → three-layer fallback (candidate_kbs=%s)",
                 req_body.query,
                 cand_kbs,
+            )
+            from earp_server.ontology.search import knowledge_search
+
+            return await knowledge_search(
+                engine,
+                req.state.tenant_id,
+                req_body.query,
+                embedding=q_emb,
+                role_id=req.state.role_id,
+                knowledge_base_ids=kb_ids,
+                top_k=req_body.top_k,
+                embedding_dim=req.app.state.settings.embedding_dim,
+                query_text=req_body.query,
+                mode=req_body.mode,
+                threshold=req_body.threshold,
+                metadata_filters=req_body.metadata_filters,
+                eventbus=bus,
+                rerank=True,
+                rerank_top_n=req.app.state.settings.rerank_top_n,
             )
         return await search_chunks(
             engine,
