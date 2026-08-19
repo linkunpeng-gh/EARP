@@ -649,6 +649,18 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **遗留观察（未修，随 #9 后续）**：`/ontology/entities/lookup`、`/ontology/entities`（M4 实体管理）端点不做角色域过滤——普通角色可枚举/查询任意域实体（实体层与 chunk 层门禁不对称）；knowledge_search 的 profile/graph lane 依赖调用方传候选 DD（plan 路径已过滤），独立端点未收敛。下个 FDE 反馈若涉及实体层可见性再统一接入（可复用 role_domain_access）。
 
+### 追加（2026-08-18）— 泄露根因二：D4 兜底 KB 域门禁（FDE 反馈：路由调试仍见权限外 chunk + 页面卡死）
+
+**现象**：单域角色（r3）在路由调试视图 3.2 KB 定位仍看到其他域 KB（运维规程/综合管理/计划财务）；且点几次后页面不动。
+
+**根因二（route 层）**：`route_query` 全租户 KB 兜底（D4）只按 `accessible_roles` 过滤，不按角色 `data_domain_access`——top-N 向量候选全被权限滤掉时（单域角色查「制度」：关键词命中多域但全被滤 → candidate_dds=[]）兜底返回任意域 KB。**双伤**：① 调试视图一览越权 KB（泄露）；② 本域 KB（电站运行调度）被其他域 KB 挤掉 → `/knowledge/search` 0 结果（误伤授权角色）。
+
+**修复**：兜底 KB 限定角色允许域（`_role_allowed_domain_ids` → policy.roles_service 共享实现；admin 不过滤；缺失/空授权 fail-closed）——与 search_chunks 域门禁（上一修复）构成 route + chunk 双保险。
+
+**页面卡死排查**：后端 route_debug 稳定 0.3s（含三层检索路径）、前端渲染无异常（DOM stub 复现）——非确定性 bug；大概率是 embedding 慢响应（30s 上限）时「路由中...」挂起 + 连点竞态叠加的感知卡死。加固：doRouteDebug 加请求序号防护（对齐 doSearch，丢弃过期响应）+ onto 防御。
+
+**验证**：test_search_role_gate +1（构造 top-3 候选全被滤掉场景，修复前挂/后过；admin 对照可见其他域）；**216 passed** + ruff/pyright 零新增；dev 真 API：r3 查「制度」兜底只回本域 KB，/knowledge/search 0 结果 → 10 条本域结果。
+
 ---
 
 ### 历史待办
