@@ -258,6 +258,31 @@ async def _allowed_domain_ids(conn, tenant_id: str, role_id: str, requested: lis
     return await role_domain_access(conn, tenant_id, role_id, requested)
 
 
+async def _role_allowed_domain_ids(conn, tenant_id: str, role_id: str) -> set[str] | None:
+    """角色允许域全集（D4 兜底 KB 域门禁 2026-08-18）。
+
+    None = admin/全权限（不过滤）；set = 允许域；角色缺失/空授权 → set()（fail-closed）。
+    与 search_chunks 域门禁同源（policy.roles_service.role_domain_access）。
+    """
+    row = await conn.execute(
+        text("SELECT is_admin FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
+        {"rid": role_id, "tid": tenant_id},
+    )
+    r = row.fetchone()
+    if r is None:
+        return set()
+    if r.is_admin:
+        return None
+    rows = await conn.execute(
+        text("SELECT data_domain_id FROM data_domains WHERE tenant_id = :tid AND status = 'active'"),
+        {"tid": tenant_id},
+    )
+    all_dds = [x.data_domain_id for x in rows.fetchall()]
+    from earp_server.policy.roles_service import role_domain_access
+
+    return await role_domain_access(conn, tenant_id, role_id, all_dds)
+
+
 # ── Query routing ────────────────────────────────────────────────────────────
 async def route_query(
     engine: AsyncEngine,
@@ -339,23 +364,32 @@ async def route_query(
             ).fetchall()
         if not kb_rows:
             # fallback: whole-tenant KB summary match (routing miss must not
-            # yield empty recall); still permission-filtered on accessible_roles.
+            # yield empty recall); tech-debt #9 2026-08-18 漏洞修复：兜底必须
+            # 限定角色允许域（此前只按 accessible_roles → 越权 KB 泄露 + 本域
+            # KB 被其他域挤掉 → 授权角色误伤 0 结果）。admin → 不过滤。
             fallback_used = True
             if emb_str is not None:
-                kb_rows = (
-                    await conn.execute(
-                        text(
-                            "SELECT kb.knowledge_base_id, kb.name, kb.data_domain_id, "
-                            "1 - (kb.summary_embedding <=> CAST(:qemb AS vector(1024))) AS score "
-                            "FROM knowledge_bases kb "
-                            "WHERE kb.tenant_id = :tid AND kb.summary_embedding IS NOT NULL "
-                            "AND (kb.accessible_roles IS NULL OR kb.accessible_roles = '{}' "
-                            "     OR :rid = ANY(kb.accessible_roles)) "
-                            "ORDER BY kb.summary_embedding <=> CAST(:qemb2 AS vector(1024)) LIMIT :k"
-                        ),
-                        {"qemb": emb_str, "qemb2": emb_str, "tid": tenant_id, "rid": role_id, "k": top_k},
-                    )
-                ).fetchall()
+                role_dds = await _role_allowed_domain_ids(conn, tenant_id, role_id)
+                fsql = (
+                    "SELECT kb.knowledge_base_id, kb.name, kb.data_domain_id, "
+                    "1 - (kb.summary_embedding <=> CAST(:qemb AS vector(1024))) AS score "
+                    "FROM knowledge_bases kb "
+                    "WHERE kb.tenant_id = :tid AND kb.summary_embedding IS NOT NULL "
+                    "AND (kb.accessible_roles IS NULL OR kb.accessible_roles = '{}' "
+                    "     OR :rid = ANY(kb.accessible_roles))"
+                )
+                fparams: dict = {
+                    "qemb": emb_str,
+                    "qemb2": emb_str,
+                    "tid": tenant_id,
+                    "rid": role_id,
+                    "k": top_k,
+                }
+                if role_dds is not None:
+                    fsql += " AND kb.data_domain_id = ANY(:rdds)"
+                    fparams["rdds"] = sorted(role_dds)
+                fsql += " ORDER BY kb.summary_embedding <=> CAST(:qemb2 AS vector(1024)) LIMIT :k"
+                kb_rows = (await conn.execute(text(fsql), fparams)).fetchall()
         candidate_kbs = [dict(r._mapping) for r in kb_rows]
         t_l2 = time.monotonic()
 

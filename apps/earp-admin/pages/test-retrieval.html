@@ -415,9 +415,11 @@ function clearAll() {
 }
 
 // ── Routing debug view (enterprise-retrieval Phase 1) ──
+var debugSeq = 0;  // 请求序号：丢弃过期响应，防快速连点竞态（对齐 doSearch）
 function doRouteDebug() {
   var q = document.getElementById('search-query').value.trim();
   if (!q) { alert('Enter a query'); return; }
+  var mySeq = ++debugSeq;
   var panel = document.getElementById('routing-debug-panel');
   var body = document.getElementById('routing-debug-body');
   var esc = function(s) { return String(s == null ? '' : s).replace(/[&<>]/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); };
@@ -427,12 +429,13 @@ function doRouteDebug() {
     method: 'POST',
     body: JSON.stringify({ query: q, top_n: 3, top_k: 3 }),
   }).then(function(dbg) {
+    if (mySeq !== debugSeq) return; // 过期响应（用户已发起新查询）→ 丢弃
     var via = { keyword: '关键词', vector: '向量', both: '两者' };
     var timings = dbg.timings || {};
     var rq = timings.route_query || {};
     var html = '';
-    var onto = dbg.ontology_layers;
-    var ontoOff = (onto && !onto.triggered) ? esc((onto && onto.reason) || '未触发三层（无候选 DD，全租户 chunk 兜底）') : '';
+    var onto = dbg.ontology_layers || {};
+    var ontoOff = !onto.triggered ? esc((onto.reason) || '未触发三层（无候选 DD，全租户 chunk 兜底）') : '';
     html += '<div style="margin-bottom:0.4rem">查询: <strong>' + esc(dbg.query) + '</strong>' + (dbg.fallback_used ? ' <span class="tag" style="background:#fef3c7;color:#92400e">⚠ 全域 KB 兜底</span>' : '') + '</div>';
     html += '<div style="margin-bottom:0.5rem;font-size:0.7rem;color:var(--text-tertiary,#6b6e75)">'
       + '⏱ 总耗时 ' + (timings.total_ms != null ? timings.total_ms + 'ms' : '—')
@@ -539,6 +542,7 @@ function doRouteDebug() {
     });
     body.innerHTML = html;
   }).catch(function(err) {
+    if (mySeq !== debugSeq) return; // 过期请求的失败也丢弃
     body.innerHTML = '<span style="color:var(--red)">路由调试失败: ' + esc(err.message) + '</span>';
   });
 }

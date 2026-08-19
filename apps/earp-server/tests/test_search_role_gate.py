@@ -43,9 +43,11 @@ class _BigramStubProvider:
 
 def _install_stub(monkeypatch) -> None:
     import earp_server.knowledge.embedding_service as svc
+    import earp_server.knowledge.routing as routing
 
     provider = _BigramStubProvider()
     monkeypatch.setattr(svc, "get_embedding_provider", lambda: provider)
+    monkeypatch.setattr(routing, "get_embedding_provider", lambda: provider)
 
 
 async def _purge(migration_url: str) -> None:
@@ -163,3 +165,58 @@ async def test_no_domain_access_fail_closed(migrated: str, app_url: str, monkeyp
         query_text="报销制度", mode="hybrid", rerank=False,
     )
     assert hits == [], "无域角色必须 fail-closed"
+
+
+async def test_fallback_kbs_gated_by_role_domains(migrated: str, app_url: str, monkeypatch) -> None:
+    """D4 全租户 KB 兜底必须限定角色允许域（泄露根因 2026-08-18）。
+
+    单域角色查「报销」→ 关键词命中 dd-fin 但被权限滤掉 → candidate_dds 空 →
+    兜底触发：此前返回任意域 KB（泄露 + 本域 KB 被挤掉误伤 0 结果）；
+    修复后只返回本域（dd-equip）KB。admin 兜底不过滤。
+    """
+    from earp_server.knowledge.routing import build_routing_index, route_query
+
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "sg-t5"
+    await _seed(engine, migrated, tid, monkeypatch)
+    # 再加两个「报销」相关的域/KB（描述与查询更近）→ top-3 向量候选挤掉 dd-equip
+    # → r-sg-one 的候选全被权限滤掉 → D4 兜底触发（此前返回任意域 KB 泄露）
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(
+            text(
+                "INSERT INTO data_domains (data_domain_id, tenant_id, name, description, "
+                "data_classification, status) VALUES "
+                "('dd-extra1', :t, '差旅', '报销差旅', 'internal', 'active'), "
+                "('dd-extra2', :t, '发票', '报销发票财务', 'internal', 'active') ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO knowledge_bases (knowledge_base_id, tenant_id, name, data_domain_id, "
+                "description, metadata_schema) VALUES "
+                "('kb-extra1', :t, '差旅手册', 'dd-extra1', '报销差旅制度', '[]'), "
+                "('kb-extra2', :t, '发票手册', 'dd-extra2', '报销发票财务', '[]') ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
+        await conn.commit()
+    await build_routing_index(engine, tid)
+
+    q_emb = await embed_query("报销")
+    routed = await route_query(engine, tid, "报销", q_emb, "r-sg-one", top_n=3, top_k=3)
+    assert routed["fallback_used"] is True, routed
+    assert routed["candidate_dds"] == []
+    assert routed["candidate_kbs"], "兜底应至少返回本域 KB"
+    assert all(k["data_domain_id"] == "dd-equip" for k in routed["candidate_kbs"]), [
+        k["data_domain_id"] for k in routed["candidate_kbs"]
+    ]
+
+    # admin 对照：同查询不过滤（候选含 r-sg-one 无权访问的 dd-extra1/dd-extra2）
+    routed_admin = await route_query(engine, tid, "报销", q_emb, "r-sg-admin", top_n=3, top_k=3)
+    assert routed_admin["fallback_used"] is False, routed_admin
+    admin_dds = {c["data_domain_id"] for c in routed_admin["candidate_dds"]}
+    assert admin_dds & {"dd-extra1", "dd-extra2", "dd-fin"}, "admin 全权限应可见其他域候选"
