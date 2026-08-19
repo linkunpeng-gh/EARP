@@ -1,85 +1,442 @@
-"""Workflow DSL — simple sequential + conditional + parallel step definitions.
+"""Workflow DSL — declarative graph JSON → compiled execution plan (Chatflow F0).
 
-M5 extension: replaces raw for-loop in MultiStepExecutor with structured DSL.
+F0: 把死代码 DSL 真实化。graph-shaped schema（对齐 Dify/graphon + ReactFlow 兼容，
+F1 flow_schema JSONB 直接存此形状）:
+
+    {"nodes": [{"id", "type", "data"}],
+     "edges": [{"source", "target", "sourceHandle"}]}
+
+compile_workflow(graph) → CompiledWorkflow（线性执行序 + 分支门控元数据），由
+MultiStepExecutor._execute_plan 消费：Conditional 运行时求值、未命中分支 skip
+（不 invoke、无副作用）。
+
+F0 节点白名单: start / end / step / condition（一期无循环/并行，非 condition 节点
+出边 ≤1；condition 恰 2 出边，sourceHandle ∈ {true, false} 各一）。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, Literal
 
-from earp_server.orchestrator.types import Step
+from pydantic import BaseModel, Field, ValidationError
 
-# ── DSL Nodes ─────────────────────────────────────────────────────────────────
+from earp_server.orchestrator.types import Step, StepResult
+
+# ── JSON Schema（graph-shaped）────────────────────────────────────────────────
 
 
-@dataclass
-class WorkflowNode:
-    """Base node in a workflow graph."""
+class WorkflowNode(BaseModel):
+    id: str
+    type: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowEdge(BaseModel):
+    source: str
+    target: str
+    sourceHandle: str | None = None
+
+
+class WorkflowGraph(BaseModel):
+    nodes: list[WorkflowNode]
+    edges: list[WorkflowEdge] = Field(default_factory=list)
+
+
+class ConditionExpr(BaseModel):
+    """Structured runtime condition. left = '<node_id>.output.<path>' (F0 无右值引用)."""
+
+    left: str
+    op: Literal["==", "!=", ">", ">=", "<", "<=", "contains", "exists"]
+    right: Any = None
+
+
+NODE_TYPES: frozenset[str] = frozenset({"start", "end", "step", "condition"})
+CONDITION_HANDLES: frozenset[str] = frozenset({"true", "false"})
+BranchSide = Literal["then", "else"]
+
+
+class WorkflowValidationError(ValueError):
+    """Raised by compile_workflow when the graph violates F0 invariants."""
+
+
+class ConditionEvaluationError(RuntimeError):
+    """Raised by evaluate_condition when a path cannot be resolved at runtime."""
+
+
+# ── 编译产物 ──────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class StepExec:
+    """A capability step in linear execution order."""
 
     node_id: str
-
-    def flatten(self) -> list[Step]:
-        raise NotImplementedError
-
-
-@dataclass
-class Sequential(WorkflowNode):
-    """Ordered sequence of child nodes."""
-
-    children: list[WorkflowNode] = field(default_factory=list)
-
-    def flatten(self) -> list[Step]:
-        steps: list[Step] = []
-        for child in self.children:
-            steps.extend(child.flatten())
-        return steps
-
-
-@dataclass
-class Conditional(WorkflowNode):
-    """If-then-else branching based on runtime condition."""
-
-    condition: str = ""  # expression evaluated at runtime
-    then_branch: WorkflowNode | None = None
-    else_branch: WorkflowNode | None = None
-
-    def flatten(self) -> list[Step]:
-        # M5: compile-time flatten includes both branches. Runtime evaluation
-        # is handled by MultiStepExecutor's conditional skip logic.
-        steps: list[Step] = []
-        if self.then_branch:
-            steps.extend(self.then_branch.flatten())
-        if self.else_branch:
-            steps.extend(self.else_branch.flatten())
-        return steps
-
-
-@dataclass
-class Parallel(WorkflowNode):
-    """Concurrent execution of child nodes. M5: flattened to sequential."""
-
-    children: list[WorkflowNode] = field(default_factory=list)
-
-    def flatten(self) -> list[Step]:
-        steps: list[Step] = []
-        for child in self.children:
-            steps.extend(child.flatten())
-        return steps
-
-
-@dataclass
-class StepNode(WorkflowNode):
-    """Leaf node — wraps a single Step."""
-
     step: Step
-
-    def flatten(self) -> list[Step]:
-        return [self.step]
+    gate: frozenset[tuple[str, BranchSide]] = frozenset()
 
 
-# ── DSL Compiler ──────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class CondExec:
+    """A runtime decision point: evaluate condition → choose then/else."""
+
+    node_id: str
+    branch_id: str
+    condition: ConditionExpr
+    gate: frozenset[tuple[str, BranchSide]] = frozenset()
 
 
-def compile_workflow(root: WorkflowNode) -> list[Step]:
-    """Compile a workflow DSL tree into a flat step list for MultiStepExecutor."""
-    return root.flatten()
+ExecItem = StepExec | CondExec
+
+
+@dataclass
+class CompiledWorkflow:
+    """Linear execution plan consumed by MultiStepExecutor._execute_plan.
+
+    gate（分支上下文）: (branch_id, side) 集合——节点被条件 c 门控 ⟺ 所有路径
+    都必须经过 c 的某分支边。运行时 chosen[branch_id] == side 全满足才执行。
+    """
+
+    sequence: list[ExecItem]
+    steps: list[Step] = field(default_factory=list)
+    step_ids: list[str] = field(default_factory=list)
+    step_index: dict[str, int] = field(default_factory=dict)
+
+
+# ── 校验 ─────────────────────────────────────────────────────────────────────
+
+
+def validate_workflow(graph: dict[str, Any] | WorkflowGraph) -> list[str]:
+    """Return a list of validation errors (empty = valid). F5a 前端校验复用。"""
+    errors: list[str] = []
+    if isinstance(graph, WorkflowGraph):
+        g = graph
+    else:
+        try:
+            g = WorkflowGraph.model_validate(graph)
+        except ValidationError as exc:
+            for err in exc.errors():
+                loc = ".".join(str(p) for p in err["loc"])
+                errors.append(f"schema error at {loc}: {err['msg']}")
+            return errors
+
+    node_ids = [n.id for n in g.nodes]
+    by_id: dict[str, WorkflowNode] = {n.id: n for n in g.nodes}
+
+    # node id 唯一
+    seen: set[str] = set()
+    for nid in node_ids:
+        if nid in seen:
+            errors.append(f"duplicate node id: {nid}")
+        seen.add(nid)
+
+    # 节点类型白名单
+    for n in g.nodes:
+        if n.type not in NODE_TYPES:
+            errors.append(f"node {n.id}: unknown type {n.type!r} (allowed: {sorted(NODE_TYPES)})")
+
+    # 恰一 start / 恰一 end
+    starts = [n.id for n in g.nodes if n.type == "start"]
+    ends = [n.id for n in g.nodes if n.type == "end"]
+    if len(starts) != 1:
+        errors.append(f"expected exactly one start node, got {len(starts)}")
+    if len(ends) != 1:
+        errors.append(f"expected exactly one end node, got {len(ends)}")
+    start_id = starts[0] if starts else None
+    end_id = ends[0] if ends else None
+
+    # 边引用存在 / 无自环 / 无重复边
+    incoming: dict[str, list[WorkflowEdge]] = {nid: [] for nid in node_ids}
+    outgoing: dict[str, list[WorkflowEdge]] = {nid: [] for nid in node_ids}
+    edge_keys: set[tuple[str, str, str | None]] = set()
+    missing_edge_ref = False
+    for e in g.edges:
+        if e.source not in by_id:
+            errors.append(f"edge {e.source}->{e.target}: unknown source node")
+            missing_edge_ref = True
+        if e.target not in by_id:
+            errors.append(f"edge {e.source}->{e.target}: unknown target node")
+            missing_edge_ref = True
+        if e.source not in by_id or e.target not in by_id:
+            continue
+        if e.source == e.target:
+            errors.append(f"edge {e.source}->{e.target}: self-loop")
+        key = (e.source, e.target, e.sourceHandle)
+        if key in edge_keys:
+            errors.append(f"duplicate edge: {key}")
+        edge_keys.add(key)
+        incoming[e.target].append(e)
+        outgoing[e.source].append(e)
+
+    # start/end 边约束
+    if start_id is not None:
+        if incoming[start_id]:
+            errors.append("start node must have no incoming edges")
+        if not outgoing[start_id] and len(node_ids) > 1:
+            errors.append("start node must have an outgoing edge")
+    if end_id is not None:
+        if outgoing[end_id]:
+            errors.append("end node must have no outgoing edges")
+
+    # 节点级约束（F0: 无并行 fan-out；condition 恰 2 分支边；step 必带 capability_call）
+    for n in g.nodes:
+        outs = outgoing.get(n.id, [])
+        if n.type == "condition":
+            if any(e.sourceHandle is None for e in outs):
+                errors.append(f"condition {n.id}: branch edges must declare sourceHandle true/false")
+            handles = sorted(e.sourceHandle or "" for e in outs)
+            if len(outs) != 2 or handles != ["false", "true"]:
+                errors.append(
+                    f"condition {n.id}: expected 2 outgoing edges with sourceHandle true/false, got {handles}"
+                )
+            cond = n.data.get("condition")
+            if cond is None:
+                errors.append(f"condition {n.id}: data.condition missing")
+            elif not isinstance(cond, dict):
+                errors.append(f"condition {n.id}: data.condition must be an object")
+            else:
+                try:
+                    ConditionExpr.model_validate(cond)
+                except ValidationError as exc:
+                    for err in exc.errors():
+                        loc = ".".join(str(p) for p in err["loc"])
+                        errors.append(f"condition {n.id}: data.condition {loc}: {err['msg']}")
+                left = cond.get("left", "")
+                parts = left.split(".")
+                if len(parts) < 2 or parts[1] != "output":
+                    errors.append(f"condition {n.id}: left must be '<node_id>.output.<path>', got {left!r}")
+        elif n.type == "step":
+            if len(outs) > 1:
+                errors.append(f"step {n.id}: F0 无并行 — at most 1 outgoing edge (got {len(outs)})")
+            if not isinstance(n.data.get("capability_call"), dict):
+                errors.append(f"step {n.id}: data.capability_call (dict) required")
+        elif n.type in ("start", "end"):
+            if len(outs) > 1:
+                errors.append(f"{n.type} {n.id}: at most 1 outgoing edge (got {len(outs)})")
+
+    # 无环 + 全节点可达（仅当引用/唯一性错误不存在时才有意义）
+    if start_id and end_id and len(by_id) == len(node_ids) and not missing_edge_ref:
+        order = _topo_order(node_ids, outgoing, incoming)
+        if order is None:
+            errors.append("graph contains a cycle (F0: DAG only)")
+        else:
+            from_start = _reachable(start_id, outgoing)
+            to_end = _reachable_backward(end_id, incoming)
+            for nid in node_ids:
+                if nid not in from_start:
+                    errors.append(f"node {nid}: not reachable from start")
+                if nid not in to_end:
+                    errors.append(f"node {nid}: cannot reach end")
+
+    return errors
+
+
+def _topo_order(
+    node_ids: list[str],
+    outgoing: dict[str, list[WorkflowEdge]],
+    incoming: dict[str, list[WorkflowEdge]],
+) -> list[str] | None:
+    """Kahn topological sort. Returns None when the graph has a cycle."""
+    from collections import deque
+
+    indeg = {nid: len(incoming[nid]) for nid in node_ids}
+    queue: deque[str] = deque(nid for nid, deg in indeg.items() if deg == 0)
+    order: list[str] = []
+    while queue:
+        nid = queue.popleft()
+        order.append(nid)
+        for e in outgoing[nid]:
+            indeg[e.target] -= 1
+            if indeg[e.target] == 0:
+                queue.append(e.target)
+    return order if len(order) == len(node_ids) else None
+
+
+def _reachable(start: str, outgoing: dict[str, list[WorkflowEdge]]) -> set[str]:
+    from collections import deque
+
+    seen: set[str] = set()
+    queue: deque[str] = deque([start])
+    while queue:
+        nid = queue.popleft()
+        if nid in seen:
+            continue
+        seen.add(nid)
+        queue.extend(e.target for e in outgoing.get(nid, []))
+    return seen
+
+
+def _reachable_backward(end: str, incoming: dict[str, list[WorkflowEdge]]) -> set[str]:
+    from collections import deque
+
+    seen: set[str] = set()
+    queue: deque[str] = deque([end])
+    while queue:
+        nid = queue.popleft()
+        if nid in seen:
+            continue
+        seen.add(nid)
+        queue.extend(e.source for e in incoming.get(nid, []))
+    return seen
+
+
+# ── 编译 ─────────────────────────────────────────────────────────────────────
+
+
+def compile_workflow(graph: dict[str, Any] | WorkflowGraph) -> CompiledWorkflow:
+    """Validate + compile a graph JSON into a linear execution plan."""
+    errors = validate_workflow(graph)
+    if errors:
+        raise WorkflowValidationError("workflow validation failed:\n" + "\n".join(f"- {e}" for e in errors))
+
+    g = graph if isinstance(graph, WorkflowGraph) else WorkflowGraph.model_validate(graph)
+    by_id = {n.id: n for n in g.nodes}
+    incoming: dict[str, list[WorkflowEdge]] = {n.id: [] for n in g.nodes}
+    outgoing: dict[str, list[WorkflowEdge]] = {n.id: [] for n in g.nodes}
+    for e in g.edges:
+        incoming[e.target].append(e)
+        outgoing[e.source].append(e)
+
+    node_ids = list(by_id.keys())
+    order = _topo_order(node_ids, outgoing, incoming)
+    if order is None:  # pragma: no cover — validate_workflow 已拒绝
+        raise WorkflowValidationError("workflow validation failed:\n- graph contains a cycle")
+    start_id = next(n.id for n in g.nodes if n.type == "start")
+
+    # gate 前向计算：join（多入边）处取各入边上下文交集
+    gate: dict[str, frozenset[tuple[str, BranchSide]]] = {start_id: frozenset()}
+    for nid in order:
+        if nid == start_id:
+            continue
+        contexts: list[frozenset[tuple[str, BranchSide]]] = []
+        empty_gate: frozenset[tuple[str, BranchSide]] = frozenset()
+        for e in incoming[nid]:
+            ctx = gate.get(e.source, empty_gate)
+            if by_id[e.source].type == "condition":
+                side: BranchSide = "then" if e.sourceHandle == "true" else "else"
+                branch_edge: frozenset[tuple[str, BranchSide]] = frozenset({(f"cond:{e.source}", side)})
+                ctx = ctx | branch_edge
+            contexts.append(ctx)
+        if not contexts:
+            gate[nid] = frozenset[tuple[str, BranchSide]]()
+            continue
+        merged: frozenset[tuple[str, BranchSide]] = contexts[0]
+        for other in contexts[1:]:
+            merged = merged & other
+        gate[nid] = merged
+
+    # 线性执行序（start/end 不产出执行项）
+    sequence: list[ExecItem] = []
+    for nid in order:
+        node = by_id[nid]
+        if node.type == "step":
+            data = node.data
+            step = Step(
+                step_id=node.id,
+                capability_call=data["capability_call"],
+                retry_config=data.get("retry_config"),
+                timeout_seconds=data.get("timeout_seconds"),
+                compensate_call=data.get("compensate_call"),
+            )
+            sequence.append(StepExec(node_id=node.id, step=step, gate=gate[nid]))
+        elif node.type == "condition":
+            cond = ConditionExpr.model_validate(node.data["condition"])
+            sequence.append(CondExec(node_id=node.id, branch_id=f"cond:{node.id}", condition=cond, gate=gate[nid]))
+
+    steps = [item.step for item in sequence if isinstance(item, StepExec)]
+    step_ids = [item.node_id for item in sequence if isinstance(item, StepExec)]
+    return CompiledWorkflow(
+        sequence=sequence,
+        steps=steps,
+        step_ids=step_ids,
+        step_index={nid: i for i, nid in enumerate(step_ids)},
+    )
+
+
+# ── 运行时条件求值（纯函数，无 DB）──────────────────────────────────────────
+
+
+def evaluate_condition(expr: ConditionExpr | dict[str, Any], pool: dict[str, StepResult]) -> bool:
+    """Evaluate a ConditionExpr against the step-result pool.
+
+    left = '<node_id>.output.<path>': first segment is the producing step node id,
+    second must be 'output', the rest is a dot-path into the step's output dict.
+    """
+    if isinstance(expr, dict):
+        expr = ConditionExpr.model_validate(expr)
+    parts = expr.left.split(".")
+    if len(parts) < 2 or parts[1] != "output":
+        raise ConditionEvaluationError(f"invalid left path {expr.left!r} (expected <node_id>.output.<path>)")
+    node_id = parts[0]
+
+    if expr.op == "exists":
+        return _resolve(expr.left, node_id, pool) is not None
+
+    result = pool.get(node_id)
+    if result is None:
+        raise ConditionEvaluationError(f"condition references unknown/unexecuted node {node_id!r}")
+    value = _resolve(expr.left, node_id, pool)
+    if value is None:
+        raise ConditionEvaluationError(f"path {expr.left!r} resolved to None")
+
+    try:
+        return _compare(value, expr.op, expr.right)
+    except ConditionEvaluationError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise ConditionEvaluationError(f"cannot compare {value!r} {expr.op} {expr.right!r}: {exc}") from exc
+
+
+def _resolve(left: str, node_id: str, pool: dict[str, StepResult]) -> Any:
+    result = pool.get(node_id)
+    if result is None:
+        return None
+    value: Any = result.output
+    for key in left.split(".")[2:]:
+        if not isinstance(value, dict) or key not in value:
+            return None
+        value = value[key]
+    return value
+
+
+def _compare(value: Any, op: str, right: Any) -> bool:
+    if op == "contains":
+        if isinstance(value, str):
+            return str(right) in value
+        if isinstance(value, (list, tuple, set)):
+            return right in value
+        if isinstance(value, dict):
+            return right in value
+        return False
+
+    a, b = _coerce_pair(value, right)
+    if op == "==":
+        return a == b
+    if op == "!=":
+        return a != b
+    if op == ">":
+        return a > b
+    if op == ">=":
+        return a >= b
+    if op == "<":
+        return a < b
+    if op == "<=":
+        return a <= b
+    raise ConditionEvaluationError(f"unknown op {op!r}")  # pragma: no cover — pydantic Literal 已校验
+
+
+def _coerce_pair(value: Any, right: Any) -> tuple[Any, Any]:
+    """Return a comparable pair: bool↔bool, number↔number, else str↔str.
+
+    Numeric-looking strings compare numerically（如 "5" > 3 成立），让 JSON 输入更友好。
+    """
+    if isinstance(value, bool) or isinstance(right, bool):
+        return bool(value), bool(right)
+    if isinstance(value, (int, float)) and isinstance(right, (int, float)):
+        return float(value), float(right)
+    if isinstance(value, str) and isinstance(right, str):
+        try:
+            return float(value), float(right)
+        except ValueError:
+            return value, right
+    return str(value), str(right)

@@ -726,6 +726,24 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **FDE 指南**：§5 新增 5.1b（模板同步/门槛编辑/导出导入说明）+ 5.2/5.3 进度条说明。
 
+### 会话续接（2026-08-19）— Chatflow F0: workflow 真实化（声明式 JSON → 编译 → 执行闭环）
+
+**任务书**：`tasks/chatflow-f0-workflow-task-breakdown.md`（D1-D8 决策：graph-shaped schema 对齐 Dify/ReactFlow、条件结构化表达式、gate 门控/join 交集、plan 参数接线、skip 语义、校验项、失败语义，执行序 1→5）。基线 231 tests 全绿。
+
+**现状核实**：`workflow_dsl` 死代码坐实（零 import/零测试，docstring 声称的「MultiStepExecutor skip 逻辑」不存在）；`MultiStepExecutor` 真实可用但只吃手工拼的 Step 列表；`resume_from_checkpoint_id` 无调用方。
+
+**实现（按执行序）**：
+1. **workflow_dsl 重写**（`orchestrator/workflow_dsl.py`，删树形 dataclass）：Pydantic 模型 `WorkflowGraph{nodes,edges}`/`WorkflowNode`/`WorkflowEdge{source,target,sourceHandle}`/`ConditionExpr{left,op,right}`（op 白名单 `== != > >= < <= contains exists`）；`validate_workflow -> list[str]`（id 唯一/类型白名单 start·end·step·condition/恰一 start·end/边引用/自环/重复边/condition 恰 2 出边 handle true·false 各一/非 condition 出边 ≤1（F0 无并行）/step 必有 capability_call/left 路径形 `<node>.output.<path>`/Kahn 判环/start 可达 + 可达 end）；`compile_workflow -> CompiledWorkflow`（拓扑序 + **gate 门控前向计算**：join 多入边处取各入边上下文交集——series-parallel 下即嵌套分支上下文，汇合点交集为空无条件执行）；`evaluate_condition` 纯函数（数值 coerce/字符串数字友好/contains/exists/引用缺失抛 `ConditionEvaluationError`）
+2. **MultiStepExecutor 接线**（`multi_step.py` + `types.py`）：`execute(..., plan: CompiledWorkflow | None = None)`——plan=None 走 legacy 路径逐字节不变；`_execute_plan` 循环 sequence：CondExec 被门控不求值、命中才求值（错误→failed 结果 + FAILED，不回滚——控制流非业务步）；StepExec 未命中分支→`skipped` 结果 + 轻量 checkpoint（`StepResult.status` Literal 扩 `"skipped"`），逐步 `dataclasses.replace(ctx, step=item.step)`（PolicyLayer 权限查当前步）；checkpoint/Saga/retry/interrupt 全镜像 legacy；resume 从 step_results blob（JSON dict，legacy repr 经 ast.literal_eval 兼容）重建 pool + prior_count 游标——决策确定性重放
+3. **单测**：`tests/test_workflow_f0.py` 33 用例——编译层（顺序/分支两分支都编译/gate 断言/嵌套/join 汇合点不门控/空图）+ 校验层（环/未知类型/缺 start·end/悬空边/condition 出边数/坏 op/无 capability_call/fan-out/不可达/重复 id/自环/left 路径形）+ 求值层（各 op/数值 coerce/contains/exists/缺失抛错）+ 执行层（顺序/分支命中 skip 另一分支副作用断言/分支未命中/嵌套/未命中分支内条件不求值/空图/条件求值错误 failed/plan 路径 Saga 补偿回滚）
+4. **质量门**：264 passed（231 基线 + 33）+ import-linter + OpenAPI 无变化（F0 零端点）+ ruff/pyright 零新增（pyright 24==24、ruff 17==17 均与 HEAD 同数）
+
+**dev 真 DB 冒烟**（5433 earp_app 角色 + RLS）：设备维修单示例图（顺序 + 条件分支）compile → 3 steps + 1 condition；执行 status=completed，命中分支 `fault` 执行、未命中分支 `ok` **skipped**（output null 无副作用）；checkpoint 落库核实：`plan:q1/fault`（执行）+ `plan:ok`（status=skipped idx=3）各自独立 checkpoint。
+
+**遗留**：① 条件失败不回滚（控制流非业务步，若需业务一致性 F2+ 决策）；② checkpoint resume 的条件决策重放无专属测试（pool 重建路径已实现，靠 blob 兼容解析；对话节点接入时补）；③ F0 无端点/无 flow_schema 持久化（F1 做）；④ Parallel 树形 dataclass 随重写移除（F0 一期无并行，Phase F 开放）。
+
+**FDE 指南**：无需变更（F0 无用户可见功能，F1 flow 模式才涉及）。
+
 ---
 
 ### 历史待办

@@ -20,7 +20,8 @@ class Step:
 @dataclass
 class StepResult:
     step_id: str
-    status: Literal["completed", "failed", "retrying"]
+    # F0: "skipped" = 未命中分支的步（不 invoke、无副作用，见 workflow_dsl）
+    status: Literal["completed", "failed", "retrying", "skipped"]
     output: dict | None = None
     error: str | None = None
     latency_ms: int = 0
