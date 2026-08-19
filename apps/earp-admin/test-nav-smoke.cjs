@@ -37,7 +37,7 @@ function runScenario(name, bodyAttrs, url, asserts) {
   global.URLSearchParams = URLSearchParams;
   global.window = {};
   global.localStorage = {
-    _s: { earp_tenant_id: 'verify-planning', earp_user_id: 'vp-user', earp_token: '' },
+    _s: { earp_tenant_id: 'verify-planning', earp_user_id: 'vp-user', earp_role_id: 'vp-role', earp_token: '' },
     getItem(k) { return this._s[k] != null ? this._s[k] : null; },
     setItem(k, v) { this._s[k] = v; },
   };
@@ -102,6 +102,8 @@ allOk = runScenario('index.html', { base: '.', section: 'home', sub: 'home' }, '
   if (!d.includes('知识资产看板')) fail('drawer missing 知识资产看板');
   if (!d.includes('planned-tag')) fail('planned tag missing');
   if (!d.includes('class="drawer-item active"')) fail('active drawer item not marked');
+  // tech-debt #9 用户信息：右上角 meta 含 tenant · user · role
+  if (!h.includes('verify-planning · vp-user · vp-role')) fail('meta missing role id');
 });
 
 allOk = runScenario('knowledge.html', { base: '..', section: 'knowledge', sub: 'knowledge' }, '', ({ h, drawer, fail }) => {

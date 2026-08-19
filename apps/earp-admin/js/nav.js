@@ -172,23 +172,26 @@
   }
 
   function jwtMeta() {
-    // JWT payload 解码兜底（token 有 tenant_id/sub；login 存的明文优先）
+    // JWT payload 解码兜底（token 有 tenant_id/sub/role_id；login 存的明文优先）
     try {
       var token = localStorage.getItem('earp_token');
       if (!token) return null;
       var payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-      return { tenant: payload.tenant_id || '', user: payload.sub || '' };
+      return { tenant: payload.tenant_id || '', user: payload.sub || '', role: payload.role_id || '' };
     } catch (e) { return null; }
   }
 
   function renderMeta(base) {
     var tenant = localStorage.getItem('earp_tenant_id') || '';
     var user = localStorage.getItem('earp_user_id') || '';
+    var role = localStorage.getItem('earp_role_id') || '';
     if (!tenant || !user) {
       var jm = jwtMeta();
-      if (jm) { tenant = jm.tenant; user = jm.user; }
+      if (jm) { tenant = jm.tenant; user = jm.user; role = jm.role || role; }
     }
-    var label = (tenant && user) ? (esc(tenant) + ' · ' + esc(user)) : '未登录';
+    var label = (tenant && user)
+      ? (esc(tenant) + ' · ' + esc(user) + (role ? ' · ' + esc(role) : ''))
+      : '未登录';
     return '<div class="meta">' + label + ' · <a href="' + href(base, '{b}/pages/login.html') + '">' + (tenant ? '切换' : '登录') + '</a></div>';
   }
 
