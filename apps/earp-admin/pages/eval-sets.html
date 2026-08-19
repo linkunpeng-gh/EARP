@@ -123,9 +123,23 @@ var SEED_VERSION = 1;  // 内置模板版本（对齐 eval_seed.SEED_VERSION；�
 function showSyncBtn(s) {
   // 仅 builtin 且版本落后（老租户 seed_version NULL）显示「同步内置模板」
   if (s.source !== 'builtin') return '';
-  var v = s.seed_version === null || s.seed_version === undefined ? -1 : s.seed_version;
-  if (v >= SEED_VERSION) return '';
+  if (seedVersion(s) >= SEED_VERSION) return '';
   return '<button class="btn-outline btn-sm" onclick="event.stopPropagation();syncSet(\'' + s.eval_set_id + '\')" title="同步最新内置模板（覆盖内置题，custom 题保留）">↻ 同步内置模板</button>';
+}
+
+// builtin 集的模板版本徽标（seed_version：这租户内置集同步自哪个模板版本）
+function seedVersion(s) {
+  var v = s.seed_version === null || s.seed_version === undefined ? -1 : s.seed_version;
+  return v;
+}
+
+function seedVersionBadge(s) {
+  if (s.source !== 'builtin') return '';
+  var v = seedVersion(s);
+  if (v >= SEED_VERSION) {
+    return '<span style="font-size:0.62rem;color:var(--text-quaternary);border:1px solid var(--border-subtle);border-radius:4px;padding:1px 5px" title="已同步到最新内置模板">模板 v' + v + '</span>';
+  }
+  return '<span style="font-size:0.62rem;color:var(--amber);border:1px solid var(--amber);border-radius:4px;padding:1px 5px" title="内置模板已升级（当前 v' + SEED_VERSION + '）——点击↻同步">模板 v' + (v < 0 ? '?' : v) + ' → v' + SEED_VERSION + '</span>';
 }
 
 async function syncSet(id) {
@@ -190,6 +204,7 @@ function renderSets() {
       + '<span class="badge" style="background:' + meta.color + ';color:#fff">' + meta.label + '</span>'
       + '<span style="font-weight:600;font-size:0.85rem">' + esc(s.name) + '</span>'
       + (s.source === 'custom' ? '<span style="font-size:0.65rem;color:var(--text-quaternary)">custom</span>' : '')
+      + seedVersionBadge(s)
       + '<span style="flex:1"></span>'
       + '<span style="font-size:0.7rem;color:var(--text-quaternary)">' + s.case_count + ' 用例</span>'
       + '</div>'

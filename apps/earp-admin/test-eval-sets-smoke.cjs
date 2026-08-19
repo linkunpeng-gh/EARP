@@ -104,6 +104,9 @@ try {
     ['导入评估集卡片', grid.includes('导入评估集')],
     ['同步按钮隐藏（builtin 已最新版本）', !global.showSyncBtn({ source: 'builtin', seed_version: 1, eval_set_id: 'x' }).includes('同步')],
     ['同步按钮隐藏（custom 集）', !global.showSyncBtn({ source: 'custom', eval_set_id: 'x' }).includes('同步')],
+    ['版本徽标（老内置集：模板 v? → v1 待同步）', global.seedVersionBadge({ source: 'builtin', seed_version: null }).includes('模板 v? → v1')],
+    ['版本徽标（已同步：模板 v1）', global.seedVersionBadge({ source: 'builtin', seed_version: 1 }).includes('模板 v1')],
+    ['版本徽标（custom 集不显示）', !global.seedVersionBadge({ source: 'custom' }).includes('模板')],
     ['进度条渲染（N/总数 + 百分比）', global.progressBar({ completed: 2, total: 5, percent: 40 }).includes('2/5') && global.progressBar({ completed: 2, total: 5, percent: 40 }).includes('40%')],
   ];
 
