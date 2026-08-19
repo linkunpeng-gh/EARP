@@ -625,7 +625,7 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 **验证**：211 passed（194 → +17：connector_timeout 6 / roles_service 8 / tbox +2 / capability_query +1）+ import-linter + OpenAPI 基线同步 + ruff/pyright 零新增；前端冒烟 8 个全绿（roles 12 断言 + tbox +1 + planned 断言更新）；dev 真 API 冒烟全链路（CRUD/409/最后 admin 保护/TBox 无权限 403 → admin 通过 → applied）
 
 **下一步（沿用优先级表）**：
-1. **T1 Procrastinate worker 接入**（跑分后台任务 in-process → 队列 + stale running 恢复，最大块）
+1. **T1 Procrastinate worker 接入**——任务书已定稿 `tasks/t1-eval-worker-task-breakdown.md`（D1-D4：队列复用/心跳 stale 判定/async 桥接待验证/测试策略），按执行序 1→5
 2. **T3 评估集治理**（模板同步 / per-set 门槛 / SSE 进度）
 3. **#7 business_capabilities 复合主键**；**P3 rerank 真模型验证**（待 Ollama 升级）；**M3 中台 importer**
 4. **QU 二期**：chat 发布评审+可见范围、Phase F 评估
