@@ -1820,7 +1820,7 @@ paths:
       - chat_apps
   /chat_apps/{chat_app_id}/chat:
     post:
-      description: SSE 流式对话：query → 检索 → LLM 生成 → 引用（设计 §4.3）。
+      description: 对话入口：auto = SSE 流式（现状）；flow = 声明式图执行（Chatflow F2，非流式 JSON）。
       operationId: chat_ep_chat_apps__chat_app_id__chat_post
       parameters:
       - in: path

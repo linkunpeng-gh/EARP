@@ -20,8 +20,9 @@ if TYPE_CHECKING:
 
 
 class StepRunner:
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: AsyncEngine, *, llm=None) -> None:
         self._checkpoint = CheckpointStore(engine)
+        self._llm = llm  # Chatflow F2: 对话节点适配器（llm.prompt）注入
 
     async def invoke(self, step: Step, *, layers: list[Layer], ctx: InvokeContext) -> StepResult:
         for layer in layers:
@@ -72,8 +73,9 @@ class StepRunner:
     async def _execute_step(self, step: Step, ctx: InvokeContext) -> dict[str, Any]:
         from earp_server.connector import Connector
 
-        connector = Connector()
-        return await connector.execute(step.capability_call)
+        # Chatflow F2: flow 执行链路注入 engine/llm（对话节点适配器）+ ctx（tenant/role/session）
+        connector = Connector(engine=self._checkpoint._engine, llm=self._llm)
+        return await connector.execute(step.capability_call, ctx=ctx)
 
     async def stream(
         self,

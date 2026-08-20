@@ -12,6 +12,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -56,8 +57,8 @@ class ExecutionState:
 class MultiStepExecutor:
     """Execute a Plan (list[Step]) with checkpoint + Saga compensation."""
 
-    def __init__(self, engine: AsyncEngine, bus: EventBus | None = None) -> None:
-        self._runner = StepRunner(engine)
+    def __init__(self, engine: AsyncEngine, bus: EventBus | None = None, *, llm=None) -> None:
+        self._runner = StepRunner(engine, llm=llm)  # Chatflow F2: 对话节点适配器注入
         self._checkpoint = CheckpointStore(engine)
         self._bus = bus
         self._interrupted = False  # M5: interrupt flag for human_approval/REPLANNING
@@ -79,17 +80,20 @@ class MultiStepExecutor:
         resume_from_checkpoint_id: str | None = None,
         durability: str = "async",
         plan: CompiledWorkflow | None = None,
+        flow_input: dict[str, Any] | None = None,
     ) -> tuple[list[StepResult], ExecutionState]:
         """Execute plan steps sequentially with checkpoint + Saga compensation.
 
         Chatflow F0: plan（compile_workflow 产物）提供时走声明式图执行——Conditional
         运行时求值、未命中分支 skip（不 invoke）。plan=None 时保持 legacy 行为不变。
+        Chatflow F2: flow_input 提供图输入（{"query", "conversation_id", …}），
+        节点输入中的 {{query}}/{{#node.output#}} 模板在执行前替换。
 
         Returns (results, execution_state).
         On step failure: rolls back completed steps via SagaCompensation.
         """
         if plan is not None:
-            return await self._execute_plan(plan, ctx, layers, resume_from_checkpoint_id)
+            return await self._execute_plan(plan, ctx, layers, resume_from_checkpoint_id, flow_input)
         results: list[StepResult] = []
         saga = SagaCompensation()
         state = ExecutionState(
@@ -197,6 +201,7 @@ class MultiStepExecutor:
         ctx: InvokeContext,
         layers: list[Layer],
         resume_from_checkpoint_id: str | None,
+        flow_input: dict[str, Any] | None = None,
     ) -> tuple[list[StepResult], ExecutionState]:
         """Execute a CompiledWorkflow with runtime conditional branch selection.
 
@@ -204,7 +209,10 @@ class MultiStepExecutor:
         - chosen: branch_id → "then"/"else"（运行时决策，确定性重放）
         - 未命中分支的 StepExec：产出 skipped 结果 + 轻量 checkpoint，不调 StepRunner
         - resume：从 step_results blob 重建 pool，决策可确定性重放
+        - flow_input（F2）：图输入（query/conversation_id…），{{…}} 模板替换节点输入
         """
+        from earp_server.orchestrator.workflow_dsl import resolve_templates
+
         results: list[StepResult] = []
         saga = SagaCompensation()
         state = ExecutionState(
@@ -280,7 +288,18 @@ class MultiStepExecutor:
                 continue
 
             step_ctx = replace(ctx, step=item.step)
-            result = await self._runner.invoke(item.step, layers=layers, ctx=step_ctx)
+            step = item.step
+            if flow_input is not None:
+                # F2: 节点输入模板替换（{{query}} / {{#node.output.path#}}）
+                resolved_call = resolve_templates(step.capability_call, pool, flow_input)
+                step = Step(
+                    step_id=step.step_id,
+                    capability_call=resolved_call,
+                    retry_config=step.retry_config,
+                    timeout_seconds=step.timeout_seconds,
+                    compensate_call=step.compensate_call,
+                )
+            result = await self._runner.invoke(step, layers=layers, ctx=step_ctx)
             results.append(result)
             pool[item.node_id] = result
 

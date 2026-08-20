@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -413,3 +414,102 @@ async def chat_sse(
     except Exception:
         logger.exception("chat unexpected error")
         yield _sse({"type": "error", "message": "回答生成失败，请稍后重试"})
+
+
+# ── Chatflow F2: flow 模式图执行（非流式）────────────────────────────────────
+
+
+async def flow_chat(
+    engine: AsyncEngine,
+    tenant_id: str,
+    user_id: str,
+    role_id: str,
+    app: dict[str, Any],
+    query: str,
+    conversation_id: str | None,
+    *,
+    base_llm: LLMConnector,
+    settings,
+    bus=None,
+) -> dict[str, Any]:
+    """Chatflow F2: orchestration='flow' 时走声明式图执行（设计稿 §2/§7）。
+
+    会话创建/续接（chat_apps 归属 + 用户消息先落）→ compile_flow_schema →
+    MultiStepExecutor（对话节点适配器注入）→ outputs → 助手消息 + citations 落库。
+    非流式 JSON 响应；SSE 节点级透传 F4/F5a 再做。
+    """
+    from earp_server.conversation.conversation_service import add_message, create_conversation
+    from earp_server.orchestrator.multi_step import MultiStepExecutor
+    from earp_server.orchestrator.types import InvokeContext, Step
+    from earp_server.orchestrator.workflow_dsl import compile_flow_schema
+
+    if not (query or "").strip():
+        raise ChatError("问题不能为空")
+
+    # 会话创建/续接（chat_app_id 归属写入，同 auto 模式）
+    if conversation_id:
+        async with engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+            exists = (
+                await conn.execute(
+                    text("SELECT 1 FROM conversations WHERE conversation_id = :cid"),
+                    {"cid": conversation_id},
+                )
+            ).first()
+        if not exists:
+            raise ChatError("会话不存在或不属于当前租户")
+    else:
+        conv = await create_conversation(
+            engine, tenant_id, user_id, query.strip()[:_TITLE_MAX], chat_app_id=app["chat_app_id"]
+        )
+        conversation_id = str(conv["conversation_id"])
+    assert conversation_id is not None  # 上述分支必赋值
+    await add_message(engine, tenant_id, conversation_id, "user", query, user_id)
+
+    # 编译（发布门禁已保证合法；此处防御未发布/改库场景）
+    plan = compile_flow_schema(app["flow_schema"])
+    override = await resolve_llm_override(engine, tenant_id, app)
+    llm = LLMConnector(settings, model_override=override) if override else base_llm
+    executor = MultiStepExecutor(engine, bus=bus, llm=llm)
+
+    exec_id = uuid.uuid4().hex
+    ctx = InvokeContext(
+        tenant_id=tenant_id,
+        execution_id=exec_id,
+        session_id=conversation_id,
+        user_id=user_id,
+        role_id=role_id,
+        step=Step(step_id="start", capability_call={}),
+    )
+    results, state = await executor.execute(
+        plan.steps,
+        ctx,
+        layers=[],
+        plan=plan,
+        flow_input={"query": query, "conversation_id": conversation_id},
+    )
+
+    completed = [r for r in results if r.status == "completed"]
+    outputs = {r.step_id: r.output for r in results if r.status == "completed"}
+    # 助手消息：最后 completed 节点输出（text 优先，否则 JSON 摘要）
+    answer = ""
+    if completed:
+        last = completed[-1].output or {}
+        answer = str(last.get("text") or json.dumps(last, ensure_ascii=False))
+    msg = await add_message(engine, tenant_id, conversation_id, "assistant", answer, user_id)
+
+    citations: list[dict[str, Any]] = []
+    for r in completed:
+        if isinstance(r.output, dict) and r.output.get("citations"):
+            citations.extend(r.output["citations"])
+    if citations:
+        await _set_citations(engine, tenant_id, msg["message_id"], citations)
+
+    return {
+        "execution_id": exec_id,
+        "conversation_id": conversation_id,
+        "status": state.status.value,
+        "outputs": outputs,
+        "message_id": msg["message_id"],
+        "answer": answer,
+    }

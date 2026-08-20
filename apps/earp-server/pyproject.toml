@@ -131,4 +131,7 @@ ignore_imports = [
     # Chatflow F1: flow_schema 声明层校验复用 orchestrator workflow_dsl（F0 编译校验单一实现，
     # 图结构校验不重复实现——chat_app_service 是 flow 声明的入口）
     "earp_server.conversation.chat_app_service -> earp_server.orchestrator.workflow_dsl",
+    # Chatflow F2: flow 模式图执行编排——对话层是图执行的编排方（编译 + MultiStepExecutor）
+    "earp_server.conversation.chat_service -> earp_server.orchestrator.multi_step",
+    "earp_server.conversation.chat_service -> earp_server.orchestrator.workflow_dsl",
 ]

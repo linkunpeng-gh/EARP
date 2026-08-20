@@ -30,10 +30,16 @@ class ConnectorError(Exception):
 
 
 class Connector:
-    """Execute a capability call with retry. M1 demo: echo adapter only."""
+    """Execute a capability call with retry. M1 demo: echo adapter only.
 
-    def __init__(self, eventbus=None) -> None:
+    Chatflow F2: 对话节点适配器（llm.prompt / knowledge.search / chat.history）——
+    engine/llm 由 StepRunner 注入（flow 执行链路），ctx 在 execute 时传入。
+    """
+
+    def __init__(self, eventbus=None, *, engine=None, llm=None) -> None:
         self._bus = eventbus
+        self._engine = engine
+        self._llm = llm
 
     @retry(
         retry=retry_if_exception_type(ConnectorError),
@@ -41,12 +47,86 @@ class Connector:
         stop=stop_after_attempt(3),
         reraise=True,
     )
-    async def execute(self, capability_call: dict[str, Any]) -> dict[str, Any]:
+    async def execute(
+        self,
+        capability_call: dict[str, Any],
+        *,
+        ctx: Any = None,
+    ) -> dict[str, Any]:
         adapter_type = capability_call.get("adapter_type", "demo.echo")
         logger.debug("connector execute adapter=%s", adapter_type)
         if adapter_type == "demo.echo":
             return {"echo": capability_call.get("input", {})}
+        if adapter_type == "llm.prompt":
+            return await self._execute_llm_prompt(capability_call.get("input", {}))
+        if adapter_type == "knowledge.search":
+            return await self._execute_knowledge_search(capability_call.get("input", {}), ctx)
+        if adapter_type == "chat.history":
+            return await self._execute_chat_history(capability_call.get("input", {}), ctx)
         raise ConnectorError(f"unknown adapter: {adapter_type}")
+
+    async def _execute_llm_prompt(self, input_: dict[str, Any]) -> dict[str, Any]:
+        """llm.prompt: 非流式文本生成 → {"text": ...}。"""
+        if self._llm is None:
+            raise ConnectorError("llm.prompt requires llm injection (flow executor)")
+        prompt = str(input_.get("prompt", ""))
+        if not prompt.strip():
+            raise ConnectorError("llm.prompt: input.prompt required")
+        text = await self._llm.complete(
+            prompt,
+            system=str(input_.get("system", "") or ""),
+            temperature=float(input_.get("temperature", 0.7) or 0.7),
+            max_tokens=int(input_["max_tokens"]) if input_.get("max_tokens") else None,
+        )
+        if text is None:
+            raise ConnectorError("llm.prompt: LLM generation failed (provider unreachable or empty)")
+        return {"text": text}
+
+    async def _execute_knowledge_search(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """knowledge.search: query → embed → 三层检索 → {"chunks", "citations"}。"""
+        if self._engine is None or ctx is None:
+            raise ConnectorError("knowledge.search requires engine + ctx (flow executor)")
+        query = str(input_.get("query", "") or "")
+        if not query.strip():
+            raise ConnectorError("knowledge.search: input.query required")
+        from earp_server.knowledge.embedding_service import embed_query
+        from earp_server.knowledge.search_service import search_chunks
+
+        q_emb = await embed_query(query)
+        chunks = await search_chunks(
+            self._engine,
+            ctx.tenant_id,
+            q_emb,
+            ctx.role_id,
+            top_k=max(1, min(20, int(input_.get("top_k", 5) or 5))),
+            data_domain_ids=input_.get("data_domain_ids"),
+            knowledge_base_ids=input_.get("kb_ids"),
+            query_text=query,
+        )
+        citations = [
+            {
+                "chunk_id": c.get("chunk_id"),
+                "document_id": c.get("document_id"),
+                "title": c.get("title"),
+                "content": c.get("content"),
+            }
+            for c in chunks
+        ]
+        return {"chunks": chunks, "citations": citations}
+
+    async def _execute_chat_history(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """chat.history: 会话最近 N 对 → {"messages": [...]}。"""
+        if self._engine is None or ctx is None:
+            raise ConnectorError("chat.history requires engine + ctx (flow executor)")
+        from earp_server.conversation.chat_service import _recent_pairs
+
+        messages = await _recent_pairs(
+            self._engine,
+            ctx.tenant_id,
+            ctx.session_id,
+            max(1, min(20, int(input_.get("turns", 6) or 6))),
+        )
+        return {"messages": messages}
 
     def _on_retry(self, retry_state) -> None:
         if self._bus is not None:
@@ -434,6 +514,60 @@ class LLMConnector:
         except httpx.HTTPError as exc:
             logger.error("LLMConnector.stream: streaming failed (provider=%s url=%s): %s", self._provider, url, exc)
             raise ConnectorError(f"LLM streaming failed ({self._provider}): {exc}") from exc
+
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> str | None:
+        """Chatflow F2: 非流式文本生成（llm.prompt 节点适配器用）。
+
+        ollama /api/chat stream:false + openai 兼容 /chat/completions，provider-aware
+        （与 _stream_messages 同构）；失败返回 None 不抛（调用方回落）。
+        """
+        is_ollama = self._provider == "ollama"
+        base = self._base_url.rstrip("/")
+        url = f"{base}/api/chat" if is_ollama else f"{base}/chat/completions"
+        headers = {}
+        if self._api_key and not is_ollama:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        if is_ollama:
+            payload: dict[str, Any] = {
+                "model": self._model,
+                "messages": messages,
+                "stream": False,
+                "options": {"temperature": temperature},
+            }
+            if max_tokens:
+                payload["options"]["num_predict"] = max_tokens
+        else:
+            payload = {"model": self._model, "messages": messages, "stream": False, "temperature": temperature}
+            if max_tokens:
+                payload["max_tokens"] = max_tokens
+        try:
+            client_kw: dict[str, Any] = {"timeout": 300}
+            if self._transport is not None:
+                client_kw["transport"] = self._transport
+            async with httpx.AsyncClient(**client_kw) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+            if is_ollama:
+                return (data.get("message") or {}).get("content") or None
+            choices = data.get("choices") or []
+            if not choices:
+                return None
+            return (choices[0].get("message") or {}).get("content") or None
+        except httpx.HTTPError as exc:
+            logger.error("LLMConnector.complete: failed (provider=%s url=%s): %s", self._provider, url, exc)
+            return None
 
     async def stream(self, prompt: str, *, system: str = "") -> AsyncGenerator[TokenEvent, None]:
         """Stream tokens from Ollama /api/chat with stream=true.

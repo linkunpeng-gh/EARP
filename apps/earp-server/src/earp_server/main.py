@@ -36,7 +36,7 @@ from earp_server.conversation.chat_app_service import (
     publish_chat_app,
     update_chat_app,
 )
-from earp_server.conversation.chat_service import chat_sse
+from earp_server.conversation.chat_service import ChatError, chat_sse, flow_chat
 from earp_server.gateway.auth import JWTMiddleware, create_token
 from earp_server.gateway.input_guard import sanitize_body
 from earp_server.infra.db import build_engine, check_db
@@ -1167,12 +1167,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="chat app not found")
         return app
 
-    @app.post("/chat_apps/{chat_app_id}/chat", tags=["chat_apps"])
-    async def chat_ep(chat_app_id: str, req_body: ChatRequest, req: Request) -> StreamingResponse:
-        """SSE 流式对话：query → 检索 → LLM 生成 → 引用（设计 §4.3）。"""
+    @app.post("/chat_apps/{chat_app_id}/chat", tags=["chat_apps"], response_model=None)
+    async def chat_ep(
+        chat_app_id: str, req_body: ChatRequest, req: Request
+    ) -> StreamingResponse | dict[str, Any]:
+        """对话入口：auto = SSE 流式（现状）；flow = 声明式图执行（Chatflow F2，非流式 JSON）。"""
         app = await get_chat_app(req.app.state.engine, req.state.tenant_id, chat_app_id)
         if app is None:
             raise HTTPException(status_code=404, detail="chat app not found")
+
+        if app.get("orchestration") == "flow":
+            from earp_server.connector import ConnectorError
+            from earp_server.orchestrator.workflow_dsl import WorkflowValidationError
+
+            try:
+                return await flow_chat(
+                    req.app.state.engine,
+                    req.state.tenant_id,
+                    req.state.user_id,
+                    req.state.role_id,
+                    app,
+                    req_body.query,
+                    req_body.conversation_id,
+                    base_llm=req.app.state.llm,
+                    settings=req.app.state.settings,
+                    bus=req.app.state.eventbus,
+                )
+            except (ConnectorError, ChatError, WorkflowValidationError) as e:
+                raise HTTPException(status_code=422, detail=f"flow 执行失败：{e}") from e
+            except Exception:
+                logger.exception("flow chat failed")
+                raise HTTPException(status_code=500, detail="flow 执行失败，请稍后重试") from None
 
         async def gen():
             async for line in chat_sse(

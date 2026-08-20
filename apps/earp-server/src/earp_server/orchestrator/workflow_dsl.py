@@ -16,6 +16,9 @@ F0 节点白名单: start / end / step / condition（一期无循环/并行，�
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -305,13 +308,72 @@ def validate_flow_schema(schema: dict[str, Any]) -> list[str]:
     return validate_workflow(schema, allowed_types=FLOW_NODE_TYPES)
 
 
-def compile_workflow(graph: dict[str, Any] | WorkflowGraph) -> CompiledWorkflow:
-    """Validate + compile a graph JSON into a linear execution plan."""
-    errors = validate_workflow(graph)
-    if errors:
-        raise WorkflowValidationError("workflow validation failed:\n" + "\n".join(f"- {e}" for e in errors))
+NodeBuilder = Callable[[WorkflowNode, frozenset[tuple[str, BranchSide]]], ExecItem | None]
 
-    g = graph if isinstance(graph, WorkflowGraph) else WorkflowGraph.model_validate(graph)
+# Chatflow F2 对话节点适配器映射（编译为 StepExec → Connector 适配器）
+_DIALOGUE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "llm": ("llm.prompt", ("prompt", "system", "temperature", "max_tokens")),
+    "knowledge": ("knowledge.search", ("query", "kb_ids", "data_domain_ids", "top_k")),
+    "chat_history": ("chat.history", ("turns",)),
+}
+# F1 声明可存、F2 执行未实现的节点类型（F3+ 适配层）
+_UNIMPLEMENTED_NODE_TYPES: frozenset[str] = frozenset({"qu", "human_approval", "tool", "mcp"})
+
+
+def _step_from_data(node: WorkflowNode) -> Step:
+    data = node.data
+    return Step(
+        step_id=node.id,
+        capability_call=data["capability_call"],
+        retry_config=data.get("retry_config"),
+        timeout_seconds=data.get("timeout_seconds"),
+        compensate_call=data.get("compensate_call"),
+    )
+
+
+def _condition_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> CondExec:
+    return CondExec(
+        node_id=node.id,
+        branch_id=f"cond:{node.id}",
+        condition=ConditionExpr.model_validate(node.data["condition"]),
+        gate=gate,
+    )
+
+
+def _f0_node_builder(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> ExecItem | None:
+    if node.type == "step":
+        return StepExec(node_id=node.id, step=_step_from_data(node), gate=gate)
+    if node.type == "condition":
+        return _condition_exec(node, gate)
+    return None  # start/end 不产出执行项
+
+
+def _flow_node_builder(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> ExecItem | None:
+    """Chatflow F2: flow_schema 节点 → 执行项（对话节点映射为适配器 Step）。"""
+    if node.type in ("step", "capability"):
+        return StepExec(node_id=node.id, step=_step_from_data(node), gate=gate)
+    if node.type in _DIALOGUE_ADAPTERS:
+        adapter, keys = _DIALOGUE_ADAPTERS[node.type]
+        input_: dict[str, Any] = {k: node.data[k] for k in keys if k in node.data}
+        return StepExec(
+            node_id=node.id,
+            step=Step(step_id=node.id, capability_call={"adapter_type": adapter, "input": input_}),
+            gate=gate,
+        )
+    if node.type == "condition":
+        return _condition_exec(node, gate)
+    if node.type in _UNIMPLEMENTED_NODE_TYPES:
+        raise WorkflowValidationError(
+            f"workflow validation failed:\n- node {node.id}: 节点类型 {node.type!r} 未实现（F3+ 适配层）"
+        )
+    return None  # start/end
+
+
+def _compile_graph(
+    g: WorkflowGraph,
+    builder: NodeBuilder,
+) -> CompiledWorkflow:
+    """共享编译内核：拓扑序 + gate 门控前向计算 + 线性执行序。"""
     by_id = {n.id: n for n in g.nodes}
     incoming: dict[str, list[WorkflowEdge]] = {n.id: [] for n in g.nodes}
     outgoing: dict[str, list[WorkflowEdge]] = {n.id: [] for n in g.nodes}
@@ -351,19 +413,9 @@ def compile_workflow(graph: dict[str, Any] | WorkflowGraph) -> CompiledWorkflow:
     sequence: list[ExecItem] = []
     for nid in order:
         node = by_id[nid]
-        if node.type == "step":
-            data = node.data
-            step = Step(
-                step_id=node.id,
-                capability_call=data["capability_call"],
-                retry_config=data.get("retry_config"),
-                timeout_seconds=data.get("timeout_seconds"),
-                compensate_call=data.get("compensate_call"),
-            )
-            sequence.append(StepExec(node_id=node.id, step=step, gate=gate[nid]))
-        elif node.type == "condition":
-            cond = ConditionExpr.model_validate(node.data["condition"])
-            sequence.append(CondExec(node_id=node.id, branch_id=f"cond:{node.id}", condition=cond, gate=gate[nid]))
+        item = builder(node, gate[nid])
+        if item is not None:
+            sequence.append(item)
 
     steps = [item.step for item in sequence if isinstance(item, StepExec)]
     step_ids = [item.node_id for item in sequence if isinstance(item, StepExec)]
@@ -373,6 +425,81 @@ def compile_workflow(graph: dict[str, Any] | WorkflowGraph) -> CompiledWorkflow:
         step_ids=step_ids,
         step_index={nid: i for i, nid in enumerate(step_ids)},
     )
+
+
+def compile_workflow(graph: dict[str, Any] | WorkflowGraph) -> CompiledWorkflow:
+    """F0: Validate + compile a graph JSON into a linear execution plan（step/condition）。"""
+    errors = validate_workflow(graph)
+    if errors:
+        raise WorkflowValidationError("workflow validation failed:\n" + "\n".join(f"- {e}" for e in errors))
+    g = graph if isinstance(graph, WorkflowGraph) else WorkflowGraph.model_validate(graph)
+    return _compile_graph(g, _f0_node_builder)
+
+
+def compile_flow_schema(schema: dict[str, Any] | WorkflowGraph) -> CompiledWorkflow:
+    """Chatflow F2: 编译 flow_schema（设计稿 §3 全节点类型白名单）。
+
+    对话节点（llm/knowledge/chat_history）映射为适配器 Step（Connector 执行）；
+    condition 复用 F0 CondExec；qu/human_approval/tool/mcp 报「未实现」明确错误。
+    """
+    errors = validate_workflow(schema, allowed_types=FLOW_NODE_TYPES)
+    if errors:
+        raise WorkflowValidationError("workflow validation failed:\n" + "\n".join(f"- {e}" for e in errors))
+    g = schema if isinstance(schema, WorkflowGraph) else WorkflowGraph.model_validate(schema)
+    return _compile_graph(g, _flow_node_builder)
+
+
+# ── 变量引用模板（F2）───────────────────────────────────────────────────────
+
+_TEMPLATE_RE = re.compile(r"\{\{(?:#([\w.]+)#|([\w.]+))\}\}")
+
+
+def resolve_templates(
+    value: Any,
+    pool: dict[str, StepResult],
+    flow_input: dict[str, Any] | None = None,
+) -> Any:
+    """递归替换字符串中的变量引用（F2 对话节点输入）。
+
+    - ``{{query}}`` → flow_input['query']（图输入）
+    - ``{{#node_id.output#}}`` / ``{{#node_id.output.a.b#}}`` → pool 中已完成节点输出
+    缺失引用原样保留（适配器/LLM 端兜底，不静默吞掉）。
+    """
+    flow_input = flow_input or {}
+    if isinstance(value, str):
+
+        def _replace(m: re.Match[str]) -> str:
+            dotted = m.group(1)
+            if dotted is not None:
+                parts = dotted.split(".")
+                if len(parts) < 2 or parts[1] != "output":
+                    return m.group(0)
+                result = pool.get(parts[0])
+                if result is None or result.output is None:
+                    return m.group(0)
+                v: Any = result.output
+                for key in parts[2:]:
+                    if not isinstance(v, dict) or key not in v:
+                        return m.group(0)
+                    v = v[key]
+                return _stringify(v)
+            key = m.group(2)
+            return _stringify(flow_input[key]) if key in flow_input else m.group(0)
+
+        return _TEMPLATE_RE.sub(_replace, value)
+    if isinstance(value, dict):
+        return {k: resolve_templates(v, pool, flow_input) for k, v in value.items()}
+    if isinstance(value, list):
+        return [resolve_templates(v, pool, flow_input) for v in value]
+    return value
+
+
+def _stringify(v: Any) -> str:
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)
+    if v is None:
+        return "null"
+    return str(v)
 
 
 # ── 运行时条件求值（纯函数，无 DB）──────────────────────────────────────────

@@ -761,6 +761,23 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 **FDE 指南**：无需变更（flow 模式无用户可见功能，F2 执行端点/F5a 页面才涉及）。
 
+### 会话续接（2026-08-20）— Chatflow F2: flow 执行器（DAG JSON → 编译 → 对话节点适配层最小集）
+
+**任务书**：`tasks/chatflow-f2-flow-executor-task-breakdown.md`（D1-D8 决策：复用 F0 链路注入 llm、LLM 非流式 complete、compile_flow_schema 节点映射、变量引用模板、chat 端点 flow 分支、knowledge 适配器、测试策略、import-linter，执行序 1→5）。基线 281 tests 全绿。
+
+**实现（按执行序）**：
+1. **compile_flow_schema + resolve_templates**（workflow_dsl）：抽共享 `_compile_graph`（拓扑+gate+线性序，F0/F2 共用）；对话节点映射——llm→`llm.prompt`/knowledge→`knowledge.search`/chat_history→`chat.history` 适配器 Step（input 透传），condition 复用 CondExec，**qu/human_approval/tool/mcp 编译报「未实现（F3+）」**（声明可存、执行明确报错）；`resolve_templates` 递归替换 `{{query}}`/`{{#node.output#}}`/`{{#node.output.path#}}`（缺失原样保留）；F0 compile_workflow 行为不变
+2. **对话节点适配器**（connector）：`LLMConnector.complete` 非流式文本生成（ollama+openai 兼容，失败 None 不抛）；Connector 注入 engine/llm + `execute(capability_call, *, ctx)`（ctx 供 tenant/role/session）；llm.prompt（→`{"text"}`）/ knowledge.search（embed_query + search_chunks 三层检索 → `{"chunks","citations"}`）/ chat.history（复用 _recent_pairs → `{"messages"}`）；StepRunner/MultiStepExecutor 注入 llm；`_execute_plan` 加 flow_input + invoke 前模板替换
+3. **端点**（main.py + chat_service.flow_chat）：chat_ep flow 分支——会话创建/续接（chat_apps 归属）+ user 消息先落 → compile_flow_schema（防御）→ resolve_llm_override + llm 注入 → MultiStepExecutor 图执行 → outputs → assistant 落库（最后 completed 节点 text）+ citations（knowledge 节点）→ 非流式 JSON `{execution_id, conversation_id, status, outputs, message_id, answer}`；auto 模式 SSE 零回归（端点 `response_model=None` 防 FastAPI Union 报错）
+4. **单测**：`tests/test_flow_executor.py` 17 用例——编译映射/未实现类型/gate/模板替换（query/整体/路径/递归/缺失）/适配器（FakeLLM 断言参数、真 DB history 配对、monkeypatch knowledge）/flow_chat 端到端（{{query}} 替换进 prompt、消息落库、**condition 只走命中分支**——FakeLLM.calls 断言未命中分支零调用）
+5. **质量门**：298 passed（281 + 17）+ import-linter + ruff/pyright 零新增（ruff 17==17、pyright 24==24，diff 仅存量行号）+ OpenAPI 基线仅 chat 端点描述 +1 行
+
+**dev 真 API 实测**（8000 + 真实 Ollama qwen2.5:1.5b）：设备维修单 flow（chat_history → llm → condition → 分支 llm）——chat 200 completed，outputs = {h1, l1("CNC-01 温度正常。"), **ok("一切正常。")**}——condition contains "正常" 命中 true 分支、fault 未执行（无副作用）；answer=命中分支输出、message 落库。**flow 图第一次真实跑通（含 LLM + 条件分支）**
+
+**遗留**：① LLM 节点非流式（token 级 SSE 透传 F4/F5a 与 Human Approval 一起）；② 节点级超时未做（complete 300s 全局）；③ flow 执行失败 422/500 语义可细化（F5a 前端对齐）；④ chat.history 适配器未做会话上下文指代消解（设计稿 F6 联动）；⑤ condition 求值错误回滚未做（F0 遗留延续）
+
+**FDE 指南**：无需变更（flow 无前端入口，F5a 页面才涉及）。
+
 ---
 
 ### 历史待办
