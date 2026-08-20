@@ -780,6 +780,47 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 会话续接（2026-08-20）— Chatflow F3: qu/capability/tool 节点（编译 + 适配器 + 权限/审计）
+
+**任务书**：`tasks/chatflow-f3-qu-capability-tool-task-breakdown.md`（D1-D6 决策：qu 节点 understand→select_plan→execute_plan 包装、capability.call 注册表校验+权限门禁、tool.fetch 复用 M3 连接体系、编译映射、变量引用、测试策略；执行序 1→5）。基线 347 tests（含未提交的 M3 review 修复 +4）。
+
+**实现（按执行序）**：
+1. **compile_flow_schema 扩展**（workflow_dsl）：qu→`qu.answer`（query 默认 `{{query}}` + context_turns 透传）、capability→`capability.call`（兼容 step 别名 capability_call 与 D4 新形状 input，capability_id 归一化到顶层——PolicyLayer 权限查 capability_call.capability_id 免改；显式 adapter_type 保持 step 行为 F2 兼容）、tool→`tool.fetch`（connector_id 非空校验）；**human_approval/mcp 仍报「未实现（F4 或后续）」**；validate_workflow 对 capability 放宽（capability_call 或 input 皆可）；`resolve_templates` 支持 F3 简写 `{{#node.path#}}`（省略 .output. 段，F2 全量兼容）
+2. **Connector 适配器**（connector.py，注入 settings 供 qu LLM 升级）：`qu.answer`——understand（规则层，可 upgrade_with_llm）→ build_structured_query → execute_plan → `{selection, evidence, citations, chunks}`（三源转换镜像 chat_service._retrieve；citations 供下游 `{{#q1.output.citations#}}`/`{{#q1.citations#}}`）；`capability.call`——business_capabilities 注册表校验（存在 + active）+ required_permissions 门禁（ConnectorError，与 PolicyLayer 双保险）→ 按 domain.name 分派（demo.echo 真实执行 / 已知 adapter / 明确报错）；`tool.fetch`——decrypt_config（AES）→ data_adapter.fetch（REST/DB）→ `{rows, count, domain_filtered: false}`（M3 review 教训 B：raw rows 一期标注未过滤）；settings 线程：flow_chat → MultiStepExecutor → StepRunner → Connector
+3. **Layers 挂载**（multi_step + layers + main）：`_execute_plan` 对 capability.call 步骤挂 `[AuditLayer, PolicyLayer]`（bus 可用时），其它节点（llm/knowledge/qu/tool）不挂层避免噪音；AuditLayer 对 capability 步骤发 `earp.capability.call.started/completed/failed`（entity_type=capability、entity_id=capability_id），其余保持 earp.execution.*；main.py lifespan 订阅 `earp.capability.*` → audit_logs；chat_ep flow 分支 `except HTTPException: raise`（PolicyLayer 403 透传，勿转 500）
+4. **单测**：`tests/test_flow_f3_nodes.py` 21 用例——编译（qu/capability/tool 可编译 + 各形状 + 缺字段报错 + human_approval/mcp 仍报错）/适配器（qu.answer mock understand/execute_plan 断言 citations/chunks 透传、capability.call 存在/未知/权限拒绝、tool.fetch 真加密 connector 配置 + mock fetch）/集成（qu→llm citations 引用进 prompt、capability 执行 + 审计落 audit_logs、PolicyLayer 403、tool params 模板替换）；test_flow_executor.py 2 用例从 qu 改为 human_approval（qu 已可编译）
+5. **质量门**：372 passed（351 基线 + 21）+ import-linter 基线（exit=1 仅 3 条 F2 遗留过时 ignore 警告，零新增）+ ruff 15==15 + pyright 24==24（零新增）+ OpenAPI 3 passed 零变化
+
+**dev 真 API 实测**：未做（8000 --reload 进程 + Ollama 可用；flow qu 节点需真实 embedding/理解链路，验收以全量单测 + 集成测为准）
+
+**遗留**：① import-linter 3 条过时 ignore 清理非「顺手」——删除会暴露 2 条 pre-existing 真实链（knowledge→policy 经 ontology、conversation→orchestrator.types 是 F2 漏加的 ignore），需专门会话做架构决策（本轮还原基线不扩大范围）；② capability 节点真实执行仍限 demo.echo/已知 adapter（业务 capability 通用执行器 Phase F）；③ tool 取数结果域过滤标注 domain_filtered:false（上层 knowledge 节点过滤 F6 联动）；④ qu 节点 context_turns 暂未接入会话指代消解（F6）；⑤ 命令审批流不做（任务书 D2 既定）
+
+**FDE 指南**：§15 新增 flow 模式节点说明（qu/capability/tool JSON 形状、权限/审计边界、变量引用简写）。
+
+---
+
+### 会话续接（2026-08-20）— Chatflow F4: human_approval 节点（挂起/恢复/超时）
+
+**任务书**：`tasks/chatflow-f4-human-approval-task-breakdown.md`（D1-D7 决策：flow_runs 持久化、挂起语义 202、恢复=用户下一句即答复、超时双保险、取消一期不做、并发唯一性、测试策略；执行序 1→5）。基线 372 tests（F3 后）。
+
+**⚠️ 会话前序插曲**：开工发现 F3 源码改动全部消失（被 stash 为 `830e3c5 f3-in-progress` 且未 pop）——从 stash 恢复（8 文件 checkout + multi_step/workflow_dsl 手工合并 F3+F4 改动），test_flow_f3_nodes.py（untracked 不在 stash）从会话记录重建。教训：交接间隙的未提交改动可能被并行操作 stash——开工先 `git status`/`git stash list` 核对。
+
+**实现（按执行序）**：
+1. **migration 0026 flow_runs + pool 序列化**：flow_runs 表（execution_id PK / tenant_id / chat_app_id FK→chat_apps / conversation_id / status CHECK(running|waiting_human|completed|failed|timeout|cancelled) / pending_node_id / node_state JSONB / flow_input JSONB / attempts / created_at / updated_at / finished_at）+ RLS 三件套 + GRANT（对齐 0014 先例）；`serialize_pool`/`deserialize_pool` 在 orchestrator.workflow_dsl（StepResult 在 orchestrator 内部，避免 conversation→orchestrator 跨域）；conversation/flow_runs.py 纯 DB service（create/get_waiting/update_waiting/finish/expire_waiting_approvals 逐租户超时扫描）
+2. **执行器挂起点**（multi_step + types + step_runner）：`ApprovalPending(node_id, question)` 异常（orchestrator.types）；StepRunner.invoke 捕获穿透（不写 checkpoint）；`_execute_plan` 捕获 → `ExecutionStatus.WAITING_HUMAN` + state.pending_node_id/question；恢复参数 `resume_pool/resume_pending_node/resume_reply`——前序 completed 并入 results、挂起点注入答复 `{reply}`、已执行节点不重放（pool 存在性判断，条件分支确定性重放）；ExecutionStatus 枚举加 waiting_human
+3. **human.approval 适配器 + compile 映射 + flow_chat 改造**：connector `human.approval` 抛 ApprovalPending（question 模板渲染）；workflow_dsl `_human_approval_exec`（data.question 可选默认「请确认是否继续」，_UNIMPLEMENTED 只剩 mcp）；flow_chat——同 conversation 的 waiting_human run → 恢复（用户下一句即答复，flow_input 用挂起时快照，exec_id 复用）否则新建；挂起 → flow_runs 落库 + assistant 消息「⏸ 等待确认：{question}」+ 返回 waiting_human；完成/失败 → finish_run 终态化；chat_ep waiting_human → **202**（JSONResponse，返回类型注解加 JSONResponse）
+4. **超时（D4 双保险）**：`EARP_APPROVAL_TTL`（默认 3600s，Settings.approval_ttl）；恢复时惰性检查（flow_chat 过期 → finish timeout + 消息）；scheduler 每 60s 扫描（`EARP_APPROVAL_SCAN_INTERVAL_SECONDS`）逐租户 expire + 超时消息落库（查 conversations.user_id）
+5. **单测**：`tests/test_flow_approval.py` 10 用例——pool 序列化往返/执行器挂起（pending 信息+下游未执行）/恢复（答复进 llm prompt）/多挂起点顺序恢复/flow_chat 挂起→恢复→完成（exec_id 复用 + flow_runs 状态流转）/挂起消息落库/超时惰性（timeout→新建 run 再挂起）/无审批图回归/端点 202→恢复 200；test_flow_executor 2 用例 mcp 替代 human_approval（未实现断言）；test_flow_f3_nodes human_approval 编译用例 + mcp 独立用例；test_migrations EXPECTED_TABLES 44→45（downgrade 表数 -7）、test_rls TENANT_TABLE_COUNT 43→44；**OpenAPI 基线同步**（chat 端点描述 + F4 202，无 schema 变化）
+6. **质量门**：383 passed（372 + 10 F4 + 1 human_approval 编译用例）+ import-linter 基线（3 条 F2 遗留过时 ignore）+ ruff 3 pre-existing（connector ASYNC109/main I001/test_flow_executor CondExec）+ pyright 24==24 零新增
+
+**dev 真 API 实测**（8000 + 真实 Ollama + dev DB 升级 0026）：设备维修单 flow `start→human_approval→llm→end`——第一轮 **202 waiting_human**（question「确认给 CNC-01 派维修单？」）；第二轮同 conversation「同意派单」→ **completed**（同一 execution_id 复用、outputs.h1.reply=同意派单、l1 真实 LLM 生成「用户同意派单。」）；flow_runs 状态流转 completed + 消息序列 user→⏸等待确认→user→assistant 完整。
+
+**遗留**：① 挂起时 checkpoint 不写（flow_runs 是唯一持久化——checkpoint resume 与 flow_runs 恢复并存但互斥，未来如需统一需决策）；② 恢复语义「用户下一句即答复」——答非所问也按答复处理（FDE 指南已注明）；③ attempts 仅在等待期间有意义（恢复后完成不更新）；④ 超时扫描依赖 scheduler 进程（惰性检查兜底已保证 API 侧正确）；⑤ cancel 端点一期不做（超时即终态，D5）；⑥ F5a 前端需消费 202 + 多挂起点「再次等待」状态
+
+**FDE 指南**：§15 补 human_approval 节点（JSON 形状/挂起恢复语义/超时边界/答复引用 {{#node.output.reply#}}）。
+
+---
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |

@@ -811,3 +811,59 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 - **facts 生命周期**（关系变化自动 supersede/revoke）：二期——一期同步只建新事实、不更新旧关系
 - **DB adapter 真实数仓对接**：代码就绪，需真实环境验证（dev 冒烟用 REST stub）
 - **无中台场景**：CSV 兜底路径（§2 批量导入）保持可用，与中台对接并存
+
+## 15. Chatflow flow 模式节点（F3：QU / Capability / Tool）
+
+> flow 模式（`orchestration=flow`）：开发者把「做事」画成 DAG（start → 节点 → end），
+> 对话时逐节点执行。F2 已有 LLM/Knowledge/Chat History/Condition 节点；F3 增加三个
+> **能做事**的节点：QU（自动理解子问题）、Capability（真实能力执行 + 权限/审计）、
+> Tool（经中台连接体系取数）。节点用 JSON 声明（F5a 前端画布前的过渡形态）。
+
+### 15.1 节点 JSON 形状（flow_schema）
+
+```jsonc
+// QU 节点：理解 → 选策略 → 执行（输出 selection/evidence/citations/chunks）
+{ "id": "q1", "type": "qu", "data": { "query": "{{query}}", "context_turns": 2 } }
+
+// Capability 节点：注册表校验 + 权限门禁 + 审计（capability_id 必填）
+// 两种形状兼容——step 别名（capability_call）或新形状（input）
+{ "id": "c1", "type": "capability",
+  "data": { "capability_call": { "capability_id": "cap-demo-echo", "input": { "msg": "hi" } } } }
+
+// Tool 节点：复用 M3 中台连接（connector_id 必填，params 支持模板）
+{ "id": "t1", "type": "tool",
+  "data": { "connector_id": "cn-xxx", "params": { "region": "{{query}}" } } }
+
+// Human Approval 节点（F4）：执行到此处挂起，等人在会话里答复后继续
+{ "id": "h1", "type": "human_approval",
+  "data": { "question": "确认给 CNC-01 派维修单？" } }
+```
+
+### 15.2 三个节点做了什么
+
+| 节点 | 执行链路 | 输出 | 备注 |
+|:---|:---|:---|:---|
+| **QU** | understand（规则层，可 LLM 升级）→ select_plan → execute_plan（plan_fact/relation/aggregation） | `{selection, evidence, citations, chunks}` | 输出 citations 供下游 `{{#q1.output.citations#}}`（或简写 `{{#q1.citations#}}`）引用——flow 里放 QU = 自动理解子问题 |
+| **Capability** | business_capabilities 注册表校验（存在 + active）→ required_permissions 门禁 → 执行 | 适配器结果（如 demo.echo → `{"echo": {...}}`） | 无权限：PolicyLayer 403（角色缺 required_permissions）；审计事件 `earp.capability.call.*` 落 audit_logs；capability_id 需在注册表声明 |
+| **Tool** | decrypt_config（AES 解密）→ data_adapter.fetch（REST/DB） | `{rows, count, domain_filtered: false}` | 取数在外部系统（不经 EARP RLS）——raw rows 一期标注 `domain_filtered: false`，需上层/后续做角色域过滤（M3 review 教训 B） |
+| **Human Approval**（F4） | 执行到挂起点 → 抛挂起信号 → flow_runs 持久化 → 202 等人工答复 | 挂起 202 `{status: waiting_human, pending_node_id, question}`；恢复后答复经 `{{#h1.output.reply#}}` 供下游 | 用户下一句消息即答复（复用对话）；等待超时（默认 3600s）→ timeout 终态 |
+
+### 15.3 权限与审计边界（FDE 需知）
+
+- **Capability 权限**：与 orchestrator invoke 同构——角色 permissions 必须包含
+  business_capabilities.required_permissions 全部项，否则 403（flow 端点透传，非 500）。
+- **Capability 审计**：capability 节点执行发 `earp.capability.call.started/completed/failed`
+  事件（entity_type=capability），audit worker / 进程内 handler 落 audit_logs——查询审计可按
+  `event_type LIKE 'earp.capability.call%'` 过滤。
+- **Tool 数据域边界**：tool 取数是「admin 配置的连接、按租户隔离」，但**结果行不自动按
+  角色 data_scope 过滤**——涉及实体数据时请让上层 knowledge/QU 节点做域过滤，或接受一期
+  `domain_filtered: false` 标注。
+- **human_approval 节点**（F4）：执行到挂起点 → **202 等待确认**（不失败不阻塞）→ 用户在**同一会话**发下一句消息即答复 → 流程自动继续；答复可用 `{{#节点id.output.reply#}}` 引用。多个人工确认节点按顺序逐个等待。等待超时（默认 1 小时，`EARP_APPROVAL_TTL`）→ 流程终态 timeout + 消息「⏰ 等待超时」；恢复时的超时惰性检查 + scheduler 定期扫描双保险。
+- **mcp 节点**：F4 仍编译报「未实现（后续）」——flow 图请勿放置。
+
+### 15.4 变量引用（节点间传值）
+
+- `{{query}}` → 当前用户问题（图输入）
+- `{{#node_id.output.path#}}` → 前序节点输出（如 `{{#q1.output.citations#}}`）；F3 起支持
+  简写 `{{#node_id.path#}}`（省略 `.output.` 段）
+- 缺失引用原样保留（不静默吞掉）——适配器/LLM 端兜底
