@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 中台对接 — connector 连接 / 数据源注册 / 同步 / virtual 实时取数"><title>中台对接 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
+<body data-base=".." data-section="knowledge" data-sub="data-source">
+<header id="app-header"></header>
+
+<main>
+
+<div class="page-title"><div><h2>中台对接</h2><p class="page-subtitle">连接数据中台：注册连接 → 注册数据源（synced 拷贝 / virtual 实时）→ 触发同步 · M3 · 对接规范见 arch/guides/earp-data-contract.md</p></div></div>
+
+<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+
+  <!-- ① 连接管理 -->
+  <section style="flex:1 1 320px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+    <h3 style="margin:0 0 8px">① 连接管理（connector）</h3>
+    <p style="font-size:0.75rem;color:var(--text-tertiary);margin:0 0 10px">中台系统连接配置（地址/认证），配置加密存储、列表不泄露明文。写操作需 Admin 角色。</p>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input id="cn-id" placeholder="connector_id（留空自动生成 cn-xxx）" style="flex:1;min-width:0">
+      <select id="cn-type" style="flex:0 0 90px">
+        <option value="rest">REST</option>
+        <option value="db">DB</option>
+      </select>
+    </div>
+    <textarea id="cn-config" rows="4" placeholder='REST: {"base_url":"http://中台/api","path":"/equip","auth_type":"none|basic|bearer","username":"","password":"","token":"","timeout_seconds":30}' style="width:100%;box-sizing:border-box;margin-bottom:8px;font-family:monospace;font-size:0.72rem"></textarea>
+    <button onclick="createConnector()">➕ 注册连接</button>
+    <div id="cn-list" style="margin-top:10px"><p style="color:var(--text-tertiary);font-size:0.75rem">加载中…</p></div>
+  </section>
+
+  <!-- ② 注册数据源 -->
+  <section style="flex:1.4 1 380px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+    <h3 style="margin:0 0 8px">② 注册数据源</h3>
+    <p style="font-size:0.75rem;color:var(--text-tertiary);margin:0 0 10px">选连接 + 实体类型 + 字段映射。synced 注册后自动入队同步；virtual 仅支持 metric 类型（实时取数）。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <select id="ds-connector" style="flex:1 1 140px"></select>
+      <select id="ds-etype" style="flex:1 1 140px"></select>
+      <select id="ds-mode" onchange="onModeChange()" style="flex:0 0 110px">
+        <option value="synced">synced 拷贝</option>
+        <option value="virtual">virtual 实时</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input id="ds-name-field" placeholder="名称列（如 equip_name）" style="flex:1;min-width:0">
+      <input id="ds-code-field" placeholder="业务编码列（必填，如 equip_code）" style="flex:1;min-width:0">
+    </div>
+    <p style="font-size:0.72rem;color:var(--text-tertiary);margin:0 0 4px">属性映射（EARP 属性 ← 中台列）</p>
+    <div id="attr-rows"></div>
+    <button onclick="addAttrRow()" style="margin:2px 0 8px;font-size:0.72rem">＋ 属性映射</button>
+    <p style="font-size:0.72rem;color:var(--text-tertiary);margin:0 0 4px">关系映射（关系 ← 目标实体编码列）</p>
+    <div id="rel-rows"></div>
+    <button onclick="addRelRow()" style="margin:2px 0 8px;font-size:0.72rem">＋ 关系映射</button>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button onclick="createDataSource()">🚀 注册数据源</button>
+      <span id="ds-msg" style="font-size:0.75rem;color:var(--text-tertiary)"></span>
+    </div>
+  </section>
+
+  <!-- ③ live 测试 -->
+  <section style="flex:1 1 280px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+    <h3 style="margin:0 0 8px">③ virtual 实时取数测试</h3>
+    <p style="font-size:0.75rem;color:var(--text-tertiary);margin:0 0 10px">选 metric 实体点「⚡ 取数」——实时经 connector 调中台 API（失败 503 不假造值）。</p>
+    <div id="live-list"><p style="color:var(--text-tertiary);font-size:0.75rem">无 virtual 数据源时此处为空…</p></div>
+  </section>
+</div>
+
+<!-- ④ 数据源列表 -->
+<section style="margin-top:16px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+  <h3 style="margin:0 0 8px">④ 数据源列表</h3>
+  <div id="ds-list"><p style="color:var(--text-tertiary);font-size:0.75rem">加载中…</p></div>
+</section>
+
+</main>
+<script src="../js/nav.js"></script>
+<script src="../js/app.js"></script>
+<script>
+var STATE = { connectors: [], entityTypes: [], relTypes: [], dataSources: [] };
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+function statusBadge(s) {
+  if (!s) return '<span class="status-badge" style="color:var(--text-tertiary)">—</span>';
+  var map = { completed: ['#2e7d32', '✅ 完成'], running: ['#b26a00', '⏳ 同步中'], failed: ['#c62828', '❌ 失败'], interrupted: ['#5d4037', '⚠️ 中断'], queued: ['#1565c0', '🕐 排队'] };
+  var m = map[s] || ['#455a64', s];
+  return '<span class="status-badge" style="color:' + m[0] + ';border:1px solid ' + m[0] + '33;background:' + m[0] + '11;border-radius:4px;padding:1px 6px;font-size:0.72rem">' + m[1] + '</span>';
+}
+
+// ── 加载 ──
+function loadAll() {
+  return Promise.all([
+    EARP.fetchJSON('/v1/ontology/connectors'),
+    EARP.fetchJSON('/v1/ontology/entity-types'),
+    EARP.fetchJSON('/v1/ontology/relation-types'),
+    EARP.fetchJSON('/v1/ontology/data-sources'),
+  ]).then(function (r) {
+    STATE.connectors = r[0].items || [];
+    STATE.entityTypes = r[1] || [];
+    STATE.relTypes = r[2] || [];
+    STATE.dataSources = r[3].items || [];
+    renderConnectors(); renderDataSourceForm(); renderDataSourceList(); renderLivePanel();
+  }).catch(function (e) { alert('加载失败: ' + e.message); });
+}
+
+function renderConnectors() {
+  var el = $('cn-list');
+  if (!STATE.connectors.length) { el.innerHTML = '<p style="color:var(--text-tertiary);font-size:0.75rem">暂无连接，先注册一个。</p>'; return; }
+  el.innerHTML = STATE.connectors.map(function (c) {
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border-subtle)">' +
+      '<div><div style="font-weight:600;font-size:0.8rem">' + esc(c.connector_id) + ' <span style="color:var(--text-tertiary);font-weight:400">(' + esc(c.adapter_type) + ')</span></div>' +
+      '<div style="font-size:0.7rem;color:var(--text-tertiary)">' + esc(c.config.credential_masked ? '配置已加密（不显示明文）' : '') + (c.status === 'deprecated' ? ' · 已停用' : '') + '</div></div>' +
+      '<button onclick="deleteConnector(\'' + esc(c.connector_id) + '\')" style="font-size:0.7rem;background:none;border:1px solid var(--border-subtle);color:#c62828">删除</button></div>';
+  }).join('');
+}
+
+function renderDataSourceForm() {
+  $('ds-connector').innerHTML = STATE.connectors.map(function (c) {
+    return '<option value="' + esc(c.connector_id) + '">' + esc(c.connector_id) + ' (' + esc(c.adapter_type) + ')</option>';
+  }).join('') || '<option value="">（先注册连接）</option>';
+  $('ds-etype').innerHTML = STATE.entityTypes.filter(function (t) { return t.status !== 'deprecated'; }).map(function (t) {
+    return '<option value="' + esc(t.entity_type_id) + '" data-kind="' + esc(t.kind) + '">' + esc(t.entity_type_id) + '（' + esc(t.kind) + '）</option>';
+  }).join('');
+  addAttrRow(); addRelRow();
+}
+
+function renderDataSourceList() {
+  var el = $('ds-list');
+  if (!STATE.dataSources.length) { el.innerHTML = '<p style="color:var(--text-tertiary);font-size:0.75rem">暂无数据源，用②注册。</p>'; return; }
+  el.innerHTML = '<table class="data-table" style="width:100%;font-size:0.8rem;border-collapse:collapse">' +
+    '<tr style="text-align:left;color:var(--text-tertiary)"><th style="padding:4px 8px">数据源</th><th>实体类型</th><th>模式</th><th>状态</th><th>上次同步</th><th>操作</th></tr>' +
+    STATE.dataSources.map(function (d) {
+      return '<tr style="border-top:1px solid var(--border-subtle)">' +
+        '<td style="padding:6px 8px"><div style="font-weight:600">' + esc(d.data_source_id) + '</div>' +
+        '<div style="font-size:0.68rem;color:var(--text-tertiary)">' + esc(d.connector_id) + '</div></td>' +
+        '<td>' + esc(d.entity_type_id) + '</td>' +
+        '<td>' + (d.source_mode === 'virtual' ? '🟢 virtual' : '🔵 synced') + '</td>' +
+        '<td>' + statusBadge(d.last_sync_status) + '</td>' +
+        '<td style="font-size:0.72rem;color:var(--text-tertiary)">' + esc((d.last_synced_at || '—').slice(0, 19)) + '</td>' +
+        '<td><button onclick="syncDS(\'' + esc(d.data_source_id) + '\')" style="font-size:0.72rem">🔄 同步</button> ' +
+        '<button onclick="toggleDSDetail(\'' + esc(d.data_source_id) + '\')" style="font-size:0.72rem;background:none;border:1px solid var(--border-subtle)">映射</button>' +
+        '<div id="detail-' + esc(d.data_source_id) + '" style="display:none;margin-top:6px;font-size:0.7rem;color:var(--text-tertiary);background:var(--bg-base);padding:6px;border-radius:4px"><pre style="margin:0;white-space:pre-wrap">' + esc(JSON.stringify(d.field_mapping, null, 1)) + '</pre></div></td></tr>';
+    }).join('') + '</table>';
+}
+
+function renderLivePanel() {
+  var virtual = STATE.dataSources.filter(function (d) { return d.source_mode === 'virtual'; });
+  var el = $('live-list');
+  if (!virtual.length) { el.innerHTML = '<p style="color:var(--text-tertiary);font-size:0.75rem">无 virtual 数据源（②注册 metric 类型 + virtual 模式）…</p>'; return; }
+  el.innerHTML = virtual.map(function (d) {
+    return '<div style="margin-bottom:10px"><div style="font-weight:600;font-size:0.8rem">' + esc(d.entity_type_id) + ' <span style="color:var(--text-tertiary);font-weight:400">' + esc(d.connector_id) + '</span></div>' +
+      '<div id="live-ents-' + esc(d.data_source_id) + '" style="font-size:0.75rem">' +
+      '<button onclick="loadLiveEntities(\'' + esc(d.data_source_id) + '\', \'' + esc(d.entity_type_id) + '\')" style="font-size:0.72rem">📋 列出实体</button></div></div>';
+  }).join('');
+}
+
+// ── 操作 ──
+function createConnector() {
+  var body = { adapter_type: $('cn-type').value, config: {} };
+  if ($('cn-id').value.trim()) body.connector_id = $('cn-id').value.trim();
+  try { body.config = $('cn-config').value.trim() ? JSON.parse($('cn-config').value) : {}; }
+  catch (e) { alert('连接配置不是合法 JSON'); return; }
+  EARP.fetchJSON('/v1/ontology/connectors', { method: 'POST', body: JSON.stringify(body) })
+    .then(function () { $('cn-config').value = ''; $('cn-id').value = ''; return loadAll(); })
+    .catch(function (e) { alert('注册连接失败: ' + (e.detail || e.message)); });
+}
+
+function deleteConnector(id) {
+  if (!confirm('删除连接 ' + id + '？（被数据源引用时会被拒绝）')) return;
+  EARP.fetchJSON('/v1/ontology/connectors/' + encodeURIComponent(id), { method: 'DELETE' })
+    .then(function () { return loadAll(); })
+    .catch(function (e) { alert('删除失败: ' + (e.detail || e.message)); });
+}
+
+function onModeChange() {
+  var mode = $('ds-mode').value;
+  var opt = $('ds-etype').selectedOptions[0];
+  var kind = opt ? opt.dataset.kind : '';
+  $('ds-msg').textContent = mode === 'virtual' ? (kind === 'metric' ? '✓ metric 类型可注册' : '⚠️ virtual 仅支持 metric 类型实体') : '';
+}
+
+function addAttrRow() {
+  var row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;margin-bottom:4px';
+  row.innerHTML = '<input placeholder="EARP 属性名" style="flex:1;font-size:0.72rem"><input placeholder="中台列名" style="flex:1;font-size:0.72rem"><button onclick="this.parentNode.remove()" style="font-size:0.68rem;background:none;border:none;color:#c62828">✕</button>';
+  $('attr-rows').appendChild(row);
+}
+
+function addRelRow() {
+  var row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;margin-bottom:4px';
+  row.innerHTML = '<select style="flex:1;font-size:0.72rem"><option value="">关系类型…</option>' +
+    STATE.relTypes.filter(function (r) { return r.status !== 'deprecated'; }).map(function (r) {
+      return '<option value="' + esc(r.relation_type_id) + '">' + esc(r.relation_type_id) + '（' + esc(r.target_type || '') + '）</option>';
+    }).join('') + '</select>' +
+    '<input placeholder="目标编码列（如 supplier_code）" style="flex:1.2;font-size:0.72rem"><button onclick="this.parentNode.remove()" style="font-size:0.68rem;background:none;border:none;color:#c62828">✕</button>';
+  $('rel-rows').appendChild(row);
+}
+
+function createDataSource() {
+  var connector = $('ds-connector').value;
+  var etype = $('ds-etype').value;
+  var mode = $('ds-mode').value;
+  var nameField = $('ds-name-field').value.trim();
+  var codeField = $('ds-code-field').value.trim();
+  if (!connector || !etype) { alert('请选连接和实体类型'); return; }
+  if (!nameField || !codeField) { alert('名称列和业务编码列必填'); return; }
+  var attrFields = {}, relations = [];
+  Array.prototype.forEach.call($('attr-rows').children, function (r) {
+    var k = r.children[0].value.trim(), v = r.children[1].value.trim();
+    if (k && v) attrFields[k] = v;
+  });
+  Array.prototype.forEach.call($('rel-rows').children, function (r) {
+    var rt = r.children[0].value, tf = r.children[1].value.trim();
+    if (rt && tf) relations.push({ relation_type: rt, target_field: tf });
+  });
+  var body = {
+    connector_id: connector, entity_type_id: etype, source_mode: mode,
+    field_mapping: { name_field: nameField, business_code_field: codeField, attr_fields: attrFields, relations: relations },
+  };
+  $('ds-msg').textContent = '提交中…';
+  EARP.fetchJSON('/v1/ontology/import/connector', { method: 'POST', body: JSON.stringify(body) })
+    .then(function (out) {
+      $('ds-msg').textContent = '✓ 已注册' + (out.job_status === 'queued' ? '（同步已入队）' : '');
+      setTimeout(function () { $('ds-msg').textContent = ''; }, 4000);
+      return loadAll();
+    })
+    .catch(function (e) {
+      $('ds-msg').textContent = '';
+      alert('注册失败: ' + (e.detail || e.message));
+    });
+}
+
+function syncDS(id) {
+  EARP.fetchJSON('/v1/ontology/data-sources/' + encodeURIComponent(id) + '/sync', { method: 'POST', body: '{}' })
+    .then(function () { return loadAll(); })
+    .catch(function (e) {
+      alert('触发同步失败: ' + (e.detail || e.message));
+      loadAll();
+    });
+}
+
+function toggleDSDetail(id) { $('detail-' + id).style.display = $('detail-' + id).style.display === 'none' ? 'block' : 'none'; }
+
+function loadLiveEntities(dsId, etype) {
+  var el = $('live-ents-' + dsId);
+  el.innerHTML = '加载中…';
+  EARP.fetchJSON('/v1/ontology/entities?entity_type_id=' + encodeURIComponent(etype) + '&status=all')
+    .then(function (r) {
+      var items = r.items || [];
+      if (!items.length) { el.innerHTML = '<span style="color:var(--text-tertiary)">该类型暂无实体（用实体管理新建 metric 实体，source_mode=virtual）</span>'; return; }
+      el.innerHTML = items.map(function (e) {
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0">' +
+          '<span>' + esc(e.name) + ' <span style="color:var(--text-tertiary);font-size:0.68rem">' + esc(e.business_code || '') + '</span></span>' +
+          '<span style="display:flex;gap:6px;align-items:center"><span id="livev-' + esc(e.entity_id) + '" style="font-size:0.68rem;color:var(--text-tertiary)"></span>' +
+          '<button onclick="liveFetch(\'' + esc(e.entity_id) + '\')" style="font-size:0.7rem">⚡ 取数</button></span></div>';
+      }).join('');
+    })
+    .catch(function (e) { el.innerHTML = '<span style="color:#c62828">加载实体失败: ' + esc(e.detail || e.message) + '</span>'; });
+}
+
+function liveFetch(entityId) {
+  var out = $('livev-' + entityId);
+  out.textContent = '…';
+  EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(entityId) + '/live')
+    .then(function (r) { out.textContent = JSON.stringify(r.data); })
+    .catch(function (e) { out.textContent = '✗ ' + (e.detail || e.message); });
+}
+
+loadAll();
+</script>
+</body></html>

@@ -47,6 +47,7 @@
       { label: '类型管理', sub: 'tbox', path: '{b}/pages/tbox.html', group: '结构化知识' },
       { label: '实体管理', sub: 'entities', path: '{b}/pages/entities.html', group: '结构化知识' },
       { label: '实体导入', sub: 'entity-import', path: '{b}/pages/entity-import.html', group: '结构化知识' },
+      { label: '中台对接', sub: 'data-source', path: '{b}/pages/data-source.html', group: '结构化知识' },
       { label: '图谱探索', sub: 'entity-graph', path: '{b}/pages/entity-graph.html', group: '探索验证' },
       { label: '召回测试', sub: 'test-retrieval', path: '{b}/pages/test-retrieval.html', group: '探索验证' },
       { label: 'QU 调试', sub: 'understanding-debug', path: '{b}/pages/understanding-debug.html', group: '探索验证' },
