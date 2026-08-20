@@ -1,6 +1,6 @@
 # 任务清单 — M3 Review 修复（timeline 数据源 / live 门禁 / sync 心跳竞态）
 
-**状态：规划定稿，待开工**
+**状态：✅ 已完成（2026-08-20）**——A/B/C/D/E 五条全落地，351 passed 全绿，verify_m3 timeline_added=9 真实链路验证；详见 `arch/session-record.md`（2026-08-20 Review 修复段）
 **依据**：M3 代码 review（2026-08-20，commit e0dbe1e/94d77ac/466f4a8）——2 高 + 2 中问题
 **关联**：M3 交付后 review 发现的功能/权限/并发缺陷，修复后 M3 才算真正闭环
 **日期**：2026-08-20

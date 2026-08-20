@@ -870,3 +870,23 @@ L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 �
 - nav.js 抽屉加「中台对接」；FDE 指南 §12 更新为有页面（原"API 通道"说明废弃）
 - 冒烟：`test-data-source-smoke.cjs` **9 断言全绿**（列表渲染/表单下拉/field_mapping 组装/live 取数）；全量前端冒烟其余 7 个全绿（**test-entities-smoke.cjs 为既有失败**——基线 stash 验证同样挂，非本次引入，待修）
 - dev 静态服务 200 可达；与后端 M3 端点（connectors/import/connector/data-sources/live）直接可用
+
+### 追加（2026-08-20）— M3 Review 修复（2 高 + 2 中 + 1 低，5 条全落地）
+
+> 任务书：`tasks/m3-review-fix-task-breakdown.md`（review commit e0dbe1e/94d77ac/466f4a8 后评审发现）
+> 5 条结论全部代码核实属实（A/C 是真 bug），修复后 M3 才真正闭环。
+
+| # | 问题 | 修复 |
+|:-:|:---|:---|
+| A 🔴 | **timeline 回填死功能**：`executions.result` 生产链路无 citations（仅 invoke 写 status、chat 引用在 `messages.citations`、plan-debug 不落库）——测试手工插行掩盖 | ① 改读近窗 `messages.citations`（真实引用源，source_ref=message_id 去重，event_type 映射复用 `_SOURCE_EVENT`）；`_extract_entity_refs` 泛化（数组/包装 dict 两形状）；**executions 路径移除**（勿加回） |
+| B 🔴 | **live 无角色域门禁**：任意登录角色可读任意 virtual 实体实时值 | `entity_live_value_endpoint` 加 `_role_scope_domains` 校验（复用 knowledge.search_service，search.py 先例）：实体 data_domain_id 不在角色允许域 → **404**（不暴露存在性）；admin 不过滤；角色缺失 fail-closed |
+| C 🟡 | **心跳不刷新 last_synced_at**：长同步 > TTL 误判「并发恢复」→ 双同步竞态 | `_beat` 传 `synced_at=_now()`（心跳刷新时间戳）——recover 判定始终新鲜 |
+| D 🟡 | 卡死恢复只在下次触发时检查（弱于 T1） | `recover_interrupted_sync_all(engine, ttl)` 逐租户扫描全部 running 数据源（仿 T1 recover_stale_runs）+ **worker 启动时调用**（失败不阻塞） |
+| E 🟢 | `fetch_rest.resp.json()` ValueError 未包装（live 500 应 503） | 捕获非 JSON → ConnectorFetchError（live 503 语义） |
+
+**测试与验证**：
+- 新增/改造：enrichment 素材换 messages（+conversations/users FK seed）、live 门禁 4 态用例（无授权 404/角色缺失 404/本域 200/admin 200）、心跳防误判、recover_all 跨租户扫描、adapter 非 JSON 用例
+- **351 passed 全绿**（347 + 4）+ import-linter 同基线（3 条既有过时 ignore）+ OpenAPI 无变化（门禁不改 schema）+ ruff/pyright 零新增（enrichment dict 泛型 type: ignore 先例）
+- **dev 真 API 冒烟**（verify_m3 升级：DB 直插 messages 素材）：**timeline_added=9**（真实 chat 引用回填生效）+ 注册/同步/幂等/live/enrichment 全链路 ✅
+
+**遗留**：get_entity/get_entity_profile/graph 单实体端点同样无角色域过滤（同源缺口，2026-08-18 已记录）——本次只修 live（review 范围），下个 FDE 反馈统一接入
