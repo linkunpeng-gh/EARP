@@ -193,6 +193,44 @@ components:
       - content
       title: ChunkPreviewRequest
       type: object
+    ConnectorIn:
+      properties:
+        adapter_type:
+          title: Adapter Type
+          type: string
+        config:
+          additionalProperties: true
+          default: {}
+          title: Config
+          type: object
+        connector_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Connector Id
+        status:
+          default: active
+          title: Status
+          type: string
+      required:
+      - adapter_type
+      title: ConnectorIn
+      type: object
+    ConnectorUpdate:
+      properties:
+        config:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Config
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      title: ConnectorUpdate
+      type: object
     ConvCreate:
       properties:
         title:
@@ -256,6 +294,34 @@ components:
           - type: 'null'
           title: Routing Description
       title: DataDomainUpdate
+      type: object
+    DataSourceIn:
+      properties:
+        connector_id:
+          title: Connector Id
+          type: string
+        entity_type_id:
+          title: Entity Type Id
+          type: string
+        field_mapping:
+          additionalProperties: true
+          title: Field Mapping
+          type: object
+        incremental:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Incremental
+        source_mode:
+          title: Source Mode
+          type: string
+      required:
+      - connector_id
+      - entity_type_id
+      - source_mode
+      - field_mapping
+      title: DataSourceIn
       type: object
     DocClassUpdate:
       properties:
@@ -3334,6 +3400,207 @@ paths:
       summary: Map Capability Entity
       tags:
       - ontology
+  /v1/ontology/connectors:
+    get:
+      description: connector 列表（脱敏，不含配置明文）。只读开放（不泄露凭据）。
+      operationId: list_connectors_endpoint_v1_ontology_connectors_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response List Connectors Endpoint V1 Ontology Connectors Get
+                type: object
+          description: Successful Response
+      summary: List Connectors Endpoint
+      tags:
+      - ontology
+    post:
+      description: 注册 connector（中台连接配置，加密落库）。配置不返回明文。
+      operationId: create_connector_endpoint_v1_ontology_connectors_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectorIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Connector Endpoint V1 Ontology Connectors Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Connector Endpoint
+      tags:
+      - ontology
+  /v1/ontology/connectors/{connector_id}:
+    delete:
+      description: 删除 connector。被数据源（import_rules）引用 → 409。
+      operationId: delete_connector_endpoint_v1_ontology_connectors__connector_id__delete
+      parameters:
+      - in: path
+        name: connector_id
+        required: true
+        schema:
+          title: Connector Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Delete Connector Endpoint V1 Ontology Connectors  Connector
+                  Id  Delete
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete Connector Endpoint
+      tags:
+      - ontology
+    patch:
+      description: 更新 connector 配置（重加密）/ 状态。
+      operationId: update_connector_endpoint_v1_ontology_connectors__connector_id__patch
+      parameters:
+      - in: path
+        name: connector_id
+        required: true
+        schema:
+          title: Connector Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectorUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Connector Endpoint V1 Ontology Connectors  Connector
+                  Id  Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Connector Endpoint
+      tags:
+      - ontology
+  /v1/ontology/data-sources:
+    get:
+      description: 数据源列表（含 last_synced_at/last_sync_status）。
+      operationId: list_data_sources_endpoint_v1_ontology_data_sources_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response List Data Sources Endpoint V1 Ontology Data Sources
+                  Get
+                type: object
+          description: Successful Response
+      summary: List Data Sources Endpoint
+      tags:
+      - ontology
+  /v1/ontology/data-sources/{data_source_id}:
+    get:
+      operationId: get_data_source_endpoint_v1_ontology_data_sources__data_source_id__get
+      parameters:
+      - in: path
+        name: data_source_id
+        required: true
+        schema:
+          title: Data Source Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Data Source Endpoint V1 Ontology Data Sources  Data
+                  Source Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Data Source Endpoint
+      tags:
+      - ontology
+  /v1/ontology/data-sources/{data_source_id}/sync:
+    post:
+      description: 触发同步（入队，B2）。running 中且心跳新鲜 → 409；卡死（TTL 超时）→ 标 interrupted 再开始。
+      operationId: sync_data_source_endpoint_v1_ontology_data_sources__data_source_id__sync_post
+      parameters:
+      - in: path
+        name: data_source_id
+        required: true
+        schema:
+          title: Data Source Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Sync Data Source Endpoint V1 Ontology Data Sources  Data
+                  Source Id  Sync Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Sync Data Source Endpoint
+      tags:
+      - ontology
+  /v1/ontology/enrichment/run:
+    post:
+      description: 手动触发 enrichment 全流程（④③①②）。夜间由 scheduler 循环自动执行（D2）。
+      operationId: enrichment_run_endpoint_v1_ontology_enrichment_run_post
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Enrichment Run Endpoint V1 Ontology Enrichment Run
+                  Post
+                type: object
+          description: Successful Response
+      summary: Enrichment Run Endpoint
+      tags:
+      - ontology
   /v1/ontology/entities:
     get:
       description: 实体分页列表（M4 admin 实体管理页）。q 按名称/业务编码搜索。
@@ -3610,6 +3877,41 @@ paths:
       summary: Graph Query
       tags:
       - ontology
+  /v1/ontology/entities/{entity_id}/live:
+    get:
+      description: 'virtual metric 实体实时取数（US-09 / AC-13）：经 connector 配置 + adapter
+        实时取。
+
+        virtual 实体行经实体管理创建（source_mode=''virtual''，source_ref=connector_id）；
+
+        取数失败 → 503（不假造值）。'
+      operationId: entity_live_value_endpoint_v1_ontology_entities__entity_id__live_get
+      parameters:
+      - in: path
+        name: entity_id
+        required: true
+        schema:
+          title: Entity Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Entity Live Value Endpoint V1 Ontology Entities  Entity
+                  Id  Live Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Entity Live Value Endpoint
+      tags:
+      - ontology
   /v1/ontology/entities/{entity_id}/profile:
     get:
       operationId: get_profile_v1_ontology_entities__entity_id__profile_get
@@ -3794,6 +4096,37 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Import Abox Endpoint
+      tags:
+      - ontology
+  /v1/ontology/import/connector:
+    post:
+      description: '中台数据源注册（PRD §1 #8）：virtual 建元数据 / synced 同步副本。
+
+        field_mapping 落库（import_rules），synced 注册后立即入队同步（B2）。'
+      operationId: import_connector_endpoint_v1_ontology_import_connector_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSourceIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Import Connector Endpoint V1 Ontology Import Connector
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Import Connector Endpoint
       tags:
       - ontology
   /v1/ontology/import/templates:

@@ -193,7 +193,7 @@ async def test_scheduler_enrichment_once(migrated: str, app_url: str, migration_
         await conn.commit()
 
     n = await _run_enrichment_once(engine)
-    assert n >= 1  # 重编译了过期的 equip
+    assert n["profiles_recompiled"] >= 1  # 重编译了过期的 equip
     # 重编译后新鲜 → 不再扫出
     stale = await abox_service.find_stale_profiles(engine, tid)
     assert scene["equip"] not in stale

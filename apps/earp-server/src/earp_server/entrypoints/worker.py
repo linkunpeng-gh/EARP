@@ -22,9 +22,10 @@ async def _run() -> int:
         await queue.assert_schema()
 
         # T1: 注册业务任务（eval.run 等）——worker 消费队列前必须注册
-        from earp_server.ontology import eval_jobs
+        from earp_server.ontology import eval_jobs, sync_jobs
 
         eval_jobs.register(queue)
+        sync_jobs.register(queue)
 
         # T1 D2: stale 恢复——进程中断遗留的 running 僵尸标 failed（interrupted）。
         # 心跳新鲜的在跑任务不动；cancelled/completed/failed 不碰。

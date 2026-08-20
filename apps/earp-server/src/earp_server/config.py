@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     # （llm 跑分 111 例 × 30s 超时 ≈ 55min，TTL=1h 会误杀合法在跑任务）。
     eval_run_ttl: int = 3600  # seconds (EARP_EVAL_RUN_TTL)
 
+    # ── Sync run stale recovery (M3 B2) ──
+    # 中台同步任务卡死判定：前次 last_sync_status='running' 且 last_synced_at 超过
+    # 该时长 → 下次触发前标 interrupted 再开始（同步是触发型，无需 worker 启动扫描）。
+    sync_run_ttl: int = 1800  # seconds (EARP_SYNC_RUN_TTL)
+
     # ── Observability (M15) ──
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""

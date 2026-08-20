@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from datetime import UTC
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from earp_server.ontology import abox_service, import_service, tbox_service
+from earp_server.ontology import (
+    abox_service,
+    connector_service,
+    data_adapter,
+    import_service,
+    tbox_service,
+)
+from earp_server.policy import roles_service
 
 router = APIRouter(prefix="/v1/ontology", tags=["ontology"])
 
@@ -316,6 +325,231 @@ async def import_abox_endpoint(
         facts_csv,
         dry_run=dry_run,
     )
+
+
+# ── M3 中台 importer：connector 管理（A1）─────────────────────────────────────
+
+
+async def _require_admin(req: Request) -> None:
+    """管理端门禁（2026-08-18 越权修复先例）：connector 配置含连接凭据，写操作仅 Admin。"""
+    if not await roles_service.is_admin_role(
+        req.app.state.engine, req.state.tenant_id, req.state.role_id
+    ):
+        raise HTTPException(status_code=403, detail="仅 Admin 角色可管理 connector 配置")
+
+
+class ConnectorIn(BaseModel):
+    connector_id: str | None = None  # 缺省自动生成 cn-xxxx
+    adapter_type: str
+    config: dict = {}  # REST: {base_url, auth_type, username, password, token, headers, timeout_seconds}
+    #                # DB:   {conn_url, table, columns, where, limit}
+    status: str = "active"
+
+
+class ConnectorUpdate(BaseModel):
+    config: dict | None = None
+    status: str | None = None
+
+
+class DataSourceIn(BaseModel):
+    connector_id: str
+    entity_type_id: str
+    source_mode: str  # virtual | synced
+    field_mapping: dict  # {name_field, business_code_field, attr_fields{}, relations[]}
+    incremental: dict | None = None  # {enabled, since_field, page_size}
+
+
+@router.post("/connectors", status_code=201, dependencies=[Depends(_require_admin)])
+async def create_connector_endpoint(body: ConnectorIn, req: Request) -> dict:
+    """注册 connector（中台连接配置，加密落库）。配置不返回明文。"""
+    try:
+        out = await connector_service.create_connector(
+            req.app.state.engine,
+            req.state.tenant_id,
+            connector_id=body.connector_id,
+            adapter_type=body.adapter_type,
+            config=body.config,
+            status=body.status,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if out is None:
+        raise HTTPException(status_code=409, detail="connector_id 已存在")
+    return out
+
+
+@router.get("/connectors")
+async def list_connectors_endpoint(req: Request) -> dict:
+    """connector 列表（脱敏，不含配置明文）。只读开放（不泄露凭据）。"""
+    rows = await connector_service.list_connectors(req.app.state.engine, req.state.tenant_id)
+    return {"items": rows, "total": len(rows)}
+
+
+@router.patch("/connectors/{connector_id}", dependencies=[Depends(_require_admin)])
+async def update_connector_endpoint(connector_id: str, body: ConnectorUpdate, req: Request) -> dict:
+    """更新 connector 配置（重加密）/ 状态。"""
+    out = await connector_service.update_connector(
+        req.app.state.engine,
+        req.state.tenant_id,
+        connector_id,
+        config=body.config,
+        status=body.status,
+    )
+    if out is None:
+        raise HTTPException(status_code=404, detail="connector 不存在")
+    return out
+
+
+@router.delete("/connectors/{connector_id}", dependencies=[Depends(_require_admin)])
+async def delete_connector_endpoint(connector_id: str, req: Request) -> dict:
+    """删除 connector。被数据源（import_rules）引用 → 409。"""
+    ok = await connector_service.delete_connector(
+        req.app.state.engine, req.state.tenant_id, connector_id
+    )
+    if not ok:
+        # 区分 404 与 409：再查一次存在性
+        existing = await connector_service.get_connector(
+            req.app.state.engine, req.state.tenant_id, connector_id
+        )
+        if existing is None:
+            raise HTTPException(status_code=404, detail="connector 不存在")
+        raise HTTPException(status_code=409, detail="connector 被数据源引用，无法删除（可停用）")
+    return {"deleted": connector_id}
+
+
+# ── M3 中台 importer：数据源注册（B1）─────────────────────────────────────────
+
+
+@router.post("/import/connector", status_code=201, dependencies=[Depends(_require_admin)])
+async def import_connector_endpoint(body: DataSourceIn, req: Request) -> dict:
+    """中台数据源注册（PRD §1 #8）：virtual 建元数据 / synced 同步副本。
+    field_mapping 落库（import_rules），synced 注册后立即入队同步（B2）。
+    """
+    try:
+        out = await import_service.register_data_source(
+            req.app.state.engine,
+            req.state.tenant_id,
+            connector_id=body.connector_id,
+            entity_type_id=body.entity_type_id,
+            source_mode=body.source_mode,
+            field_mapping=body.field_mapping,
+            incremental=body.incremental,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if out is None:
+        raise HTTPException(status_code=409, detail="同 connector+entity_type+source_mode 的数据源已存在")
+    # synced → 立即入队同步（B2；enqueue 失败容忍——注册本身已成功）
+    if body.source_mode == "synced":
+        out["job_status"] = await _enqueue_sync(req, out["data_source_id"])
+    return out
+
+
+async def _enqueue_sync(req: Request, data_source_id: str) -> str:
+    """入队同步任务（B2）。queue 不可用/入队失败 → 记录并返回状态，不抛（注册已成功）。"""
+    queue = getattr(req.app.state, "queue", None)
+    if queue is None:
+        return "enqueue_failed"
+    try:
+        await queue.enqueue(
+            "ontology.sync_data_source",
+            {"tenant_id": req.state.tenant_id, "data_source_id": data_source_id},
+        )
+        return "queued"
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("enqueue sync failed: %s", data_source_id)
+        return "enqueue_failed"
+
+
+@router.get("/data-sources")
+async def list_data_sources_endpoint(req: Request) -> dict:
+    """数据源列表（含 last_synced_at/last_sync_status）。"""
+    rows = await import_service.list_data_sources(req.app.state.engine, req.state.tenant_id)
+    return {"items": rows, "total": len(rows)}
+
+
+@router.get("/data-sources/{data_source_id}")
+async def get_data_source_endpoint(data_source_id: str, req: Request) -> dict:
+    out = await import_service.get_data_source(
+        req.app.state.engine, req.state.tenant_id, data_source_id
+    )
+    if out is None:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    return out
+
+
+@router.post("/data-sources/{data_source_id}/sync", dependencies=[Depends(_require_admin)])
+async def sync_data_source_endpoint(data_source_id: str, req: Request) -> dict:
+    """触发同步（入队，B2）。running 中且心跳新鲜 → 409；卡死（TTL 超时）→ 标 interrupted 再开始。"""
+    ds = await import_service.get_data_source(req.app.state.engine, req.state.tenant_id, data_source_id)
+    if ds is None:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+    if ds["last_sync_status"] == "running":
+        from earp_server.ontology import sync_jobs
+
+        recovered = await sync_jobs.recover_interrupted_sync(
+            req.app.state.engine,
+            req.state.tenant_id,
+            data_source_id,
+            ttl_seconds=req.app.state.settings.sync_run_ttl,
+        )
+        if not recovered:
+            raise HTTPException(status_code=409, detail="同步进行中（心跳新鲜），请稍后重试")
+    status = await _enqueue_sync(req, data_source_id)
+    return {"data_source_id": data_source_id, "job_status": status}
+
+
+# ── M3 中台 importer：virtual 实时取数（C1）────────────────────────────────────
+
+
+@router.get("/entities/{entity_id}/live")
+async def entity_live_value_endpoint(entity_id: str, req: Request) -> dict:
+    """virtual metric 实体实时取数（US-09 / AC-13）：经 connector 配置 + adapter 实时取。
+    virtual 实体行经实体管理创建（source_mode='virtual'，source_ref=connector_id）；
+    取数失败 → 503（不假造值）。
+    """
+    engine, tid = req.app.state.engine, req.state.tenant_id
+    ent = await abox_service.get_entity(engine, tid, entity_id)
+    if ent is None:
+        raise HTTPException(status_code=404, detail="实体不存在")
+    if ent.get("source_mode") != "virtual":
+        raise HTTPException(status_code=400, detail="仅 virtual 实体支持实时取数")
+    types = await tbox_service.list_entity_types(engine, tid)
+    et = next((t for t in types if t["entity_type_id"] == ent.get("entity_type_id")), {})
+    if et.get("kind") != "metric":
+        raise HTTPException(status_code=400, detail="仅 metric 类型 virtual 实体支持实时取数（G1）")
+    cid = ent.get("source_ref")
+    if not cid:
+        raise HTTPException(status_code=400, detail="virtual 实体未关联 connector（source_ref 缺失）")
+    cfg = await connector_service.decrypt_config(engine, tid, cid)
+    if not cfg:
+        raise HTTPException(status_code=503, detail="connector 配置不可用")
+    try:
+        rows = await data_adapter.fetch(cfg, {"business_code": ent.get("business_code")})
+    except data_adapter.ConnectorFetchError as e:
+        raise HTTPException(status_code=503, detail=f"实时取数失败: {e}") from e
+    from datetime import datetime
+
+    return {
+        "entity_id": entity_id,
+        "business_code": ent.get("business_code"),
+        "data": rows[0] if rows else None,
+        "fetched_at": datetime.now(UTC).isoformat(),
+        "connector_id": cid,
+    }
+
+
+# ── M3 Enrichment 手动触发（D1，调试/测试用）──────────────────────────────────
+
+
+@router.post("/enrichment/run", dependencies=[Depends(_require_admin)])
+async def enrichment_run_endpoint(req: Request) -> dict:
+    """手动触发 enrichment 全流程（④③①②）。夜间由 scheduler 循环自动执行（D2）。"""
+    from earp_server.ontology import enrichment
+
+    return await enrichment.enrichment_run(req.app.state.engine, req.state.tenant_id)
 
 
 # ── tech-debt #12: TBox 审批流（tbox_changes 变更请求）───────────────────────
