@@ -13,9 +13,12 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from earp_server.config import Settings
+from earp_server.orchestrator.types import ApprovalPending
 
 if TYPE_CHECKING:
     from earp_server.infra.langfuse_tracer import LangfuseTracer
@@ -23,6 +26,62 @@ if TYPE_CHECKING:
     from earp_server.orchestrator.types import TokenEvent
 
 logger = logging.getLogger(__name__)
+
+# Chatflow F3: capability.call 可分派的已知 adapter（capability.domain.name 命中才执行）
+_FLOW_ADAPTER_TYPES: frozenset[str] = frozenset(
+    {"demo.echo", "llm.prompt", "knowledge.search", "chat.history", "qu.answer", "tool.fetch"}
+)
+
+
+def _evidence_to_chunks(evidence: list[Any]) -> list[dict[str, Any]]:
+    """PlanResult evidence → chunks（镜像 chat_service._retrieve 三源转换，供 qu.answer 输出）。"""
+    chunks: list[dict[str, Any]] = []
+    for ev in evidence:
+        p = ev.payload or {}
+        if ev.channel.value == "chunk":
+            chunks.append(
+                {
+                    "chunk_id": p.get("chunk_id"),
+                    "document_id": ev.source_ref,
+                    "title": ev.source,
+                    "content": ev.content,
+                    "kb_id": p.get("kb_id"),
+                    "metadata": p.get("metadata"),
+                    "similarity": p.get("similarity"),
+                }
+            )
+        elif ev.channel.value == "profile":
+            chunks.append(
+                {
+                    "source": "profile",
+                    "entity_id": p.get("entity_id"),
+                    "entity_type": p.get("entity_type"),
+                    "title": ev.source,
+                    "content": ev.content,
+                    "key_facts": p.get("key_facts", []),
+                }
+            )
+        elif ev.channel.value == "graph":
+            chunks.append(
+                {
+                    "source": "graph",
+                    "entity_id": p.get("target_entity_id"),
+                    "entity_type": p.get("entity_type"),
+                    "title": ev.source,
+                    "content": ev.content,
+                }
+            )
+        else:  # capability（AGGREGATION 结构化结果）
+            chunks.append(
+                {
+                    "source": "capability",
+                    "title": ev.source,
+                    "content": f"结构化聚合：{ev.content}",
+                    "aggregate": p.get("aggregate"),
+                    "rows": p.get("rows"),
+                }
+            )
+    return chunks
 
 
 class ConnectorError(Exception):
@@ -34,12 +93,23 @@ class Connector:
 
     Chatflow F2: 对话节点适配器（llm.prompt / knowledge.search / chat.history）——
     engine/llm 由 StepRunner 注入（flow 执行链路），ctx 在 execute 时传入。
+    Chatflow F3: qu.answer（understand → execute_plan 包装）/ capability.call
+    （注册表校验 + 权限门禁）/ tool.fetch（M3 连接体系取数）；settings 注入供
+    qu.answer 的 LLM 升级（upgrade_with_llm 需要完整 ollama 配置）。
     """
 
-    def __init__(self, eventbus=None, *, engine=None, llm=None) -> None:
+    def __init__(
+        self,
+        eventbus=None,
+        *,
+        engine: AsyncEngine | None = None,
+        llm=None,
+        settings=None,
+    ) -> None:
         self._bus = eventbus
         self._engine = engine
         self._llm = llm
+        self._settings = settings
 
     @retry(
         retry=retry_if_exception_type(ConnectorError),
@@ -63,6 +133,14 @@ class Connector:
             return await self._execute_knowledge_search(capability_call.get("input", {}), ctx)
         if adapter_type == "chat.history":
             return await self._execute_chat_history(capability_call.get("input", {}), ctx)
+        if adapter_type == "qu.answer":
+            return await self._execute_qu_answer(capability_call.get("input", {}), ctx)
+        if adapter_type == "capability.call":
+            return await self._execute_capability_call(capability_call, ctx)
+        if adapter_type == "tool.fetch":
+            return await self._execute_tool_fetch(capability_call.get("input", {}), ctx)
+        if adapter_type == "human.approval":
+            return await self._execute_human_approval(capability_call.get("input", {}), ctx)
         raise ConnectorError(f"unknown adapter: {adapter_type}")
 
     async def _execute_llm_prompt(self, input_: dict[str, Any]) -> dict[str, Any]:
@@ -127,6 +205,141 @@ class Connector:
             max(1, min(20, int(input_.get("turns", 6) or 6))),
         )
         return {"messages": messages}
+
+    # ── Chatflow F3: qu/capability/tool 适配器 ──────────────────────────────────
+
+    async def _execute_qu_answer(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """qu.answer: understand →（可选 upgrade_with_llm）→ select_plan → execute_plan。
+
+        输出 {selection, evidence, citations, chunks}（D1）——citations 为三源引用结构，
+        下游 LLM 节点可 {{#qu.citations#}} 直接引用。settings 由 flow 执行链路注入。
+        """
+        if self._engine is None or ctx is None:
+            raise ConnectorError("qu.answer requires engine + ctx (flow executor)")
+        from earp_server.ontology.planning import execute_plan
+        from earp_server.ontology.understanding import build_structured_query, understand, upgrade_with_llm
+
+        query = str(input_.get("query", "") or "")
+        if not query.strip():
+            raise ConnectorError("qu.answer: input.query required")
+        result = await understand(self._engine, ctx.tenant_id, query, context={})
+        settings = self._settings
+        if settings is not None and hasattr(settings, "ollama_chat_model"):
+            result = await upgrade_with_llm(self._engine, ctx.tenant_id, query, result, settings=settings)
+        sq = build_structured_query(result)
+        sel, plan_result = await execute_plan(
+            self._engine,
+            ctx.tenant_id,
+            ctx.role_id,
+            query,
+            sq,
+            settings=settings,
+            context={},
+            top_k=5,
+        )
+        return {
+            "selection": {"plan_name": sel.plan_name, "fallback_reason": sel.fallback_reason},
+            "evidence": [e.model_dump() for e in plan_result.evidence],
+            "citations": plan_result.citations,
+            "chunks": _evidence_to_chunks(plan_result.evidence),
+        }
+
+    async def _execute_capability_call(self, capability_call: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """capability.call: business_capabilities 注册表校验 + required_permissions 门禁 → 真实执行。
+
+        - capability 不存在/未激活 → ConnectorError
+        - 角色缺 required_permissions → ConnectorError（与 PolicyLayer 双保险：flow 无层时兜底）
+        - 执行分派：capability.domain.name 已知 adapter → 执行（demo.echo 等）；否则明确报错
+        """
+        if self._engine is None or ctx is None:
+            raise ConnectorError("capability.call requires engine + ctx (flow executor)")
+        input_ = capability_call.get("input", {}) if isinstance(capability_call.get("input"), dict) else {}
+        capability_id = str(capability_call.get("capability_id") or input_.get("capability_id") or "")
+        if not capability_id:
+            raise ConnectorError("capability.call: capability_id required")
+        if capability_call.get("capability_id"):
+            # 编译产物形状：capability_id 在顶层，input 即参数（PolicyLayer 兼容）
+            cap_input = input_
+        else:
+            # D4 嵌套形状：input = {capability_id, input: {...}}
+            inner = input_.get("input")
+            cap_input = inner if isinstance(inner, dict) else {}
+
+        async with self._engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{ctx.tenant_id}'"))
+            row = await conn.execute(
+                text(
+                    "SELECT domain, name, required_permissions, status FROM business_capabilities "
+                    "WHERE capability_id = :cid AND tenant_id = :tid"
+                ),
+                {"cid": capability_id, "tid": ctx.tenant_id},
+            )
+            cap = row.fetchone()
+        if cap is None or cap.status != "active":
+            raise ConnectorError(f"capability.call: capability {capability_id!r} 不存在或未激活")
+
+        required = list(cap.required_permissions or [])
+        if required:
+            granted = await self._role_permissions(ctx)
+            missing = [p for p in required if p not in granted]
+            if missing:
+                raise ConnectorError(
+                    f"capability.call: 角色 {ctx.role_id} 缺少权限 {missing}（capability {capability_id!r}）"
+                )
+
+        adapter_type = f"{cap.domain}.{cap.name}"
+        if adapter_type == "demo.echo":
+            return {"echo": cap_input}
+        if adapter_type in _FLOW_ADAPTER_TYPES:
+            return await self.execute({**capability_call, "adapter_type": adapter_type, "input": cap_input}, ctx=ctx)
+        raise ConnectorError(
+            f"capability.call: capability {capability_id!r} 无执行 adapter（{adapter_type} 未实现，Phase F 通用执行器）"
+        )
+
+    async def _execute_tool_fetch(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """tool.fetch: M3 连接体系——decrypt_config（AES 解密）→ data_adapter.fetch（REST/DB）。
+
+        输出 {rows, count, domain_filtered: False}——M3 review 教训：raw rows 未按角色域过滤，
+        标注 domain_filtered=False 由上层/后续做域过滤。
+        """
+        if self._engine is None or ctx is None:
+            raise ConnectorError("tool.fetch requires engine + ctx (flow executor)")
+        from earp_server.ontology.connector_service import decrypt_config
+        from earp_server.ontology.data_adapter import fetch as data_fetch
+
+        connector_id = str(input_.get("connector_id", "") or "")
+        if not connector_id:
+            raise ConnectorError("tool.fetch: input.connector_id required")
+        cfg = await decrypt_config(self._engine, ctx.tenant_id, connector_id)
+        if not cfg:
+            raise ConnectorError(f"tool.fetch: connector {connector_id!r} 不存在或配置解密失败")
+        params = input_.get("params") if isinstance(input_.get("params"), dict) else {}
+        rows = await data_fetch(cfg, params)
+        return {"rows": rows, "count": len(rows), "domain_filtered": False}
+
+    async def _execute_human_approval(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """human.approval: 挂起信号（D2）——抛 ApprovalPending 由执行器捕获转 waiting_human。
+
+        节点 data: {question: 模板表达式（默认「请确认是否继续」）}；恢复时用户下一句即答复，
+        答复注入 {{#node.output.reply#}}（简写 {{#node.reply#}}）供下游引用。
+        """
+        if ctx is None:
+            raise ConnectorError("human.approval requires ctx (flow executor)")
+        question = str(input_.get("question", "请确认是否继续") or "请确认是否继续")
+        raise ApprovalPending(ctx.step.step_id, question)
+
+    async def _role_permissions(self, ctx: Any) -> list[str]:
+        """capability.call 权限门禁：查询角色 permissions（与 PolicyLayer._get_role_permissions 同构）。"""
+        if self._engine is None:
+            raise ConnectorError("capability.call requires engine (flow executor)")
+        async with self._engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{ctx.tenant_id}'"))
+            row = await conn.execute(
+                text("SELECT permissions FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
+                {"rid": ctx.role_id, "tid": ctx.tenant_id},
+            )
+            r = row.fetchone()
+            return list(r.permissions) if r and r.permissions else []
 
     def _on_retry(self, retry_state) -> None:
         if self._bus is not None:

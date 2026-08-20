@@ -113,9 +113,9 @@ class TestCompileFlowSchema:
     def test_unimplemented_types_rejected(self) -> None:
         g = _flow_graph(
             {"id": "start", "type": "start", "data": {}},
-            {"id": "q1", "type": "qu", "data": {}},
+            {"id": "m1", "type": "mcp", "data": {}},
             {"id": "end", "type": "end", "data": {}},
-            edges=[{"source": "start", "target": "q1"}, {"source": "q1", "target": "end"}],
+            edges=[{"source": "start", "target": "m1"}, {"source": "m1", "target": "end"}],
         )
         with pytest.raises(WorkflowValidationError, match="未实现"):
             compile_flow_schema(g)
@@ -366,9 +366,9 @@ class TestFlowChat:
         """发布门禁外改库 → 编译明确报错（防静默跳过节点）。"""
         g = _flow_graph(
             {"id": "start", "type": "start", "data": {}},
-            {"id": "q1", "type": "qu", "data": {}},
+            {"id": "m1", "type": "mcp", "data": {}},
             {"id": "end", "type": "end", "data": {}},
-            edges=[{"source": "start", "target": "q1"}, {"source": "q1", "target": "end"}],
+            edges=[{"source": "start", "target": "m1"}, {"source": "m1", "target": "end"}],
         )
         app = await _flow_app(app_engine, g, name="f2-unimpl")
         with pytest.raises(WorkflowValidationError, match="未实现"):

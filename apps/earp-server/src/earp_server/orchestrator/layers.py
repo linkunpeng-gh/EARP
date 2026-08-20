@@ -8,6 +8,7 @@ Layer execution order in StepRunner.invoke():
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -26,23 +27,37 @@ class AuditLayer:
     def __init__(self, bus: EventBus) -> None:
         self._bus = bus
 
+    @staticmethod
+    def _event_prefix(ctx: InvokeContext) -> str:
+        """Chatflow F3: capability.call 步骤走 earp.capability.call.*（设计稿 §3 审计命名空间），
+        其余（orchestrator invoke 路径）保持 earp.execution.*。"""
+        if ctx.step.capability_call.get("adapter_type") == "capability.call":
+            return "earp.capability.call"
+        return "earp.execution"
+
     async def before_step(self, ctx: InvokeContext) -> None:
+        prefix = self._event_prefix(ctx)
+        data: dict[str, Any] = {
+            "execution_id": ctx.execution_id,
+            "session_id": ctx.session_id,
+            "user_id": ctx.user_id,
+            "role_id": ctx.role_id,
+        }
+        if prefix == "earp.capability.call":
+            data["entity_type"] = "capability"
+            data["entity_id"] = ctx.step.capability_call.get("capability_id", "")
         self._bus.publish(
             CloudEvent(
-                type="earp.execution.started",
+                type=f"{prefix}.started",
                 source="earp-server/orchestrator",
                 tenant_id=ctx.tenant_id,
-                data={
-                    "execution_id": ctx.execution_id,
-                    "session_id": ctx.session_id,
-                    "user_id": ctx.user_id,
-                    "role_id": ctx.role_id,
-                },
+                data=data,
             )
         )
 
     async def after_step(self, ctx: InvokeContext, result: StepResult) -> None:
-        event_type = "earp.execution.completed" if result.status == "completed" else "earp.execution.failed"
+        prefix = self._event_prefix(ctx)
+        event_type = f"{prefix}.completed" if result.status == "completed" else f"{prefix}.failed"
         self._bus.publish(
             CloudEvent(
                 type=event_type,
@@ -53,8 +68,12 @@ class AuditLayer:
                     "session_id": ctx.session_id,
                     "user_id": ctx.user_id,
                     "role_id": ctx.role_id,
-                    "entity_type": "execution",
-                    "entity_id": ctx.execution_id,
+                    "entity_type": "capability" if prefix == "earp.capability.call" else "execution",
+                    "entity_id": (
+                        ctx.step.capability_call.get("capability_id", "")
+                        if prefix == "earp.capability.call"
+                        else ctx.execution_id
+                    ),
                     "checkpoint_id": result.checkpoint_id or "",
                     "latency_ms": result.latency_ms,
                     "error": result.error,

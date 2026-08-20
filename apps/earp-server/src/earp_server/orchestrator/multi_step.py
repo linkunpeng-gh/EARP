@@ -19,8 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from earp_server.infra.checkpoint import CheckpointStore
 from earp_server.infra.eventbus import EventBus
 from earp_server.orchestrator.compensation import SagaCompensation
+from earp_server.orchestrator.layers import AuditLayer, PolicyLayer
 from earp_server.orchestrator.step_runner import StepResult, StepRunner
-from earp_server.orchestrator.types import InvokeContext, Layer, Step
+from earp_server.orchestrator.types import ApprovalPending, InvokeContext, Layer, Step
 from earp_server.orchestrator.workflow_dsl import (
     CompiledWorkflow,
     CondExec,
@@ -39,6 +40,8 @@ class ExecutionStatus(StrEnum):
     REPLANNING = "replanning"
     INTERRUPTED = "interrupted"
     ROLLED_BACK = "rolled_back"
+    # Chatflow F4: human_approval 节点挂起等待人工答复
+    WAITING_HUMAN = "waiting_human"
 
 
 @dataclass
@@ -52,16 +55,21 @@ class ExecutionState:
     last_checkpoint_id: str | None = None
     checkpoint_mode: str = "async"  # sync / async / exit
     rollback_results: list[dict] = field(default_factory=list)  # M12: compensation outputs
+    # Chatflow F4: waiting_human 挂起信息（ApprovalPending 捕获时填充）
+    pending_node_id: str | None = None
+    pending_question: str | None = None
 
 
 class MultiStepExecutor:
     """Execute a Plan (list[Step]) with checkpoint + Saga compensation."""
 
-    def __init__(self, engine: AsyncEngine, bus: EventBus | None = None, *, llm=None) -> None:
-        self._runner = StepRunner(engine, llm=llm)  # Chatflow F2: 对话节点适配器注入
+    def __init__(self, engine: AsyncEngine, bus: EventBus | None = None, *, llm=None, settings=None) -> None:
+        self._runner = StepRunner(engine, llm=llm, settings=settings)  # Chatflow F2/F3: 适配器注入
         self._checkpoint = CheckpointStore(engine)
         self._bus = bus
         self._interrupted = False  # M5: interrupt flag for human_approval/REPLANNING
+        # Chatflow F3: capability 节点专用层（审计 + 权限）——bus 不可用（测试/无 Redis）时置空
+        self._capability_layers: list[Layer] = [AuditLayer(bus), PolicyLayer(engine, bus)] if bus is not None else []
 
     def interrupt(self) -> None:
         """Signal the executor to stop after the current step completes."""
@@ -81,6 +89,10 @@ class MultiStepExecutor:
         durability: str = "async",
         plan: CompiledWorkflow | None = None,
         flow_input: dict[str, Any] | None = None,
+        # Chatflow F4: human_approval 挂起/恢复（resume_pool 由 flow_runs.node_state 反序列化）
+        resume_pool: dict[str, StepResult] | None = None,
+        resume_pending_node: str | None = None,
+        resume_reply: str = "",
     ) -> tuple[list[StepResult], ExecutionState]:
         """Execute plan steps sequentially with checkpoint + Saga compensation.
 
@@ -88,12 +100,23 @@ class MultiStepExecutor:
         运行时求值、未命中分支 skip（不 invoke）。plan=None 时保持 legacy 行为不变。
         Chatflow F2: flow_input 提供图输入（{"query", "conversation_id", …}），
         节点输入中的 {{query}}/{{#node.output#}} 模板在执行前替换。
+        Chatflow F4: resume_pool/resume_pending_node/resume_reply 提供 human_approval
+        恢复——pool 已含前序节点输出，挂起点注入答复后继续执行。
 
         Returns (results, execution_state).
         On step failure: rolls back completed steps via SagaCompensation.
         """
         if plan is not None:
-            return await self._execute_plan(plan, ctx, layers, resume_from_checkpoint_id, flow_input)
+            return await self._execute_plan(
+                plan,
+                ctx,
+                layers,
+                resume_from_checkpoint_id,
+                flow_input,
+                resume_pool=resume_pool,
+                resume_pending_node=resume_pending_node,
+                resume_reply=resume_reply,
+            )
         results: list[StepResult] = []
         saga = SagaCompensation()
         state = ExecutionState(
@@ -202,6 +225,10 @@ class MultiStepExecutor:
         layers: list[Layer],
         resume_from_checkpoint_id: str | None,
         flow_input: dict[str, Any] | None = None,
+        # Chatflow F4: human_approval 挂起/恢复
+        resume_pool: dict[str, StepResult] | None = None,
+        resume_pending_node: str | None = None,
+        resume_reply: str = "",
     ) -> tuple[list[StepResult], ExecutionState]:
         """Execute a CompiledWorkflow with runtime conditional branch selection.
 
@@ -210,6 +237,8 @@ class MultiStepExecutor:
         - 未命中分支的 StepExec：产出 skipped 结果 + 轻量 checkpoint，不调 StepRunner
         - resume：从 step_results blob 重建 pool，决策可确定性重放
         - flow_input（F2）：图输入（query/conversation_id…），{{…}} 模板替换节点输入
+        - F4 挂起：human.approval 适配器抛 ApprovalPending → 捕获返回 waiting_human 状态
+        - F4 恢复：resume_pool 含前序节点输出——已执行节点不重放、挂起点注入答复后继续
         """
         from earp_server.orchestrator.workflow_dsl import resolve_templates
 
@@ -230,6 +259,16 @@ class MultiStepExecutor:
             pool = {r.step_id: r for r in prior if r.status == "completed"}
             prior_count = len(prior)
             logger.info("MultiStepExecutor: resuming plan from checkpoint, %d steps prior", prior_count)
+        elif resume_pool is not None:
+            # F4: 前序 run 的 completed 结果并入 results（flow_chat outputs/citations 组装零改动）
+            pool = {nid: r for nid, r in resume_pool.items() if r.status == "completed"}
+            results.extend(pool.values())
+            state.completed_steps = list(pool.keys())
+            logger.info(
+                "MultiStepExecutor: resuming flow run at %s, %d nodes prior",
+                resume_pending_node,
+                len(pool),
+            )
 
         for item in plan.sequence:
             if self._interrupted:
@@ -269,6 +308,20 @@ class MultiStepExecutor:
                 # 前序 run 已处理的步：不重放（结果已在 pool，供后续条件确定性求值）
                 continue
 
+            if resume_pool is not None:
+                if item.node_id == resume_pending_node:
+                    # F4 恢复：挂起点注入答复（下游 {{#node.output.reply#}} / {{#node.reply#}} 引用）
+                    reply_result = StepResult(
+                        step_id=item.node_id, status="completed", output={"reply": resume_reply}
+                    )
+                    results.append(reply_result)
+                    pool[item.node_id] = reply_result
+                    state.completed_steps.append(item.node_id)
+                    continue
+                if item.node_id in pool:
+                    # 前序 run 已执行的节点：不重放（结果已在 pool，供条件确定性求值）
+                    continue
+
             if not self._gate_satisfied(item.gate, chosen):
                 skipped = StepResult(step_id=item.node_id, status="skipped")
                 results.append(skipped)
@@ -299,7 +352,20 @@ class MultiStepExecutor:
                     timeout_seconds=step.timeout_seconds,
                     compensate_call=step.compensate_call,
                 )
-            result = await self._runner.invoke(step, layers=layers, ctx=step_ctx)
+            # Chatflow F3: capability 节点挂 Audit/Policy 层（审计 earp.capability.call.* +
+            # required_permissions 门禁）；其它节点（llm/knowledge/qu/tool）不挂层（避免噪音）。
+            is_capability = step.capability_call.get("adapter_type") == "capability.call"
+            step_layers = self._capability_layers if is_capability else layers
+            try:
+                result = await self._runner.invoke(step, layers=step_layers, ctx=step_ctx)
+            except ApprovalPending as ap:
+                # Chatflow F4 挂起：不写 checkpoint（flow_runs 持久化由 flow_chat 负责）
+                state.status = ExecutionStatus.WAITING_HUMAN
+                state.pending_node_id = ap.node_id
+                state.pending_question = ap.question
+                state.current_step_index = processed
+                state.completed_steps = [r.step_id for r in results if r.status == "completed"]
+                return results, state
             results.append(result)
             pool[item.node_id] = result
 

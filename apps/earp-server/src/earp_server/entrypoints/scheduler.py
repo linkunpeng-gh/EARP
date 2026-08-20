@@ -24,6 +24,41 @@ logger = logging.getLogger(__name__)
 
 TICK_SECONDS = 1.0
 ENRICHMENT_INTERVAL_SECONDS = float(os.environ.get("EARP_ENRICHMENT_INTERVAL_SECONDS", "3600"))
+# Chatflow F4: human_approval 等待超时扫描间隔（惰性检查在恢复时兜底，双保险）
+APPROVAL_SCAN_INTERVAL_SECONDS = float(os.environ.get("EARP_APPROVAL_SCAN_INTERVAL_SECONDS", "60"))
+
+
+async def _expire_approvals_once(engine) -> int:
+    """F4: 逐租户超时扫描——waiting_human 超时 → timeout 终态 + 超时消息落库。返回超时数。"""
+    from sqlalchemy import text
+
+    from earp_server.conversation import flow_runs
+    from earp_server.conversation.conversation_service import add_message
+
+    ttl = int(os.environ.get("EARP_APPROVAL_TTL", "3600"))
+    expired = await flow_runs.expire_waiting_approvals(engine, ttl)
+    for run in expired:
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text(f"SET LOCAL earp.tenant_id = '{run['tenant_id']}'"))
+                row = (
+                    await conn.execute(
+                        text("SELECT user_id FROM conversations WHERE conversation_id = :cid"),
+                        {"cid": run["conversation_id"]},
+                    )
+                ).first()
+            if row:
+                await add_message(
+                    engine,
+                    run["tenant_id"],
+                    run["conversation_id"],
+                    "assistant",
+                    "⏰ 等待超时，流程终止",
+                    row.user_id,
+                )
+        except Exception:
+            logger.warning("approval timeout: message persist failed for %s", run.get("execution_id"), exc_info=True)
+    return len(expired)
 
 
 async def _run_enrichment_once(engine) -> dict:
@@ -62,6 +97,7 @@ async def _run() -> int:
     logger.info("scheduler started (heartbeat + enrichment every %ss)", ENRICHMENT_INTERVAL_SECONDS)
     ticks = 0
     last_enrichment = 0.0
+    last_approval_scan = 0.0
     while not stop.is_set():
         try:
             await asyncio.wait_for(stop.wait(), timeout=TICK_SECONDS)
@@ -75,6 +111,14 @@ async def _run() -> int:
                     logger.info("enrichment: %s", total)
                 except Exception:
                     logger.exception("enrichment failed")
+            if now - last_approval_scan >= APPROVAL_SCAN_INTERVAL_SECONDS:
+                last_approval_scan = now
+                try:
+                    expired = await _expire_approvals_once(engine)
+                    if expired:
+                        logger.info("approval timeout scan: %d run(s) expired", expired)
+                except Exception:
+                    logger.exception("approval timeout scan failed")
             if ticks % 30 == 0:
                 logger.info("scheduler heartbeat")
     logger.info("scheduler stopping (signal)")

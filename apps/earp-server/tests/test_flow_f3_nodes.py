@@ -1,0 +1,512 @@
+"""Chatflow F3 — qu/capability/tool 节点（编译 + 适配器 + flow_chat 集成）。
+
+覆盖：compile_flow_schema 对 qu/capability/tool 可编译（human_approval/mcp 仍报错）、
+qu.answer 适配器（mock understand/execute_plan，citations/selection/chunks 透传）、
+capability.call（注册表校验 + 权限门禁 + demo.echo 真实执行）、tool.fetch（真加密
+connector 配置 + mock data_fetch）、flow_chat 集成（qu→llm citations 引用 / capability
+权限+审计落 audit_logs / tool 取数 / PolicyLayer 权限拒绝 403）。
+
+基线：F2 17 + F1 17 + F0 33（回归在各自文件）。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+
+import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+from earp_server.audit.consumer import audit_handler_factory
+from earp_server.config import Settings
+from earp_server.connector import Connector, ConnectorError
+from earp_server.conversation import chat_app_service
+from earp_server.conversation.chat_service import flow_chat
+from earp_server.infra.eventbus import EventBus
+from earp_server.ontology.planning import Evidence, EvidenceChannel, PlanResult, PlanSelection
+from earp_server.ontology.understanding import Intent, RuleResult
+from earp_server.orchestrator.multi_step import ExecutionStatus
+from earp_server.orchestrator.types import InvokeContext, Step
+from earp_server.orchestrator.workflow_dsl import StepExec, WorkflowValidationError, compile_flow_schema
+
+TENANT = "f3-t1"
+CAP_ID = "cap-f3-echo"  # 独立 capability_id（cap-demo-echo 可能被其它测试以 tenant-demo 占用——PK 全局唯一）
+CN_ID = "cn-f3-rest"
+
+
+@pytest.fixture(scope="module")
+def app_engine(migrated: str, app_url: str) -> AsyncEngine:
+    return create_async_engine(app_url, pool_pre_ping=True)
+
+
+async def _register_cap(engine: AsyncEngine, tenant_id: str, *, permissions: list[str]) -> None:
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        await conn.execute(
+            text(
+                "INSERT INTO business_capabilities (capability_id, tenant_id, domain, name, type, "
+                "input_schema, output_schema, required_permissions, version) "
+                "VALUES (:cid, :tid, 'demo', 'echo', 'query', '{}', '{}', :perms, '1.0.0') "
+                "ON CONFLICT (capability_id) DO NOTHING"
+            ),
+            {"cid": CAP_ID, "tid": tenant_id, "perms": permissions},
+        )
+        await conn.commit()
+
+
+async def _register_role(engine: AsyncEngine, tenant_id: str, role_id: str, permissions: list[str]) -> None:
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        await conn.execute(
+            text(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, is_admin) "
+                "VALUES (:rid, :tid, :name, :perms, 'all', FALSE) ON CONFLICT (role_id) DO NOTHING"
+            ),
+            {"rid": role_id, "tid": tenant_id, "name": role_id, "perms": permissions},
+        )
+        await conn.commit()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _seed_f3(app_engine: AsyncEngine) -> None:
+    """f3-t1 基线：users（conversations FK）+ roles（f3-r1 有 demo.echo / f3-r2 无）+ cap-f3-echo。"""
+    import asyncio
+
+    async def _seed() -> None:
+        async with app_engine.begin() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
+            await conn.execute(
+                text(
+                    "INSERT INTO users (user_id, tenant_id, name, email) "
+                    "VALUES ('f3-u1', :t, 'f3-u1', 'f3-u1@e.io') ON CONFLICT DO NOTHING"
+                ),
+                {"t": TENANT},
+            )
+        await _register_role(app_engine, TENANT, "f3-r1", ["demo.echo"])
+        await _register_role(app_engine, TENANT, "f3-r2", [])
+        await _register_cap(app_engine, TENANT, permissions=["demo.echo"])
+
+    asyncio.run(_seed())
+
+
+class FakeLLM:
+    def __init__(self, text: str = "f3-answer") -> None:
+        self.text = text
+        self.calls: list[dict] = []
+
+    async def complete(self, prompt: str, *, system: str = "", temperature: float = 0.7, max_tokens: int | None = None):
+        self.calls.append({"prompt": prompt, "system": system, "temperature": temperature, "max_tokens": max_tokens})
+        return self.text
+
+
+def _settings() -> Settings:
+    return Settings(database_url="postgresql+psycopg://x/x", app_env="test")
+
+
+def _ctx(role_id: str = "f3-r1") -> InvokeContext:
+    return InvokeContext(
+        tenant_id=TENANT,
+        execution_id="exec-f3",
+        session_id="conv-f3",
+        user_id="f3-u1",
+        role_id=role_id,
+        step=Step(step_id="start", capability_call={}),
+    )
+
+
+def _flow_graph(*nodes: dict, edges: list[dict]) -> dict:
+    return {"nodes": list(nodes), "edges": edges}
+
+
+# ── 编译层（纯函数）──────────────────────────────────────────────────────────
+
+
+class TestCompileF3:
+    def test_qu_node_maps_to_qu_answer(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "q1", "type": "qu", "data": {"context_turns": 2}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "q1"}, {"source": "q1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        q1 = next(i for i in plan.sequence if i.node_id == "q1")
+        assert isinstance(q1, StepExec)
+        assert q1.step.capability_call == {
+            "adapter_type": "qu.answer",
+            "input": {"query": "{{query}}", "context_turns": 2},
+        }
+
+    def test_qu_node_custom_query(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "q1", "type": "qu", "data": {"query": "解析：{{query}}"}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "q1"}, {"source": "q1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        q1 = next(i for i in plan.sequence if i.node_id == "q1")
+        assert q1.step.capability_call["input"]["query"] == "解析：{{query}}"
+
+    def test_qu_node_non_string_query_rejected(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "q1", "type": "qu", "data": {"query": 42}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "q1"}, {"source": "q1", "target": "end"}],
+        )
+        with pytest.raises(WorkflowValidationError, match="query"):
+            compile_flow_schema(g)
+
+    def test_capability_node_step_shape(self) -> None:
+        """step 别名（F2 形状）：capability_call = {capability_id, input} → capability.call。"""
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {
+                "id": "c1",
+                "type": "capability",
+                "data": {"capability_call": {"capability_id": CAP_ID, "input": {"msg": "hi"}}},
+            },
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "c1"}, {"source": "c1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        c1 = next(i for i in plan.sequence if i.node_id == "c1")
+        assert isinstance(c1, StepExec)
+        assert c1.step.capability_call == {
+            "adapter_type": "capability.call",
+            "capability_id": CAP_ID,
+            "input": {"msg": "hi"},
+        }
+
+    def test_capability_node_input_shape(self) -> None:
+        """D4 新形状：data.input = {capability_id, input}。"""
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "c1", "type": "capability", "data": {"input": {"capability_id": CAP_ID, "input": {"msg": "x"}}}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "c1"}, {"source": "c1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        c1 = next(i for i in plan.sequence if i.node_id == "c1")
+        assert c1.step.capability_call["adapter_type"] == "capability.call"
+        assert c1.step.capability_call["capability_id"] == CAP_ID
+        assert c1.step.capability_call["input"] == {"msg": "x"}
+
+    def test_capability_node_explicit_adapter_kept(self) -> None:
+        """显式 adapter_type（demo.echo 等）保持 step 行为（F2 兼容）。"""
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "c1", "type": "capability", "data": {"capability_call": {"adapter_type": "demo.echo"}}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "c1"}, {"source": "c1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        c1 = next(i for i in plan.sequence if i.node_id == "c1")
+        assert c1.step.capability_call == {"adapter_type": "demo.echo"}
+
+    def test_capability_node_missing_capability_id_rejected(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "c1", "type": "capability", "data": {"capability_call": {"input": {"msg": "x"}}}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "c1"}, {"source": "c1", "target": "end"}],
+        )
+        with pytest.raises(WorkflowValidationError, match="capability_id"):
+            compile_flow_schema(g)
+
+    def test_tool_node_maps_to_tool_fetch(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "t1", "type": "tool", "data": {"connector_id": CN_ID, "params": {"region": "{{query}}"}}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "t1"}, {"source": "t1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        t1 = next(i for i in plan.sequence if i.node_id == "t1")
+        assert isinstance(t1, StepExec)
+        assert t1.step.capability_call == {
+            "adapter_type": "tool.fetch",
+            "input": {"connector_id": CN_ID, "params": {"region": "{{query}}"}},
+        }
+
+    def test_tool_node_missing_connector_id_rejected(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "t1", "type": "tool", "data": {}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "t1"}, {"source": "t1", "target": "end"}],
+        )
+        with pytest.raises(WorkflowValidationError, match="connector_id"):
+            compile_flow_schema(g)
+
+    def test_human_approval_node_compiles(self) -> None:
+        """Chatflow F4: human_approval 节点可编译（挂起/恢复）。"""
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "h1", "type": "human_approval", "data": {"question": "确认派单？{{query}}"}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "h1"}, {"source": "h1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        h1 = next(i for i in plan.sequence if i.node_id == "h1")
+        assert isinstance(h1, StepExec)
+        assert h1.step.capability_call == {
+            "adapter_type": "human.approval",
+            "input": {"question": "确认派单？{{query}}"},
+        }
+
+    def test_mcp_still_rejected(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "x1", "type": "mcp", "data": {}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "x1"}, {"source": "x1", "target": "end"}],
+        )
+        with pytest.raises(WorkflowValidationError, match="未实现"):
+            compile_flow_schema(g)
+
+
+# ── Connector 适配器 ─────────────────────────────────────────────────────────
+
+
+def _fake_qu_chain(monkeypatch, *, citations: list[dict]) -> None:
+    """mock understand/execute_plan（connector 内部 import 发生在调用时——patch 生效）。"""
+    import earp_server.ontology.planning as planning_mod
+    import earp_server.ontology.understanding as understanding_mod
+
+    async def _fake_understand(engine, tenant_id, query, **kwargs):
+        return RuleResult(intent=Intent.FACT, confidence=1.0)
+
+    async def _fake_execute_plan(engine, tenant_id, role_id, query, structured_query, **kwargs):
+        ev = Evidence(
+            evidence_id="ev-1",
+            channel=EvidenceChannel.CHUNK,
+            content="正文内容",
+            source="设备手册",
+            source_ref="doc-1",
+            confidence=0.9,
+            payload={"chunk_id": "c1", "similarity": 0.9},
+        )
+        pr = PlanResult(plan_name="plan_fact", evidence=[ev], citations=citations)
+        return PlanSelection("plan_fact", lambda *a, **k: None), pr
+
+    monkeypatch.setattr(understanding_mod, "understand", _fake_understand)
+    monkeypatch.setattr(planning_mod, "execute_plan", _fake_execute_plan)
+
+
+class TestF3Adapters:
+    async def test_qu_answer_outputs_citations(self, app_engine: AsyncEngine, monkeypatch) -> None:
+        citations = [{"chunk_id": "c1", "title": "设备手册", "document_id": "doc-1"}]
+        _fake_qu_chain(monkeypatch, citations=citations)
+        connector = Connector(engine=app_engine)
+        out = await connector.execute(
+            {"adapter_type": "qu.answer", "input": {"query": "CNC-01 是什么设备"}},
+            ctx=_ctx(),
+        )
+        assert out["selection"] == {"plan_name": "plan_fact", "fallback_reason": None}
+        assert out["citations"] == citations
+        assert out["chunks"][0]["chunk_id"] == "c1"
+        assert out["chunks"][0]["title"] == "设备手册"
+        assert out["evidence"][0]["channel"] == "chunk"
+
+    async def test_qu_answer_missing_query_raises(self, app_engine: AsyncEngine) -> None:
+        connector = Connector(engine=app_engine)
+        with pytest.raises(ConnectorError, match="query"):
+            await connector.execute({"adapter_type": "qu.answer", "input": {}}, ctx=_ctx())
+
+    async def test_capability_call_executes_demo_echo(self, app_engine: AsyncEngine) -> None:
+        connector = Connector(engine=app_engine)
+        out = await connector.execute(
+            {"adapter_type": "capability.call", "capability_id": CAP_ID, "input": {"msg": "hi"}},
+            ctx=_ctx(role_id="f3-r1"),
+        )
+        assert out == {"echo": {"msg": "hi"}}
+
+    async def test_capability_call_unknown_capability_raises(self, app_engine: AsyncEngine) -> None:
+        connector = Connector(engine=app_engine)
+        with pytest.raises(ConnectorError, match="不存在"):
+            await connector.execute(
+                {"adapter_type": "capability.call", "capability_id": "cap-nope", "input": {}},
+                ctx=_ctx(role_id="f3-r1"),
+            )
+
+    async def test_capability_call_permission_denied_raises(self, app_engine: AsyncEngine) -> None:
+        connector = Connector(engine=app_engine)
+        with pytest.raises(ConnectorError, match="缺少权限"):
+            await connector.execute(
+                {"adapter_type": "capability.call", "capability_id": CAP_ID, "input": {}},
+                ctx=_ctx(role_id="f3-r2"),
+            )
+
+    async def test_tool_fetch_real_encrypted_connector(self, app_engine: AsyncEngine, monkeypatch) -> None:
+        from earp_server.ontology import connector_service, data_adapter
+
+        created = await connector_service.create_connector(
+            app_engine,
+            TENANT,
+            connector_id=CN_ID,
+            adapter_type="rest",
+            config={"base_url": "http://internal.example", "path": "/api/items", "method": "GET"},
+        )
+        assert created is not None  # 幂等：同会话重复跑 ON CONFLICT 语义由 create_connector 返回 None
+
+        async def _fake_fetch(cfg, params=None):
+            assert cfg["base_url"] == "http://internal.example"  # 解密后明文配置
+            assert params == {"region": "华东"}
+            return [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]
+
+        monkeypatch.setattr(data_adapter, "fetch", _fake_fetch)
+        connector = Connector(engine=app_engine)
+        out = await connector.execute(
+            {"adapter_type": "tool.fetch", "input": {"connector_id": CN_ID, "params": {"region": "华东"}}},
+            ctx=_ctx(),
+        )
+        assert out["count"] == 2
+        assert out["rows"][0]["name"] == "A"
+        assert out["domain_filtered"] is False  # 一期标注：raw rows 未按角色域过滤
+
+    async def test_tool_fetch_unknown_connector_raises(self, app_engine: AsyncEngine) -> None:
+        connector = Connector(engine=app_engine)
+        with pytest.raises(ConnectorError, match="不存在"):
+            await connector.execute(
+                {"adapter_type": "tool.fetch", "input": {"connector_id": "cn-missing"}},
+                ctx=_ctx(),
+            )
+
+
+# ── flow_chat 集成 ──────────────────────────────────────────────────────────
+
+
+async def _flow_app(app_engine: AsyncEngine, schema: dict, name: str) -> dict:
+    return await chat_app_service.create_chat_app(
+        app_engine, TENANT, "f3-u1", name, orchestration="flow", flow_schema=schema
+    )
+
+
+async def _wait_audit(engine: AsyncEngine, event_type: str, timeout_s: float = 3.0) -> bool:
+    """轮询 audit_logs（EventBus fire-and-forget，handler 异步落库）。"""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        async with engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
+            row = (
+                await conn.execute(
+                    text("SELECT 1 FROM audit_logs WHERE tenant_id = :t AND event_type = :et LIMIT 1"),
+                    {"t": TENANT, "et": event_type},
+                )
+            ).first()
+        if row:
+            return True
+        if time.monotonic() > deadline:
+            return False
+        await asyncio.sleep(0.05)
+
+
+class TestFlowChatF3:
+    async def test_flow_qu_to_llm_citations(self, app_engine: AsyncEngine, monkeypatch) -> None:
+        """start→qu→llm→end：qu 输出 citations 供下游 {{#q1.citations#}} 引用。"""
+        citations = [{"chunk_id": "c1", "title": "设备手册", "document_id": "doc-1"}]
+        _fake_qu_chain(monkeypatch, citations=citations)
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "q1", "type": "qu", "data": {}},
+            {"id": "l1", "type": "llm", "data": {"prompt": "引用资料：{{#q1.citations#}}"}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[
+                {"source": "start", "target": "q1"},
+                {"source": "q1", "target": "l1"},
+                {"source": "l1", "target": "end"},
+            ],
+        )
+        app = await _flow_app(app_engine, g, "f3-qu-chain")
+        llm = FakeLLM(text="已引用")
+        result = await flow_chat(
+            app_engine, TENANT, "f3-u1", "f3-r1", app, "CNC-01 是什么设备", None,
+            base_llm=llm, settings=_settings(),
+        )
+        assert result["status"] == ExecutionStatus.COMPLETED.value
+        assert result["outputs"]["q1"]["selection"]["plan_name"] == "plan_fact"
+        assert result["outputs"]["q1"]["citations"] == citations
+        # 下游 llm 节点 prompt 中 {{#q1.citations#}} 已被 qu 输出替换
+        assert "设备手册" in llm.calls[0]["prompt"]
+
+    async def test_flow_capability_audit_events(self, app_engine: AsyncEngine) -> None:
+        """start→capability→end：真实执行 + 审计事件（earp.capability.call.*）落 audit_logs。"""
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {
+                "id": "c1",
+                "type": "capability",
+                "data": {"capability_call": {"capability_id": CAP_ID, "input": {"msg": "hello"}}},
+            },
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "c1"}, {"source": "c1", "target": "end"}],
+        )
+        app = await _flow_app(app_engine, g, "f3-cap-audit")
+        bus = EventBus()
+        bus.subscribe("earp.capability.*", audit_handler_factory(app_engine))
+        result = await flow_chat(
+            app_engine, TENANT, "f3-u1", "f3-r1", app, "q", None,
+            base_llm=FakeLLM(), settings=_settings(), bus=bus,
+        )
+        assert result["status"] == ExecutionStatus.COMPLETED.value
+        assert result["outputs"]["c1"] == {"echo": {"msg": "hello"}}
+        assert await _wait_audit(app_engine, "earp.capability.call.started")
+        assert await _wait_audit(app_engine, "earp.capability.call.completed")
+
+    async def test_flow_capability_permission_denied_403(self, app_engine: AsyncEngine) -> None:
+        """PolicyLayer 权限门禁：角色无 required_permissions → HTTPException 403（透传非 500）。"""
+        from fastapi import HTTPException
+
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {
+                "id": "c1",
+                "type": "capability",
+                "data": {"capability_call": {"capability_id": CAP_ID, "input": {"msg": "x"}}},
+            },
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "c1"}, {"source": "c1", "target": "end"}],
+        )
+        app = await _flow_app(app_engine, g, "f3-cap-deny")
+        bus = EventBus()
+        bus.subscribe("earp.capability.*", audit_handler_factory(app_engine))
+        with pytest.raises(HTTPException) as exc_info:
+            await flow_chat(
+                app_engine, TENANT, "f3-u1", "f3-r2", app, "q", None,
+                base_llm=FakeLLM(), settings=_settings(), bus=bus,
+            )
+        assert exc_info.value.status_code == 403
+
+    async def test_flow_tool_fetch(self, app_engine: AsyncEngine, monkeypatch) -> None:
+        """start→tool→end：M3 连接体系取数（真加密配置 + mock fetch + params 模板替换）。"""
+        from earp_server.ontology import connector_service, data_adapter
+
+        await connector_service.create_connector(
+            app_engine,
+            TENANT,
+            connector_id=CN_ID,
+            adapter_type="rest",
+            config={"base_url": "http://internal.example", "path": "/api/items", "method": "GET"},
+        )
+
+        async def _fake_fetch(cfg, params=None):
+            return [{"id": 1, "name": f"item-{params.get('region')}"}]
+
+        monkeypatch.setattr(data_adapter, "fetch", _fake_fetch)
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "t1", "type": "tool", "data": {"connector_id": CN_ID, "params": {"region": "{{query}}"}}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "t1"}, {"source": "t1", "target": "end"}],
+        )
+        app = await _flow_app(app_engine, g, "f3-tool-fetch")
+        result = await flow_chat(
+            app_engine, TENANT, "f3-u1", "f3-r1", app, "华东", None,
+            base_llm=FakeLLM(), settings=_settings(),
+        )
+        assert result["status"] == ExecutionStatus.COMPLETED.value
+        assert result["outputs"]["t1"]["rows"] == [{"id": 1, "name": "item-华东"}]  # {{query}} 已替换
+        assert result["outputs"]["t1"]["count"] == 1

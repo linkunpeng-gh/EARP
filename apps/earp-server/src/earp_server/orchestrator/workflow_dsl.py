@@ -227,9 +227,13 @@ def validate_workflow(
         else:
             if len(outs) > 1:
                 errors.append(f"{n.type} {n.id}: F0 无并行 — at most 1 outgoing edge (got {len(outs)})")
-            if n.type in ("step", "capability"):
+            if n.type == "step":
                 if not isinstance(n.data.get("capability_call"), dict):
-                    errors.append(f"{n.type} {n.id}: data.capability_call (dict) required")
+                    errors.append(f"step {n.id}: data.capability_call (dict) required")
+            elif n.type == "capability":
+                # F3: 兼容 step 别名（capability_call）与 D4 新形状（input）
+                if not isinstance(n.data.get("capability_call"), dict) and not isinstance(n.data.get("input"), dict):
+                    errors.append(f"capability {n.id}: data.capability_call 或 data.input (dict) required")
 
     # 无环 + 全节点可达（仅当引用/唯一性错误不存在时才有意义）
     if start_id and end_id and len(by_id) == len(node_ids) and not missing_edge_ref:
@@ -316,8 +320,8 @@ _DIALOGUE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "knowledge": ("knowledge.search", ("query", "kb_ids", "data_domain_ids", "top_k")),
     "chat_history": ("chat.history", ("turns",)),
 }
-# F1 声明可存、F2 执行未实现的节点类型（F3+ 适配层）
-_UNIMPLEMENTED_NODE_TYPES: frozenset[str] = frozenset({"qu", "human_approval", "tool", "mcp"})
+# F1 声明可存、F2/F3 执行未实现的节点类型（F4 或后续适配层）
+_UNIMPLEMENTED_NODE_TYPES: frozenset[str] = frozenset({"mcp"})
 
 
 def _step_from_data(node: WorkflowNode) -> Step:
@@ -348,10 +352,113 @@ def _f0_node_builder(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]
     return None  # start/end 不产出执行项
 
 
-def _flow_node_builder(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> ExecItem | None:
-    """Chatflow F2: flow_schema 节点 → 执行项（对话节点映射为适配器 Step）。"""
-    if node.type in ("step", "capability"):
+def _capability_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> StepExec:
+    """Chatflow F3: capability 节点 → capability.call 适配器（注册表校验 + 权限门禁 + 审计）。
+
+    兼容两种 authoring 形状（D4）：
+    - step 别名（F2）: data.capability_call = {capability_id, input}（显式 adapter_type 保持 step 行为）
+    - 新形状: data.input = {capability_id, input}
+    capability_id 归一化到顶层（PolicyLayer 权限查 capability_call.capability_id 免改）。
+    """
+    data = node.data
+    call = data.get("capability_call")
+    if isinstance(call, dict) and call.get("adapter_type") and call.get("adapter_type") != "capability.call":
+        # 显式 adapter 形状（demo.echo 等）——保持 step 行为（F2 兼容）
         return StepExec(node_id=node.id, step=_step_from_data(node), gate=gate)
+    cid = ""
+    cap_input: dict[str, Any] = {}
+    if isinstance(call, dict):
+        cid = str(call.get("capability_id") or "")
+        inner = call.get("input")
+        cap_input = inner if isinstance(inner, dict) else {}
+    elif isinstance(data.get("input"), dict):
+        new_input = data["input"]
+        cid = str(new_input.get("capability_id") or "")
+        inner = new_input.get("input")
+        cap_input = inner if isinstance(inner, dict) else {}
+    if not cid:
+        raise WorkflowValidationError(
+            "workflow validation failed:\n"
+            f"- node {node.id}: capability 节点需 capability_id（data.capability_call 或 data.input）"
+        )
+    return StepExec(
+        node_id=node.id,
+        step=Step(
+            step_id=node.id,
+            capability_call={"adapter_type": "capability.call", "capability_id": cid, "input": cap_input},
+        ),
+        gate=gate,
+    )
+
+
+def _qu_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> StepExec:
+    """Chatflow F3: qu 节点 → qu.answer 适配器（understand → select_plan → execute_plan）。"""
+    query = node.data.get("query", "{{query}}")
+    if not isinstance(query, str):
+        raise WorkflowValidationError(
+            f"workflow validation failed:\n- node {node.id}: qu data.query 必须是字符串模板"
+        )
+    input_: dict[str, Any] = {"query": query}
+    turns = node.data.get("context_turns")
+    if turns is not None:
+        try:
+            input_["context_turns"] = int(turns)
+        except (TypeError, ValueError):
+            raise WorkflowValidationError(
+                f"workflow validation failed:\n- node {node.id}: qu data.context_turns 必须是整数"
+            ) from None
+    return StepExec(
+        node_id=node.id,
+        step=Step(step_id=node.id, capability_call={"adapter_type": "qu.answer", "input": input_}),
+        gate=gate,
+    )
+
+
+def _tool_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> StepExec:
+    """Chatflow F3: tool 节点 → tool.fetch 适配器（M3 连接体系取数）。"""
+    connector_id = node.data.get("connector_id")
+    if not isinstance(connector_id, str) or not connector_id.strip():
+        raise WorkflowValidationError(
+            f"workflow validation failed:\n- node {node.id}: tool 节点需 data.connector_id（非空字符串）"
+        )
+    input_: dict[str, Any] = {"connector_id": connector_id}
+    params = node.data.get("params")
+    if isinstance(params, dict):
+        input_["params"] = params
+    return StepExec(
+        node_id=node.id,
+        step=Step(step_id=node.id, capability_call={"adapter_type": "tool.fetch", "input": input_}),
+        gate=gate,
+    )
+
+
+def _human_approval_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> StepExec:
+    """Chatflow F4: human_approval 节点 → human.approval 适配器（挂起等待人工答复）。
+
+    data.question（模板表达式）可选——默认「请确认是否继续」；恢复时答复注入
+    {{#node.output.reply#}} 供下游引用。
+    """
+    input_: dict[str, Any] = {}
+    question = node.data.get("question")
+    if question is not None:
+        if not isinstance(question, str):
+            raise WorkflowValidationError(
+                f"workflow validation failed:\n- node {node.id}: human_approval data.question 必须是字符串模板"
+            )
+        input_["question"] = question
+    return StepExec(
+        node_id=node.id,
+        step=Step(step_id=node.id, capability_call={"adapter_type": "human.approval", "input": input_}),
+        gate=gate,
+    )
+
+
+def _flow_node_builder(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> ExecItem | None:
+    """Chatflow F2/F3: flow_schema 节点 → 执行项（节点映射为适配器 Step）。"""
+    if node.type == "step":
+        return StepExec(node_id=node.id, step=_step_from_data(node), gate=gate)
+    if node.type == "capability":
+        return _capability_exec(node, gate)
     if node.type in _DIALOGUE_ADAPTERS:
         adapter, keys = _DIALOGUE_ADAPTERS[node.type]
         input_: dict[str, Any] = {k: node.data[k] for k in keys if k in node.data}
@@ -360,11 +467,17 @@ def _flow_node_builder(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide
             step=Step(step_id=node.id, capability_call={"adapter_type": adapter, "input": input_}),
             gate=gate,
         )
+    if node.type == "qu":
+        return _qu_exec(node, gate)
+    if node.type == "tool":
+        return _tool_exec(node, gate)
+    if node.type == "human_approval":
+        return _human_approval_exec(node, gate)
     if node.type == "condition":
         return _condition_exec(node, gate)
     if node.type in _UNIMPLEMENTED_NODE_TYPES:
         raise WorkflowValidationError(
-            f"workflow validation failed:\n- node {node.id}: 节点类型 {node.type!r} 未实现（F3+ 适配层）"
+            f"workflow validation failed:\n- node {node.id}: 节点类型 {node.type!r} 未实现（F4 或后续）"
         )
     return None  # start/end
 
@@ -437,10 +550,11 @@ def compile_workflow(graph: dict[str, Any] | WorkflowGraph) -> CompiledWorkflow:
 
 
 def compile_flow_schema(schema: dict[str, Any] | WorkflowGraph) -> CompiledWorkflow:
-    """Chatflow F2: 编译 flow_schema（设计稿 §3 全节点类型白名单）。
+    """Chatflow F2/F3: 编译 flow_schema（设计稿 §3 全节点类型白名单）。
 
     对话节点（llm/knowledge/chat_history）映射为适配器 Step（Connector 执行）；
-    condition 复用 F0 CondExec；qu/human_approval/tool/mcp 报「未实现」明确错误。
+    F3：qu → qu.answer / capability → capability.call / tool → tool.fetch；
+    condition 复用 F0 CondExec；human_approval/mcp 报「未实现（F4 或后续）」明确错误。
     """
     errors = validate_workflow(schema, allowed_types=FLOW_NODE_TYPES)
     if errors:
@@ -463,6 +577,7 @@ def resolve_templates(
 
     - ``{{query}}`` → flow_input['query']（图输入）
     - ``{{#node_id.output#}}`` / ``{{#node_id.output.a.b#}}`` → pool 中已完成节点输出
+    - ``{{#node_id.a#}}``（F3 简写，省略 .output. 段）→ 同一路径——两种形式均解析
     缺失引用原样保留（适配器/LLM 端兜底，不静默吞掉）。
     """
     flow_input = flow_input or {}
@@ -472,13 +587,16 @@ def resolve_templates(
             dotted = m.group(1)
             if dotted is not None:
                 parts = dotted.split(".")
-                if len(parts) < 2 or parts[1] != "output":
+                if len(parts) < 2:
                     return m.group(0)
                 result = pool.get(parts[0])
                 if result is None or result.output is None:
                     return m.group(0)
+                # F2 形式 {{#node.output.path#}} 与 F3 简写 {{#node.path#}} 兼容：
+                # 显式 .output. 段跳过，其余键均为 output 内的路径
+                keys = parts[2:] if parts[1] == "output" else parts[1:]
                 v: Any = result.output
-                for key in parts[2:]:
+                for key in keys:
                     if not isinstance(v, dict) or key not in v:
                         return m.group(0)
                     v = v[key]
@@ -500,6 +618,39 @@ def _stringify(v: Any) -> str:
     if v is None:
         return "null"
     return str(v)
+
+
+# ── pool 序列化（F4：挂起/恢复的 flow_runs 载体）───────────────────────────────
+
+
+def serialize_pool(pool: dict[str, StepResult]) -> dict[str, Any]:
+    """Chatflow F4: pool → JSON 可序列化 dict（只存 output/status/error，不存函数/句柄）。
+
+    flow_runs.node_state 落库载体——下游模板/条件求值只需 output。
+    """
+    return {
+        nid: {"status": r.status, "output": r.output, "error": r.error}
+        for nid, r in pool.items()
+        if r.output is not None or r.status != "completed"
+    }
+
+
+def deserialize_pool(data: dict[str, Any] | None) -> dict[str, StepResult]:
+    """Chatflow F4: node_state JSON → pool（重建 StepResult 的 JSON 字段，供恢复重放）。"""
+    pool: dict[str, StepResult] = {}
+    for nid, entry in (data or {}).items():
+        if not isinstance(entry, dict):
+            continue
+        status = entry.get("status")
+        if status not in ("completed", "failed", "retrying", "skipped"):
+            status = "skipped"
+        pool[str(nid)] = StepResult(
+            step_id=str(nid),
+            status=status,
+            output=entry.get("output"),
+            error=entry.get("error"),
+        )
+    return pool
 
 
 # ── 运行时条件求值（纯函数，无 DB）──────────────────────────────────────────

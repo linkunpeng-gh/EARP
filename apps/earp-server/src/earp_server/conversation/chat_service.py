@@ -432,16 +432,21 @@ async def flow_chat(
     settings,
     bus=None,
 ) -> dict[str, Any]:
-    """Chatflow F2: orchestration='flow' 时走声明式图执行（设计稿 §2/§7）。
+    """Chatflow F2/F4: orchestration='flow' 时走声明式图执行（设计稿 §2/§7）。
 
     会话创建/续接（chat_apps 归属 + 用户消息先落）→ compile_flow_schema →
     MultiStepExecutor（对话节点适配器注入）→ outputs → 助手消息 + citations 落库。
-    非流式 JSON 响应；SSE 节点级透传 F4/F5a 再做。
+    非流式 JSON 响应；SSE 节点级透传 F5a 再做。
+
+    Chatflow F4: human_approval 挂起/恢复——同 conversation 的 waiting_human run 存在则
+    恢复（用户下一句即答复），否则新建；挂起 → flow_runs(status=waiting_human) 落库 +
+    assistant 消息 + 返回 waiting_human 状态（端点转 202）；完成/超时终态化。
     """
+    from earp_server.conversation import flow_runs
     from earp_server.conversation.conversation_service import add_message, create_conversation
-    from earp_server.orchestrator.multi_step import MultiStepExecutor
+    from earp_server.orchestrator.multi_step import ExecutionStatus, MultiStepExecutor
     from earp_server.orchestrator.types import InvokeContext, Step
-    from earp_server.orchestrator.workflow_dsl import compile_flow_schema
+    from earp_server.orchestrator.workflow_dsl import compile_flow_schema, deserialize_pool, serialize_pool
 
     if not (query or "").strip():
         raise ChatError("问题不能为空")
@@ -470,24 +475,91 @@ async def flow_chat(
     plan = compile_flow_schema(app["flow_schema"])
     override = await resolve_llm_override(engine, tenant_id, app)
     llm = LLMConnector(settings, model_override=override) if override else base_llm
-    executor = MultiStepExecutor(engine, bus=bus, llm=llm)
+    # Chatflow F3: settings 注入执行器 → qu.answer 适配器（upgrade_with_llm 需要 ollama 配置）
+    executor = MultiStepExecutor(engine, bus=bus, llm=llm, settings=settings)
 
-    exec_id = uuid.uuid4().hex
-    ctx = InvokeContext(
-        tenant_id=tenant_id,
-        execution_id=exec_id,
-        session_id=conversation_id,
-        user_id=user_id,
-        role_id=role_id,
-        step=Step(step_id="start", capability_call={}),
-    )
-    results, state = await executor.execute(
-        plan.steps,
-        ctx,
-        layers=[],
-        plan=plan,
-        flow_input={"query": query, "conversation_id": conversation_id},
-    )
+    # F4: 同 conversation 的 waiting_human run → 恢复模式；否则新建（D6：唯一性）
+    waiting = await flow_runs.get_waiting_run(engine, tenant_id, conversation_id)
+    if waiting is not None and _approval_expired(waiting, _approval_ttl(settings)):
+        # D4 惰性超时检查：超时 → timeout 终态 + 消息，本轮按新建处理
+        await flow_runs.finish_run(engine, tenant_id, waiting["execution_id"], status="timeout")
+        await add_message(engine, tenant_id, conversation_id, "assistant", "⏰ 等待超时，流程终止", user_id)
+        waiting = None
+
+    flow_input = {"query": query, "conversation_id": conversation_id}
+    if waiting is not None:
+        # 恢复：用户下一句即答复；flow_input 用挂起时快照（{{query}} 仍是挂起时的问题）
+        exec_id = waiting["execution_id"]
+        ctx = InvokeContext(
+            tenant_id=tenant_id,
+            execution_id=exec_id,
+            session_id=conversation_id,
+            user_id=user_id,
+            role_id=role_id,
+            step=Step(step_id="start", capability_call={}),
+        )
+        pool = deserialize_pool(waiting.get("node_state"))
+        results, state = await executor.execute(
+            plan.steps,
+            ctx,
+            layers=[],
+            plan=plan,
+            flow_input=waiting.get("flow_input") or flow_input,
+            resume_pool=pool,
+            resume_pending_node=waiting.get("pending_node_id"),
+            resume_reply=query,
+        )
+        attempts = int(waiting.get("attempts") or 1) + 1
+    else:
+        exec_id = uuid.uuid4().hex
+        await flow_runs.create_run(
+            engine,
+            tenant_id,
+            execution_id=exec_id,
+            chat_app_id=app["chat_app_id"],
+            conversation_id=conversation_id,
+            flow_input=flow_input,
+        )
+        ctx = InvokeContext(
+            tenant_id=tenant_id,
+            execution_id=exec_id,
+            session_id=conversation_id,
+            user_id=user_id,
+            role_id=role_id,
+            step=Step(step_id="start", capability_call={}),
+        )
+        results, state = await executor.execute(
+            plan.steps,
+            ctx,
+            layers=[],
+            plan=plan,
+            flow_input=flow_input,
+        )
+        attempts = 1
+
+    if state.status == ExecutionStatus.WAITING_HUMAN:
+        # 挂起（D2）：pool 序列化落 flow_runs（复用 exec_id——conversation 的 waiting_human 唯一）
+        node_state = serialize_pool({r.step_id: r for r in results if r.status == "completed"})
+        await flow_runs.update_waiting(
+            engine,
+            tenant_id,
+            exec_id,
+            pending_node_id=state.pending_node_id,
+            node_state=node_state,
+            attempts=attempts,
+        )
+        question = state.pending_question or "请确认是否继续"
+        await add_message(engine, tenant_id, conversation_id, "assistant", f"⏸ 等待确认：{question}", user_id)
+        return {
+            "execution_id": exec_id,
+            "conversation_id": conversation_id,
+            "status": ExecutionStatus.WAITING_HUMAN.value,
+            "pending_node_id": state.pending_node_id,
+            "question": question,
+        }
+
+    # 完成/失败（F4：终态化 flow_runs）
+    await flow_runs.finish_run(engine, tenant_id, exec_id, status=state.status.value)
 
     completed = [r for r in results if r.status == "completed"]
     outputs = {r.step_id: r.output for r in results if r.status == "completed"}
@@ -513,3 +585,26 @@ async def flow_chat(
         "message_id": msg["message_id"],
         "answer": answer,
     }
+
+
+def _approval_ttl(settings) -> int:
+    """Chatflow F4: 超时阈值（EARP_APPROVAL_TTL，默认 3600s）。settings 注入或兜底。"""
+    ttl = getattr(settings, "approval_ttl", 3600)
+    return max(1, int(ttl or 3600))
+
+
+def _approval_expired(run: dict[str, Any], ttl: int) -> bool:
+    """Chatflow F4: waiting_human run 是否超时（updated_at 超过 ttl）。"""
+    from datetime import UTC, datetime, timedelta
+
+    updated = run.get("updated_at")
+    if updated is None:
+        return False
+    if isinstance(updated, str):
+        try:
+            updated = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=UTC)
+    return datetime.now(UTC) - updated > timedelta(seconds=ttl)

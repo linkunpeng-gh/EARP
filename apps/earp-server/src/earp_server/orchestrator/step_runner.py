@@ -13,16 +13,17 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.infra.checkpoint import CheckpointStore
-from earp_server.orchestrator.types import InvokeContext, Layer, Step, StepEvent, StepResult
+from earp_server.orchestrator.types import ApprovalPending, InvokeContext, Layer, Step, StepEvent, StepResult
 
 if TYPE_CHECKING:
     from earp_server.connector import LLMConnector
 
 
 class StepRunner:
-    def __init__(self, engine: AsyncEngine, *, llm=None) -> None:
+    def __init__(self, engine: AsyncEngine, *, llm=None, settings=None) -> None:
         self._checkpoint = CheckpointStore(engine)
         self._llm = llm  # Chatflow F2: 对话节点适配器（llm.prompt）注入
+        self._settings = settings  # Chatflow F3: qu.answer 的 upgrade_with_llm 需要完整 ollama 配置
 
     async def invoke(self, step: Step, *, layers: list[Layer], ctx: InvokeContext) -> StepResult:
         for layer in layers:
@@ -35,6 +36,8 @@ class StepRunner:
         try:
             output = await self._execute_step(step, ctx)
             status = "completed"
+        except ApprovalPending:
+            raise  # Chatflow F4: 挂起点穿透——由 MultiStepExecutor 捕获转 waiting_human 状态
         except Exception as exc:
             error = str(exc)
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -73,8 +76,8 @@ class StepRunner:
     async def _execute_step(self, step: Step, ctx: InvokeContext) -> dict[str, Any]:
         from earp_server.connector import Connector
 
-        # Chatflow F2: flow 执行链路注入 engine/llm（对话节点适配器）+ ctx（tenant/role/session）
-        connector = Connector(engine=self._checkpoint._engine, llm=self._llm)
+        # Chatflow F2/F3: flow 执行链路注入 engine/llm/settings（对话节点适配器）+ ctx（tenant/role/session）
+        connector = Connector(engine=self._checkpoint._engine, llm=self._llm, settings=self._settings)
         return await connector.execute(step.capability_call, ctx=ctx)
 
     async def stream(

@@ -351,6 +351,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # (prod uses independent audit worker process — see entrypoints/audit.py)
             app.state.eventbus.subscribe("earp.execution.*", audit_handler_factory(app.state.engine))
             app.state.eventbus.subscribe("earp.chat_app.*", audit_handler_factory(app.state.engine))
+            # Chatflow F3: capability 节点审计（capability.call 层事件 → audit_logs）
+            app.state.eventbus.subscribe("earp.capability.*", audit_handler_factory(app.state.engine))
         if cfg.app_env in ("dev", "test"):
             try:
                 # Seed demo tenant baseline: tenant/user/role/data-domains/capability.
@@ -1170,8 +1172,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/chat_apps/{chat_app_id}/chat", tags=["chat_apps"], response_model=None)
     async def chat_ep(
         chat_app_id: str, req_body: ChatRequest, req: Request
-    ) -> StreamingResponse | dict[str, Any]:
-        """对话入口：auto = SSE 流式（现状）；flow = 声明式图执行（Chatflow F2，非流式 JSON）。"""
+    ) -> StreamingResponse | dict[str, Any] | JSONResponse:
+        """对话入口：auto = SSE 流式（现状）；flow = 声明式图执行（Chatflow F2，非流式 JSON；
+        F4 human_approval 挂起 → 202）。"""
         app = await get_chat_app(req.app.state.engine, req.state.tenant_id, chat_app_id)
         if app is None:
             raise HTTPException(status_code=404, detail="chat app not found")
@@ -1181,7 +1184,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             from earp_server.orchestrator.workflow_dsl import WorkflowValidationError
 
             try:
-                return await flow_chat(
+                result = await flow_chat(
                     req.app.state.engine,
                     req.state.tenant_id,
                     req.state.user_id,
@@ -1193,6 +1196,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     settings=req.app.state.settings,
                     bus=req.app.state.eventbus,
                 )
+                if result.get("status") == "waiting_human":
+                    # Chatflow F4: human_approval 挂起 → 202（等待人工答复）
+                    return JSONResponse(status_code=202, content=result)
+                return result
+            except HTTPException:
+                raise  # Chatflow F3: PolicyLayer 权限拒绝 403 透传（勿转 500）
             except (ConnectorError, ChatError, WorkflowValidationError) as e:
                 raise HTTPException(status_code=422, detail=f"flow 执行失败：{e}") from e
             except Exception:

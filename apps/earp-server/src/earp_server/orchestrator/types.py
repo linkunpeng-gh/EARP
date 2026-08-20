@@ -57,6 +57,15 @@ class InvokeContext:
     step: Step
 
 
+class ApprovalPending(Exception):
+    """Chatflow F4: human_approval 节点挂起信号——适配器抛，执行器捕获转 waiting_human 状态。"""
+
+    def __init__(self, node_id: str, question: str) -> None:
+        super().__init__(f"approval pending at {node_id}: {question}")
+        self.node_id = node_id
+        self.question = question
+
+
 class Layer(Protocol):
     async def before_step(self, ctx: InvokeContext) -> None: ...
     async def after_step(self, ctx: InvokeContext, result: StepResult) -> None: ...

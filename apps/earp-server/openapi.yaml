@@ -1886,7 +1886,9 @@ paths:
       - chat_apps
   /chat_apps/{chat_app_id}/chat:
     post:
-      description: 对话入口：auto = SSE 流式（现状）；flow = 声明式图执行（Chatflow F2，非流式 JSON）。
+      description: '对话入口：auto = SSE 流式（现状）；flow = 声明式图执行（Chatflow F2，非流式 JSON；
+
+        F4 human_approval 挂起 → 202）。'
       operationId: chat_ep_chat_apps__chat_app_id__chat_post
       parameters:
       - in: path

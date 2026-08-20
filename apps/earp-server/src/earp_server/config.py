@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     rerank_top_n: int = 20  # 精排候选数（RRF/向量召回后）
     ollama_chat_model: str = "qwen3.6:27b"
     embedding_dim: int = 1024  # bge-m3 dimension; change when switching models
+    # Chatflow F4: human_approval 节点等待人工答复超时（秒）——超时 → timeout 终态
+    approval_ttl: int = 3600
 
     # ── LLM Cache ──
     llm_cache_ttl: int = 3600  # seconds (1 hour)
