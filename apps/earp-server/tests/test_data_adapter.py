@@ -213,3 +213,13 @@ async def test_db_fetch_illegal_column_raises(migrated: str, migration_url: str)
 async def test_db_fetch_missing_conn_url_raises() -> None:
     with pytest.raises(data_adapter.ConnectorFetchError):
         await data_adapter.fetch({"adapter_type": "db", "table": "t"})
+
+
+async def test_rest_non_json_response_wrapped() -> None:
+    """E 修复（review）：非 JSON 响应 → ConnectorFetchError（live 503 语义，不裸抛 ValueError）。"""
+
+    def handler(request):
+        return httpx.Response(200, content=b"<html>not json</html>", headers={"Content-Type": "text/html"})
+
+    with pytest.raises(data_adapter.ConnectorFetchError):
+        await _rest(data_adapter.fetch_rest, {"base_url": "http://mid", "path": "/"}, None, handler)

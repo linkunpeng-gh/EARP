@@ -38,6 +38,35 @@ async def recover_interrupted_sync(engine, tenant_id: str, data_source_id: str, 
     return False
 
 
+async def recover_interrupted_sync_all(engine, ttl_seconds: int) -> int:
+    """worker 启动扫描（D 修复，仿 T1 recover_stale_runs 逐租户）：
+    全部租户 running 数据源心跳旧（TTL 超时）→ 标 interrupted。
+    import_rules 是 tenant-scoped 表（RLS）——逐租户遍历 tenants（无 RLS 顶层表）。
+    """
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        tenants = (await conn.execute(text("SELECT tenant_id FROM tenants"))).fetchall()
+    n = 0
+    for t in tenants:
+        tid = t.tenant_id
+        try:
+            ds_rows = await import_service.list_data_sources(engine, tid)
+        except Exception:  # noqa: BLE001 — 单租户失败不阻塞
+            logger.warning("recover_interrupted_sync_all: list failed for %s", tid, exc_info=True)
+            continue
+        for ds in ds_rows:
+            if ds["last_sync_status"] != "running" or not ds["last_synced_at"]:
+                continue
+            last = datetime.fromisoformat(ds["last_synced_at"])
+            if (datetime.now(UTC) - last).total_seconds() > ttl_seconds:
+                await import_service.mark_sync_state(
+                    engine, tid, ds["data_source_id"], status="interrupted"
+                )
+                n += 1
+    return n
+
+
 def register(queue: ProcrastinateTaskQueue) -> None:
     """注册 ontology.sync_data_source 任务（worker 侧调用；API 进程只 enqueue 不注册）。"""
 
@@ -47,7 +76,11 @@ def register(queue: ProcrastinateTaskQueue) -> None:
         engine = build_engine(settings)
 
         async def _beat() -> None:
-            await import_service.mark_sync_state(engine, tenant_id, data_source_id, status="running")
+            # C 修复（review）：心跳同时刷新 last_synced_at——长同步 > TTL 时
+            # recover 判定仍新鲜，避免误判「并发恢复」导致双同步竞态
+            await import_service.mark_sync_state(
+                engine, tenant_id, data_source_id, status="running", synced_at=_now()
+            )
 
         try:
             await import_service.mark_sync_state(

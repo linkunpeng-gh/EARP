@@ -273,3 +273,75 @@ async def test_sync_job_status_machine(
         assert got2["last_sync_status"] == "failed"
     finally:
         await engine.dispose()
+
+
+async def test_heartbeat_refreshes_timestamp_no_false_recovery(
+    migrated: str, app_url: str, migration_url: str, monkeypatch
+) -> None:
+    """C 修复（review）：job 内 _beat 刷新 last_synced_at——长同步 > TTL 期间
+    recover 判定仍新鲜，不误判「并发恢复」（双同步竞态消除）。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    try:
+        tid = "sync-c1"
+        await _seed(engine, migration_url, tid)
+        ds = await _make_connector_and_ds(engine, tid)
+        # 模拟同步开始：running + 心跳时间戳 = 现在
+        await import_service.mark_sync_state(
+            engine, tid, ds["data_source_id"], status="running", synced_at=datetime.now(UTC).isoformat()
+        )
+        # 模拟长时间同步：期间心跳（_beat 等价：刷新 running + synced_at）
+        await import_service.mark_sync_state(
+            engine, tid, ds["data_source_id"], status="running", synced_at=datetime.now(UTC).isoformat()
+        )
+        # 超过 TTL 后检查：心跳新鲜（_beat 刚刷新）→ 不误判恢复
+        recovered = await sync_jobs.recover_interrupted_sync(
+            engine, tid, ds["data_source_id"], ttl_seconds=1800
+        )
+        assert recovered is False  # C 修复：心跳刷新后 last_synced_at 新鲜
+        got = await import_service.get_data_source(engine, tid, ds["data_source_id"])
+        assert got["last_sync_status"] == "running"  # 未被标 interrupted
+    finally:
+        await engine.dispose()
+
+
+async def test_recover_interrupted_sync_all_scans_tenants(
+    migrated: str, app_url: str, migration_url: str
+) -> None:
+    """D 修复（review）：recover_interrupted_sync_all 逐租户扫描——只标心跳旧的数据源，
+    心跳新鲜/非 running 不碰。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    try:
+        # 租户 A：running + 旧心跳（2h）→ 应标 interrupted
+        tid_a = "sync-d1"
+        await _seed(engine, migration_url, tid_a)
+        ds_a = await _make_connector_and_ds(engine, tid_a, cid="cn-d1")
+        old = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        await import_service.mark_sync_state(engine, tid_a, ds_a["data_source_id"], status="running", synced_at=old)
+        # 租户 B：running + 新鲜心跳 → 不碰
+        tid_b = "sync-d2"
+        await _seed(engine, migration_url, tid_b)
+        ds_b = await _make_connector_and_ds(engine, tid_b, cid="cn-d2")
+        await import_service.mark_sync_state(
+            engine, tid_b, ds_b["data_source_id"], status="running", synced_at=datetime.now(UTC).isoformat()
+        )
+        # tenants 表补两租户（recover_all 遍历 tenants）
+        mig = create_async_engine(migration_url)
+        async with mig.begin() as conn:
+            for t in (tid_a, tid_b):
+                await conn.execute(
+                    text(
+                        "INSERT INTO tenants (tenant_id, name, status) VALUES (:t, 'sync', 'active') "
+                        "ON CONFLICT (tenant_id) DO NOTHING"
+                    ),
+                    {"t": t},
+                )
+        await mig.dispose()
+
+        n = await sync_jobs.recover_interrupted_sync_all(engine, ttl_seconds=1800)
+        assert n == 1  # 只标了租户 A
+        got_a = await import_service.get_data_source(engine, tid_a, ds_a["data_source_id"])
+        assert got_a["last_sync_status"] == "interrupted"
+        got_b = await import_service.get_data_source(engine, tid_b, ds_b["data_source_id"])
+        assert got_b["last_sync_status"] == "running"  # 新鲜心跳不误标
+    finally:
+        await engine.dispose()

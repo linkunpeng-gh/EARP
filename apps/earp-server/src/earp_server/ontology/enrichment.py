@@ -6,9 +6,10 @@
 
 - ③ 失效清理（G4）：status='active' AND valid_to < now() → revoke_fact 完整流程
   （timeline + audit + updated_at + 写时失效）→ profile 自动 stale → ④ 下一轮重编；limit 分批 + 幂等
-- ① timeline 回填（G2）：近窗 executions.result 的 citations[].entity_id（profile/graph 源）
-  → entity_timeline（event_type 映射 + source_ref=execution_id 去重）——不用名称匹配
-  （audit_logs 无实体名，capability_entity_map 是类型级）
+- ① timeline 回填（G2 + review A 修复）：近窗 messages.citations（chat 真实引用落库，
+  chat_service:306 UPDATE messages SET citations）→ entity_timeline（event_type 映射 +
+  source_ref=message_id 去重）。**executions.result 无生产写入方**（仅 invoke 写 status，
+  INSERT 不含 result；plan-debug 不落库）——已移除该死路径，勿加回
 - ② 热度报告（G3）：同窗实体引用频次 top-N（仅报告，不落库——Phase 2b 未实现无消费方）
 """
 
@@ -27,18 +28,33 @@ from earp_server.ontology import abox_service
 
 logger = logging.getLogger(__name__)
 
-# G2：citations 源 → timeline event_type 映射（执行结果溯源到实体行为）
+# G2：citations 源 → timeline event_type 映射（引用溯源到实体行为）
 _SOURCE_EVENT = {"profile": "query.entity", "graph": "graph.entity"}
 
 
-def _extract_entity_refs(result: dict) -> list[tuple[str, str]]:
-    """从 PlanResult dict 提取 (entity_id, event_type)。容错：无 citations/无 entity_id 跳过。"""
+def _extract_entity_refs(raw: object) -> list[tuple[str, str]]:
+    """从 citations 素材提取 (entity_id, event_type)。容错两种形状：
+    - messages.citations 直接是数组（chat 引用）
+    - 含 citations 字段的 dict（兼容 PlanResult 包装）
+    """
+    citations: list | None = None
+    if isinstance(raw, list):
+        citations = raw
+    elif isinstance(raw, dict):
+        for k, v in raw.items():
+            if k == "citations":
+                cit_raw = v
+                if isinstance(cit_raw, list):
+                    citations = cit_raw
+                break
     refs: list[tuple[str, str]] = []
-    for cit in result.get("citations") or []:
-        eid = cit.get("entity_id")
+    for cit in citations or []:
+        if not isinstance(cit, dict):
+            continue
+        eid = cit.get("entity_id")  # type: ignore[reportCallIssue]  # dict[Unknown, Unknown] 泛型限制
         if not eid:
             continue
-        event_type = _SOURCE_EVENT.get(cit.get("source"), "query.entity")
+        event_type = _SOURCE_EVENT.get(cit.get("source"), "query.entity")  # type: ignore[reportCallIssue]
         refs.append((eid, event_type))
     return refs
 
@@ -74,7 +90,7 @@ async def _add_timeline_once(
                     "tid": tenant_id,
                     "e": entity_id,
                     "t": event_type,
-                    "p": json.dumps({"source": "execution"}),
+                    "p": json.dumps({"source": "message"}),
                     "o": occurred_at,
                     "r": source_ref,
                 },
@@ -125,32 +141,25 @@ async def enrichment_run(
         except Exception:  # noqa: BLE001
             logger.warning("enrichment: revoke failed %s", fid, exc_info=True)
 
-    # ① timeline 回填（G2：executions.result citations → entity_timeline）
+    # ① timeline 回填（A 修复：messages.citations 是真实引用源——chat_service 写；
+    # executions.result 无生产写入方，已移除）
     async with tenant_session(engine, tenant_id) as session:
-        exec_rows = (
+        msg_rows = (
             await session.execute(
                 text(
-                    "SELECT execution_id, created_at, result FROM executions "
-                    "WHERE tenant_id = :t AND result IS NOT NULL "
-                    "AND created_at > now() - make_interval(days => :win)"
+                    "SELECT message_id, created_at, citations FROM messages "
+                    "WHERE tenant_id = :t AND citations IS NOT NULL "
+                    "AND created_at > now() - make_interval(days => :win) LIMIT :lim"
                 ),
-                {"t": tenant_id, "win": window_days},
+                {"t": tenant_id, "win": window_days, "lim": limit},
             )
         ).mappings().all()
     hot: Counter[str] = Counter()
-    for ex in exec_rows:
-        raw = ex["result"] or {}
-        if isinstance(raw, str):
-            try:
-                raw = json.loads(raw)
-            except Exception:  # noqa: BLE001
-                continue
-        if not isinstance(raw, dict):
-            continue
-        for eid, event_type in _extract_entity_refs(raw):
+    for m in msg_rows:
+        for eid, event_type in _extract_entity_refs(m["citations"]):
             hot[eid] += 1
             inserted = await _add_timeline_once(
-                engine, tenant_id, eid, event_type, ex["execution_id"], ex["created_at"]
+                engine, tenant_id, eid, event_type, m["message_id"], m["created_at"]
             )
             if inserted:
                 timeline_added += 1

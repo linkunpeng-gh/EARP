@@ -1,7 +1,7 @@
 """M3 D1 — Enrichment 模块：④③①② 全流程 + 幂等 + 手动端点。
 
 - ③ 失效事实 revoked（完整流程：timeline + profile stale）
-- ① timeline 从 executions.result citations 回填（去重 source_ref=execution_id）
+- ① timeline 从 messages.citations 回填（去重 source_ref=message_id）
 - ② 热度 top-N 报告（不落库）
 - 重复 run 幂等
 
@@ -28,8 +28,10 @@ SECRET = "earp-dev-secret-change-in-production"
 
 async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
     e1, e2 = f"en-{tid}", f"en-{tid}b"
-    sid = f"s-{tid}"
+    cid = f"c-{tid}"
+    mid = f"msg-{tid}"
     fid = f"fact-{tid}"
+    uid = f"u-{tid}"
     eng = create_async_engine(migration_url)
     async with eng.begin() as conn:
         # 按租户派生 id 清理（单列主键跨租户共享，全局前缀清会误删他租户——按具体 id）
@@ -40,8 +42,9 @@ async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
             await conn.execute(
                 text("DELETE FROM entity_profiles WHERE entity_id = :e"), {"e": eid}
             )
-        await conn.execute(text("DELETE FROM executions WHERE execution_id = 'ex-t1'"))
-        await conn.execute(text("DELETE FROM sessions WHERE session_id = :s"), {"s": sid})
+        await conn.execute(text("DELETE FROM messages WHERE message_id = :m"), {"m": mid})
+        await conn.execute(text("DELETE FROM conversations WHERE conversation_id = :c"), {"c": cid})
+        await conn.execute(text("DELETE FROM users WHERE user_id = :u"), {"u": uid})
         await conn.execute(text("DELETE FROM facts WHERE fact_id = :f"), {"f": fid})
         await conn.execute(
             text("DELETE FROM entities WHERE entity_id IN (:a, :b)"), {"a": e1, "b": e2}
@@ -94,27 +97,32 @@ async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
             ),
             {"t": tid, "e1": e1, "e2": e2, "fid": fid},
         )
-        # 近窗 execution：result 带 profile/graph citations（G2 素材）——session 先建（FK）
-        result = {
-            "citations": [
-                {"source": "profile", "entity_id": e1, "entity_type": "equipment"},
-                {"source": "graph", "entity_id": e2, "entity_type": "equipment"},
-            ]
-        }
+        # 近窗 message：citations 落库（chat 真实引用源，review A 修复后素材）——conversation 先建（FK）
+        citations = [
+            {"source": "profile", "entity_id": e1, "entity_type": "equipment"},
+            {"source": "graph", "entity_id": e2, "entity_type": "equipment"},
+        ]
         await conn.execute(
             text(
-                "INSERT INTO sessions (session_id, tenant_id, user_id, role_id) "
-                "VALUES (:sid, :t, 'u1', 'r1') ON CONFLICT DO NOTHING"
+                "INSERT INTO users (user_id, tenant_id, name, email) "
+                "VALUES (:u, :t, '测试用户', :email) ON CONFLICT DO NOTHING"
             ),
-            {"sid": sid, "t": tid},
+            {"u": uid, "t": tid, "email": f"{uid}@t.io"},
         )
         await conn.execute(
             text(
-                "INSERT INTO executions (execution_id, tenant_id, session_id, role_id, "
-                "status, result, created_at) VALUES "
-                "('ex-t1', :t, :sid, 'r1', 'completed', :res, now() - interval '1 day')"
+                "INSERT INTO conversations (conversation_id, tenant_id, user_id, created_at) "
+                "VALUES (:c, :t, :u, now() - interval '2 day') ON CONFLICT DO NOTHING"
             ),
-            {"t": tid, "sid": sid, "res": json.dumps(result)},
+            {"c": cid, "t": tid, "u": uid},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO messages (message_id, tenant_id, conversation_id, seq, role, "
+                "content, citations, created_at) VALUES "
+                "(:m, :t, :c, 1, 'assistant', '回答', :cit, now() - interval '1 day')"
+            ),
+            {"m": mid, "t": tid, "c": cid, "cit": json.dumps(citations)},
         )
         await conn.commit()
 
@@ -152,11 +160,11 @@ async def test_enrichment_full_flow(migrated: str, app_url: str, migration_url: 
                     {"t": tid},
                 )
             ).mappings().all()
-            ev = {(r["entity_id"], r["event_type"]) for r in rows if r["source_ref"] == "ex-t1"}
+            ev = {(r["entity_id"], r["event_type"]) for r in rows if r["source_ref"] == f"msg-{tid}"}
             assert (e1, "query.entity") in ev  # G2 映射：profile → query.entity
             assert (e2, "graph.entity") in ev  # graph → graph.entity
-            # 回填行全部带 execution_id 锚点（去重）
-            assert sum(1 for r in rows if r["source_ref"] == "ex-t1") == 2
+            # 回填行全部带 message_id 锚点（去重）
+            assert sum(1 for r in rows if r["source_ref"] == f"msg-{tid}") == 2
 
         # ② 热度报告
         assert sum(h["refs"] for h in stats["hot_missing"]) == 2

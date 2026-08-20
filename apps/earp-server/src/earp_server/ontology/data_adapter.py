@@ -80,7 +80,10 @@ async def fetch_rest(cfg: dict, params: dict | None = None) -> list[dict]:
     if not resp.is_success:
         raise ConnectorFetchError(f"REST 取数 HTTP {resp.status_code}: {base_url}{path}")
 
-    data = resp.json()
+    try:
+        data = resp.json()
+    except Exception as e:  # noqa: BLE001 — E 修复（review）：非 JSON 响应包装为 ConnectorFetchError
+        raise ConnectorFetchError(f"REST 响应非合法 JSON: {base_url}{path}: {e}") from e
     if isinstance(data, list):
         return [r for r in data if isinstance(r, dict)]
     if isinstance(data, dict) and isinstance(data.get("data"), list):

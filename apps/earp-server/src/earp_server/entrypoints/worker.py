@@ -39,6 +39,15 @@ async def _run() -> int:
                 logger.warning("stale recovery: %d eval runs marked failed (interrupted)", n)
         except Exception:  # noqa: BLE001 — 恢复失败不阻塞 worker 启动
             logger.exception("recover_stale_runs failed — continuing")
+        # M3 review D 修复：同步数据源同样启动扫描（running 心跳旧 → interrupted）
+        try:
+            n = await sync_jobs.recover_interrupted_sync_all(
+                engine, ttl_seconds=settings.sync_run_ttl
+            )
+            if n:
+                logger.warning("stale recovery: %d sync data sources marked interrupted", n)
+        except Exception:  # noqa: BLE001 — 恢复失败不阻塞 worker 启动
+            logger.exception("recover_interrupted_sync_all failed — continuing")
         finally:
             await engine.dispose()
 

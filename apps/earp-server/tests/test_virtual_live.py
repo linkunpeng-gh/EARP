@@ -25,6 +25,7 @@ async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
     async with eng.begin() as conn:
         await conn.execute(text("DELETE FROM connector_configs WHERE connector_id = 'cn-v1'"))
         await conn.execute(text("DELETE FROM entities WHERE entity_id IN ('ent-v1','ent-v2','ent-v3')"))
+        await conn.execute(text("DELETE FROM roles WHERE role_id IN ('r-admin','r-view','r-dd')"))
     await eng.dispose()
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
@@ -33,6 +34,17 @@ async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
                 "INSERT INTO data_domains (data_domain_id, tenant_id, name, description, "
                 "data_classification, status) VALUES "
                 "('dd-a', :t, '域A', 'x', 'internal', 'active') ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
+                "data_domain_access, is_admin) VALUES "
+                "('r-admin', :t, 'Admin', '{}', 'all', '[]', TRUE), "
+                "('r-view', :t, '无授权', '{}', 'self', '[]', FALSE), "
+                "('r-dd', :t, '域内', '{}', 'all', '[{\"data_domain_id\": \"dd-a\"}]', FALSE) "
+                "ON CONFLICT DO NOTHING"
             ),
             {"t": tid},
         )
@@ -63,7 +75,7 @@ def _make_app(app_url: str):
     return create_app(Settings(database_url=app_url, app_env="test"))
 
 
-def _token(tid: str, role_id: str = "r-all") -> str:
+def _token(tid: str, role_id: str = "r-admin") -> str:
     return jwt.encode(
         {"sub": "u1", "tenant_id": tid, "role_id": role_id, "exp": 9999999999},
         SECRET,
@@ -182,4 +194,37 @@ def test_live_missing_connector_ref_400(migrated: str, app_url: str, migration_u
         r = c.get("/v1/ontology/entities/ent-v1/live", headers=h)
         assert r.status_code == 400
         assert "source_ref" in r.json()["detail"]
+    asyncio.run(engine.dispose())
+
+
+def test_live_role_domain_gate(migrated: str, app_url: str, migration_url: str, monkeypatch) -> None:
+    """B 修复（review）：live 角色域门禁——无授权/角色缺失 → 404；本域角色 → 200；admin → 200。"""
+    tid = "cv-gate"
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    asyncio.run(_seed(engine, migrated, tid))
+    asyncio.run(
+        connector_service.create_connector(
+            engine, tid, connector_id="cn-v1", adapter_type="rest",
+            config={"base_url": "http://mid/api"},
+        )
+    )
+    async def fake_fetch(cfg, params=None):
+        return [{"equip_code": "CNC-01", "oee": 0.9}]
+
+    monkeypatch.setattr(data_adapter, "fetch", fake_fetch)
+    app = _make_app(app_url)
+    with TestClient(app) as c:
+        # 无授权角色（空 data_domain_access）→ 404（不暴露实体存在性）
+        r = c.get("/v1/ontology/entities/ent-v1/live", headers={"Authorization": f"Bearer {_token(tid, 'r-view')}"})
+        assert r.status_code == 404, r.text
+        # 角色不存在 → 404（fail-closed）
+        r = c.get("/v1/ontology/entities/ent-v1/live", headers={"Authorization": f"Bearer {_token(tid, 'r-nope')}"})
+        assert r.status_code == 404, r.text
+        # 本域角色（dd-a）→ 200
+        r = c.get("/v1/ontology/entities/ent-v1/live", headers={"Authorization": f"Bearer {_token(tid, 'r-dd')}"})
+        assert r.status_code == 200, r.text
+        assert r.json()["data"]["oee"] == 0.9
+        # admin → 200
+        r = c.get("/v1/ontology/entities/ent-v1/live", headers={"Authorization": f"Bearer {_token(tid, 'r-admin')}"})
+        assert r.status_code == 200, r.text
     asyncio.run(engine.dispose())

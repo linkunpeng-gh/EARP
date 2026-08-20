@@ -514,6 +514,13 @@ async def entity_live_value_endpoint(entity_id: str, req: Request) -> dict:
     ent = await abox_service.get_entity(engine, tid, entity_id)
     if ent is None:
         raise HTTPException(status_code=404, detail="实体不存在")
+    # B 修复（review）：角色域门禁——实体 data_domain_id 不在角色允许域 → 404
+    # （不暴露实体存在性，对齐单实体访问语义；admin/全权限不过滤；角色缺失/空授权 fail-closed）
+    from earp_server.knowledge.search_service import _role_scope_domains
+
+    allowed = await _role_scope_domains(engine, tid, req.state.role_id)
+    if allowed is not None and ent.get("data_domain_id") not in allowed:
+        raise HTTPException(status_code=404, detail="实体不存在")
     if ent.get("source_mode") != "virtual":
         raise HTTPException(status_code=400, detail="仅 virtual 实体支持实时取数")
     types = await tbox_service.list_entity_types(engine, tid)
