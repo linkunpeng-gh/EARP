@@ -825,3 +825,48 @@ L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 �
 **记录位置**：`arch/session-record.md`
 **开发流程规范**：`arch/development-process.md`
 **开发运维备忘**：`arch/development-ops.md`（服务启停/重启/日志/排查速查）
+
+### 会话续接（2026-08-20）— M3 中台 importer + Enrichment 已实施（PRD-2026-030）
+
+> 任务书：`tasks/m3-ontology-import-enrichment-task-breakdown.md`（12 Task；D1-D5 决策 + G1-G7 落地要点，2026-08-19 讨论定稿）
+> 前置：chatflow F2 提交落定（`50f887f`+`dd84928`）→ 干净树基线复验 **298 passed** → 开工
+
+**会话主线**：中台通道（synced 同步副本 + virtual metric 实时取数）+ Enrichment ①②③④ 夜间任务。A1∥A2∥A3 → B1→B2→B3 → C1 → D1→D2 → E1→E2 全部落地。
+
+**关键产出（后端）**：
+- **migration 0025**：`import_rules` 数据源注册表（connector + entity_type + field_mapping + last_sync_status，RLS 三件套 + GRANT；entity_type 复合外键）→ `connector_configs.config_payload` JSONB（加密落库；0001 的 BYTEA 列保留不动）
+- **A1 connector 管理**：`connector_service.py`（CRUD + AES-256-GCM 加密复用 credential_crypto + 脱敏 `credential_masked` + 被数据源引用禁删 409）+ `/v1/ontology/connectors` 端点（写操作 admin 门禁）
+- **A2 取数 adapter**：`data_adapter.py`（REST = httpx 直连 + Basic/Bearer auth + query 透传；DB = SQLAlchemy 外部 engine + 列/表名白名单防注入 + where/since 绑定参数；超时/HTTP 失败抛 ConnectorFetchError 调用方兜底）——D5 不引 SDK（DatabaseConnector 是 stub）
+- **A3 数据契约**：`arch/guides/earp-data-contract.md`（给中台团队：最小契约 + 推荐模板 + field_mapping 结构 + dry-run 规则）
+- **B1-B3 同步通道**：`POST /import/connector` 注册（virtual 仅 metric 校验 G1/幂等 409）→ 入队 `ontology.sync_data_source`（sync_jobs.py，T1 心跳模式）→ `sync_from_connector`（business_code 幂等 upsert + relations 生成 facts **活跃去重** + 目标实体自动创建 + runtime.knowledge.synced 事件 + 单行错误收集不中断 + since_field 增量）→ `POST /data-sources/{id}/sync`（running 409 / 卡死 TTL 恢复 interrupted）
+- **C1 virtual live**：`GET /entities/{id}/live`（source_mode=virtual + kind=metric 校验 → connector 实时取数 → 失败 503 不假造）
+- **D1-D2 Enrichment**：`enrichment.py::enrichment_run` ④ profile 重编 → ③ 失效事实 revoke（完整流程）→ ① timeline 回填（executions.result citations → entity_timeline，G2 去重 source_ref=execution_id）→ ② 热度 top-N 报告（不落库）；`POST /enrichment/run` 手动端点；scheduler `_run_enrichment_once` 改调全流程（返回值 int→dict 分项统计）
+
+**测试与验证**：
+- 新增 6 个测试文件 **49 用例**（connector_service 10 / data_adapter 15 / data_sources 8 / sync_execution 6 / virtual_live 6 / enrichment 4）；test_migrations 44 表 / test_rls 43 策略 / test_profile_staleness 断言更新
+- **347 passed 全绿**（298 基线 + 49）+ import-linter 同基线（F2 遗留 3 个过时 ignore 警告，exit=1 与基线一致，非 M3 引入）+ **OpenAPI 基线 +333 行**（5 新端点）+ ruff 零新增（仅既有 UP042）+ **pyright 24 < 基线 31**（M3 新文件零错误）
+- **dev 真 API 冒烟**（`scripts/verify_m3.py`，REST stub + worker 消费）：注册 → 同步 completed → 二次幂等 → equipment 实体落库 → virtual metric live（oee 0.87 实时取数）→ enrichment 全流程统计（6 profiles 重编）✅
+
+**实施中修正（任务书决策的落地细节）**：
+1. **entity_types 复合主键**：(entity_type_id, tenant_id)——import_rules 外键用复合引用（顺带同租户约束）
+2. **connector_configs 无 updated_at 列**（0001 定义）——service 不含该列
+3. **upsert_entity 幂等合并不更新 source_ref**——virtual 实体改编码重建（脚本用唯一编码规避）
+4. **facts 同步去重**：同 (source, relation, target) 活跃事实存在则跳过——二次同步不重复 facts（任务书验收项）
+5. **sessions/entities/facts 单列主键跨租户**——测试按租户派生唯一 id（enrichment 测试踩坑：entity_profiles 跨租户 JOIN 污染）
+
+**遗留提醒**：
+1. **import-linter 3 条过时 ignore**（chat_service → ontology.search/knowledge.routing/capability_query，F2 重构后无匹配）——下个会话顺手清理（删 ignore 或恢复 import）
+2. **测试 seed 跨租户污染**（tech-debt #13）：单列主键共享导致 M3 测试踩坑 4-5 次——conftest 加统一租户隔离 helper，新测试复用
+3. **runtime.knowledge.synced 事件经 worker job 内 in-process EventBus 发布**——跨进程订阅需 RedisStreamsEventBus 接入 worker（记 tech-debt）
+4. DB adapter 真实外部库对接未实测（dev 冒烟用 REST stub；DB 用例 mock 引擎层）——真实数仓对接部署期验证
+5. facts 生命周期（关系变化更新/supersede）二期；object 类型 virtual 实时事实二期（G1）
+6. dev 已起 worker 进程（同步队列消费，可常驻）；8000 API --reload 已热载 M3 端点；dev DB 到 0025
+
+**下一步（沿用优先级表）**：#7 business_capabilities 复合主键 → P3 rerank 真模型验证 → QU 二期（chat 发布评审）→ 前端数据源管理页并入 M4
+
+### 追加（2026-08-20）— M3 前端：中台对接页（FDE 反馈：配置需 web 端）
+
+- `pages/data-source.html`（新，知识中心抽屉「中台对接」，结构化知识组）：①连接管理（connector 列表/新建/删除，脱敏展示）②注册数据源（connector+实体类型下拉、source_mode、名称/编码列、属性映射动态行、关系映射动态行——组装 field_mapping）③virtual 实时取数测试（列实体 + ⚡取数）④数据源列表（状态徽标 completed/running/failed/interrupted + 同步按钮 + field_mapping 详情展开）
+- nav.js 抽屉加「中台对接」；FDE 指南 §12 更新为有页面（原"API 通道"说明废弃）
+- 冒烟：`test-data-source-smoke.cjs` **9 断言全绿**（列表渲染/表单下拉/field_mapping 组装/live 取数）；全量前端冒烟其余 7 个全绿（**test-entities-smoke.cjs 为既有失败**——基线 stash 验证同样挂，非本次引入，待修）
+- dev 静态服务 200 可达；与后端 M3 端点（connectors/import/connector/data-sources/live）直接可用

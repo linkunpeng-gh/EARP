@@ -25,12 +25,15 @@
 | **Knowledge Query Plan** | 按问题类型选策略（plan_fact/plan_relation/plan_aggregation）编排检索执行 | 根据问题类型选答题路线 |
 | **Evidence**（证据） | 每次检索/执行的结果带来源、置信度、主/佐证角色——回答可溯源 | 答题时注明“依据” |
 | **评估集（eval set）** | 一组「问题 + 期望答案」的标注用例，系统逐条跑分衡量检索/理解/规划质量 | 考卷 + 标准答案 |
-| **跑分（eval run）** | 把评估集全部用例跑一遍，输出各指标通过率 + 逐条明细，对照门槛判 ✅/❌ | 交卷出分
+| **跑分（eval run）** | 把评估集全部用例跑一遍，输出各指标通过率 + 逐条明细，对照门槛判 ✅/❌ | 交卷出分 |
+| **中台对接**（M3） | 企业数据自动流入知识库：synced（拷贝主数据副本）/ virtual（指标实时直连）——见 §12 操作、§14 原理 | 自来水管 + 实时行情 |
+| **Enrichment**（M3） | 夜间自动维护：档案重编 + 过期事实清理 + 时间线回填 + 热度报告——见 §13 | 夜间保洁员 |
 
 **关键认知**：
 1. **实体/事实与文档是两套知识**——实体图谱回答"谁、属于谁、由谁供应"（结构化）；文档（KB）回答"标准是什么、流程怎么走"（非结构化）。检索时两者融合。
-2. **先有实体+事实，才有图谱和档案**——`KB 传文档不会生成实体`；实体必须通过「实体管理/导入」录入。
+2. **先有实体+事实，才有图谱和档案**——`KB 传文档不会生成实体`；实体必须通过「实体管理/导入」或**中台对接（§12）**录入。
 3. **权限贯穿**——实体按数据域归属，你的角色看不到无权限域的实体/文档。
+4. **中台对接不是强制**——没中台照常用 CSV 导入（§2）；中台来了只是多一条更自动的路。
 
 ---
 
@@ -591,3 +594,220 @@ QU 调试页的「会话上下文」输入框支持多轮指代消解：上文�
 ### 11.5 与评估的关系
 
 Plan 层评估集「策略命中率 ≥ 95%」测的就是：**标注 intent → 映射表 → 选中的策略 == 期望策略**（如 AGGREGATION 期望 plan_aggregation，FALLBACK 回落即正确）。rules 跑分稳定 100% 属正常（纯函数）；LLM 跑分才有区分度（真实理解 → 真实策略执行）与策略执行质量（trace 合法性/延迟/回落）。
+
+## 12. 中台数据对接（connector + 数据源同步，M3）
+
+> 中台通道（PRD-2026-030 M3）：让企业数据自动流入知识库，替代手工 CSV。
+> 两种模式：**synced**（定期拷贝主数据副本）/ **virtual**（指标实时直连，不存数据）。
+> 操作页面：知识中心 → **中台对接**（连接管理 / 数据源注册 / 触发同步 / virtual 实时取数测试）；
+> 对接约定见《中台对接数据契约规范》（`arch/guides/earp-data-contract.md`）。
+
+### 12.0 先理解：数据存哪、主数据是什么
+
+**两种模式的数据归宿（最关键的一个区别）：**
+
+| 模式 | 数据保存在哪 | 类比 |
+|:---|:---|:---|
+| **synced（同步）** | ✅ **存 EARP 本地**（PostgreSQL 副本）——中台数据拷一份进来 | 手机通讯录"同步云端联系人" |
+| **virtual（直连）** | ❌ **不存数据**——本地只存"怎么取数"的配置，每次查询实时去中台要 | App"实时查股票行情" |
+
+**主数据是什么（synced 主要服务的目标）：**
+
+主数据 = 企业核心业务对象的"权威档案"——被多个系统共享、相对稳定、不常变的基础数据，对应 EARP 里大部分 `object` 类型实体：
+
+| 主数据 | 例子 |
+|:---|:---|
+| 设备 | CNC-01、型号 XK-500、所属产线 |
+| 供应商 | SUP-001「上海某精机」 |
+| 组织架构 | 华东一厂、A 产线、张工 |
+| 物料/客户 | 轴承、CNC-01 的客户 |
+
+**主数据 vs 流水数据**：报警记录、工单、设备实时状态这类高频发生的是"流水/事件"，不是主数据——主数据是"事实的锚点"（"CNC-01 由 SUP-001 制造"引用的就是主数据），所以必须稳定存本地随时可查。
+
+**"存副本"意味着什么（中台挂了还能用吗？）——能，但有边界：**
+
+| 情形 | 结果 |
+|:---|:---|
+| 中台宕机/断网 | ✅ 本地副本照常可用——检索、问答、图谱都不依赖中台在线 |
+| 副本是"快照" | ⚠️ 是**上次同步时刻**的数据（页面 `last_synced_at` 可查），不是实时 |
+| 前提 | ⚠️ 至少成功同步过一次才有副本；从没同步过的数据源没有本地数据 |
+| 中台恢复后 | 🔄 再点同步刷新副本（幂等合并，不重复） |
+| virtual 中台挂了 | ❌ 取数返回 503（不假造值）——它本来就不存数据 |
+
+> **一句话**：主数据（设备/供应商/组织/物料）走 synced 存本地副本——中台挂了本地照常用（旧版本）；指标/状态走 virtual 实时取——中台挂了就没有（但本来也不该缓存）。检索/问答永远走本地，中台只是"定期往 EARP 灌新数据"的角色。
+
+### 12.1 三步接入（以中台设备台账为例）
+
+> 以下 API 均可通过「中台对接」页面完成（表单填写即等价请求体）；此处给 API 形状便于对照/脚本化。
+
+1. **注册连接**（Admin，写端点需 admin 权限）：
+
+   ```
+   POST /v1/ontology/connectors
+   { "connector_id": "cn-mid-rest", "adapter_type": "rest",
+     "config": { "base_url": "http://中台地址", "path": "/equip" } }
+   ```
+
+   配置加密存储（列表/详情只回 `credential_masked` 标记，不泄露凭据/URL）。
+
+2. **注册数据源**（选实体类型 + 字段映射）：
+
+   ```
+   POST /v1/ontology/import/connector
+   { "connector_id": "cn-mid-rest", "entity_type_id": "equipment",
+     "source_mode": "synced",
+     "field_mapping": {
+       "name_field": "equip_name", "business_code_field": "equip_code",
+       "attr_fields": { "model": "model" },
+       "relations": [ { "relation_type": "manufactured_by", "target_field": "supplier_code" } ] } }
+   ```
+
+   - `business_code_field`/`name_field` 必填（幂等同步锚点 + 显示名）
+   - 关系字段的值 = **目标实体业务编码**（供应商表/已存在实体自动关联，不存在自动创建）
+   - `source_mode=virtual` 仅支持 `kind=metric` 的实体类型（object 实时事实二期）
+
+3. **触发同步**：注册后自动入队（worker 进程消费）；或随时 `POST /v1/ontology/data-sources/{id}/sync`。
+   同步按 business_code 幂等合并（二次同步不重复行/不重复事实）；running 中重复触发 → 409。
+
+### 12.2 查看数据源状态
+
+```
+GET /v1/ontology/data-sources            # 列表（含 last_synced_at / last_sync_status）
+GET /v1/ontology/data-sources/{id}       # 详情
+```
+
+`last_sync_status`：queued → running → completed / failed / interrupted（进程中断后下次触发自动恢复标记）。
+
+### 12.3 virtual 指标实时取数（不存数据）
+
+- 注册 `kind=metric` 实体类型 → 注册 virtual 数据源（`source_mode=virtual`）→ 用实体管理建 metric 实体（`source_mode=virtual` + `source_ref=connector_id`）：
+  ```
+  GET /v1/ontology/entities/{entity_id}/live
+  → { "entity_id": "...", "business_code": "CNC-01", "data": { "oee": 0.87, ... }, "fetched_at": "..." }
+  ```
+- 取数实时经 connector 调用中台 API（查询参数 `business_code`）；失败返回 503（不假造值）。
+- 中台侧最小契约：GET 端点 + 按业务编码查询 + JSON 响应（裸数组或 `{data:[...]}`）+ 响应 ≤30s。
+
+## 13. Enrichment 夜间任务（自动维护，M3）
+
+知识库的"夜间保洁"——scheduler 进程每 `EARP_ENRICHMENT_INTERVAL_SECONDS`（默认 3600s）自动执行，也可手动：
+
+```
+POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统计
+```
+
+| 步骤 | 干什么 | 用户可见效果 |
+|:---|:---|:---|
+| ④ | 档案（Compiled Truth）批量重编 | 实体详情/检索的 profile 保持新鲜 |
+| ③ | 失效事实清理（valid_to 过期 → revoked） | AI 检索不再引用过期信息 |
+| ① | 时间线回填（从执行记录提取实体引用） | 实体「最近动态」自动补全 |
+| ② | 热度报告（top-N 实体引用频次，不落库） | 提示下一步优先补充哪些知识 |
+
+> 排障：`/enrichment/run` 手动触发即可验证；scheduler 未启动时夜间任务不跑（起 scheduler 进程）。
+
+## 14. 附：中台对接实现原理（技术参考）
+
+> 给 FDE 深度理解"为什么能对接、怎么对接、出问题看哪里"——对应 §12 操作篇的原理篇。
+> 对接契约细节见《中台对接数据契约规范》（`arch/guides/earp-data-contract.md`，给中台团队）。
+
+### 14.1 一句话原理
+
+**EARP 的实体知识库（ABox）是"统一访问层"，但不统一存储**——中台的数据可以放在中台（EARP 实时去取），也可以拷一份放 EARP（定期同步），EARP 对上层（检索/AI 回答）统一提供实体视图。**格式不强制**：中台保持自己的表/API 格式，EARP 注册时用字段映射"翻译"成自己的实体模型。
+
+### 14.2 三种来源模式（为什么这么设计）
+
+| 模式 | EARP 是否存数据 | 原理 | 典型场景 |
+|:---|:---|:---|:---|
+| **virtual（直连）** | 不存，只存元数据 | 查询时经 connector 实时向中台 API 取数（`GET /entities/{id}/live`） | 指标/状态（OEE、温度）——随时变，拷了也过期 |
+| **synced（同步）** | 存副本 | 定时/手动触发，全量拉取 + 按业务编码幂等合并 | 主数据（设备台账、供应商、组织）——不常变，拷一份放心 |
+| **extracted（抽取）** | 物理存储 | 文件/报表 → LLM 抽取 + 人工审核（已有 CSV/导入路径） | 文档知识、无中台兜底 |
+
+> 通俗版理解（数据存哪/主数据是什么/中台挂了能否用）见 §12.0。
+
+**选择口诀**：主数据用 synced、状态/指标用 virtual、源系统没稳定 API 用同步、没中台用 CSV（extracted）。
+
+### 14.3 同步的数据流（synced 全链路时序）
+
+```
+中台表/API ──(adapter 取数)──▶ 行数据
+                                 │ field_mapping 翻译
+                                 ▼
+    upsert_entity（按 business_code 幂等合并：有则更新、无则新建）
+                                 │ relations 映射
+                                 ▼
+    add_fact（关系三元组：源实体 —关系→ 目标实体，confidence=1.0）
+                                 │
+                                 ▼
+    profile 联动重编（档案刷新） + runtime.knowledge.synced 事件（审计）
+```
+
+- **取数适配器**：REST（httpx 直连中台 API，支持 Basic/Bearer 认证、超时 30s）
+  或 DB（SQLAlchemy 直连外部库，表/列名白名单防注入，值全部绑定参数）
+- **worker 进程消费**：同步是队列任务（API 只负责入队，worker 负责执行）——API 重启不丢任务
+
+### 14.4 字段映射与关系映射原理
+
+注册数据源时填 `field_mapping`（存在 `import_rules` 表，可复用）：
+
+```json
+{
+  "name_field": "equip_name",            // 名称 ← 中台列（必填）
+  "business_code_field": "equip_code",   // 业务编码 ← 中台列（必填，幂等锚点）
+  "attr_fields": { "model": "model" },   // 属性 ← 中台列（对照实体类型 attributes）
+  "relations": [ { "relation_type": "manufactured_by", "target_field": "supplier_code" } ]
+}
+```
+
+**关键概念——business_code（业务编码）**：
+- 中台行的唯一标识（如设备编码 CNC-01）→ EARP 幂等合并的"锚点"：同一编码二次同步 = 更新而非重复插行
+- **关系字段的值 = 目标实体的业务编码**（不是名称）：同步时用该编码反查目标实体；
+  不存在则**自动创建**（名称=编码），存在则直接关联——所以"供应商表"不用提前导入，
+  设备台账里的 `supplier_code` 会自动带出供应商实体
+
+### 14.5 幂等与增量
+
+| 机制 | 原理 |
+|:---|:---|
+| 实体幂等 | upsert 按 (tenant, entity_type, business_code) 合并——二次同步 created=0 / merged=N |
+| 事实去重 | 同 (源, 关系, 目标) 的活跃事实已存在则跳过——二次同步不重复建关系 |
+| 增量同步 | connector 配置 `since_field` 后，取数带 `since=上次同步时间`（REST 透传参数 / DB WHERE 绑定）——只拉新增/变更行；不配则每次全量 |
+
+### 14.6 可靠性设计
+
+| 环节 | 机制 |
+|:---|:---|
+| 取数失败 | 超时/HTTP 错误/连接失败 → 整个同步标 failed，**不半途写库**（不产生半截数据） |
+| 单行错误 | 某行字段缺失/关系非法 → 该行跳过 + 记入 errors 列表，**不中断整批** |
+| 卡死恢复 | 同步中进程被杀 → 状态停留 running；下次触发时心跳超时（默认 30 分钟）→ 自动标 interrupted 再重新开始 |
+| 并发保护 | 同步进行中（心跳新鲜）再触发 → 409 拒绝，防止重复消费 |
+| 实时取数失败 | virtual live → 503 + 日志，**不假造值**（宁可报错也不编数据） |
+
+### 14.7 权限与安全
+
+| 项 | 机制 |
+|:---|:---|
+| 连接配置 | connector 配置 AES-256-GCM 加密落库（config_payload），列表/详情只回 `credential_masked` 标记——**凭据/URL 不泄露** |
+| 管理门禁 | connector 注册/数据源注册/触发同步/手动 enrichment 均为 **Admin 角色**（403 封堵） |
+| 租户隔离 | 全部表 RLS FORCE（跨租户不可见），同步任务逐租户执行 |
+| virtual 权限 | 取数在外部系统（不经 EARP RLS）——结果按实体所属数据域的 classification 继承声明（管理员需知晓此边界） |
+| 防注入 | DB 取数表/列名白名单校验（仅字母数字下划线），值全部绑定参数 |
+
+### 14.8 排障速查表
+
+| 现象 | 可能原因 | 排查 |
+|:---|:---|:---|
+| 同步一直 queued/running | **worker 进程未启动**（最常见） | 起 worker（`make worker`）；`GET /data-sources` 看状态 |
+| 同步 failed | 取数失败（中台不可达/超时/HTTP 错） | 看 API 日志的 ConnectorFetchError；先测中台接口通不通 |
+| 同步 interrupted | 上次进程被杀，心跳超时自动标记 | 属正常恢复——重新触发即可 |
+| 触发同步 409 | 同步进行中（心跳新鲜） | 等它完成再触发；超过 30 分钟仍 409 检查心跳 |
+| live 返回 503 | connector 配置不可用 / 中台超时 / 响应格式不支持 | 检查 connector 配置、中台响应是否裸数组或 `{data:[...]}` |
+| live 返回 400「仅 metric」 | 实体类型不是 metric，或实体不是 virtual | virtual 只支持 metric 类型（object 实时事实二期） |
+| 重复触发同步 409「已存在」 | 同 (connector, entity_type, source_mode) 已注册 | 用 `GET /data-sources` 找已有数据源复用 |
+| 删除 connector 409「被引用」 | 有数据源在用该连接 | 先删数据源或停用 connector |
+
+### 14.9 边界与二期
+
+- **object 类型 virtual（设备实时事实进图谱）**：二期——一期 virtual 仅 metric 实时取数（消费语义已明确）
+- **facts 生命周期**（关系变化自动 supersede/revoke）：二期——一期同步只建新事实、不更新旧关系
+- **DB adapter 真实数仓对接**：代码就绪，需真实环境验证（dev 冒烟用 REST stub）
+- **无中台场景**：CSV 兜底路径（§2 批量导入）保持可用，与中台对接并存
