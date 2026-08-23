@@ -514,3 +514,74 @@ async def test_upgrade_with_llm_negative_cache_skips_retry(migrated: str, app_ur
     o2 = await upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r2, settings=_test_settings(app_url))
     assert len(calls) == 1  # 第二次负缓存命中，零 LLM 调用
     assert o2.intent is None  # 规则回落保持一致
+
+
+# ── Part 2：QU 升级 prompt 模板（可配置） ─────────────────────────────────────
+
+
+def test_upgrade_template_render() -> None:
+    from earp_server.ontology.understanding import _render_upgrade_template
+
+    out = _render_upgrade_template(
+        "你是{角色}。查：{query}｜缺：{missing}｜候选：{relation_candidates}｜ctx：{context}",
+        query="Q", missing="entities", rel_desc="has_part(A→B)", context="{}",
+    )
+    assert out == "你是{角色}。查：Q｜缺：entities｜候选：has_part(A→B)｜ctx：{}"
+    # 未知占位符原样保留（便于排查自定义模板笔误）
+
+
+def test_default_upgrade_prompt_keeps_json_braces() -> None:
+    from earp_server.ontology.understanding import _default_upgrade_prompt
+
+    p = _default_upgrade_prompt(missing="entities", rel_desc="has_part(A→B)", query="Q", context="{}")
+    assert "\"mention\"" in p and "1. intent 枚举之一" in p and "查询：Q" in p
+
+
+async def test_qu_prompt_template_get_set_roundtrip(migrated: str, app_url: str) -> None:
+    """get/set 模板往返；无 llm 系统设置行 → set 拒绝。"""
+    from earp_server.admin import model_service
+    from earp_server.admin.model_service import create_model_config, set_system_model_settings
+
+    engine = _engine(app_url)
+    tid = "qu-t20"
+    mc = await create_model_config(engine, tid, "ollama", "llm", f"qwen-tpl-{tid}", {"base_url": "http://x"})
+    await set_system_model_settings(engine, tid, {"llm": mc["config_id"]})
+    assert await model_service.get_qu_prompt_template(engine, tid) is None
+    await model_service.set_qu_prompt_template(engine, tid, "模板A {query} {missing}")
+    assert await model_service.get_qu_prompt_template(engine, tid) == "模板A {query} {missing}"
+    await model_service.set_qu_prompt_template(engine, tid, "")  # 空串=清除
+    assert await model_service.get_qu_prompt_template(engine, tid) is None
+    # 无 llm 行 → 拒绝
+    tid2 = "qu-t21"
+    try:
+        await model_service.set_qu_prompt_template(engine, tid2, "x")
+        raise AssertionError("应拒绝")
+    except ValueError:
+        pass
+
+
+async def test_upgrade_uses_tenant_template(migrated: str, app_url: str, monkeypatch) -> None:
+    """配置了模板 → 升级 prompt 走模板（含占位符替换），未配置 → 内置压缩默认。"""
+    from earp_server.admin import model_service
+    from earp_server.admin.model_service import create_model_config, set_system_model_settings
+    from earp_server.connector import LLMConnector
+
+    engine = _engine(app_url)
+    tid = "qu-t22"
+    mc = await create_model_config(engine, tid, "ollama", "llm", f"qwen-tpl2-{tid}", {"base_url": "http://x"})
+    await set_system_model_settings(engine, tid, {"llm": mc["config_id"]})
+    tpl = "你是专家。查：{query}｜缺：{missing}｜候选：{relation_candidates}"
+    await model_service.set_qu_prompt_template(engine, tid, tpl)
+
+    r = await understand(engine, tid, "主轴轴承最近为什么故障增加")
+    captured = {}
+    orig = LLMConnector.json_complete
+
+    async def _fake(self, system, prompt, **kw):
+        captured["prompt"] = prompt
+        return None
+
+    monkeypatch.setattr(LLMConnector, "json_complete", _fake)
+    await upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r, settings=_test_settings(app_url))
+    monkeypatch.setattr(LLMConnector, "json_complete", orig)
+    assert captured["prompt"].startswith("你是专家。查：主轴轴承最近为什么故障增加｜缺：")  # 模板生效

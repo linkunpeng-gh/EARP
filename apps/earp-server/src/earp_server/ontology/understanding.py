@@ -33,6 +33,49 @@ _UPGRADE_CACHE: OrderedDict[tuple[str, str], dict | None] = OrderedDict()
 _UPGRADE_CACHE_MAX = 128
 _CACHE_MISS = object()  # 区分「未缓存」与「缓存了失败(None)」
 
+# 内置压缩默认升级 prompt（占位符 {missing}/{rel_desc}/{query}/{context}；JSON 大括号原样保留）
+_DEFAULT_UPGRADE_PROMPT = (
+    "解析用户查询，只补未命中字段（{missing}）对应键：\n"
+    "规则：\n"
+    "1. intent 枚举之一：FACT|ATTRIBUTE|RELATION|MULTI_HOP|LIST|AGGREGATION|"
+    "COMPARISON|TREND|CAUSAL|MIXED\n"
+    "2. relations 只能从候选选，禁止发明：{rel_desc}\n"
+    "3. entities=[{\"mention\":\"实体名\",\"semantic_type\":\"类型\"}]\n"
+    "4. constraints 为元数据过滤（department/year/doc_type），time={\"kind\":"
+    "\"relative|absolute|none\",\"expression\":\"...\"}\n"
+    "5. 输出尽可能短：只输出未命中字段对应键，其它键省略；无结果输出 {}\n"
+    "示例：{\"intent\":\"RELATION\"}\n"
+    "查询：{query}\n"
+    "上下文：{context}"
+)
+
+
+def _render_upgrade_template(
+    template: str,
+    *,
+    query: str,
+    missing: str,
+    rel_desc: str,
+    context: str,
+) -> str:
+    """租户自定义升级模板渲染（纯 str.replace；未知占位符原样保留便于排查）。"""
+    return (
+        template.replace("{query}", query)
+        .replace("{missing}", missing)
+        .replace("{relation_candidates}", rel_desc)
+        .replace("{context}", context)
+    )
+
+
+def _default_upgrade_prompt(*, missing: str, rel_desc: str, query: str, context: str) -> str:
+    """内置压缩默认（replace 渲染——prompt 内含 JSON 大括号，不能 str.format）。"""
+    return (
+        _DEFAULT_UPGRADE_PROMPT.replace("{missing}", missing)
+        .replace("{rel_desc}", rel_desc)
+        .replace("{query}", query)
+        .replace("{context}", context)
+    )
+
 
 # ── §6.2 冻结 schema ─────────────────────────────────────────────────────────
 
@@ -691,27 +734,37 @@ async def upgrade_with_llm(
     from earp_server.connector import LLMConnector
 
     conn = LLMConnector(settings, model_override=llm_cfg or None)
+    # 压缩版 prompt（2026-08-21 优化）：① 关系候选截断到前 N（候选多→prompt 长→生成慢）
+    # ② 规则一句话化 ③ 最小输出约束（只出未命中字段键，空则 {}——生成 token 大头）
+    _REL_CAND_MAX = 6
     rel_desc = ", ".join(
-        f"{c['relation_type_id']}({c['source_type']}→{c['target_type']})" for c in result.relation_candidates
+        f"{c['relation_type_id']}({c['source_type']}→{c['target_type']})"
+        for c in result.relation_candidates[:_REL_CAND_MAX]
     )
-    system = (
-        "你是企业知识库查询理解助手。把用户查询解析为结构化 JSON，"
-        "只能输出 JSON 对象，不得输出任何其他内容。"
-    )
-    prompt = (
-        f"解析以下用户查询（只补未命中字段：{missing}）：\n\n"        "规则：\n"
-        "1. intent 只能取枚举值之一：FACT, ATTRIBUTE, RELATION, MULTI_HOP, LIST, "
-        "AGGREGATION, COMPARISON, TREND, CAUSAL, MIXED\n"
-        "2. relations 的 relation 只能从候选关系中选择，禁止发明：" + (rel_desc or "（无候选）") + "\n"
-        "3. entities 是 [{\"mention\": \"实体名\", \"semantic_type\": \"类型\"}] 形式\n"
-        "4. constraints 是文档元数据过滤（如 department/year/doc_type），time 单独用 "
-        "{\"kind\": \"relative|absolute|none\", \"expression\": \"...\"}\n"
-        "5. 只补未命中字段，已命中字段不要输出\n\n"
-        "输出 JSON 形如：{\"intent\": \"FACT\", \"entities\": [], \"relations\": [], "
-        "\"constraints\": {}, \"time\": {\"kind\": \"none\"}}\n\n"
-        f"用户查询：{query}\n"
-        f"上下文：{json.dumps(result.context or {})}"
-    )
+    _ctx = json.dumps(result.context or {}, ensure_ascii=False, separators=(",", ":"))
+    # Part 2（可配置）：租户级模板优先（占位符 {query}/{missing}/{relation_candidates}/{context}），
+    # 未配置 → 内置压缩默认
+    tpl = None
+    try:
+        tpl = await _ms.get_qu_prompt_template(engine, tenant_id)
+    except Exception:
+        logger.warning("upgrade_with_llm: get_qu_prompt_template failed", exc_info=True)
+    if tpl:
+        prompt = _render_upgrade_template(
+            tpl,
+            query=query,
+            missing=", ".join(missing),
+            rel_desc=rel_desc or "（无）",
+            context=_ctx,
+        )
+    else:
+        prompt = _default_upgrade_prompt(
+            missing=", ".join(missing),
+            rel_desc=rel_desc or "（无）",
+            query=query,
+            context=_ctx,
+        )
+    system = "你是企业知识库查询理解助手。只输出 JSON，无其他内容。"
     result.llm_upgraded = True  # 尝试走 LLM 升级（成功/失败均标记，debug 可溯源）
     # 超时预算（默认 8s）：小模型 JSON 生成可吃满 30s 默认超时——QU 节点等不起，
     # 超时即回落规则结果（置信度升级失败不影响）。settings 注入时读取。

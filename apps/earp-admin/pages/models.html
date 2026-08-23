@@ -18,6 +18,10 @@
   <div class="form-row"><label>重排序 (Rerank)</label>
     <select id="def-rerank" style="flex:1"><option value="">— 未配置（Phase 2）—</option></select>
     <button class="btn-sm" onclick="testDefault('rerank')">测试</button></div>
+  <div class="form-row" style="align-items:flex-start"><label style="padding-top:4px">QU 升级模板</label>
+    <div style="flex:1">
+      <textarea id="def-qu-tpl" rows="4" placeholder="可选：自定义 QU 理解的 LLM 升级提示词。占位符：{query} {missing} {relation_candidates} {context}；留空=使用内置压缩默认。需先配置默认 LLM。" style="width:100%;font-size:0.76rem;font-family:ui-monospace,Menlo,monospace"></textarea>
+    </div></div>
   <p id="default-msg" style="font-size:0.78rem;color:var(--text-tertiary,#8b8d91);margin:8px 0 0"></p>
 </div>
 
@@ -79,6 +83,8 @@ function renderDefaults() {
     var cur = state.defaults[t] ? state.defaults[t].model_config_id : '';
     fillSelect('def-' + t, items, cur);
   });
+  var tplEl = document.getElementById('def-qu-tpl');
+  if (tplEl) tplEl.value = state.defaults.qu_prompt_template || '';
 }
 
 async function saveDefaults() {
@@ -87,8 +93,13 @@ async function saveDefaults() {
     var v = document.getElementById('def-' + t).value;
     if (v) body[t] = v;
   });
+  var tplEl = document.getElementById('def-qu-tpl');
+  if (tplEl && tplEl.value !== (state.defaults.qu_prompt_template || '')) {
+    body.qu_prompt_template = tplEl.value;  // 改动才提交（空串=清除）
+  }
   try {
     var res = await EARP.fetchJSON('/api/system-model-settings', { method: 'PUT', body: JSON.stringify(body) });
+    state.defaults.qu_prompt_template = res.qu_prompt_template;
     document.getElementById('default-msg').textContent = '已保存: ' + JSON.stringify(res);
   } catch (e) { document.getElementById('default-msg').textContent = '保存失败: ' + e.message; }
 }

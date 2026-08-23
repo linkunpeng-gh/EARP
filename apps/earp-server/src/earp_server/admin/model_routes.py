@@ -36,6 +36,8 @@ class SystemSettingsIn(BaseModel):
     llm: str | None = None
     embedding: str | None = None
     rerank: str | None = None
+    # Chatflow QU 升级 prompt 模板（可选；空串=清除）；需已配置默认 LLM
+    qu_prompt_template: str | None = None
 
 
 @router.get("/model-providers")
@@ -106,14 +108,26 @@ async def test_model_config(config_id: str, req: Request) -> dict:
 
 @router.get("/system-model-settings")
 async def get_system_settings(req: Request) -> dict:
-    return await model_service.get_system_model_settings(req.app.state.engine, req.state.tenant_id)
+    out = await model_service.get_system_model_settings(req.app.state.engine, req.state.tenant_id)
+    out["qu_prompt_template"] = await model_service.get_qu_prompt_template(
+        req.app.state.engine, req.state.tenant_id
+    )
+    return out
 
 
 @router.put("/system-model-settings")
 async def set_system_settings(req_body: SystemSettingsIn, req: Request) -> dict:
     await _require_admin(req)
-    mapping = {k: v for k, v in req_body.model_dump().items() if v}
+    mapping = {k: v for k, v in req_body.model_dump().items() if k != "qu_prompt_template" and v}
     try:
-        return await model_service.set_system_model_settings(req.app.state.engine, req.state.tenant_id, mapping)
+        await model_service.set_system_model_settings(req.app.state.engine, req.state.tenant_id, mapping)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+    if req_body.qu_prompt_template is not None:
+        try:
+            await model_service.set_qu_prompt_template(
+                req.app.state.engine, req.state.tenant_id, req_body.qu_prompt_template
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+    return await get_system_settings(req)

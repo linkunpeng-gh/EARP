@@ -242,3 +242,41 @@ async def load_runtime_models(engine: AsyncEngine, tenant_id: str) -> dict:
         provider, _t, model_name, credentials = creds
         out[mtype] = {"provider": provider, "model_name": model_name, **credentials}
     return out
+
+
+# ── Chatflow QU 升级 prompt 模板（租户级，模型配置中心系统设置） ──────────────
+
+
+async def get_qu_prompt_template(engine: AsyncEngine, tenant_id: str) -> str | None:
+    """读取 QU 理解升级模板（挂在 llm 系统设置行上）；未配置 → None（走内置 prompt）。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text(
+                "SELECT qu_prompt_template FROM system_model_settings "
+                "WHERE tenant_id = :tid AND setting_type = 'llm'"
+            ),
+            {"tid": tenant_id},
+        )
+        r = row.fetchone()
+    return r.qu_prompt_template if r and r.qu_prompt_template else None
+
+
+async def set_qu_prompt_template(engine: AsyncEngine, tenant_id: str, template: str) -> None:
+    """写 QU 升级模板（挂在 llm 行）；租户未配 llm 系统设置 → ValueError（需先设默认 LLM）。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text("SELECT 1 FROM system_model_settings WHERE tenant_id = :tid AND setting_type = 'llm'"),
+            {"tid": tenant_id},
+        )
+        if row.fetchone() is None:
+            raise ValueError("请先在系统设置中配置默认 LLM（llm），再保存 QU 升级模板")
+        await conn.execute(
+            text(
+                "UPDATE system_model_settings SET qu_prompt_template = :tpl "
+                "WHERE tenant_id = :tid AND setting_type = 'llm'"
+            ),
+            {"tid": tenant_id, "tpl": template or None},
+        )
+        await conn.commit()
