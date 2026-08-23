@@ -352,6 +352,7 @@ class TestFlowChat:
         assert trace["l2"]["status"] == "skipped"  # 未命中分支节点也在轨迹中（不 invoke）
         assert trace["n1"]["input"] == {"msg": "hello"}
         assert trace["l1"]["input"]["prompt"] == "then-branch"
+        assert "latency_ms" in trace["l1"]  # 节点耗时透出（StepRunner 已统计）
 
     async def test_flow_chat_missing_query_rejected(self, app_engine: AsyncEngine) -> None:
         app = await _flow_app(app_engine, self._graph("p"))

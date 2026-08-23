@@ -591,7 +591,7 @@ async def flow_chat(
             if r is None:
                 continue  # 防御：resume/重启路径无结果记录的节点不输出
             trace.append({"node_id": r.step_id, "status": r.status, "branch": None,
-                          "input": r.input, "output": r.output, "error": r.error})
+                          "input": r.input, "output": r.output, "error": r.error, "latency_ms": r.latency_ms})
 
     # 助手消息：最后 completed 节点输出（text 优先，否则 JSON 摘要）
     answer = ""

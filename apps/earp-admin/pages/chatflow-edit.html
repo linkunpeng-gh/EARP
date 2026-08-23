@@ -92,6 +92,7 @@ body { overflow: hidden; }
 .run-status.err { background: rgba(220,38,38,.15); color: #dc2626; }
 .run-json { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.64rem; color: var(--text-secondary); margin: 3px 0 0 14px; word-break: break-all; }
 .run-k { color: var(--text-tertiary); margin-right: 4px; }
+.run-lat { color: var(--text-tertiary); font-size: 0.62rem; margin-left: 4px; }
 .run-approval { font-size: 0.78rem; color: #db2777; margin: 6px 0; }
 .run-approval input { width: calc(100% - 70px); margin-right: 4px; font-size: 0.76rem; }
 .run-hint { font-size: 0.7rem; color: var(--text-tertiary); margin-top: 4px; }
@@ -389,6 +390,7 @@ function renderResult(d) {
         + '<span class="run-status ' + statusCls + '">' + esc(t.status) + '</span>'
         + '<b>' + esc(t.node_id) + '</b> ' + esc(typeOf[t.node_id] || '')
         + (t.branch ? ' → <b>' + (t.branch === 'then' ? '✓是' : '✗否') + '</b>' : '')
+        + (t.latency_ms != null ? ' <span class="run-lat">' + fmtDur(t.latency_ms) + '</span>' : '')
         + '</summary>';
       if (t.input != null) html += '<div class="run-json"><span class="run-k">input</span> ' + esc(JSON.stringify(t.input)) + '</div>';
       if (t.output != null) html += '<div class="run-json"><span class="run-k">output</span> ' + esc(JSON.stringify(t.output)) + '</div>';
@@ -473,7 +475,8 @@ function renderRunDetail(el, semId) {
     html += '<div class="run-hint">该节点本次运行未执行或尚未运行。</div>';
   } else {
     html += '<div class="run-hint">状态：' + esc(t.status)
-      + (t.branch ? ' · 分支：' + (t.branch === 'then' ? '✓ 是' : '✗ 否') : '') + '</div>';
+      + (t.branch ? ' · 分支：' + (t.branch === 'then' ? '✓ 是' : '✗ 否') : '')
+      + (t.latency_ms != null ? ' · 耗时：' + fmtDur(t.latency_ms) : '') + '</div>';
     if (t.input != null) html += '<div class="run-json"><span class="run-k">input</span> ' + esc(JSON.stringify(t.input)) + '</div>';
     if (t.output != null) html += '<div class="run-json"><span class="run-k">output</span> ' + esc(JSON.stringify(t.output)) + '</div>';
     if (t.error) html += '<div class="run-json" style="color:var(--red)"><span class="run-k">error</span> ' + esc(t.error) + '</div>';
@@ -550,5 +553,6 @@ function bindRunBarResize() {
   });
 }
 function esc(s) { return ChatflowCanvas.esc ? ChatflowCanvas.esc(s) : String(s == null ? '' : s); }
+function fmtDur(ms) { return (ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms) + 'ms'); }
 </script>
 </body></html>
