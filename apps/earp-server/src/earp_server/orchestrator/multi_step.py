@@ -58,6 +58,8 @@ class ExecutionState:
     # Chatflow F4: waiting_human 挂起信息（ApprovalPending 捕获时填充）
     pending_node_id: str | None = None
     pending_question: str | None = None
+    # Chatflow 调试：运行时分支决策（branch_id → then/else），供 flow_chat trace 组装（不落结果集）
+    chosen: dict[str, str] = field(default_factory=dict)
 
 
 class MultiStepExecutor:
@@ -300,6 +302,7 @@ class MultiStepExecutor:
                         state.current_step_index = processed
                         return results, state
                     chosen[item.branch_id] = "then" if taken else "else"
+                    state.chosen[item.branch_id] = chosen[item.branch_id]
                 continue
 
             # StepExec
@@ -366,6 +369,9 @@ class MultiStepExecutor:
                 state.current_step_index = processed
                 state.completed_steps = [r.step_id for r in results if r.status == "completed"]
                 return results, state
+            # Chatflow 调试：捕获节点实际输入（模板解析后的 input）供 trace
+            if flow_input is not None and result is not None and isinstance(resolved_call, dict):
+                result.input = resolved_call.get("input")
             results.append(result)
             pool[item.node_id] = result
 

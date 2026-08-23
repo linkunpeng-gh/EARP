@@ -346,6 +346,12 @@ class TestFlowChat:
         assert "l2" not in result["outputs"]
         assert len(llm.calls) == 1  # 未命中分支未 invoke
         assert llm.calls[0]["prompt"] == "then-branch"
+        # Chatflow 调试 trace：分支决策 + 节点实际输入（模板解析后）可见
+        trace = {t["node_id"]: t for t in result["trace"]}
+        assert trace["c1"]["status"] == "completed" and trace["c1"]["branch"] == "then"
+        assert trace["l2"]["status"] == "skipped"  # 未命中分支节点也在轨迹中（不 invoke）
+        assert trace["n1"]["input"] == {"msg": "hello"}
+        assert trace["l1"]["input"]["prompt"] == "then-branch"
 
     async def test_flow_chat_missing_query_rejected(self, app_engine: AsyncEngine) -> None:
         app = await _flow_app(app_engine, self._graph("p"))

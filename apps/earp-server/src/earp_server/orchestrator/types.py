@@ -24,6 +24,8 @@ class StepResult:
     status: Literal["completed", "failed", "retrying", "skipped"]
     output: dict | None = None
     error: str | None = None
+    # Chatflow 调试：节点实际输入（模板 {{…}} 解析后传入适配器的 input）——仅 flow 执行捕获
+    input: dict | None = None
     latency_ms: int = 0
     checkpoint_id: str | None = None
 

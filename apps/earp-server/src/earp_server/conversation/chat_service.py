@@ -446,7 +446,7 @@ async def flow_chat(
     from earp_server.conversation.conversation_service import add_message, create_conversation
     from earp_server.orchestrator.multi_step import ExecutionStatus, MultiStepExecutor
     from earp_server.orchestrator.types import InvokeContext, Step
-    from earp_server.orchestrator.workflow_dsl import compile_flow_schema, deserialize_pool, serialize_pool
+    from earp_server.orchestrator.workflow_dsl import CondExec, compile_flow_schema, deserialize_pool, serialize_pool
 
     if not (query or "").strip():
         raise ChatError("问题不能为空")
@@ -563,6 +563,28 @@ async def flow_chat(
 
     completed = [r for r in results if r.status == "completed"]
     outputs = {r.step_id: r.output for r in results if r.status == "completed"}
+
+    # Chatflow 调试 trace：按拓扑序输出每节点 status/input/output/branch——
+    # 分支决策来自 state.chosen（执行器不落 results，outputs/answer 语义不变），
+    # 节点实际输入（模板解析后）来自 StepResult.input（flow 执行捕获）。
+    results_by_id = {r.step_id: r for r in results}
+    trace: list[dict[str, Any]] = []
+    for item in plan.sequence:
+        if isinstance(item, CondExec):
+            side = state.chosen.get(item.branch_id)
+            if side is None:
+                trace.append({"node_id": item.node_id, "status": "skipped", "branch": None,
+                              "input": None, "output": None, "error": None})
+            else:
+                trace.append({"node_id": item.node_id, "status": "completed", "branch": side,
+                              "input": None, "output": {"branch": side}, "error": None})
+        else:
+            r = results_by_id.get(item.node_id)
+            if r is None:
+                continue  # 防御：resume/重启路径无结果记录的节点不输出
+            trace.append({"node_id": r.step_id, "status": r.status, "branch": None,
+                          "input": r.input, "output": r.output, "error": r.error})
+
     # 助手消息：最后 completed 节点输出（text 优先，否则 JSON 摘要）
     answer = ""
     if completed:
@@ -582,6 +604,7 @@ async def flow_chat(
         "conversation_id": conversation_id,
         "status": state.status.value,
         "outputs": outputs,
+        "trace": trace,
         "message_id": msg["message_id"],
         "answer": answer,
     }
