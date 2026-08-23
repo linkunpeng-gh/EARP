@@ -821,6 +821,47 @@ EARP（Enterprise AI Runtime Platform）是一套面向**企业数字化与智�
 
 ---
 
+### 会话续接（2026-08-21）— Chatflow F5a: 编排页 flow 模式（JSON 编辑 + 实时校验 + SVG 预览 + flow 调试）
+
+**任务书**：`tasks/chatflow-f5a-frontend-task-breakdown.md`（D1-D5 决策：入口=chat-edit 编排页 orchestration 切换、前端 JS 校验即时提示（后端门禁权威）、纯 vanilla SVG 拓扑分层渲染（复用 entity-graph el() 模式）、flow 调试非流式（200 完成 / 202 挂起等待卡）、一期不做节点表单/拖拽（F5b 决策门后）；执行序 1→5）。基线 383 tests 全绿。
+
+**实现（按执行序）**：
+1. **任务书**：`tasks/chatflow-f5a-frontend-task-breakdown.md`（F5a 首个任务书）
+2. **flow-graph.js**（新，`apps/earp-admin/js/`，纯 vanilla）：`validateFlowSchema` 移植 validate_workflow 核心（节点白名单 12 类 / 恰一 start·end / 边引用 / 自环 / 重复边 / condition 恰 2 出边 true·false / 非 condition 出边 ≤1 / Kahn 无环）；`renderFlowGraph` 拓扑分层布局（最长路径分层：start 左 → end 右）+ 节点类型着色/图标 + condition 分支边 ✓是/✗否 + marker 箭头；`flowExampleSchema`（simple LLM 问答 / full 全节点含 qu→capability→tool→condition→human_approval→llm）
+3. **chat-edit.html 编排页**：左配置面板顶部加「编排方式」select（auto/flow）；flow 时展开流程配置区（JSON textarea + 实时校验错误列表 + SVG 预览 + 示例插入按钮 + 节点/变量引用帮助）；`renderConfig`/`collectConfig` 加 orchestration/flow_schema（flow 模式保存前 JS 校验，坏 JSON/坏图 alert 拦截不请求）；`send()` 分支 flow → `sendFlow`（原生 fetch：200 → answer + 节点输出折叠卡 + 引文聚合；**202 → 「⏸ 等待确认」卡 + 答复提示**，下一句即答复恢复；非 2xx → detail 提示）
+4. **冒烟**：`test-flow-edit-smoke.cjs`（纯 Node mock DOM + fetch）：15 断言——validate 五态（合法/缺 start/环/condition 分支/全节点图）、render 生成 svg、onFlowSchemaEdit 实时校验、collectConfig 组装（坏 JSON 拦截）、sendFlow 202 挂起（convId 保存 + 等待卡 + 答复提示）/ 200 完成（answer + 节点输出）
+5. **质量门**：后端全量 383 零回归 + smoke 15 断言 + 静态页面 HTTP 200（/admin/pages/chat-edit.html、/admin/js/flow-graph.js）
+
+**dev 真 API 实测**（8000 + 真实 Ollama）：PATCH 全节点图（qu→capability→tool→condition→human_approval→llm，9 节点）通过后端校验保存 → 执行：
+- **true 分支**（query 含「故障」）：qu plan_fact 真实理解 → capability echo → tool 10 行取数 → condition true → **human_approval 202 挂起** → 恢复「同意处理」→ llm 生成（答复引用 + 5 条引文 + 行数）→ completed
+- **false 分支**（「设备运行正常」）：condition false → l2 直接完成（无挂起）——**F3+F4 全节点 + 分支在真实链路上全跑通**
+
+**遗留**：① 节点配置表单 / 拖拽连线（F5b 决策门后）；② flow 调试 conversation_id 页面会话内维护（刷新需重开，与 auto 调试一致）；③ 前端校验是即时提示子集（后端门禁权威——保存 422 兜底）；④ mcp 节点模板未提供（编译仍报未实现）；⑤ workspace 抽屉 workflow 入口仍 planned（独立 flow 管理页 F5b 范畴）
+
+**FDE 指南**：§15.5 编排页配置 flow 应用操作说明（三步：粘贴 JSON / 看校验 / 看预览；调试含 202 等待确认答复）。
+
+---
+
+### 会话续接（2026-08-21）— Chatflow F5b: Chatflow 独立标签 + Dify 式画布编辑器
+
+**背景**：FDE 反馈「chatflow 应独立于 chat」，且要求页面参考 Dify 成熟设计。将 flow 从 chat 挪出，建独立标签 + Dify 式三栏画布（左节点面板 / 中画布 / 右属性），用仓库既有 Drawflow POC（F5b 候选已归档验证）实现画布——提前落地 F5b。
+
+**实现**：
+1. **资产**：vendor drawflow.min.js + drawflow.min.css（apps/earp-admin/vendor/，来自 spikes/drawflow-poc）
+2. **chatflow-canvas.js**（新）：NODE_DEFS（10 节点：端口数/颜色/字段/摘要——字段驱动属性面板）、nodeHtml（画布节点内嵌摘要）、toFlowSchema（Drawflow export→flow_schema，ReactFlow 兼容）、loadIntoDrawflow（schema→画布，拓扑分层自动布局）、renderPropsPanel（右属性表单即时写回）、data 包裹结构映射（capability.capability_call / tool.connector_id / condition.condition）
+3. **chatflow.html**（新，Dify 式列表页）：只显示 orchestration=flow，卡片带 ⛓Chatflow 徽标 + 状态 + 节点数；新建 flow（start→end 默认图）；只调既有 GET/POST /chat_apps（零后端改动）
+4. **chatflow-edit.html**（新，Dify 式画布编辑页）：三栏布局 + 节点面板拖拽（幽灵图，避 HTML5 draggable）+ Drawflow 画布（拖/连/平/缩放）+ 右属性面板（选中节点字段表单）+ 顶部 运行/保存/发布；运行：POST chat → 结果弹层 + 节点输出 + 202 人工确认弹窗输答复继续
+5. **chat.html/chat-edit.html 移除 flow**：chat 列表只显示非 flow；chat-edit 删编排方式下拉 + flow 配置区 + sendFlow/FlowGraph 相关（回纯 auto）；删过时 test-flow-edit-smoke.cjs
+6. **nav.js**：workspace 抽屉加 chatflow 页项（与 chat 并列）
+7. **冒烟**：test-chatflow-canvas-smoke.cjs 14 断言（dataToFields/fieldsToData 各节点包裹、toFlowSchema 边映射含 condition 第二输出、loadIntoDrawflow↔toFlowSchema roundtrip 9 节点一致）
+8. **dev 冒烟**：新建 flow 应用（start→end）成功；GET /chat_apps 前端可分离（6 应用 = 3 flow + 3 auto）；静态页 chatflow.html / chatflow-edit.html / chatflow-canvas.js / drawflow.min.js 全 200
+
+**质量门**：后端零改动（复用 orchestration 字段前端过滤）+ 新前端冒烟 14 断言 + 页面对标签平衡检查。
+
+**遗留**：① chatflow-edit 验证为「保存后运行」；② 画布节点位置不持久化（flow_schema 无 x/y，加载分层布局——重开自动排布）；③ Drawflow 深度定制（小地图/对齐线）需 fork；④ LLM 节点流式透传未做（运行一次返回）；⑤ workflow 抽屉项仍 planned（chatflow 已并列，独立 workflow 页 Phase F）；⑥ 冒烟为逻辑级（无浏览器 E2E）
+
+**FDE 指南**：earp-chatflow-guide.md 整体改写为画布+独立标签教程；earp-fde-user-guide.md §15.5 更新为 F5b 画布编辑器+独立标签。
+
 ### 历史待办
 
 | 优先级 | 事项 | 状态 |
@@ -931,3 +972,28 @@ L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 �
 - **dev 真 API 冒烟**（verify_m3 升级：DB 直插 messages 素材）：**timeline_added=9**（真实 chat 引用回填生效）+ 注册/同步/幂等/live/enrichment 全链路 ✅
 
 **遗留**：get_entity/get_entity_profile/graph 单实体端点同样无角色域过滤（同源缺口，2026-08-18 已记录）——本次只修 live（review 范围），下个 FDE 反馈统一接入
+
+### 会话续接（2026-08-21）— Chatflow 画布调试体验 + 三处修复（F5b 收尾配套）
+
+> 承接 F5b（画布编辑器已交付未提交）；本轮：FDE 实跑画布反馈驱动的调试工作台改造 + 两个真 bug 修复 + 待办记录。
+> 后端基线 383 tests 全绿（含本轮新增 trace 断言）；前端冒烟 10/10 绿。
+
+**背景**：FDE 实跑 chatflow 画布反馈：① 内置「示例」图跑不了（condition 手柄 bug）；② 运行只看最终答案、不知道中间节点如何判断/执行（对标 Dify 调试）；③ 弹窗式结果展示打断看图；④ 结果条高度/滚动条无法调节看不到。逐项闭环。
+
+**关键产出**：
+
+1. **修复 F5b 遗留 bug：condition 手柄映射不对称**（`chatflow-canvas.js`）——`toFlowSchema` 导出用 Drawflow `output_1/2` 作 sourceHandle，而 `validateFlowSchema`/`loadIntoDrawflow`/后端 F0 都只认 `true/false` → 内置示例图一运行必报「condition N 需要恰好 2 条出边」。修复：2 输出源节点导出时 `output_1→true / output_2→false`。冒烟测试原断言**锁错了**（断言 `output_2` 为正确）→ 改回 `'false'` + 补 roundtrip 后 `FlowGraph.validate(roundtrip)===0` 强回归（旧测试只比节点/边数、漏了手柄语义）。
+2. **节点语义引用名（id）**：新拖节点自动生成 `type+N` 稳定 id（`qu1/h1/llm1…`），显示在画布节点上（id 徽标），导出 flow_schema 用语义 id 替代 Drawflow 数字——下游 `{{#h1.output.reply#}}` 引用可读、稳定；载入保留 schema 原 id；`clearFlow`/载入重置计数防冲突。**不做手动改名（留后续）**。
+3. **节点级调试 trace（后端）**：`StepResult` 增 `input`（模板解析后实际传入适配器）；`ExecutionState.chosen` 带出 condition 运行时分支决策（**不**往 results 掺 condition——outputs/answer/checkpoint 语义零改动，低风险路线）；`flow_chat` 响应新增 **`trace`**：按图拓扑序输出每节点 `{node_id, status, input, output, error, branch}`（含 skipped 未命中分支）。dev 真 API 实测：trace 含 l1(输入模板已替换)/con1(branch=then)/l3(skipped)。
+4. **调试工作台改版（弹窗 → 画布融入，纯前端 chatflow-edit.html）**：
+   - 结果条：弹窗移除 → **画布底部横条**（`#run-bar`）：答案 + 状态统计（N 执行/N 跳过/N 失败）+「展开全部节点轨迹」折叠 + 人工确认内联卡
+   - **节点状态着色**：左 5px 粗色条 + 淡底色 + 摘要前缀符号（✅执行/⏭跳过/❌失败/⏸等待），与顶部「类型色条」区分（类型=顶条，状态=左条）；`findNodeEl` 用 DOM + `getNodeFromId` 公开 API（初版读 `editor.drawflow.Home.data` 内部结构失败——实际是双层 `drawflow.drawflow.Home.data`，着色失效根因）
+   - **点节点看详情**：右属性面板下加「运行详情」（该节点本次 input/output/branch/error）
+   - **结果条可拖拽调高**：上边缘手柄拖拽 + localStorage 记忆 + `overflow-y:scroll` 滚动条常显（macOS 悬浮滚动条 auto 模式下不显示轨道）
+   - **右属性面板收起/展开**：工具栏按钮（避免绝对定位撞「清空」），画布自动加宽 + 状态记忆
+
+**质量门**：后端 383 全绿（新增 trace 断言于 test_flow_executor 分支用例）+ OpenAPI 无变化（response_model=None）+ ruff 零新增 + 前端冒烟 10/10 + 页面内联 JS node --check。
+
+**记录**：tech-debt 增 **#15**（中台对接归属能力中心，P2，做能力中心时一并处理）、**#16**（单节点调试，P3）、**#17**（运行历史持久化，P3）。
+
+**遗留**：① 节点 id 手动改名（本轮只自动生成+展示）；② 单节点调试（#16）；③ 运行历史（#17）；④ 本轮+F5b 全部改动**待提交**（含 chatflow 页面/画布/vendor Drawflow/后端 trace/tech-debt）；⑤ capability 节点仍限 demo.echo（通用能力执行器 + 能力中心任务书待开工）

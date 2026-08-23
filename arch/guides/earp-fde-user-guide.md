@@ -814,6 +814,9 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 
 ## 15. Chatflow flow 模式节点（F3：QU / Capability / Tool）
 
+> 📘 **面向 FDE 的操作教程（从哪进 / 节点怎么写 / 怎么调试 / 场景示例 / FAQ）**
+> 见 `earp-chatflow-guide.md`。本节是技术参考（节点 JSON 形状 / 权限审计边界 / 实现原理）。
+
 > flow 模式（`orchestration=flow`）：开发者把「做事」画成 DAG（start → 节点 → end），
 > 对话时逐节点执行。F2 已有 LLM/Knowledge/Chat History/Condition 节点；F3 增加三个
 > **能做事**的节点：QU（自动理解子问题）、Capability（真实能力执行 + 权限/审计）、
@@ -867,3 +870,18 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 - `{{#node_id.output.path#}}` → 前序节点输出（如 `{{#q1.output.citations#}}`）；F3 起支持
   简写 `{{#node_id.path#}}`（省略 `.output.` 段）
 - 缺失引用原样保留（不静默吞掉）——适配器/LLM 端兜底
+
+### 15.5 编排 Chatflow 应用（F5b，画布编辑器 + 独立标签）
+
+> **Chatflow 是独立于 Chat 的应用类型**：管理端「工作台」左抽屉 **chatflow**（与 chat 并列），
+> 进流程应用列表 → 新建/点击进入 **Dify 式三栏画布编辑器**（左节点面板 / 中画布 / 右属性）。
+> chat 列表只显示聊天助手；flow 全在 chatflow 页（互不混杂）。
+
+**操作三步**：
+1. **拖节点 / 连边**：从左边拖 10 种节点到画布（或双击快速添加），连线「右圆点 → 左圆点」；
+   条件节点 2 个输出 = ✓是 / ✗否
+2. **配参数**：点选中节点 → 右侧属性面板改字段（能力 ID / 连接 ID / 提示词 / 确认问题…）
+3. **保存 / 运行**：保存时图校验（缺开始/结束、有环、condition 分支不全会提示）；
+   「▶ 运行」输入问题 → 弹结果 + 每个节点输出；人工确认处输答复继续
+
+**调试**：运行结果弹层逐节点输出；遇 human_approval 弹「⏸ 等待确认」→ 输答复提交 → 流程继续。
