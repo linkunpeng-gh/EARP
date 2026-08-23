@@ -48,9 +48,44 @@ async def _register_cap(engine: AsyncEngine, tenant_id: str, *, permissions: lis
                 "INSERT INTO business_capabilities (capability_id, tenant_id, domain, name, type, "
                 "input_schema, output_schema, required_permissions, version) "
                 "VALUES (:cid, :tid, 'demo', 'echo', 'query', '{}', '{}', :perms, '1.0.0') "
-                "ON CONFLICT (capability_id) DO NOTHING"
+                "ON CONFLICT (capability_id, tenant_id) DO NOTHING"
             ),
             {"cid": CAP_ID, "tid": tenant_id, "perms": permissions},
+        )
+        await conn.commit()
+
+
+async def _register_cap_exec(
+    engine: AsyncEngine,
+    tenant_id: str,
+    capability_id: str,
+    *,
+    execution: dict,
+    permissions: list[str],
+    domain: str = "demo",
+    name: str = "echo",
+) -> None:
+    """通用执行器任务书：注册带 execution 声明的能力（复合主键 tenant 隔离）。"""
+    import json
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        await conn.execute(
+            text(
+                "INSERT INTO business_capabilities "
+                "(capability_id, tenant_id, domain, name, type, input_schema, output_schema, "
+                "required_permissions, version, execution) "
+                "VALUES (:cid, :tid, :domain, :name, 'query', '{}', '{}', :perms, '1.0.0', :exec) "
+                "ON CONFLICT (capability_id, tenant_id) DO NOTHING"
+            ),
+            {
+                "cid": capability_id,
+                "tid": tenant_id,
+                "domain": domain,
+                "name": name,
+                "perms": permissions,
+                "exec": json.dumps(execution),
+            },
         )
         await conn.commit()
 
@@ -338,6 +373,96 @@ class TestF3Adapters:
             await connector.execute(
                 {"adapter_type": "capability.call", "capability_id": CAP_ID, "input": {}},
                 ctx=_ctx(role_id="f3-r2"),
+            )
+
+    # ── 通用执行器：execution 声明分派（任务书 D2）────────────────────────────
+    async def test_execution_declared_demo_echo_dispatches(self, app_engine: AsyncEngine) -> None:
+        """execution.adapter=demo.echo 显式声明 → 按声明分派（不走 domain.name 猜测）。"""
+        await _register_cap_exec(
+            app_engine, TENANT, "cap-exec-echo", execution={"adapter": "demo.echo"}, permissions=[]
+        )
+        connector = Connector(engine=app_engine)
+        out = await connector.execute(
+            {"adapter_type": "capability.call", "capability_id": "cap-exec-echo", "input": {"msg": "hi"}},
+            ctx=_ctx(role_id="f3-r1"),
+        )
+        assert out == {"echo": {"msg": "hi"}}
+
+    async def test_execution_declared_tool_fetch_dispatches(self, app_engine: AsyncEngine, monkeypatch) -> None:
+        """execution.adapter=tool.fetch + params.connector_id → 真实走 tool.fetch（mock fetch）。"""
+        from earp_server.ontology import connector_service, data_adapter
+
+        await connector_service.create_connector(
+            app_engine, TENANT, connector_id="cn-exec-rest", adapter_type="rest",
+            config={"base_url": "http://x.example", "path": "/api", "method": "GET"},
+        )
+        await _register_cap_exec(
+            app_engine, TENANT, "cap-exec-tool",
+            execution={"adapter": "tool.fetch", "params": {"connector_id": "cn-exec-rest"}},
+            permissions=[],
+        )
+        captured: dict = {}
+
+        async def _fake_fetch(cfg, params=None):
+            captured["cfg"] = cfg
+            captured["params"] = params
+            return [{"id": 9}]
+
+        monkeypatch.setattr(data_adapter, "fetch", _fake_fetch)
+        connector = Connector(engine=app_engine)
+        out = await connector.execute(
+            {
+                "adapter_type": "capability.call",
+                "capability_id": "cap-exec-tool",
+                "input": {"params": {"region": "华东"}},
+            },
+            ctx=_ctx(),
+        )
+        assert out["count"] == 1
+        # params 合并：execution.params.connector_id（默认）< capability input.params（调用方覆写）
+        assert captured["params"] == {"region": "华东"}
+
+    async def test_execution_unknown_adapter_raises(self, app_engine: AsyncEngine) -> None:
+        """显式声明但 adapter 未知 → 明确报错（执行器任务书 D5）。"""
+        await _register_cap_exec(
+            app_engine, TENANT, "cap-exec-unknown", execution={"adapter": "ghost.adapter"}, permissions=[]
+        )
+        connector = Connector(engine=app_engine)
+        with pytest.raises(ConnectorError, match="未实现"):
+            await connector.execute(
+                {"adapter_type": "capability.call", "capability_id": "cap-exec-unknown", "input": {}},
+                ctx=_ctx(),
+            )
+
+    async def test_no_execution_falls_back_to_domain_name(self, app_engine: AsyncEngine) -> None:
+        """无 execution 声明（domain.name=demo.echo）→ 回退 domain.name 猜测兼容。"""
+        connector = Connector(engine=app_engine)
+        out = await connector.execute(
+            {"adapter_type": "capability.call", "capability_id": CAP_ID, "input": {"msg": "hi"}},
+            ctx=_ctx(role_id="f3-r1"),
+        )
+        assert out == {"echo": {"msg": "hi"}}
+
+    async def test_deprecated_capability_raises_disabled(self, app_engine: AsyncEngine) -> None:
+        """已停用能力 → 「已停用」明确报错（能力中心 soft-disable 衔接）。"""
+        await _register_cap_exec(
+            app_engine, TENANT, "cap-exec-dead", execution={"adapter": "demo.echo"}, permissions=[]
+        )
+        async with app_engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
+            await conn.execute(
+                text(
+                    "UPDATE business_capabilities SET status = 'deprecated' "
+                    "WHERE capability_id = 'cap-exec-dead' AND tenant_id = :t"
+                ),
+                {"t": TENANT},
+            )
+            await conn.commit()
+        connector = Connector(engine=app_engine)
+        with pytest.raises(ConnectorError, match="已停用"):
+            await connector.execute(
+                {"adapter_type": "capability.call", "capability_id": "cap-exec-dead", "input": {}},
+                ctx=_ctx(),
             )
 
     async def test_tool_fetch_real_encrypted_connector(self, app_engine: AsyncEngine, monkeypatch) -> None:

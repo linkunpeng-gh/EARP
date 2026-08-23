@@ -267,9 +267,12 @@ class Connector:
     async def _execute_capability_call(self, capability_call: dict[str, Any], ctx: Any) -> dict[str, Any]:
         """capability.call: business_capabilities 注册表校验 + required_permissions 门禁 → 真实执行。
 
-        - capability 不存在/未激活 → ConnectorError
-        - 角色缺 required_permissions → ConnectorError（与 PolicyLayer 双保险：flow 无层时兜底）
-        - 执行分派：capability.domain.name 已知 adapter → 执行（demo.echo 等）；否则明确报错
+        执行分派（通用执行器任务书 D2）：
+        - 读能力 execution 声明 → 有 adapter（白名单）→ 按声明分派（input = execution.params 默认
+          < capability input 调用方覆写）；无声明 / 未知 adapter → 回退 f"{domain}.{name}" 猜测
+          （兼容 demo.echo / 现有 seed 能力）；仍不中 → 明确报错「无执行 adapter（执行声明缺失或未实现）」
+        - 能力不存在 → 「不存在」；已 deprecated → 「已停用」（能力中心 soft-disable 衔接）
+        - 角色缺 required_permissions → ConnectorError（与 PolicyLayer 双保险）
         """
         if self._engine is None or ctx is None:
             raise ConnectorError("capability.call requires engine + ctx (flow executor)")
@@ -289,14 +292,16 @@ class Connector:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{ctx.tenant_id}'"))
             row = await conn.execute(
                 text(
-                    "SELECT domain, name, required_permissions, status FROM business_capabilities "
+                    "SELECT domain, name, required_permissions, status, execution FROM business_capabilities "
                     "WHERE capability_id = :cid AND tenant_id = :tid"
                 ),
                 {"cid": capability_id, "tid": ctx.tenant_id},
             )
             cap = row.fetchone()
-        if cap is None or cap.status != "active":
-            raise ConnectorError(f"capability.call: capability {capability_id!r} 不存在或未激活")
+        if cap is None:
+            raise ConnectorError(f"capability.call: capability {capability_id!r} 不存在")
+        if cap.status != "active":
+            raise ConnectorError(f"capability.call: capability {capability_id!r} 已停用（deprecated）")
 
         required = list(cap.required_permissions or [])
         if required:
@@ -307,13 +312,34 @@ class Connector:
                     f"capability.call: 角色 {ctx.role_id} 缺少权限 {missing}（capability {capability_id!r}）"
                 )
 
+        # 执行声明分派（通用执行器任务书 D2）：声明优先于 domain.name 猜测
+        execution: dict[str, Any] = cap.execution if cap.execution is not None else {}
+        adapter = execution.get("adapter")
+        if adapter:
+            if adapter in _FLOW_ADAPTER_TYPES:
+                # params 提供 adapter 固定默认（如 tool.fetch 的 connector_id），可被 capability input 覆写
+                params = execution.get("params")
+                if not isinstance(params, dict):
+                    params = {}
+                merged_input = {**params, **cap_input}
+                return await self.execute(
+                    {**capability_call, "adapter_type": adapter, "input": merged_input}, ctx=ctx
+                )
+            # 显式声明但 adapter 未知 → 明确报错（执行器任务书 D5：执行声明缺失或未实现）
+            raise ConnectorError(
+                f"capability.call: 能力 {capability_id!r} 执行声明 adapter {adapter!r} 未实现"
+                f"（白名单：{sorted(_FLOW_ADAPTER_TYPES)}）"
+            )
+
+        # 无执行声明 → 回退 domain.name 猜测（兼容 demo.echo / 现有 seed 能力）
         adapter_type = f"{cap.domain}.{cap.name}"
         if adapter_type == "demo.echo":
             return {"echo": cap_input}
         if adapter_type in _FLOW_ADAPTER_TYPES:
             return await self.execute({**capability_call, "adapter_type": adapter_type, "input": cap_input}, ctx=ctx)
         raise ConnectorError(
-            f"capability.call: capability {capability_id!r} 无执行 adapter（{adapter_type} 未实现，Phase F 通用执行器）"
+            f"capability.call: 能力 {capability_id!r} 无执行 adapter（执行声明缺失或未实现，"
+            f"请到能力中心配置 execution.adapter）"
         )
 
     async def _execute_tool_fetch(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:

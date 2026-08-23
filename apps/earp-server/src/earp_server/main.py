@@ -20,6 +20,12 @@ from earp_server.admin.model_routes import router as model_routes_router
 from earp_server.admin.roles_routes import router as roles_router
 from earp_server.audit.consumer import audit_handler_factory
 from earp_server.capability.registry import TokenBucketRateLimiter, discover, list_for_planning, seed_demo_tenant
+from earp_server.capability.service import (
+    create_capability,
+    deprecate_capability,
+    get_capability,
+    update_capability,
+)
 from earp_server.config import Settings
 from earp_server.connector import LLMConnector
 from earp_server.conversation.conversation_service import (
@@ -121,6 +127,36 @@ class RoutingRebuildRequest(BaseModel):
 
 class RoutingSuggestRequest(BaseModel):
     data_domain_id: str
+
+
+class CapabilityCreate(BaseModel):
+    """能力注册（tech-debt #14）。capability_id 可省（自动生成 cap-{domain}-{name}）；
+    execution = {"adapter": "<白名单>", "params": {...}} 声明「怎么执行」（通用执行器消费）。"""
+
+    domain: str
+    name: str
+    type: str  # query | command
+    capability_id: str | None = None
+    input_schema: dict | None = None
+    output_schema: dict | None = None
+    required_permissions: list[str] | None = None
+    version: str = "1.0.0"
+    execution: dict | None = None
+    visible_roles: list[str] | None = None
+
+
+class CapabilityUpdate(BaseModel):
+    """能力更新（全字段可选；status 不可在此改，停用走 DELETE）。"""
+
+    domain: str | None = None
+    name: str | None = None
+    type: str | None = None
+    input_schema: dict | None = None
+    output_schema: dict | None = None
+    required_permissions: list[str] | None = None
+    version: str | None = None
+    execution: dict | None = None
+    visible_roles: list[str] | None = None
 
 
 async def _llm_suggest(engine, tenant_id: str, settings: Settings, prompt: str) -> str:
@@ -499,9 +535,83 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ── Capability Registry ──
     @app.post("/capabilities", status_code=201, tags=["capabilities"])
-    async def register_capability_endpoint(req: Request) -> dict[str, str]:
+    async def register_capability_endpoint(
+        req: Request, body: CapabilityCreate | None = None
+    ) -> dict[str, Any]:
         await seed_demo_tenant(req.app.state.engine, req.state.tenant_id)
-        return {"capability_id": "cap-demo-echo", "status": "registered"}
+        # 向后兼容：无 body（老「Register Demo」按钮）→ 仅 seed cap-demo-echo
+        if body is None:
+            return {"capability_id": "cap-demo-echo", "status": "registered"}
+        await _require_admin(req)
+        try:
+            cap = await create_capability(
+                req.app.state.engine,
+                req.state.tenant_id,
+                domain=body.domain,
+                name=body.name,
+                type=body.type,
+                capability_id=body.capability_id,
+                input_schema=body.input_schema,
+                output_schema=body.output_schema,
+                required_permissions=body.required_permissions,
+                version=body.version,
+                execution=body.execution,
+                visible_roles=body.visible_roles,
+                bus=req.app.state.eventbus,
+                user_id=req.state.user_id,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        return cap
+
+    @app.get("/capabilities/{capability_id}", tags=["capabilities"])
+    async def get_capability_endpoint(capability_id: str, req: Request) -> dict[str, Any]:
+        cap = await get_capability(req.app.state.engine, req.state.tenant_id, capability_id)
+        if cap is None:
+            raise HTTPException(status_code=404, detail="capability not found")
+        return cap
+
+    @app.patch("/capabilities/{capability_id}", tags=["capabilities"])
+    async def update_capability_endpoint(
+        capability_id: str, body: CapabilityUpdate, req: Request
+    ) -> dict[str, Any]:
+        await _require_admin(req)
+        try:
+            cap = await update_capability(
+                req.app.state.engine,
+                req.state.tenant_id,
+                capability_id,
+                domain=body.domain,
+                name=body.name,
+                type=body.type,
+                input_schema=body.input_schema,
+                output_schema=body.output_schema,
+                required_permissions=body.required_permissions,
+                version=body.version,
+                execution=body.execution,
+                visible_roles=body.visible_roles,
+                bus=req.app.state.eventbus,
+                user_id=req.state.user_id,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        if cap is None:
+            raise HTTPException(status_code=404, detail="capability not found")
+        return cap
+
+    @app.delete("/capabilities/{capability_id}", status_code=200, tags=["capabilities"])
+    async def deprecate_capability_endpoint(capability_id: str, req: Request) -> dict[str, Any]:
+        await _require_admin(req)
+        cap = await deprecate_capability(
+            req.app.state.engine,
+            req.state.tenant_id,
+            capability_id,
+            bus=req.app.state.eventbus,
+            user_id=req.state.user_id,
+        )
+        if cap is None:
+            raise HTTPException(status_code=404, detail="capability not found")
+        return cap
 
     @app.get("/capabilities", tags=["capabilities"])
     async def discover_capabilities_endpoint(q: str | None = None, req: Request = None) -> list[dict[str, Any]]:  # type: ignore[assignment]

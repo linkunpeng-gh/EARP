@@ -27,6 +27,8 @@ _DEMO_CAPABILITY = {
     "input_schema": {"type": "object", "properties": {"message": {"type": "string"}}},
     "required_permissions": ["demo.echo"],
     "version": "1.0.0",
+    # 通用执行器任务书 D7：补显式执行声明（兼容回退仍保留）
+    "execution": {"adapter": "demo.echo"},
 }
 
 # Standard Data Domains — aligned with the admin UI hardcoded options
@@ -57,12 +59,13 @@ async def register_demo(engine: AsyncEngine, tenant_id: str) -> None:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         schema_json = json.dumps(_DEMO_CAPABILITY["input_schema"])
+        execution_json = json.dumps(_DEMO_CAPABILITY["execution"])
         await conn.exec_driver_sql(
             f"INSERT INTO business_capabilities (capability_id, tenant_id, domain, name, type, "
-            f"input_schema, output_schema, required_permissions, version) "
+            f"input_schema, output_schema, required_permissions, version, execution) "
             f"VALUES ('cap-demo-echo', '{tenant_id}', 'demo', 'echo', 'query', "
-            f"'{schema_json}', '{{}}', '{{demo.echo}}', '1.0.0') "
-            f"ON CONFLICT (capability_id) DO NOTHING"
+            f"'{schema_json}', '{{}}', '{{demo.echo}}', '1.0.0', '{execution_json}') "
+            f"ON CONFLICT (capability_id, tenant_id) DO NOTHING"
         )
         await conn.commit()
 
@@ -169,7 +172,7 @@ async def discover(
                 if role_id:
                     rows = await conn.execute(
                         text(
-                            f"SELECT c.capability_id, c.domain, c.name, c.type, c.version, "
+                            f"SELECT c.capability_id, c.domain, c.name, c.type, c.version, c.required_permissions, c.execution, c.status, "
                             f"1 - (c.embedding <=> CAST(:emb AS vector({dim}))) AS similarity "
                             f"FROM business_capabilities c, roles r "
                             f"WHERE c.tenant_id = :tid AND r.role_id = :rid "
@@ -199,7 +202,7 @@ async def discover(
                 if role_id:
                     rows = await conn.execute(
                         text(
-                            "SELECT c.capability_id, c.domain, c.name, c.type, c.version "
+                            "SELECT c.capability_id, c.domain, c.name, c.type, c.version, c.required_permissions, c.execution, c.status "
                             "FROM business_capabilities c, roles r "
                             "WHERE c.tenant_id = :tid AND r.role_id = :rid "
                             "AND c.required_permissions <@ r.permissions "
@@ -221,7 +224,7 @@ async def discover(
         if role_id:
             rows = await conn.execute(
                 text(
-                    "SELECT c.capability_id, c.domain, c.name, c.type, c.version "
+                    "SELECT c.capability_id, c.domain, c.name, c.type, c.version, c.required_permissions, c.execution, c.status "
                     "FROM business_capabilities c, roles r "
                     "WHERE c.tenant_id = :tid AND r.role_id = :rid "
                     "AND c.required_permissions <@ r.permissions"

@@ -123,7 +123,7 @@ async def _seed_scene(engine: AsyncEngine, tid: str, suffix: str = "") -> dict:
                 "INSERT INTO business_capabilities (capability_id, tenant_id, domain, name, type, "
                 "input_schema, output_schema, required_permissions, version) "
                 f"VALUES ('{cap_id}', :tid, 'equipment', 'query_equipment_alarm', 'query', "
-                "'{}', '{}', '{alarm:read}', '1.0.0') ON CONFLICT (capability_id) DO NOTHING"
+                "'{}', '{}', '{alarm:read}', '1.0.0') ON CONFLICT (capability_id, tenant_id) DO NOTHING"
             ),
             {"tid": tid},
         )

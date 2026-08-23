@@ -141,7 +141,7 @@ async def test_resolve_with_entities_narrows_candidates(app_engine: AsyncEngine)
                 "INSERT INTO business_capabilities (capability_id, tenant_id, domain, name, type, "
                 "input_schema, output_schema, required_permissions, version) "
                 "VALUES ('cap-osr-query', :tid, 'equipment', 'query_alarms', 'query', "
-                "'{}', '{}', '{alarm:read}', '1.0.0') ON CONFLICT (capability_id) DO NOTHING"
+                "'{}', '{}', '{alarm:read}', '1.0.0') ON CONFLICT (capability_id, tenant_id) DO NOTHING"
             ),
             {"tid": tid},
         )

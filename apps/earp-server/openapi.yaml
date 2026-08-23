@@ -42,6 +42,67 @@ components:
       - knowledge_base_id
       title: Body_upload_document_file_knowledge_documents_upload_post
       type: object
+    CapabilityCreate:
+      description: '能力注册（tech-debt #14）。capability_id 可省（自动生成 cap-{domain}-{name}）；
+
+        execution = {"adapter": "<白名单>", "params": {...}} 声明「怎么执行」（通用执行器消费）。'
+      properties:
+        capability_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Capability Id
+        domain:
+          title: Domain
+          type: string
+        execution:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Execution
+        input_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Input Schema
+        name:
+          title: Name
+          type: string
+        output_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Output Schema
+        required_permissions:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Required Permissions
+        type:
+          title: Type
+          type: string
+        version:
+          default: 1.0.0
+          title: Version
+          type: string
+        visible_roles:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Visible Roles
+      required:
+      - domain
+      - name
+      - type
+      title: CapabilityCreate
+      type: object
     CapabilityEntityIn:
       properties:
         entity_type_id:
@@ -54,6 +115,63 @@ components:
       required:
       - entity_type_id
       title: CapabilityEntityIn
+      type: object
+    CapabilityUpdate:
+      description: 能力更新（全字段可选；status 不可在此改，停用走 DELETE）。
+      properties:
+        domain:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Domain
+        execution:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Execution
+        input_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Input Schema
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        output_schema:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Output Schema
+        required_permissions:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Required Permissions
+        type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Type
+        version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Version
+        visible_roles:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Visible Roles
+      title: CapabilityUpdate
       type: object
     ChatAppCreate:
       properties:
@@ -1111,6 +1229,11 @@ components:
           - type: string
           - type: 'null'
           title: Llm
+        qu_prompt_template:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Qu Prompt Template
         rerank:
           anyOf:
           - type: string
@@ -1746,17 +1869,120 @@ paths:
       - capabilities
     post:
       operationId: register_capability_endpoint_capabilities_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/CapabilityCreate'
+              - type: 'null'
+              title: Body
       responses:
         '201':
           content:
             application/json:
               schema:
-                additionalProperties:
-                  type: string
+                additionalProperties: true
                 title: Response Register Capability Endpoint Capabilities Post
                 type: object
           description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
       summary: Register Capability Endpoint
+      tags:
+      - capabilities
+  /capabilities/{capability_id}:
+    delete:
+      operationId: deprecate_capability_endpoint_capabilities__capability_id__delete
+      parameters:
+      - in: path
+        name: capability_id
+        required: true
+        schema:
+          title: Capability Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Deprecate Capability Endpoint Capabilities  Capability
+                  Id  Delete
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Deprecate Capability Endpoint
+      tags:
+      - capabilities
+    get:
+      operationId: get_capability_endpoint_capabilities__capability_id__get
+      parameters:
+      - in: path
+        name: capability_id
+        required: true
+        schema:
+          title: Capability Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Capability Endpoint Capabilities  Capability Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get Capability Endpoint
+      tags:
+      - capabilities
+    patch:
+      operationId: update_capability_endpoint_capabilities__capability_id__patch
+      parameters:
+      - in: path
+        name: capability_id
+        required: true
+        schema:
+          title: Capability Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CapabilityUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Capability Endpoint Capabilities  Capability
+                  Id  Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Capability Endpoint
       tags:
       - capabilities
   /chat_apps:
