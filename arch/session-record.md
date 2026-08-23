@@ -1035,13 +1035,38 @@ L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 �
 
 **关键产出（前端）**：
 - `pages/capabilities.html` 整页重写：新建/编辑弹窗（全字段：capability_id 自动生成、type 下拉、schema JSON textarea、required_permissions 逗号标签、**execution adapter 下拉（白名单 6 项）+ params JSON**、visible_roles）+ 行内 详情/编辑/停用（deprecated 行不显示停用按钮）+ 列表展示权限 chips/execution 摘要/状态徽标；坏 JSON 前端拦截不请求；保留 Register Demo 快捷键
-- `test-capabilities-smoke.cjs`（新）：16 断言全绿（渲染/权限 chips/execution 摘要/状态/按钮条件/新建 POST 带 execution/编辑预填+PATCH/停用 DELETE/详情 GET/registerDemo 空 body/坏 JSON 拦截）
+- `test-capabilities-smoke.cjs`（新）：15 断言全绿（初版记录误写 16，2026-08-24 review 更正）（渲染/权限 chips/execution 摘要/状态/按钮条件/新建 POST 带 execution/编辑预填+PATCH/停用 DELETE/详情 GET/registerDemo 空 body/坏 JSON 拦截）
 
 **测试与验证**：
 - 新增 `tests/test_capability_admin.py` 11 用例（service：create+校验 type/schema/permissions/execution 未知放行/跨租户同名 **tech-debt #7 用例**/update+deprecate 幂等/审计三事件；HTTP：admin 门禁 403/注册 201/422 校验/404/停用往返）+ test_flow_f3_nodes 执行分派 6 用例（显式 demo.echo 分派 / tool.fetch 分派 + params 合并断言 / 未知 adapter 报错 / 无声明回退 / deprecated「已停用」）
 - **踩坑记录**：① `roles.role_id` 单列 PK 跨租户污染再现（#13 模式）——API 测试按租户派生唯一 role_id（capapi-t1-admin 等）修复；② f-string 改普通字符串后 `'{{}}'` 残留成字面量 → TEXT[] malformed array（测试 seed bug，改回 `'{}'`）
 - **全量 419 passed**（383 基线 + 36：本会话 17 + F5b 收尾已含的 trace 等）；import-linter 基线（3 条 F2 遗留过时 ignore 未动）；ruff/pyright 零新增（自引入的 I001/F541/F841/E501/isinstance 全部修掉，registry B007/connector I001/main I001 为既有）；OpenAPI 基线同步（+4 端点 + CapabilityCreate/Update schema）
 - **dev 真 API 冒烟**（8000 --reload + dev DB 升 0028）：注册带 `execution: {adapter: tool.fetch, params}` 的能力 → 201（execution 落库）→ 详情可见 → 非 admin（r3）注册/停用 403 → admin 停用 200（deprecated）→ 审计 `earp.capability.registered/deprecated` 落 audit_logs ✅（测试后清理）
+
+### 追加（2026-08-24）— 能力中心/执行器 Review 修复（P0 六项 + 测试质量三项）
+
+> 对 2026-08-21 交付做对抗式自 review（真 API 实测验证，非纸面推断），发现并修复：
+
+**后端修复**：
+1. **字段长度零校验 → 500**（实测复现）：capability_id/domain > 64、version > 16 直穿 DB DataError。service 补 `_validate_cap_id`（≤64 + 字符白名单 `^[a-z0-9][a-z0-9_-]*$`，顺带根治 XSS 注入面——恶意 id `x');alert(1);//` 实测原可入库）与 `_validate_text_field`（非空+长度）；自动生成 id 截断（slug 各段上限，永不超 64）
+2. **副作用先于鉴权**：POST /capabilities 有 body 时原先跑 seed_demo_tenant（任意角色可给自己租户种 admin 角色）再 403——改为 gate 前置，seed 只留 legacy 无 body 分支（原语义保留）
+3. **并发 create TOCTOU → 500**：SELECT exists→INSERT 两步非原子，改 `ON CONFLICT DO NOTHING` + rowcount 判重；重复创建从 422 改为 **409**（`CapabilityConflictError` 独立异常）
+4. **详情绕过角色可见性**（实测：viewer 列表 0 项但详情 200 全量声明含 execution.params）——`capability_visible_to_role`（与 discover 过滤同构 `<@` + is_admin 豁免）不满足 → 404（不暴露存在性，M3 live 端点先例）
+5. **discover 六分支只改了一半**：无 role 的 3 分支（语义/LIKE 回退/无查询）仍返回 5 列——统一列清单常量 `_DISCOVER_COLS(_C)`，六分支共用；加无 role 分支回归测试
+6. **白名单双份真源**：service.EXECUTION_ADAPTERS 与 connector._FLOW_ADAPTER_TYPES 合一 → registry.EXECUTION_ADAPTERS（单一真源，registry 为 capability 域最底层模块）
+7. **connector JSONB 防御**：为过 pyright 删掉的 isinstance 改为 `_coerce_jsonb_dict` helper（参数 Any 不触发 UnnecessaryIsInstance）——直插 DB 的畸形 execution（非 dict）不再 AttributeError 500，有回归测试
+
+**测试修复**：
+- #12 分派测试零区分度：demo.echo 声明测试改 domain="custom"（回退猜测不命中，删掉声明代码必挂——原用默认 demo/echo 时删了也绿）
+- #13 删除与既有用例纯重复的回退测试
+- #14 params 覆写优先级只测一半：tool.fetch 测试补「input.region 覆写 execution.params.region 默认值」方向断言
+- #16 _seed_tenant users 补租户派生 id（roles 修了 users 漏了——单列 PK #13 模式另一半）
+- 新增回归：长度/字符 422、重复 409、详情可见性 404、legacy 无 body POST 锁行为、自动生成 id 截断、畸形 execution 容错、discover 无 role 列
+- #17 更正断言计数（16→15，初版记录数错）
+
+**验证**：全量 **425 passed**（419 → +6 净增：新增 7 回归 - 删 1 重复）+ 前端冒烟 15/15 + import-linter 基线（exit=1 同 3 条 F2 遗留 ignore）+ ruff/pyright 改动文件零新增（仅既有 B007/I001）+ OpenAPI 同步；dev 真 API 逐项实测（超长 422/恶意 id 422/重复 409/viewer 详情 404/viewer POST 403/legacy 201）全过。
+
+**Review 遗留（未修，已定级）**：update/deprecate 读-改-写非原子（并发丢更新/重复审计事件，P1）；migration downgrade 对跨租户同名数据会炸（无前置条件注释，P1）；审计 detail 不含 execution/permissions 变更内容（P1）；前端无 admin 锁定态、`<select>` 预填非白名单 adapter 静默清空 execution（P2）；discover 列表对 is_admin 无豁免（admin 自建能力列表不可见怪癖，既有语义，P2）。
 
 **遗留**：
 1. **flow 节点真执行多 adapter 的 dev 冒烟未做端到端**（需配真实 connector + flow app；分派机制已由 6 个执行器用例 + dev 注册冒烟覆盖，Chatflow 画布可直接验证）

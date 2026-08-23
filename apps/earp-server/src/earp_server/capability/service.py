@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from earp_server.capability.registry import EXECUTION_ADAPTERS
 from earp_server.infra.eventbus import CloudEvent
 
 if TYPE_CHECKING:
@@ -23,10 +24,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 执行声明 adapter 白名单（通用执行器任务书 D1 / 能力中心任务书 D1）
-EXECUTION_ADAPTERS: frozenset[str] = frozenset(
-    {"demo.echo", "llm.prompt", "knowledge.search", "chat.history", "qu.answer", "tool.fetch"}
-)
+
+class CapabilityConflictError(Exception):
+    """同 (capability_id, tenant_id) 已存在 —— 端点映射 409（区别于校验错误 422）。"""
+
+
+# capability_id 字符白名单：小写字母/数字/横杠/下划线，小写字母数字开头
+# （存量的 XSS 注入面根治：id 会进前端 onclick 内联 JS 与 f-string SQL 上下文）
+_CAP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_CAP_ID_MAX = 64   # DDL VARCHAR(64)
+_DOMAIN_MAX = 64   # DDL VARCHAR(64)
+_VERSION_MAX = 16  # DDL VARCHAR(16)
 
 _VALID_TYPES = ("query", "command")
 _STATUS_ACTIVE = "active"
@@ -36,6 +44,27 @@ _STATUS_DEPRECATED = "deprecated"
 def _slug(s: str) -> str:
     s = (s or "").strip().lower()
     return re.sub(r"[^a-z0-9]+", "-", s).strip("-") or "x"
+
+
+def _validate_cap_id(cap_id: str) -> str:
+    """capability_id 校验：非空 ≤ 64 + 字符白名单（防注入面 + DB 长度，2026-08-21 review 修复 #1/#3）。"""
+    if not cap_id or not cap_id.strip():
+        raise ValueError("capability_id 不能为空")
+    if len(cap_id) > _CAP_ID_MAX:
+        raise ValueError(f"capability_id 长度不能超过 {_CAP_ID_MAX}（当前 {len(cap_id)}）")
+    if not _CAP_ID_RE.fullmatch(cap_id):
+        raise ValueError("capability_id 只能包含小写字母/数字/横杠/下划线，且以字母或数字开头")
+    return cap_id
+
+
+def _validate_text_field(value: str, field: str, max_len: int) -> str:
+    """非空 + 长度校验（VARCHAR 列，防 DB DataError → 500）。"""
+    v = (value or "").strip()
+    if not v:
+        raise ValueError(f"{field} 不能为空")
+    if len(v) > max_len:
+        raise ValueError(f"{field} 长度不能超过 {max_len}（当前 {len(v)}）")
+    return v
 
 
 def _validate_json_schema(schema: Any, field: str) -> None:
@@ -120,6 +149,27 @@ async def get_capability(engine: AsyncEngine, tenant_id: str, capability_id: str
         return _row_to_dict(r) if r else None
 
 
+async def capability_visible_to_role(
+    engine: AsyncEngine, tenant_id: str, capability_id: str, role_id: str
+) -> bool:
+    """详情端点角色可见性（2026-08-21 review 修复 #4）：与 discover 列表过滤同构
+    （required_permissions ⊆ role.permissions）+ is_admin 豁免 —— 列表看不见的能力，
+    知道 id 也不能拿全量声明（含 execution.params 内部基础设施标识）。
+    """
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text(
+                "SELECT 1 FROM business_capabilities c, roles r "
+                "WHERE c.capability_id = :cid AND c.tenant_id = :tid "
+                "AND r.role_id = :rid AND r.tenant_id = :tid "
+                "AND (r.is_admin OR c.required_permissions <@ r.permissions)"
+            ),
+            {"cid": capability_id, "tid": tenant_id, "rid": role_id},
+        )
+        return row.fetchone() is not None
+
+
 async def create_capability(
     engine: AsyncEngine,
     tenant_id: str,
@@ -140,6 +190,9 @@ async def create_capability(
     type = (type or "").strip()
     if type not in _VALID_TYPES:
         raise ValueError(f"type 必须是 {_VALID_TYPES} 之一")
+    domain = _validate_text_field(domain, "domain", _DOMAIN_MAX)
+    name = _validate_text_field(name, "name", 512)  # name 为 TEXT 列，只查非空
+    version = _validate_text_field(version, "version", _VERSION_MAX)
     # 缺省为最小合法 JSON Schema（含 properties）——调用方无需每次手写
     in_schema = input_schema if input_schema is not None else {"type": "object", "properties": {}}
     out_schema = output_schema if output_schema is not None else {"type": "object", "properties": {}}
@@ -149,29 +202,22 @@ async def create_capability(
     if not perms:
         raise ValueError("required_permissions 不能为空（能力侧权限缺口，tech-debt #14）")
     _validate_execution(execution)
-    cap_id = capability_id or f"cap-{_slug(domain)}-{_slug(name)}"
-    if not cap_id or not cap_id.strip():
-        raise ValueError("capability_id 不能为空")
+    # 自动生成 id 截断到安全长度（保证 ≤ 64，不依赖用户输入长度）
+    cap_id = capability_id or f"cap-{_slug(domain)[:24]}-{_slug(name)[:32]}"
+    _validate_cap_id(cap_id)
 
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        # 幂等：同 (capability_id, tenant_id) 已存在 → 409（不静默覆盖）
-        exists = await conn.execute(
-            text(
-                "SELECT 1 FROM business_capabilities "
-                "WHERE capability_id = :cid AND tenant_id = :tid"
-            ),
-            {"cid": cap_id, "tid": tenant_id},
-        )
-        if exists.fetchone() is not None:
-            raise ValueError(f"capability {cap_id!r} 已存在（tenant {tenant_id}）")
-        await conn.execute(
+        # 原子幂等（2026-08-21 review 修复 #5：SELECT→INSERT 两步的 TOCTOU 并发窗口）：
+        # ON CONFLICT DO NOTHING + rowcount 判重，冲突 → CapabilityConflictError → 端点 409
+        res = await conn.execute(
             text(
                 "INSERT INTO business_capabilities "
                 "(capability_id, tenant_id, domain, name, type, input_schema, output_schema, "
                 "required_permissions, visible_roles, version, status, execution) "
                 "VALUES (:cid, :tid, :domain, :name, :type, :input_schema, :output_schema, "
-                ":perms, :vroles, :version, :status, :execution)"
+                ":perms, :vroles, :version, :status, :execution) "
+                "ON CONFLICT (capability_id, tenant_id) DO NOTHING"
             ),
             {
                 "cid": cap_id,
@@ -188,6 +234,8 @@ async def create_capability(
                 "execution": json.dumps(execution or {}),
             },
         )
+        if res.rowcount == 0:
+            raise CapabilityConflictError(f"capability {cap_id!r} 已存在（tenant {tenant_id}）")
         await conn.commit()
 
     _audit(bus, "earp.capability.registered", tenant_id, user_id, cap_id, {"domain": domain, "name": name})
@@ -220,6 +268,15 @@ async def update_capability(
     type = (type if type is not None else existing["type"]).strip()
     if type not in _VALID_TYPES:
         raise ValueError(f"type 必须是 {_VALID_TYPES} 之一")
+    domain = _validate_text_field(
+        domain if domain is not None else existing["domain"], "domain", _DOMAIN_MAX
+    )
+    name = _validate_text_field(
+        name if name is not None else existing["name"], "name", 512
+    )
+    version = _validate_text_field(
+        version if version is not None else existing["version"], "version", _VERSION_MAX
+    )
     _validate_json_schema(input_schema if input_schema is not None else existing["input_schema"], "input_schema")
     _validate_json_schema(output_schema if output_schema is not None else existing["output_schema"], "output_schema")
     perms = list(required_permissions) if required_permissions is not None else existing["required_permissions"]
@@ -239,14 +296,14 @@ async def update_capability(
                 "WHERE capability_id = :cid AND tenant_id = :tid"
             ),
             {
-                "domain": domain if domain is not None else existing["domain"],
-                "name": name if name is not None else existing["name"],
+                "domain": domain,
+                "name": name,
                 "type": type,
                 "input_schema": json.dumps(input_schema if input_schema is not None else existing["input_schema"]),
                 "output_schema": json.dumps(output_schema if output_schema is not None else existing["output_schema"]),
                 "perms": perms,
                 "vroles": list(visible_roles) if visible_roles is not None else existing["visible_roles"],
-                "version": version if version is not None else existing["version"],
+                "version": version,
                 "execution": json.dumps(execution if execution is not None else existing["execution"]),
                 "cid": capability_id,
                 "tid": tenant_id,

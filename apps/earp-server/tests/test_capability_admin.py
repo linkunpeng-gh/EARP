@@ -26,17 +26,18 @@ TENANT_B = "capadmin-tb"
 
 
 async def _seed_tenant(engine: AsyncEngine, tid: str) -> None:
-    # 角色 role_id 单列 PK（tech-debt #7 模式）：按租户派生唯一 id，避免跨租户 ON CONFLICT 冲突
+    # 单列 PK 跨租户污染防护（tech-debt #13）：users/roles 均按租户派生唯一 id
     admin_rid = f"{tid}-admin"
     view_rid = f"{tid}-view"
+    uid = f"{tid}-u1"
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
         await conn.execute(
             text(
                 "INSERT INTO users (user_id, tenant_id, name, email) "
-                "VALUES ('u1', :t, 'u1', 'u1@e.io') ON CONFLICT DO NOTHING"
+                "VALUES (:u, :t, 'u1', 'u1@e.io') ON CONFLICT DO NOTHING"
             ),
-            {"t": tid},
+            {"u": uid, "t": tid},
         )
         await conn.execute(
             text(
@@ -56,7 +57,7 @@ def _make_app(app_url: str):
 
 def _token(tid: str, role_id: str) -> str:
     return jwt.encode(
-        {"sub": "u1", "tenant_id": tid, "role_id": role_id, "exp": 9999999999},
+        {"sub": f"{tid}-u1", "tenant_id": tid, "role_id": role_id, "exp": 9999999999},
         SECRET,
         algorithm="HS256",
     )
@@ -271,3 +272,143 @@ def test_capability_get_missing_404(migrated: str, app_url: str) -> None:
         h_admin = {"Authorization": f"Bearer {_token('capapi-t3', 'capapi-t3-admin')}"}
         assert c.get("/capabilities/nope", headers=h_admin).status_code == 404
     asyncio.run(engine.dispose())
+
+
+# ── Review 修复回归（2026-08-21 #1/#3/#5/#2/#4）──────────────────────────────
+
+
+async def test_create_field_length_and_charset_validated(app_engine: AsyncEngine) -> None:
+    """review #1/#3：长度/字符校验 422 化（不再 DB DataError → 500）。"""
+    # capability_id 超长
+    with pytest.raises(ValueError, match="长度"):
+        await cap_service.create_capability(
+            app_engine, TENANT_A, domain="d", name="n", type="query",
+            required_permissions=["p"], capability_id="c" * 100,
+        )
+    # capability_id 字符白名单（XSS/SQL 注入面根治）
+    with pytest.raises(ValueError, match="小写字母"):
+        await cap_service.create_capability(
+            app_engine, TENANT_A, domain="d", name="n", type="query",
+            required_permissions=["p"], capability_id="x');alert(1);//",
+        )
+    # version 超长（DDL VARCHAR(16)）
+    with pytest.raises(ValueError, match="长度"):
+        await cap_service.create_capability(
+            app_engine, TENANT_A, domain="d", name="n", type="query",
+            required_permissions=["p"], version="9" * 30, capability_id="cap-vlen",
+        )
+    # domain 超长（DDL VARCHAR(64)）
+    with pytest.raises(ValueError, match="长度"):
+        await cap_service.create_capability(
+            app_engine, TENANT_A, domain="d" * 100, name="n", type="query",
+            required_permissions=["p"], capability_id="cap-dlen",
+        )
+    # 空域名
+    with pytest.raises(ValueError, match="不能为空"):
+        await cap_service.create_capability(
+            app_engine, TENANT_A, domain="  ", name="n", type="query",
+            required_permissions=["p"], capability_id="cap-empty",
+        )
+
+
+async def test_create_duplicate_raises_conflict(app_engine: AsyncEngine) -> None:
+    """review #5：重复创建 → CapabilityConflictError（端点 409），且并发安全由 ON CONFLICT 保证。"""
+    from earp_server.capability.service import CapabilityConflictError
+
+    await cap_service.create_capability(
+        app_engine, TENANT_A, domain="d", name="n", type="query",
+        required_permissions=["p"], capability_id="cap-dup",
+    )
+    with pytest.raises(CapabilityConflictError, match="已存在"):
+        await cap_service.create_capability(
+            app_engine, TENANT_A, domain="d", name="n", type="query",
+            required_permissions=["p"], capability_id="cap-dup",
+        )
+
+
+async def test_auto_generated_id_never_exceeds_limit(app_engine: AsyncEngine) -> None:
+    """自动生成 id 截断到安全长度（超长 name/domain 不再 500）。"""
+    cap = await cap_service.create_capability(
+        app_engine, TENANT_A, domain="d", name="很长的能力名称" * 30, type="query",
+        required_permissions=["p"],
+    )
+    assert len(cap["capability_id"]) <= 64
+
+
+def test_capability_crud_http_semantics(migrated: str, app_url: str) -> None:
+    """review 修复 HTTP 语义：重复创建 409 / 长度校验 422 / legacy 无 body POST 兼容。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    asyncio.run(_seed_tenant(engine, "capapi-t4"))
+    app = _make_app(app_url)
+    with TestClient(app) as c:
+        h_admin = {"Authorization": f"Bearer {_token('capapi-t4', 'capapi-t4-admin')}"}
+        body = {
+            "domain": "equipment", "name": "q", "type": "query",
+            "required_permissions": ["alarm:read"], "capability_id": "cap-t4",
+        }
+        assert c.post("/capabilities", json=body, headers=h_admin).status_code == 201
+        # 重复创建 → 409（非 422/500）
+        r = c.post("/capabilities", json=body, headers=h_admin)
+        assert r.status_code == 409, r.text
+        # 超长 capability_id → 422（非 500）
+        r = c.post(
+            "/capabilities",
+            json={**body, "capability_id": "c" * 100},
+            headers=h_admin,
+        )
+        assert r.status_code == 422, r.text
+        # 恶意 capability_id → 422（字符白名单）
+        r = c.post(
+            "/capabilities",
+            json={**body, "capability_id": "x');alert(1);//"},
+            headers=h_admin,
+        )
+        assert r.status_code == 422, r.text
+        # legacy 无 body POST → 201 seed 语义（老 Register Demo 按钮兼容路径，锁住行为）
+        r = c.post("/capabilities", headers=h_admin)
+        assert r.status_code == 201
+        assert r.json() == {"capability_id": "cap-demo-echo", "status": "registered"}
+    asyncio.run(engine.dispose())
+
+
+def test_capability_detail_role_visibility(migrated: str, app_url: str) -> None:
+    """review #4：详情端点角色可见性 —— 无权能力 → 404（不暴露存在性），admin 可见。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    asyncio.run(_seed_tenant(engine, "capapi-t5"))
+    app = _make_app(app_url)
+    with TestClient(app) as c:
+        h_admin = {"Authorization": f"Bearer {_token('capapi-t5', 'capapi-t5-admin')}"}
+        h_view = {"Authorization": f"Bearer {_token('capapi-t5', 'capapi-t5-view')}"}
+        r = c.post(
+            "/capabilities",
+            json={
+                "domain": "equipment", "name": "q", "type": "query",
+                "required_permissions": ["alarm:read"], "capability_id": "cap-t5",
+            },
+            headers=h_admin,
+        )
+        assert r.status_code == 201
+        # viewer 无 alarm:read → 列表不可见（discover 角色过滤）
+        listing = c.get("/capabilities", headers=h_view).json()
+        assert all(item["capability_id"] != "cap-t5" for item in listing)
+        # 详情 → 404（不暴露存在性；不再回全量声明含 execution.params）
+        r = c.get("/capabilities/cap-t5", headers=h_view)
+        assert r.status_code == 404, r.text
+        # admin（is_admin 豁免）→ 200 全量声明可见
+        r = c.get("/capabilities/cap-t5", headers=h_admin)
+        assert r.status_code == 200
+        assert r.json()["execution"] == {}
+    asyncio.run(engine.dispose())
+
+
+async def test_discover_no_role_branch_returns_declared_columns(app_engine: AsyncEngine) -> None:
+    """review #6：discover 六个 SELECT 分支统一 —— role_id=None 路径也返回
+    required_permissions / execution / status（前端列表不因分支不同而静默缺列）。"""
+    from earp_server.capability.registry import discover
+
+    rows = await discover(app_engine, TENANT_A, role_id=None)
+    assert rows, "seeded capabilities expected"
+    for r in rows:
+        assert "required_permissions" in r, f"missing column in discover(no role): {sorted(r)}"
+        assert "execution" in r
+        assert "status" in r

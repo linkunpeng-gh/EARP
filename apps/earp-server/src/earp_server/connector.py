@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from earp_server.capability.registry import EXECUTION_ADAPTERS
 from earp_server.config import Settings
 from earp_server.orchestrator.types import ApprovalPending
 
@@ -27,10 +28,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Chatflow F3: capability.call 可分派的已知 adapter（capability.domain.name 命中才执行）
-_FLOW_ADAPTER_TYPES: frozenset[str] = frozenset(
-    {"demo.echo", "llm.prompt", "knowledge.search", "chat.history", "qu.answer", "tool.fetch"}
-)
+# Chatflow F3 / 通用执行器：capability.call 可分派的已知 adapter 白名单。
+# 单一真源在 capability.registry.EXECUTION_ADAPTERS（2026-08-21 review 修复 #7：
+# 与注册校验共用，避免两份列表分裂）；connector 不在独立域清单，跨引用合法。
+_FLOW_ADAPTER_TYPES = EXECUTION_ADAPTERS
+
+
+def _coerce_jsonb_dict(v: Any) -> dict[str, Any]:
+    """JSONB 列防御性归一（review 修复 #9）：dict 直返 / str 尝试解析 / 其它（含 None）→ {}。
+    直插 DB 的畸形 execution 不应把 ConnectorError 链路变成 AttributeError 500。
+    """
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, str):
+        try:
+            parsed = json.loads(v)
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+    return {}
 
 
 def _evidence_to_chunks(evidence: list[Any]) -> list[dict[str, Any]]:
@@ -313,14 +329,12 @@ class Connector:
                 )
 
         # 执行声明分派（通用执行器任务书 D2）：声明优先于 domain.name 猜测
-        execution: dict[str, Any] = cap.execution if cap.execution is not None else {}
+        execution = _coerce_jsonb_dict(cap.execution)
         adapter = execution.get("adapter")
         if adapter:
             if adapter in _FLOW_ADAPTER_TYPES:
                 # params 提供 adapter 固定默认（如 tool.fetch 的 connector_id），可被 capability input 覆写
-                params = execution.get("params")
-                if not isinstance(params, dict):
-                    params = {}
+                params = _coerce_jsonb_dict(execution.get("params"))
                 merged_input = {**params, **cap_input}
                 return await self.execute(
                     {**capability_call, "adapter_type": adapter, "input": merged_input}, ctx=ctx

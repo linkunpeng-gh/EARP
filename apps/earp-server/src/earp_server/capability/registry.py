@@ -19,6 +19,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# 执行声明 adapter 白名单 —— 单一真源（能力中心注册校验与 connector 执行分派共用；
+# 通用执行器任务书 D1 / 能力中心任务书 D1）。放 registry（capability 域最底层模块，无外部依赖）
+# 避免 service 与 connector 各自维护一份导致分裂。
+EXECUTION_ADAPTERS: frozenset[str] = frozenset(
+    {"demo.echo", "llm.prompt", "knowledge.search", "chat.history", "qu.answer", "tool.fetch"}
+)
+
+# discover 列清单（2026-08-21 review 修复 #6：六个分支统一，含权限/执行声明/状态）
+_DISCOVER_COLS = (
+    "capability_id, domain, name, type, version, required_permissions, execution, status"
+)
+_DISCOVER_COLS_C = (
+    "c.capability_id, c.domain, c.name, c.type, c.version, "
+    "c.required_permissions, c.execution, c.status"
+)
+
 _DEMO_CAPABILITY = {
     "capability_id": "cap-demo-echo",
     "domain": "demo",
@@ -172,7 +188,7 @@ async def discover(
                 if role_id:
                     rows = await conn.execute(
                         text(
-                            f"SELECT c.capability_id, c.domain, c.name, c.type, c.version, c.required_permissions, c.execution, c.status, "
+                            f"SELECT {_DISCOVER_COLS_C}, "
                             f"1 - (c.embedding <=> CAST(:emb AS vector({dim}))) AS similarity "
                             f"FROM business_capabilities c, roles r "
                             f"WHERE c.tenant_id = :tid AND r.role_id = :rid "
@@ -184,7 +200,7 @@ async def discover(
                 else:
                     rows = await conn.execute(
                         text(
-                            f"SELECT capability_id, domain, name, type, version, "
+                            f"SELECT {_DISCOVER_COLS}, "
                             f"1 - (embedding <=> CAST(:emb AS vector({dim}))) AS similarity "
                             f"FROM business_capabilities "
                             f"WHERE tenant_id = :tid "
@@ -202,7 +218,7 @@ async def discover(
                 if role_id:
                     rows = await conn.execute(
                         text(
-                            "SELECT c.capability_id, c.domain, c.name, c.type, c.version, c.required_permissions, c.execution, c.status "
+                            f"SELECT {_DISCOVER_COLS_C} "
                             "FROM business_capabilities c, roles r "
                             "WHERE c.tenant_id = :tid AND r.role_id = :rid "
                             "AND c.required_permissions <@ r.permissions "
@@ -213,7 +229,7 @@ async def discover(
                 else:
                     rows = await conn.execute(
                         text(
-                            "SELECT capability_id, domain, name, type, version "
+                            f"SELECT {_DISCOVER_COLS} "
                             "FROM business_capabilities "
                             "WHERE tenant_id = :tid AND capability_id LIKE :qlike"
                         ),
@@ -224,7 +240,7 @@ async def discover(
         if role_id:
             rows = await conn.execute(
                 text(
-                    "SELECT c.capability_id, c.domain, c.name, c.type, c.version, c.required_permissions, c.execution, c.status "
+                    f"SELECT {_DISCOVER_COLS_C} "
                     "FROM business_capabilities c, roles r "
                     "WHERE c.tenant_id = :tid AND r.role_id = :rid "
                     "AND c.required_permissions <@ r.permissions"
@@ -234,7 +250,7 @@ async def discover(
         else:
             rows = await conn.execute(
                 text(
-                    "SELECT capability_id, domain, name, type, version "
+                    f"SELECT {_DISCOVER_COLS} "
                     "FROM business_capabilities WHERE tenant_id = :tid"
                 ),
                 {"tid": tenant_id},

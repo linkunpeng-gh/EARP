@@ -377,9 +377,14 @@ class TestF3Adapters:
 
     # ── 通用执行器：execution 声明分派（任务书 D2）────────────────────────────
     async def test_execution_declared_demo_echo_dispatches(self, app_engine: AsyncEngine) -> None:
-        """execution.adapter=demo.echo 显式声明 → 按声明分派（不走 domain.name 猜测）。"""
+        """execution.adapter=demo.echo 显式声明 → 按声明分派。
+
+        domain=custom（非 demo）——回退猜测路径 domain.name="custom.echo" 不命中任何 adapter，
+        本用例只有声明分派路径能过（review 修复 #12：用默认 demo/echo 的话删掉声明代码也照绿，零区分度）。
+        """
         await _register_cap_exec(
-            app_engine, TENANT, "cap-exec-echo", execution={"adapter": "demo.echo"}, permissions=[]
+            app_engine, TENANT, "cap-exec-echo",
+            execution={"adapter": "demo.echo"}, permissions=[], domain="custom", name="echo",
         )
         connector = Connector(engine=app_engine)
         out = await connector.execute(
@@ -389,7 +394,12 @@ class TestF3Adapters:
         assert out == {"echo": {"msg": "hi"}}
 
     async def test_execution_declared_tool_fetch_dispatches(self, app_engine: AsyncEngine, monkeypatch) -> None:
-        """execution.adapter=tool.fetch + params.connector_id → 真实走 tool.fetch（mock fetch）。"""
+        """execution.adapter=tool.fetch + params → 真实走 tool.fetch（mock fetch）。
+
+        params 合并双方向断言（review 修复 #14）：
+        - connector_id 仅在 execution.params → 固定默认生效
+        - params.region 两边都有 → capability input 覆写 execution.params（D3 优先级）
+        """
         from earp_server.ontology import connector_service, data_adapter
 
         await connector_service.create_connector(
@@ -398,7 +408,10 @@ class TestF3Adapters:
         )
         await _register_cap_exec(
             app_engine, TENANT, "cap-exec-tool",
-            execution={"adapter": "tool.fetch", "params": {"connector_id": "cn-exec-rest"}},
+            execution={
+                "adapter": "tool.fetch",
+                "params": {"connector_id": "cn-exec-rest", "params": {"region": "默认值"}},
+            },
             permissions=[],
         )
         captured: dict = {}
@@ -419,8 +432,33 @@ class TestF3Adapters:
             ctx=_ctx(),
         )
         assert out["count"] == 1
-        # params 合并：execution.params.connector_id（默认）< capability input.params（调用方覆写）
+        # connector_id：execution.params 固定默认（input 未提供）
+        assert captured["cfg"] is not None
+        # region：input 覆写 execution.params 默认（D3：params 默认 < input 调用方覆写）
         assert captured["params"] == {"region": "华东"}
+
+    async def test_malformed_execution_coerced_not_crash(self, app_engine: AsyncEngine) -> None:
+        """畸形 execution（非 dict JSONB，直插 DB）→ 防御归一为 {} 走回退，不 AttributeError 500。"""
+        async with app_engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
+            await conn.execute(
+                text(
+                    "INSERT INTO business_capabilities "
+                    "(capability_id, tenant_id, domain, name, type, input_schema, output_schema, "
+                    "required_permissions, version, execution) "
+                    "VALUES ('cap-exec-bad', :t, 'demo', 'echo', 'query', '{}', '{}', '{}', '1.0.0', :exec) "
+                    "ON CONFLICT (capability_id, tenant_id) DO NOTHING"
+                ),
+                {"t": TENANT, "exec": '\"not-a-dict\"'},
+            )
+            await conn.commit()
+        connector = Connector(engine=app_engine)
+        # execution 非对象 → 归一 {} → 无声明 → 回退 domain.name=demo.echo
+        out = await connector.execute(
+            {"adapter_type": "capability.call", "capability_id": "cap-exec-bad", "input": {"m": 1}},
+            ctx=_ctx(),
+        )
+        assert out == {"echo": {"m": 1}}
 
     async def test_execution_unknown_adapter_raises(self, app_engine: AsyncEngine) -> None:
         """显式声明但 adapter 未知 → 明确报错（执行器任务书 D5）。"""
@@ -433,15 +471,6 @@ class TestF3Adapters:
                 {"adapter_type": "capability.call", "capability_id": "cap-exec-unknown", "input": {}},
                 ctx=_ctx(),
             )
-
-    async def test_no_execution_falls_back_to_domain_name(self, app_engine: AsyncEngine) -> None:
-        """无 execution 声明（domain.name=demo.echo）→ 回退 domain.name 猜测兼容。"""
-        connector = Connector(engine=app_engine)
-        out = await connector.execute(
-            {"adapter_type": "capability.call", "capability_id": CAP_ID, "input": {"msg": "hi"}},
-            ctx=_ctx(role_id="f3-r1"),
-        )
-        assert out == {"echo": {"msg": "hi"}}
 
     async def test_deprecated_capability_raises_disabled(self, app_engine: AsyncEngine) -> None:
         """已停用能力 → 「已停用」明确报错（能力中心 soft-disable 衔接）。"""

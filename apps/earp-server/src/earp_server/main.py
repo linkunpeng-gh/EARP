@@ -21,6 +21,8 @@ from earp_server.admin.roles_routes import router as roles_router
 from earp_server.audit.consumer import audit_handler_factory
 from earp_server.capability.registry import TokenBucketRateLimiter, discover, list_for_planning, seed_demo_tenant
 from earp_server.capability.service import (
+    CapabilityConflictError,
+    capability_visible_to_role,
     create_capability,
     deprecate_capability,
     get_capability,
@@ -538,9 +540,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def register_capability_endpoint(
         req: Request, body: CapabilityCreate | None = None
     ) -> dict[str, Any]:
-        await seed_demo_tenant(req.app.state.engine, req.state.tenant_id)
-        # 向后兼容：无 body（老「Register Demo」按钮）→ 仅 seed cap-demo-echo
         if body is None:
+            # 向后兼容（老「Register Demo」按钮，无 gate 历史语义保留）：无 body → seed demo 租户基线。
+            # 自定义注册（有 body）不 seed——副作用不得先于鉴权（2026-08-21 review 修复 #2）。
+            await seed_demo_tenant(req.app.state.engine, req.state.tenant_id)
             return {"capability_id": "cap-demo-echo", "status": "registered"}
         await _require_admin(req)
         try:
@@ -560,6 +563,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 bus=req.app.state.eventbus,
                 user_id=req.state.user_id,
             )
+        except CapabilityConflictError as e:
+            # 重复创建 → 409（区别于校验错误 422，REST 语义）
+            raise HTTPException(status_code=409, detail=str(e)) from e
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e)) from e
         return cap
@@ -568,6 +574,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def get_capability_endpoint(capability_id: str, req: Request) -> dict[str, Any]:
         cap = await get_capability(req.app.state.engine, req.state.tenant_id, capability_id)
         if cap is None:
+            raise HTTPException(status_code=404, detail="capability not found")
+        # 角色可见性（review 修复 #4）：列表看不见的能力，知道 id 也拿不到全量声明
+        # （不满足 → 404，不暴露存在性，M3 live 端点先例）
+        if not await capability_visible_to_role(
+            req.app.state.engine, req.state.tenant_id, capability_id, req.state.role_id
+        ):
             raise HTTPException(status_code=404, detail="capability not found")
         return cap
 
