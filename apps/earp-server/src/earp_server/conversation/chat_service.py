@@ -44,25 +44,11 @@ class ChatError(Exception):
 # ── 模型三级解析（Task 8 / CP2）───────────────────────────────────────────
 
 
-async def resolve_llm_override(engine: AsyncEngine, tenant_id: str, app: dict[str, Any]) -> dict[str, Any] | None:
-    """chat_apps.model_config_id → system_model_settings(llm) → None(=env)。
+async def resolve_model_override(engine: AsyncEngine, tenant_id: str, config_id: str | None) -> dict[str, Any] | None:
+    """model_configs 单条解析 → model_override dict（provider/model_name + 解密 credentials）。
 
-    返回 model_override dict（provider/model_name/base_url/api_key…），或 None 表示 env。
+    节点级（Chatflow LLM 节点 model_config_id）与应用级（resolve_llm_override）共用。
     """
-    config_id = app.get("model_config_id")
-    if not config_id:
-        async with engine.connect() as conn:
-            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-            row = (
-                await conn.execute(
-                    text(
-                        "SELECT model_config_id FROM system_model_settings "
-                        "WHERE tenant_id = :tid AND setting_type = 'llm'"
-                    ),
-                    {"tid": tenant_id},
-                )
-            ).first()
-            config_id = row.model_config_id if row else None
     if not config_id:
         return None
     async with engine.connect() as conn:
@@ -91,9 +77,31 @@ async def resolve_llm_override(engine: AsyncEngine, tenant_id: str, app: dict[st
             try:
                 creds = decrypt(creds)
             except Exception:
-                logger.warning("resolve_llm_override: credential decrypt failed, falling back empty")
+                logger.warning("resolve_model_override: credential decrypt failed, falling back empty")
                 creds = {}
         return {"provider": row.provider, "model_name": row.model_name, **creds}
+
+
+async def resolve_llm_override(engine: AsyncEngine, tenant_id: str, app: dict[str, Any]) -> dict[str, Any] | None:
+    """chat_apps.model_config_id → system_model_settings(llm) → None(=env)。
+
+    返回 model_override dict（provider/model_name/base_url/api_key…），或 None 表示 env。
+    """
+    config_id = app.get("model_config_id")
+    if not config_id:
+        async with engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT model_config_id FROM system_model_settings "
+                        "WHERE tenant_id = :tid AND setting_type = 'llm'"
+                    ),
+                    {"tid": tenant_id},
+                )
+            ).first()
+            config_id = row.model_config_id if row else None
+    return await resolve_model_override(engine, tenant_id, config_id)
 
 
 # ── 多轮历史配对（S1）─────────────────────────────────────────────────────

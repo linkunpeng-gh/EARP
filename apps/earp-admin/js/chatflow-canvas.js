@@ -19,7 +19,10 @@
     end: { name: '结束', color: '#64748b', inputs: 1, outputs: 0, fields: [],
       brief: () => '流程终点' },
     llm: { name: 'LLM', color: '#7c3aed', inputs: 1, outputs: 1,
-      fields: [{ key: 'prompt', label: '提示词', type: 'textarea', default: '请回答：{{query}}' }],
+      fields: [
+        { key: 'prompt', label: '提示词', type: 'textarea', default: '请回答：{{query}}' },
+        { key: 'model_config_id', label: '模型', type: 'model-select', default: '' },
+      ],
       brief: (d) => '生成回复' },
     knowledge: { name: '知识检索', color: '#2563eb', inputs: 1, outputs: 1,
       fields: [
@@ -208,6 +211,7 @@
     var hint = '';
     if (type === 'capability') hint = '能力 ID 来自「能力中心」注册表';
     if (type === 'tool') hint = '连接 ID 来自「中台对接」连接器';
+    if (type === 'llm') hint = '模型默认用应用配置；选择后该节点用所选模型执行（模型配置中心）';
     container.appendChild(el('div', { class: 'cf-panel-label' }, def.name + ' 配置'));
     if (hint) container.appendChild(el('div', { class: 'cf-panel-hint' }, hint));
     def.fields.forEach(function (f) {
@@ -217,6 +221,18 @@
       if (f.type === 'textarea') {
         input = el('textarea', { rows: 4, 'data-key': f.key });
         input.value = fields[f.key] != null ? fields[f.key] : '';
+      } else if (f.type === 'model-select') {
+        // 模型选择：选项来自模型配置中心（window.EARP_MODELS，页面加载时拉取）
+        input = el('select', { 'data-key': f.key });
+        var modelOpts = [{ value: '', label: '默认（应用配置）' }];
+        (window.EARP_MODELS || []).forEach(function (m) {
+          modelOpts.push({ value: m.config_id, label: m.model_name + '（' + m.provider + '）' });
+        });
+        modelOpts.forEach(function (o) {
+          var opt = el('option', { value: o.value }, o.label);
+          if (String(fields[f.key]) === String(o.value)) opt.selected = true;
+          input.appendChild(opt);
+        });
       } else if (f.type === 'select') {
         input = el('select', { 'data-key': f.key });
         f.options.forEach(function (o) {

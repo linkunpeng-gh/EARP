@@ -169,6 +169,7 @@ async function init() {
   bindCanvasClick();
   bindRunBarResize();
   restorePropsToggle();
+  loadModels();
   await loadApp();
 }
 
@@ -478,6 +479,16 @@ function clearRunState() {
   if (handle) handle.style.display = 'none';
   var det = document.getElementById('run-detail');
   if (det) det.innerHTML = '';
+}
+
+// ── LLM 节点模型下拉：从模型配置中心拉 chat 类型（无 admin 门禁，读） ─────
+function loadModels() {
+  window.EARP_MODELS = [];
+  EARP.fetchJSON('/api/model-configs?model_type=llm').then(function (list) {
+    window.EARP_MODELS = Array.isArray(list) ? list : [];
+    // 已选中节点则刷新属性面板（让模型下拉出现）
+    if (state.selected != null) selectNode(state.selected);
+  }).catch(function () { window.EARP_MODELS = []; });
 }
 
 // ── 右属性面板 收起/展开 ──────────────────────────────────────────────────

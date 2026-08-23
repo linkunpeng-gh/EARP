@@ -316,7 +316,7 @@ NodeBuilder = Callable[[WorkflowNode, frozenset[tuple[str, BranchSide]]], ExecIt
 
 # Chatflow F2 对话节点适配器映射（编译为 StepExec → Connector 适配器）
 _DIALOGUE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "llm": ("llm.prompt", ("prompt", "system", "temperature", "max_tokens")),
+    "llm": ("llm.prompt", ("prompt", "system", "temperature", "max_tokens", "model_config_id")),
     "knowledge": ("knowledge.search", ("query", "kb_ids", "data_domain_ids", "top_k")),
     "chat_history": ("chat.history", ("turns",)),
 }

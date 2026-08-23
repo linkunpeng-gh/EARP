@@ -510,3 +510,79 @@ class TestFlowChatF3:
         assert result["status"] == ExecutionStatus.COMPLETED.value
         assert result["outputs"]["t1"]["rows"] == [{"id": 1, "name": "item-华东"}]  # {{query}} 已替换
         assert result["outputs"]["t1"]["count"] == 1
+
+
+# ── LLM 节点模型选择（model_config_id）──────────────────────────────────────
+
+
+class TestLlmNodeModelSelect:
+    def test_compile_llm_node_model_config_id_passes_through(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "l1", "type": "llm", "data": {"prompt": "p", "model_config_id": "mc-node"}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "l1"}, {"source": "l1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        l1 = next(i for i in plan.sequence if i.node_id == "l1")
+        assert l1.step.capability_call == {
+            "adapter_type": "llm.prompt",
+            "input": {"prompt": "p", "model_config_id": "mc-node"},
+        }
+
+    async def test_resolve_model_override_roundtrip(self, app_engine: AsyncEngine) -> None:
+        from earp_server.admin.model_service import create_model_config
+        from earp_server.conversation.chat_service import resolve_model_override
+
+        mc = await create_model_config(
+            app_engine, TENANT, "ollama", "llm", "qwen-node", {"api_key": "k-123", "base_url": "http://internal.example"}
+        )
+        ov = await resolve_model_override(app_engine, TENANT, mc["config_id"])
+        assert ov is not None
+        assert ov["provider"] == "ollama"
+        assert ov["model_name"] == "qwen-node"
+        assert ov["api_key"] == "k-123"  # credentials 加密落库 → 解析后明文
+        assert await resolve_model_override(app_engine, TENANT, "mc-missing") is None
+
+    async def test_llm_prompt_uses_selected_model_config(self, app_engine: AsyncEngine, monkeypatch) -> None:
+        from earp_server.admin.model_service import create_model_config
+
+        mc = await create_model_config(
+            app_engine, TENANT, "ollama", "llm", "qwen-node-select", {"api_key": "k-123", "base_url": "http://internal.example"}
+        )
+        created_overrides: list[dict] = []
+
+        class _FakeModelLLM:
+            def __init__(self, settings, *, model_override=None) -> None:
+                created_overrides.append(model_override or {})
+
+            async def complete(self, prompt, *, system="", temperature=0.7, max_tokens=None):
+                return "node-answer"
+
+        monkeypatch.setattr("earp_server.connector.LLMConnector", _FakeModelLLM)
+        connector = Connector(engine=app_engine, settings=_settings())
+        out = await connector.execute(
+            {"adapter_type": "llm.prompt", "input": {"prompt": "hi", "model_config_id": mc["config_id"]}},
+            ctx=_ctx(),
+        )
+        assert out == {"text": "node-answer"}
+        assert created_overrides and created_overrides[0]["model_name"] == "qwen-node-select"
+        assert created_overrides[0]["api_key"] == "k-123"  # 节点级 override 带上了解密凭据
+
+    async def test_llm_prompt_unknown_model_config_raises(self, app_engine: AsyncEngine) -> None:
+        connector = Connector(engine=app_engine, settings=_settings())
+        with pytest.raises(ConnectorError, match="不存在"):
+            await connector.execute(
+                {"adapter_type": "llm.prompt", "input": {"prompt": "hi", "model_config_id": "mc-missing"}},
+                ctx=_ctx(),
+            )
+
+    async def test_llm_prompt_no_model_config_uses_injected_llm(self, app_engine: AsyncEngine) -> None:
+        llm = FakeLLM(text="default-answer")
+        connector = Connector(engine=app_engine, llm=llm, settings=_settings())
+        out = await connector.execute(
+            {"adapter_type": "llm.prompt", "input": {"prompt": "hi"}},
+            ctx=_ctx(),
+        )
+        assert out == {"text": "default-answer"}
+        assert llm.calls[0]["prompt"] == "hi"  # 应用默认模型路径（无 model_config_id 行为不变）

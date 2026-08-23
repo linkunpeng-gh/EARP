@@ -128,7 +128,7 @@ class Connector:
         if adapter_type == "demo.echo":
             return {"echo": capability_call.get("input", {})}
         if adapter_type == "llm.prompt":
-            return await self._execute_llm_prompt(capability_call.get("input", {}))
+            return await self._execute_llm_prompt(capability_call.get("input", {}), ctx)
         if adapter_type == "knowledge.search":
             return await self._execute_knowledge_search(capability_call.get("input", {}), ctx)
         if adapter_type == "chat.history":
@@ -143,14 +143,33 @@ class Connector:
             return await self._execute_human_approval(capability_call.get("input", {}), ctx)
         raise ConnectorError(f"unknown adapter: {adapter_type}")
 
-    async def _execute_llm_prompt(self, input_: dict[str, Any]) -> dict[str, Any]:
-        """llm.prompt: 非流式文本生成 → {"text": ...}。"""
-        if self._llm is None:
-            raise ConnectorError("llm.prompt requires llm injection (flow executor)")
+    async def _execute_llm_prompt(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """llm.prompt: 非流式文本生成 → {"text": ...}。
+
+        节点可带 model_config_id（模型配置中心）——解析后构造独立 LLMConnector（provider/base_url/api_key 全量），
+        否则用执行链路注入的应用默认 llm（现状）。配置不存在 → 明确报错（不静默回落）。
+        """
         prompt = str(input_.get("prompt", ""))
         if not prompt.strip():
             raise ConnectorError("llm.prompt: input.prompt required")
-        text = await self._llm.complete(
+        llm = self._llm
+        model_config_id = str(input_.get("model_config_id") or "")
+        if model_config_id:
+            if self._engine is None or ctx is None:
+                raise ConnectorError("llm.prompt: model_config_id 需要 engine + ctx（flow 执行）")
+            if self._settings is None:
+                raise ConnectorError("llm.prompt: model_config_id 需要 settings 注入（flow 执行）")
+            from earp_server.conversation.chat_service import resolve_model_override
+
+            override = await resolve_model_override(self._engine, ctx.tenant_id, model_config_id)
+            if not override:
+                raise ConnectorError(
+                    f"llm.prompt: 模型配置 {model_config_id!r} 不存在或解密失败（tenant {ctx.tenant_id}）"
+                )
+            llm = LLMConnector(self._settings, model_override=override)
+        if llm is None:
+            raise ConnectorError("llm.prompt requires llm injection (flow executor)")
+        text = await llm.complete(
             prompt,
             system=str(input_.get("system", "") or ""),
             temperature=float(input_.get("temperature", 0.7) or 0.7),
