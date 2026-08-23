@@ -1,6 +1,6 @@
 # 任务清单 — 通用能力执行器（Phase F，capability.call 真实执行）
 
-**状态：规划定稿，待开工（独立新会话；可选依赖「能力中心：注册/管理」的 execution 声明字段）**
+**状态：✅ 已实施（2026-08-21，与「能力中心：注册/管理」合并会话）**
 **依据**：F3 遗留（capability 节点只认 demo.echo ≈ 通用执行器未做）+ tech-debt #14 配套 + `2026-07-22-capability-four-types-design.md`
 **相关**：`connector.py`（capability.call）/ `capability.registry` / `ontology.capability_query`
 **日期**：2026-08-21

@@ -1,6 +1,6 @@
 # 任务清单 — 能力中心：注册 / 管理（tech-debt #14）
 
-**状态：规划定稿，待开工（独立新会话）**
+**状态：✅ 已实施（2026-08-21，与「通用能力执行器」合并会话）**
 **依据**：tech-debt #14（能力侧 `required_permissions` 无可视化配置入口）+ F3 遗留（capability 节点只认 demo.echo）+ 设计稿 `2026-07-22-capability-four-types-design.md`
 **相关**：`capability/registry.py` / `pages/capabilities.html` / `capability.service`（空）
 **日期**：2026-08-21

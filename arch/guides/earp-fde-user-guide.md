@@ -855,7 +855,7 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 |:---|:---|:---|:---|
 | **LLM** | llm.prompt 适配器（`model_config_id` 存在 → 解析节点级模型配置构造独立 LLMConnector；`system` 可选透传） | `{"text": ...}` | 模型：留空=应用/系统默认模型；指定=模型配置中心该配置（provider/base_url/api_key 全量）；配置不存在 → 明确报错不静默回落 |
 | **QU** | understand（规则层，可 LLM 升级 `use_llm`）→ select_plan → execute_plan（plan_fact/relation/aggregation） | `{selection, evidence, citations, chunks}` | 输出 citations 供下游 `{{#q1.output.citations#}}`（或简写 `{{#q1.citations#}}`）引用；`use_llm=false` 纯规则（快，跳过升级）；升级模板由租户在模型配置中心「QU 升级模板」配置（占位符 {query}/{missing}/{relation_candidates}/{context}） |
-| **Capability** | business_capabilities 注册表校验（存在 + active）→ required_permissions 门禁 → 执行 | 适配器结果（如 demo.echo → `{"echo": {...}}`） | 无权限：PolicyLayer 403；审计 `earp.capability.call.*`；capability_id 需在注册表声明；**一期能力真实执行仍限 demo.echo/已知 adapter（通用能力执行器 Phase F）** |
+| **Capability** | business_capabilities 注册表校验（存在 + active）→ required_permissions 门禁 → 执行 | 适配器结果（如 demo.echo → `{"echo": {...}}`） | 无权限：PolicyLayer 403；审计 `earp.capability.call.*`；capability_id 需在注册表声明；**执行分派按能力的 execution 声明**（adapter ∈ 白名单：demo.echo / llm.prompt / knowledge.search / chat.history / qu.answer / tool.fetch，params 为 adapter 固定默认、可被节点 input 覆写）；无声明 → 回退 domain.name 猜测（兼容 demo.echo）；显式未知 adapter / 猜测不中 → 明确报错「无执行 adapter（执行声明缺失或未实现）」；已停用（deprecated）→ 报「已停用」。**能力注册/管理见能力中心页（§15.6）** |
 | **Tool** | decrypt_config（AES 解密）→ data_adapter.fetch（REST/DB） | `{rows, count, domain_filtered: false}` | 取数在外部系统（不经 EARP RLS）——raw rows 一期标注 `domain_filtered: false`，需上层/后续做角色域过滤 |
 | **Human Approval**（F4） | 执行到挂起点 → 抛挂起信号 → flow_runs 持久化 → 202 等人工答复 | 挂起 202 `{status: waiting_human, pending_node_id, question}`；恢复后答复经 `{{#h1.output.reply#}}` 供下游 | 用户下一句消息即答复（复用对话）；等待超时（默认 3600s）→ timeout 终态 |
 | **Note** | 不执行（纯标注） | — | 不可连线（入/出边校验拒绝）、可达性豁免；`position{x,y}` 可选（画布位置，重开不漂移） |
@@ -897,3 +897,32 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 **调试**：运行后**画布节点就地着色**（✅绿执行 / ⏭灰跳过 / ❌红失败 / ⏸粉等待，节点显示输出摘要）；
 点任意节点 → 右侧「运行详情」（状态/耗时/实际输入/输出/错误）；结果条上边缘可拖拽调高；
 遇 human_approval → 结果条内联「等待确认」输答复提交 → 流程继续。
+
+### 15.6 能力中心：注册与管理（能力怎么来的）
+
+> 「能力中心 → 能力注册」页（capabilities.html）——FDE 自助新建/编辑/停用能力，flow 的
+> Capability 节点引用的 capability_id 全部在此声明（2026-08-21 前只有写死的 demo 演示能力）。
+
+**新建能力（全字段）**：
+- **基础**：Domain / Name / 类型（query|command）/ 版本 / 能力 ID（留空自动生成 `cap-{domain}-{name}`，
+  创建后不可改）
+- **Schema**：input_schema / output_schema（JSON，需含 `properties` 结构——轻量校验，不合规则 422）
+- **权限**：required_permissions（逗号分隔，**不可为空**）——Capability 节点执行时校验
+  「角色 permissions ⊇ 能力 required_permissions」，缺任一项 403
+- **执行方式（execution）**：adapter 下拉（白名单 6 项，见 §15.2）+ params JSON——**声明「这个能力
+  怎么执行」**。例如 tool.fetch + `{"connector_id": "cn-1"}` = 该能力执行时走 cn-1 连接取数；
+  llm.prompt = 走 LLM 生成。params 是固定默认，可被 Capability 节点 input 覆写（优先级：
+  节点 input > execution.params）
+
+**重要语义（注册 ≠ 自动可执行）**：
+- **未声明 execution 的能力**：回退按 `domain.name` 猜测 adapter——只有 demo.echo 命中（兼容存量），
+  其余执行时报「无执行 adapter（执行声明缺失或未实现）」→ 回能力中心补 execution 声明即可
+- **已停用（deprecated）能力**：被 flow 引用时执行报「已停用」（soft-disable：引用仍可读声明、
+  不可执行，不物理删除）——**停用不可恢复**，编辑可以反复改
+- **变更审计**：注册/更新/停用发 `earp.capability.registered/updated/deprecated` 事件落 audit_logs
+  （entity_type=capability）；调用侧另有 `earp.capability.call.*`
+- **门禁**：写操作（新建/编辑/停用）仅 Admin 角色（403）；列表/详情/搜索对登录角色开放
+- **跨租户隔离**：能力 ID 复合主键 (capability_id, tenant_id)——不同租户可注册同名能力互不冲突
+
+**Register Demo 按钮**：一键为当前租户种子 `cap-demo-echo`（带显式 `execution: {adapter: demo.echo}`
+声明）——调试 flow Capability 节点的最小可用能力。

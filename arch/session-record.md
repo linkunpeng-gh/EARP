@@ -1017,3 +1017,35 @@ L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 �
 **质量门**：每次变更随做随提交（12 commit）；全量 383 基线之上各批回归（131-133 相关用例）绿；ruff 无新增（仅既有 UP042）；前端冒烟 10/10 + 内联 JS 语法检查；migration 0027 应用 + 迁移测试 2 绿；dev 真 API 验证（模型选择/注释/位置往返/QU 开关/模板存取）。
 
 **遗留**：① 单节点调试（tech-debt #16）/ 运行历史（#17）未做；② import-linter 3 条过时 ignore 待专门会话清理；③ deepseek 端点间歇问题属外部依赖（生产监控建议加超时分布观测）；④ LLM 节点「流式透传」未做（F5a 遗留）；⑤ 画布位置初次保存后生效（旧图自动布局落位一次即可固定）。
+
+---
+
+### 会话续接（2026-08-21）— 能力中心（注册/管理）+ 通用能力执行器（合并实施）
+
+> 两任务书合并会话：`tasks/capability-center-manage-task-breakdown.md` + `tasks/capability-executor-task-breakdown.md`（用户视角同一功能：能力注册时选执行方式，flow 的 capability 节点按声明真实执行）。基线 383 tests（chatflow F5b 收尾第二轮后）。
+
+**会话主线**：migration 0028（复合主键 + execution 列）→ registry/service（注册/详情/更新/停用 + 门禁 + 审计）→ connector 执行分派重构（声明优先/回退兼容/明确报错）→ 前端能力中心表单 → 测试 + dev 冒烟。清偿 tech-debt **#7**（business_capabilities 复合主键）+ **#14**（能力侧权限可视化配置入口）。
+
+**关键产出（后端）**：
+- **migration 0028**：`business_capabilities` 单列 PK → **复合主键 (capability_id, tenant_id)**（存量数据自然归位——capability_id 原全局唯一）；同步 FK 引用改复合（fallback 自引用（fallback_capability_id, tenant_id）/ capability_calls / connector_bindings，DROP→重建 PK→ADD 复合 FK 顺序）；新增 `execution JSONB NOT NULL DEFAULT '{}'`。capability_entity_map 无 FK 无需动。tbox capability_entity_map 无 FK 无需动
+- **capability/service.py**（从空补全）：`create_capability`（D6 校验：type ∈ {query,command} / schema 轻量校验含 properties / required_permissions 非空 / execution 格式校验——**未知 adapter 仅 warning 不阻断**）/ `get_capability` / `update_capability`（全字段可选合并，deprecated 不可更新）/ `deprecate_capability`（soft-disable 幂等）+ `_audit`（earp.capability.registered/updated/deprecated，entity_type=capability）
+- **main.py 端点**：POST /capabilities（body 可选——无 body 保持老「Register Demo」seed 兼容，有 body 自定义注册）/ GET /capabilities/{id} / PATCH /capabilities/{id} / DELETE /capabilities/{id}（停用）；写操作 `_require_admin` 门禁（403）+ ValueError→422 + 404；discover SELECT 补 required_permissions/execution/status（列表展示用）
+- **Connector._execute_capability_call 重构（通用执行器 D2）**：读 `execution` 声明 → adapter ∈ 白名单（demo.echo/llm.prompt/knowledge.search/chat.history/qu.answer/tool.fetch）→ 按声明分派，**input 合并：execution.params（固定默认）< capability input（调用方覆写）**；无声明 → 回退 `f"{domain}.{name}"` 猜测（兼容 demo.echo/存量 seed）；**显式未知 adapter → 明确报错**（D5：声明缺失或未实现，提示去能力中心配）；deprecated → 「已停用」与「不存在」分开报错；权限门禁 + 审计原样保留
+- **registry**：seed cap-demo-echo 补显式 `execution: {"adapter": "demo.echo"}`（D7，兼容回退仍保留）；register_demo ON CONFLICT 改复合键
+
+**关键产出（前端）**：
+- `pages/capabilities.html` 整页重写：新建/编辑弹窗（全字段：capability_id 自动生成、type 下拉、schema JSON textarea、required_permissions 逗号标签、**execution adapter 下拉（白名单 6 项）+ params JSON**、visible_roles）+ 行内 详情/编辑/停用（deprecated 行不显示停用按钮）+ 列表展示权限 chips/execution 摘要/状态徽标；坏 JSON 前端拦截不请求；保留 Register Demo 快捷键
+- `test-capabilities-smoke.cjs`（新）：16 断言全绿（渲染/权限 chips/execution 摘要/状态/按钮条件/新建 POST 带 execution/编辑预填+PATCH/停用 DELETE/详情 GET/registerDemo 空 body/坏 JSON 拦截）
+
+**测试与验证**：
+- 新增 `tests/test_capability_admin.py` 11 用例（service：create+校验 type/schema/permissions/execution 未知放行/跨租户同名 **tech-debt #7 用例**/update+deprecate 幂等/审计三事件；HTTP：admin 门禁 403/注册 201/422 校验/404/停用往返）+ test_flow_f3_nodes 执行分派 6 用例（显式 demo.echo 分派 / tool.fetch 分派 + params 合并断言 / 未知 adapter 报错 / 无声明回退 / deprecated「已停用」）
+- **踩坑记录**：① `roles.role_id` 单列 PK 跨租户污染再现（#13 模式）——API 测试按租户派生唯一 role_id（capapi-t1-admin 等）修复；② f-string 改普通字符串后 `'{{}}'` 残留成字面量 → TEXT[] malformed array（测试 seed bug，改回 `'{}'`）
+- **全量 419 passed**（383 基线 + 36：本会话 17 + F5b 收尾已含的 trace 等）；import-linter 基线（3 条 F2 遗留过时 ignore 未动）；ruff/pyright 零新增（自引入的 I001/F541/F841/E501/isinstance 全部修掉，registry B007/connector I001/main I001 为既有）；OpenAPI 基线同步（+4 端点 + CapabilityCreate/Update schema）
+- **dev 真 API 冒烟**（8000 --reload + dev DB 升 0028）：注册带 `execution: {adapter: tool.fetch, params}` 的能力 → 201（execution 落库）→ 详情可见 → 非 admin（r3）注册/停用 403 → admin 停用 200（deprecated）→ 审计 `earp.capability.registered/deprecated` 落 audit_logs ✅（测试后清理）
+
+**遗留**：
+1. **flow 节点真执行多 adapter 的 dev 冒烟未做端到端**（需配真实 connector + flow app；分派机制已由 6 个执行器用例 + dev 注册冒烟覆盖，Chatflow 画布可直接验证）
+2. **reactivate 恢复路径未做**（停用不可逆；如需恢复走 TBox 审批流先例的 reactivate 模式，后续按需）
+3. visible_roles 仍无可视化编辑入口（沿用现查询逻辑，D8 一期不做）
+4. 能力「执行测试」按钮（D8 一期不做——依赖 tech-debt #16 单节点调试）
+5. import-linter 3 条过时 ignore 待专门架构会话（既有遗留，未动）
