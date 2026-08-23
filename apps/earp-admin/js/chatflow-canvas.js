@@ -32,8 +32,11 @@
       ],
       brief: () => '知识库检索' },
     qu: { name: 'QU 理解', color: '#ea580c', inputs: 1, outputs: 1,
-      fields: [{ key: 'query', label: '理解问题', type: 'text', default: '{{query}}' }],
-      brief: () => '自动理解→检索' },
+      fields: [
+        { key: 'query', label: '理解问题', type: 'text', default: '{{query}}' },
+        { key: 'use_llm', label: '启用 LLM 升级（低置信时智能补全）', type: 'checkbox', default: true },
+      ],
+      brief: (d) => '自动理解→检索' },
     capability: { name: '能力调用', color: '#dc2626', inputs: 1, outputs: 1,
       fields: [{ key: 'capability_id', label: '能力 ID', type: 'text', default: '' }],
       brief: (d) => '能力: ' + (d.capability_id || '未选') },
@@ -233,6 +236,9 @@
       if (f.type === 'textarea') {
         input = el('textarea', { rows: 4, 'data-key': f.key });
         input.value = fields[f.key] != null ? fields[f.key] : '';
+      } else if (f.type === 'checkbox') {
+        input = el('input', { type: 'checkbox', 'data-key': f.key });
+        input.checked = fields[f.key] !== false;  // 缺省启用
       } else if (f.type === 'model-select') {
         // 模型选择：选项来自模型配置中心（window.EARP_MODELS，页面加载时拉取）
         input = el('select', { 'data-key': f.key });
@@ -262,14 +268,17 @@
       label.appendChild(input);
       container.appendChild(label);
     });
-    // 输入变化 → 即时写回画布节点 data + 摘要
+    // 输入变化 → 即时写回画布节点 data + 摘要（checkbox 读 .checked，其余读 .value）
     container.querySelectorAll('[data-key]').forEach(function (input) {
-      input.addEventListener('input', function () {
-        var fields2 = {};
-        container.querySelectorAll('[data-key]').forEach(function (inp2) {
-          fields2[inp2.getAttribute('data-key')] = inp2.value;
+      var events = input.type === 'checkbox' ? ['change', 'input'] : ['input'];
+      events.forEach(function (en) {
+        input.addEventListener(en, function () {
+          var fields2 = {};
+          container.querySelectorAll('[data-key]').forEach(function (inp2) {
+            fields2[inp2.getAttribute('data-key')] = inp2.type === 'checkbox' ? inp2.checked : inp2.value;
+          });
+          onChange(fields2);
         });
-        onChange(fields2);
       });
     });
   }

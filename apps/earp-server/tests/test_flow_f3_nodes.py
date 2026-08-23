@@ -648,3 +648,45 @@ class TestNodePosition:
         )
         plan = compile_flow_schema(g)
         assert [i.node_id for i in plan.sequence] == ["l1"]  # 位置仅布局元数据
+
+
+# ── 方案 C：QU 节点 use_llm 开关（false = 纯规则，跳过 LLM 升级） ──────────────
+
+
+class TestQuNodeUseLlm:
+    def test_compile_qu_use_llm_false(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "q1", "type": "qu", "data": {"use_llm": False}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "q1"}, {"source": "q1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        q1 = next(i for i in plan.sequence if i.node_id == "q1")
+        assert q1.step.capability_call["input"]["use_llm"] is False
+        assert q1.step.capability_call["input"]["query"] == "{{query}}"
+
+    def test_compile_qu_use_llm_non_bool_rejected(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "q1", "type": "qu", "data": {"use_llm": "yes"}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "q1"}, {"source": "q1", "target": "end"}],
+        )
+        with pytest.raises(WorkflowValidationError, match="use_llm 必须是布尔值"):
+            compile_flow_schema(g)
+
+    async def test_qu_answer_use_llm_false_skips_upgrade(self, app_engine: AsyncEngine, monkeypatch) -> None:
+        """use_llm=false → 不调 upgrade_with_llm（纯规则理解）。"""
+        _fake_qu_chain(monkeypatch, citations=[{"chunk_id": "c1", "title": "t", "document_id": "d"}])
+
+        async def _boom(*a, **k):
+            raise AssertionError("upgrade_with_llm should not be called")
+
+        monkeypatch.setattr("earp_server.ontology.understanding.upgrade_with_llm", _boom)
+        connector = Connector(engine=app_engine, settings=_settings())
+        out = await connector.execute(
+            {"adapter_type": "qu.answer", "input": {"query": "CNC-01 是什么设备", "use_llm": False}},
+            ctx=_ctx(),
+        )
+        assert out["selection"]["plan_name"] == "plan_fact"  # 纯规则链路出结果

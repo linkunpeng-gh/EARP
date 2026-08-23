@@ -243,7 +243,8 @@ class Connector:
             raise ConnectorError("qu.answer: input.query required")
         result = await understand(self._engine, ctx.tenant_id, query, context={})
         settings = self._settings
-        if settings is not None and hasattr(settings, "ollama_chat_model"):
+        # 方案 C：use_llm=false → 纯规则理解，跳过 LLM 升级（快、确定性）；缺省启用升级
+        if input_.get("use_llm") is not False and settings is not None and hasattr(settings, "ollama_chat_model"):
             result = await upgrade_with_llm(self._engine, ctx.tenant_id, query, result, settings=settings)
         sq = build_structured_query(result)
         sel, plan_result = await execute_plan(

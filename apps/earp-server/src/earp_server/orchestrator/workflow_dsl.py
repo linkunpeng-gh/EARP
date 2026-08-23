@@ -419,6 +419,14 @@ def _qu_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> Ste
             raise WorkflowValidationError(
                 f"workflow validation failed:\n- node {node.id}: qu data.context_turns 必须是整数"
             ) from None
+    # 方案 C：use_llm 开关（false = 纯规则理解，跳过 LLM 升级；缺省 = 启用/升级）
+    use_llm = node.data.get("use_llm", True)
+    if not isinstance(use_llm, bool):
+        raise WorkflowValidationError(
+            f"workflow validation failed:\n- node {node.id}: qu data.use_llm 必须是布尔值"
+        )
+    if not use_llm:
+        input_["use_llm"] = False
     return StepExec(
         node_id=node.id,
         step=Step(step_id=node.id, capability_call={"adapter_type": "qu.answer", "input": input_}),
