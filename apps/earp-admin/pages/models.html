@@ -20,7 +20,9 @@
     <button class="btn-sm" onclick="testDefault('rerank')">测试</button></div>
   <div class="form-row" style="align-items:flex-start"><label style="padding-top:4px">QU 升级模板</label>
     <div style="flex:1">
-      <textarea id="def-qu-tpl" rows="4" placeholder="可选：自定义 QU 理解的 LLM 升级提示词。占位符：{query} {missing} {relation_candidates} {context}；留空=使用内置压缩默认。需先配置默认 LLM。" style="width:100%;font-size:0.76rem;font-family:ui-monospace,Menlo,monospace"></textarea>
+      <textarea id="def-qu-tpl" rows="4" placeholder="留空=使用内置默认；或点「载入默认」以默认内容为底稿修改。占位符：{query} {missing} {relation_candidates} {context}。需先配置默认 LLM。" style="width:100%;font-size:0.76rem;font-family:ui-monospace,Menlo,monospace"></textarea>
+      <div style="margin-top:4px"><button class="btn-sm" onclick="loadDefaultTpl()">载入默认</button>
+        <span style="font-size:0.72rem;color:var(--text-tertiary,#8b8d91)">以内置默认内容为底稿修改；保存内容=默认等价于留空</span></div>
     </div></div>
   <p id="default-msg" style="font-size:0.78rem;color:var(--text-tertiary,#8b8d91);margin:8px 0 0"></p>
 </div>
@@ -86,6 +88,10 @@ function renderDefaults() {
   var tplEl = document.getElementById('def-qu-tpl');
   if (tplEl) tplEl.value = state.defaults.qu_prompt_template || '';
 }
+function loadDefaultTpl() {
+  var tplEl = document.getElementById('def-qu-tpl');
+  if (tplEl && state.defaults.default_qu_prompt) tplEl.value = state.defaults.default_qu_prompt;
+}
 
 async function saveDefaults() {
   var body = {};
@@ -94,8 +100,12 @@ async function saveDefaults() {
     if (v) body[t] = v;
   });
   var tplEl = document.getElementById('def-qu-tpl');
-  if (tplEl && tplEl.value !== (state.defaults.qu_prompt_template || '')) {
-    body.qu_prompt_template = tplEl.value;  // 改动才提交（空串=清除）
+  if (tplEl) {
+    var newVal = tplEl.value;
+    if (newVal === (state.defaults.default_qu_prompt || '')) newVal = '';  // =默认文本 → 存空（保持默认行为）
+    if (newVal !== (state.defaults.qu_prompt_template || '')) {
+      body.qu_prompt_template = newVal;  // 改动才提交（空串=清除/默认）
+    }
   }
   try {
     var res = await EARP.fetchJSON('/api/system-model-settings', { method: 'PUT', body: JSON.stringify(body) });

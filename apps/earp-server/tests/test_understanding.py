@@ -585,3 +585,19 @@ async def test_upgrade_uses_tenant_template(migrated: str, app_url: str, monkeyp
     await upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r, settings=_test_settings(app_url))
     monkeypatch.setattr(LLMConnector, "json_complete", orig)
     assert captured["prompt"].startswith("你是专家。查：主轴轴承最近为什么故障增加｜缺：")  # 模板生效
+
+
+def test_default_template_equals_tenant_template_rendering() -> None:
+    """「载入默认」的文本（DEFAULT_UPGRADE_PROMPT_TEMPLATE）作为租户模板保存 → 渲染结果与内置默认一致。"""
+    from earp_server.ontology.understanding import (
+        DEFAULT_UPGRADE_PROMPT_TEMPLATE,
+        _default_upgrade_prompt,
+        _render_upgrade_template,
+    )
+
+    kwargs = dict(missing="entities", rel_desc="has_part(A→B)", query="Q", context="{}")
+    assert _default_upgrade_prompt(**kwargs) == _render_upgrade_template(
+        DEFAULT_UPGRADE_PROMPT_TEMPLATE, **kwargs
+    )
+    assert "{relation_candidates}" in DEFAULT_UPGRADE_PROMPT_TEMPLATE  # 与租户模板同占位符
+    assert "{rel_desc}" not in DEFAULT_UPGRADE_PROMPT_TEMPLATE

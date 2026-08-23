@@ -33,13 +33,14 @@ _UPGRADE_CACHE: OrderedDict[tuple[str, str], dict | None] = OrderedDict()
 _UPGRADE_CACHE_MAX = 128
 _CACHE_MISS = object()  # 区分「未缓存」与「缓存了失败(None)」
 
-# 内置压缩默认升级 prompt（占位符 {missing}/{rel_desc}/{query}/{context}；JSON 大括号原样保留）
-_DEFAULT_UPGRADE_PROMPT = (
+# 内置压缩默认升级 prompt —— 同一套占位符 {query}/{missing}/{relation_candidates}/{context}（= 租户模板约定，
+# 「载入默认」可直接当模板编辑；保存等同默认的文本 = 默认行为，零漂移）。JSON 大括号原样保留。
+DEFAULT_UPGRADE_PROMPT_TEMPLATE = (
     "解析用户查询，只补未命中字段（{missing}）对应键：\n"
     "规则：\n"
     "1. intent 枚举之一：FACT|ATTRIBUTE|RELATION|MULTI_HOP|LIST|AGGREGATION|"
     "COMPARISON|TREND|CAUSAL|MIXED\n"
-    "2. relations 只能从候选选，禁止发明：{rel_desc}\n"
+    "2. relations 只能从候选选，禁止发明：{relation_candidates}\n"
     "3. entities=[{\"mention\":\"实体名\",\"semantic_type\":\"类型\"}]\n"
     "4. constraints 为元数据过滤（department/year/doc_type），time={\"kind\":"
     "\"relative|absolute|none\",\"expression\":\"...\"}\n"
@@ -68,12 +69,13 @@ def _render_upgrade_template(
 
 
 def _default_upgrade_prompt(*, missing: str, rel_desc: str, query: str, context: str) -> str:
-    """内置压缩默认（replace 渲染——prompt 内含 JSON 大括号，不能 str.format）。"""
-    return (
-        _DEFAULT_UPGRADE_PROMPT.replace("{missing}", missing)
-        .replace("{rel_desc}", rel_desc)
-        .replace("{query}", query)
-        .replace("{context}", context)
+    """内置压缩默认 = 用同一渲染器跑默认模板（占位符约定与租户模板一致）。"""
+    return _render_upgrade_template(
+        DEFAULT_UPGRADE_PROMPT_TEMPLATE,
+        query=query,
+        missing=missing,
+        rel_desc=rel_desc,
+        context=context,
     )
 
 
