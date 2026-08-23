@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024  # bge-m3 dimension; change when switching models
     # Chatflow F4: human_approval 节点等待人工答复超时（秒）——超时 → timeout 终态
     approval_ttl: int = 3600
+    # QU 理解层 LLM 升级的超时预算（秒）：小模型 JSON 生成极慢（曾实测吃满 30s 超时且回落）——
+    # 给升级设短预算，超时即用规则结果，避免 QU 节点等
+    qu_upgrade_timeout_seconds: float = 8.0
 
     # ── LLM Cache ──
     llm_cache_ttl: int = 3600  # seconds (1 hour)

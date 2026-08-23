@@ -7,6 +7,7 @@ This service handles batch orchestration: read chunks from DB → embed → upda
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -74,8 +75,25 @@ async def embed_chunks(
     logger.info("embed_chunks: embedded %d chunks (provider=%s, dim=%d)", len(all_embeddings), provider.name, dim)
 
 
+_EMB_CACHE: OrderedDict[str, list[float]] = OrderedDict()
+_EMB_CACHE_MAX = 256
+
+
 async def embed_query(query: str) -> list[float]:
-    """Generate embedding for a single search query."""
+    """Generate embedding for a single search query（带内存 LRU 缓存）。
+
+    同文本不重复调 provider——QU/plan_relation 循环里反复 embed 相同片段直接命中；
+    缓存键含文本即可（同 provider 下 embedding 是文本的纯函数）。
+    """
+    hit = _EMB_CACHE.get(query)
+    if hit is not None:
+        _EMB_CACHE.move_to_end(query)
+        return hit
     provider = get_embedding_provider()
     embs = await provider.embed([query])
-    return embs[0]
+    vec = embs[0]
+    _EMB_CACHE[query] = vec
+    _EMB_CACHE.move_to_end(query)
+    if len(_EMB_CACHE) > _EMB_CACHE_MAX:
+        _EMB_CACHE.popitem(last=False)
+    return vec

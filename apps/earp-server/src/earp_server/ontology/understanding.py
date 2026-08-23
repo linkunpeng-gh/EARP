@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -25,6 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from earp_server.ontology.search import _entity_hits
 
 logger = logging.getLogger(__name__)
+
+# Chatflow QU 提速：LLM 升级结果 LRU 缓存（键 = (tenant_id, query)）——
+# 同问题重复询问不重复等 LLM；仅缓存成功响应；规则层对同 query 输出确定 → 安全。
+_UPGRADE_CACHE: OrderedDict[tuple[str, str], dict | None] = OrderedDict()
+_UPGRADE_CACHE_MAX = 128
+_CACHE_MISS = object()  # 区分「未缓存」与「缓存了失败(None)」
 
 
 # ── §6.2 冻结 schema ─────────────────────────────────────────────────────────
@@ -706,7 +713,21 @@ async def upgrade_with_llm(
         f"上下文：{json.dumps(result.context or {})}"
     )
     result.llm_upgraded = True  # 尝试走 LLM 升级（成功/失败均标记，debug 可溯源）
-    data = await conn.json_complete(system, prompt)
+    # 超时预算（默认 8s）：小模型 JSON 生成可吃满 30s 默认超时——QU 节点等不起，
+    # 超时即回落规则结果（置信度升级失败不影响）。settings 注入时读取。
+    budget = 8.0
+    if settings is not None:
+        budget = float(getattr(settings, "qu_upgrade_timeout_seconds", 8.0) or 8.0)
+    # 升级结果 LRU 缓存（键 = tenant+query，含负缓存：超时/失败也记 None——弱模型同问题
+    # 重复询问不再白等预算，直接规则回落）。规则层对同 query 输出确定 → 缓存安全。
+    key = (tenant_id, query)
+    data = _UPGRADE_CACHE.get(key, _CACHE_MISS)
+    if data is _CACHE_MISS:
+        data = await conn.json_complete(system, prompt, timeout=budget)
+        _UPGRADE_CACHE[key] = data  # 成功 dict 或失败 None 均缓存
+        _UPGRADE_CACHE.move_to_end(key)
+        if len(_UPGRADE_CACHE) > _UPGRADE_CACHE_MAX:
+            _UPGRADE_CACHE.popitem(last=False)
     if data is None:
         result.field_reasons["llm"] = "LLM 不可达/非 JSON——保持规则结果（回落）"
         return result

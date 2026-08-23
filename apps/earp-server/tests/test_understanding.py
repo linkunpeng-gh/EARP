@@ -451,3 +451,66 @@ def test_understanding_debug_endpoint_fact_rule_only(migrated: str, app_url: str
         assert body["structured_query"]["constraints"] == {"year": 2024}
         assert body["llm_upgraded"] is False  # 高置信（测试环境 LLM 不可达也会走规则）
         assert body["confidence"] >= 0.7
+
+
+# ── Chatflow QU 提速：LLM 升级超时预算 + 结果缓存 ──────────────────────────────
+
+
+async def test_upgrade_with_llm_passes_timeout_budget(migrated: str, app_url: str, monkeypatch) -> None:
+    """升级用 settings.qu_upgrade_timeout_seconds 作 json_complete 超时（默认 8s，防 30s 超时拖垮 QU 节点）。"""
+    engine = _engine(app_url)
+    tid = "qu-t10"
+    await _seed_entity_graph(engine, tid)
+
+    r = await understand(engine, tid, "主轴轴承最近为什么故障增加")
+    seen: dict = {}
+
+    async def _fake(self, system, prompt, **kw):
+        seen["timeout"] = kw.get("timeout")
+        return None
+
+    monkeypatch.setattr("earp_server.connector.LLMConnector.json_complete", _fake)
+    await upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r, settings=_test_settings(app_url))
+    assert seen.get("timeout") == 8.0  # 默认 8s 预算（曾实测吃满 30s 超时）
+
+
+async def test_upgrade_with_llm_cache_reuses_second_same_query(migrated: str, app_url: str, monkeypatch) -> None:
+    """同 (tenant, query) 第二次升级命中 LRU 缓存 → 零 LLM 调用（重复问题不再等模型）。"""
+    engine = _engine(app_url)
+    tid = "qu-t11"
+    await _seed_entity_graph(engine, tid)
+
+    r1 = await understand(engine, tid, "主轴轴承最近为什么故障增加")
+    calls: list[int] = []
+
+    async def _fake(self, system, prompt, **kw):
+        calls.append(1)
+        return {"intent": "CAUSAL", "relations": []}
+
+    monkeypatch.setattr("earp_server.connector.LLMConnector.json_complete", _fake)
+    await upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r1, settings=_test_settings(app_url))
+    r2 = await understand(engine, tid, "主轴轴承最近为什么故障增加")  # 规则层确定性 → 新鲜等置信结果
+    o2 = await upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r2, settings=_test_settings(app_url))
+    assert len(calls) == 1  # 第二次命中缓存，未再调 LLM
+    assert o2.intent == Intent.CAUSAL
+
+
+async def test_upgrade_with_llm_negative_cache_skips_retry(migrated: str, app_url: str, monkeypatch) -> None:
+    """升级超时/失败后同问题第二次不再调 LLM（负缓存 → 直接规则回落，不再白等预算）。"""
+    engine = _engine(app_url)
+    tid = "qu-t12"
+    await _seed_entity_graph(engine, tid)
+
+    r1 = await understand(engine, tid, "主轴轴承最近为什么故障增加")
+    calls: list[int] = []
+
+    async def _no_llm(self, system, prompt, **kw):
+        calls.append(1)
+        return None  # 模拟弱模型超时/失败
+
+    monkeypatch.setattr("earp_server.connector.LLMConnector.json_complete", _no_llm)
+    await upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r1, settings=_test_settings(app_url))
+    r2 = await understand(engine, tid, "主轴轴承最近为什么故障增加")
+    o2 = await upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r2, settings=_test_settings(app_url))
+    assert len(calls) == 1  # 第二次负缓存命中，零 LLM 调用
+    assert o2.intent is None  # 规则回落保持一致
