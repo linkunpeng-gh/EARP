@@ -2,48 +2,141 @@
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Capabilities"><title>Capabilities — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css"></head>
 <body data-base=".." data-section="capability" data-sub="capabilities">
 <header id="app-header"></header>
-<main>
-<div class="page-title"><div><h2>Capabilities</h2><p class="page-subtitle">Discover and register execution capabilities</p></div><div><button class="secondary" onclick="registerDemo()">+ Register Demo</button></div></div>
-<div class="toolbar"><input id="cap-search" placeholder="Search capabilities..." style="flex:1"><button onclick="searchCaps()">Discover</button></div>
-<!-- TODO: live data -->
-<table><thead><tr><th>ID</th><th>Domain</th><th>Name</th><th>Type</th><th>Version</th></tr></thead><tbody id="caps-tbody">
-<tr><td>cap-demo-echo</td><td>demo</td><td>echo</td><td>query</td><td>1.0.0</td></tr>
-<tr><td>cap-query-users</td><td>query</td><td>users</td><td>query</td><td>1.0.0</td></tr></tbody>
-<div id="empty-state" class="empty-state" style="display:none">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-  <p>No data found. Adjust filters or create a new item to get started.</p>
-</div></table>
 
-<script src="../js/app.js"></script>
+<main>
+
+<div class="page-title"><div><h2>Capabilities</h2><p class="page-subtitle">能力注册 / 管理（tech-debt #14）· 注册时选「执行方式」（execution.adapter 白名单）· 配 required_permissions（角色门禁用）· 停用的能力 flow 调用报「已停用」</p></div><div style="display:flex;gap:8px"><button class="secondary" onclick="registerDemo()">+ Register Demo</button><button onclick="openCapModal()">+ 新建能力</button></div></div>
+
+<div class="toolbar"><input id="cap-search" placeholder="Search capabilities..." style="flex:1"><button onclick="searchCaps()">Discover</button></div>
+
+<table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+  <thead><tr>
+    <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">ID</th>
+    <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">Domain</th>
+    <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">Name</th>
+    <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">Type</th>
+    <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">Version</th>
+    <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">权限</th>
+    <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">执行方式</th>
+    <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">状态</th>
+    <th style="text-align:right;padding:6px;border-bottom:1px solid var(--border-subtle)">操作</th>
+  </tr></thead>
+  <tbody id="caps-tbody"><tr><td colspan="9" style="padding:10px;text-align:center;color:var(--text-tertiary)">加载中…</td></tr></tbody>
+</table>
+
+<!-- 新建 / 编辑 模态 -->
+<div id="cap-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
+  <div style="max-width:620px;margin:6vh auto;background:var(--bg-panel);border-radius:10px;padding:18px;max-height:84vh;overflow:auto">
+    <h3 id="cap-modal-title" style="margin:0 0 12px">新建能力</h3>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">能力 ID（留空自动生成 cap-{domain}-{name}；创建后不可改）
+      <input id="c-id" style="display:block;width:100%;margin-top:4px" placeholder="如 cap-query-alarms"></label>
+    <div style="display:flex;gap:10px">
+      <label style="flex:1;display:block;font-size:0.78rem;margin-bottom:8px">Domain *
+        <input id="c-domain" style="display:block;width:100%;margin-top:4px" placeholder="如 equipment"></label>
+      <label style="flex:1;display:block;font-size:0.78rem;margin-bottom:8px">Name *
+        <input id="c-name" style="display:block;width:100%;margin-top:4px" placeholder="如 query_alarm"></label>
+    </div>
+    <div style="display:flex;gap:10px">
+      <label style="flex:1;display:block;font-size:0.78rem;margin-bottom:8px">类型 *
+        <select id="c-type" style="display:block;width:100%;margin-top:4px">
+          <option value="query">query</option>
+          <option value="command">command</option>
+        </select></label>
+      <label style="flex:1;display:block;font-size:0.78rem;margin-bottom:8px">版本
+        <input id="c-version" style="display:block;width:100%;margin-top:4px" value="1.0.0"></label>
+    </div>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">输入 Schema（JSON，需含 properties）
+      <textarea id="c-input-schema" rows="2" style="display:block;width:100%;margin-top:4px;font-family:monospace" placeholder='{"type":"object","properties":{"x":{"type":"string"}}}'></textarea></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">输出 Schema（JSON，需含 properties）
+      <textarea id="c-output-schema" rows="2" style="display:block;width:100%;margin-top:4px;font-family:monospace" placeholder='{"type":"object","properties":{}}'></textarea></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">所需权限 required_permissions（逗号分隔；角色门禁用，不可为空）
+      <input id="c-perms" style="display:block;width:100%;margin-top:4px" placeholder="alarm:read, alarm:write"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">执行方式 execution.adapter（能力「怎么执行」；留空＝回退 domain.name 猜测，兼容 demo.echo）
+      <select id="c-adapter" style="display:block;width:100%;margin-top:4px">
+        <option value="">（未声明，回退猜测）</option>
+        <option value="demo.echo">demo.echo</option>
+        <option value="llm.prompt">llm.prompt</option>
+        <option value="knowledge.search">knowledge.search</option>
+        <option value="chat.history">chat.history</option>
+        <option value="qu.answer">qu.answer</option>
+        <option value="tool.fetch">tool.fetch</option>
+      </select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">执行参数 execution.params（JSON，adapter 固定默认；可被调用方 input 覆写；如 tool.fetch 的 connector_id）
+      <textarea id="c-exec-params" rows="2" style="display:block;width:100%;margin-top:4px;font-family:monospace" placeholder='{"connector_id":"cn-1"}'></textarea></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">可见角色 visible_roles（逗号分隔，可空）
+      <input id="c-vroles" style="display:block;width:100%;margin-top:4px" placeholder="r1, r-auditor"></label>
+    <div id="cap-form-error" style="color:var(--red);font-size:0.76rem;min-height:1em;margin-bottom:6px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+      <button onclick="closeCapModal()">取消</button>
+      <button onclick="saveCap()" style="background:var(--green);color:#fff">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 详情模态 -->
+<div id="cap-detail" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
+  <div style="max-width:560px;margin:10vh auto;background:var(--bg-panel);border-radius:10px;padding:18px">
+    <h3 id="cap-detail-title" style="margin:0 0 12px">能力详情</h3>
+    <pre id="cap-detail-body" style="white-space:pre-wrap;font-size:0.76rem;background:var(--bg-elevated,#f5f5f5);border:1px solid var(--border-subtle);border-radius:6px;padding:10px;max-height:60vh;overflow:auto"></pre>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button onclick="closeCapDetail()">关闭</button>
+    </div>
+  </div>
+</div>
+
+</main>
 <script src="../js/nav.js"></script>
+<script src="../js/app.js"></script>
 <script>
+var editCap = null;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function parseJsonOrNull(str, field) {
+  if (!str || !str.trim()) return {};
+  try { return JSON.parse(str); } catch (e) { throw new Error(field + ' 不是合法 JSON：' + e.message); }
+}
+
 async function loadCapabilities() {
   var tbody = document.getElementById('caps-tbody');
-  var emptyState = document.getElementById('empty-state');
-  var q = document.getElementById('cap-search').value.trim();
-
-  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-quaternary);padding:2rem">Loading...</td></tr>';
-
+  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-quaternary);padding:2rem">Loading...</td></tr>';
   try {
-    var url = '/capabilities';
-    if (q) url += '?q=' + encodeURIComponent(q);
+    var q = document.getElementById('cap-search').value.trim();
+    var url = '/capabilities' + (q ? '?q=' + encodeURIComponent(q) : '');
     var items = await EARP.fetchJSON(url);
-
-    if (items.length === 0) {
-      tbody.innerHTML = '';
-      emptyState.style.display = 'block';
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-tertiary);padding:2rem">暂无能力</td></tr>';
       return;
     }
-
-    emptyState.style.display = 'none';
-    tbody.innerHTML = items.map(function(c) {
-      return '<tr><td>' + c.capability_id + '</td><td>' + (c.domain || '-') + '</td>'
-        + '<td>' + (c.name || '-') + '</td>'
-        + '<td><span class="tag tag-accent">' + (c.type || 'query') + '</span> <span class="tag" style="background:var(--bg-secondary,#f5f5f5);color:var(--text-tertiary,#8b8d91)">' + (c.source_type || 'skill') + '</span></td>'
-        + '<td>' + (c.version || '-') + '</td></tr>';
+    tbody.innerHTML = items.map(function (c) {
+      var perms = (c.required_permissions || []).map(function (p) { return '<code>' + esc(p) + '</code>'; }).join(' ') || '<span style="color:var(--text-quaternary)">—</span>';
+      var exec = c.execution && c.execution.adapter
+        ? '<code>' + esc(c.execution.adapter) + '</code>'
+        : '<span style="color:var(--text-quaternary)">未声明（回退猜测）</span>';
+      var status = c.status === 'deprecated'
+        ? '<span style="color:var(--red)">已停用</span>'
+        : '<span style="color:var(--green,#166534)">active</span>';
+      return '<tr>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)"><code>' + esc(c.capability_id) + '</code></td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.domain || '-') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.name || '-') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)"><span class="tag tag-accent">' + esc(c.type || 'query') + '</span></td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.version || '-') + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + perms + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + exec + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + status + '</td>'
+        + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
+        + '<a href="javascript:void(0)" onclick="showDetail(\'' + esc(c.capability_id) + '\')" style="color:var(--accent-text);margin-right:10px">详情</a>'
+        + '<a href="javascript:void(0)" onclick="openCapModal(\'' + esc(c.capability_id) + '\')" style="color:var(--accent-text);margin-right:10px">编辑</a>'
+        + (c.status === 'deprecated' ? '' : '<a href="javascript:void(0)" onclick="deprecateCap(\'' + esc(c.capability_id) + '\')" style="color:var(--red)">停用</a>')
+        + '</td></tr>';
     }).join('');
-  } catch (err) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--red);padding:2rem">Failed to load: ' + err.message + '</td></tr>';
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="9" style="color:var(--red);padding:1rem">加载失败: ' + esc(e.message) + '</td></tr>';
   }
 }
 
@@ -52,14 +145,102 @@ function searchCaps() { loadCapabilities(); }
 async function registerDemo() {
   if (!confirm('Register cap-demo-echo for this tenant?')) return;
   try {
-    await EARP.fetchJSON('/capabilities', {method: 'POST'});
-    alert('Registered! Reloading...');
+    await EARP.fetchJSON('/capabilities', { method: 'POST' });
     loadCapabilities();
-  } catch (err) {
-    alert('Failed: ' + err.message);
-  }
+  } catch (e) { alert('Failed: ' + e.message); }
 }
 
-document.addEventListener('DOMContentLoaded', loadCapabilities);
+async function openCapModal(capId) {
+  editCap = null;
+  var errBox = document.getElementById('cap-form-error');
+  errBox.textContent = '';
+  document.getElementById('c-id').disabled = false;
+  document.getElementById('c-id').value = '';
+  document.getElementById('c-domain').value = '';
+  document.getElementById('c-name').value = '';
+  document.getElementById('c-type').value = 'query';
+  document.getElementById('c-version').value = '1.0.0';
+  document.getElementById('c-input-schema').value = '{"type":"object","properties":{}}';
+  document.getElementById('c-output-schema').value = '{"type":"object","properties":{}}';
+  document.getElementById('c-perms').value = '';
+  document.getElementById('c-adapter').value = '';
+  document.getElementById('c-exec-params').value = '';
+  document.getElementById('c-vroles').value = '';
+  document.getElementById('cap-modal-title').textContent = '新建能力';
+  if (capId) {
+    try {
+      var c = await EARP.fetchJSON('/capabilities/' + encodeURIComponent(capId));
+      editCap = c;
+      document.getElementById('cap-modal-title').textContent = '编辑能力：' + c.capability_id;
+      document.getElementById('c-id').value = c.capability_id;
+      document.getElementById('c-id').disabled = true;
+      document.getElementById('c-domain').value = c.domain || '';
+      document.getElementById('c-name').value = c.name || '';
+      document.getElementById('c-type').value = c.type || 'query';
+      document.getElementById('c-version').value = c.version || '1.0.0';
+      document.getElementById('c-input-schema').value = JSON.stringify(c.input_schema || {});
+      document.getElementById('c-output-schema').value = JSON.stringify(c.output_schema || {});
+      document.getElementById('c-perms').value = (c.required_permissions || []).join(', ');
+      document.getElementById('c-adapter').value = (c.execution && c.execution.adapter) || '';
+      document.getElementById('c-exec-params').value = (c.execution && c.execution.params) ? JSON.stringify(c.execution.params) : '';
+      document.getElementById('c-vroles').value = (c.visible_roles || []).join(', ');
+    } catch (e) { alert('加载能力失败: ' + e.message); return; }
+  }
+  document.getElementById('cap-modal').style.display = 'block';
+}
+
+function closeCapModal() { document.getElementById('cap-modal').style.display = 'none'; }
+
+async function saveCap() {
+  var errBox = document.getElementById('cap-form-error');
+  errBox.textContent = '';
+  try {
+    var inputSchema = parseJsonOrNull(document.getElementById('c-input-schema').value, 'input_schema');
+    var outputSchema = parseJsonOrNull(document.getElementById('c-output-schema').value, 'output_schema');
+    var execParams = parseJsonOrNull(document.getElementById('c-exec-params').value, 'execution.params');
+    var adapter = document.getElementById('c-adapter').value;
+    var body = {
+      domain: document.getElementById('c-domain').value.trim(),
+      name: document.getElementById('c-name').value.trim(),
+      type: document.getElementById('c-type').value,
+      version: document.getElementById('c-version').value.trim() || '1.0.0',
+      input_schema: inputSchema,
+      output_schema: outputSchema,
+      required_permissions: document.getElementById('c-perms').value.split(/[,，\s]+/).filter(Boolean),
+      visible_roles: document.getElementById('c-vroles').value.split(/[,，\s]+/).filter(Boolean),
+      execution: adapter ? { adapter: adapter, params: execParams } : {},
+    };
+    if (!body.domain || !body.name) { errBox.textContent = 'Domain 与 Name 必填'; return; }
+    if (!editCap) body.capability_id = document.getElementById('c-id').value.trim() || null;
+    if (editCap) {
+      await EARP.fetchJSON('/capabilities/' + encodeURIComponent(editCap.capability_id), { method: 'PATCH', body: JSON.stringify(body) });
+    } else {
+      await EARP.fetchJSON('/capabilities', { method: 'POST', body: JSON.stringify(body) });
+    }
+    closeCapModal();
+    loadCapabilities();
+  } catch (e) { errBox.textContent = e.message; }
+}
+
+async function deprecateCap(capId) {
+  if (!confirm('停用能力 ' + capId + '？停用后 flow 调用报「已停用」（soft-disable，不可恢复）。')) return;
+  try {
+    await EARP.fetchJSON('/capabilities/' + encodeURIComponent(capId), { method: 'DELETE' });
+    loadCapabilities();
+  } catch (e) { alert('停用失败: ' + e.message); }
+}
+
+async function showDetail(capId) {
+  try {
+    var c = await EARP.fetchJSON('/capabilities/' + encodeURIComponent(capId));
+    document.getElementById('cap-detail-title').textContent = '能力详情：' + c.capability_id;
+    document.getElementById('cap-detail-body').textContent = JSON.stringify(c, null, 2);
+    document.getElementById('cap-detail').style.display = 'block';
+  } catch (e) { alert('加载详情失败: ' + e.message); }
+}
+
+function closeCapDetail() { document.getElementById('cap-detail').style.display = 'none'; }
+
+loadCapabilities();
 </script>
-</main></body></html>
+</body></html>
