@@ -37,6 +37,9 @@ function mkDrawflow() {
     addConnection(from, to, out, inp) {
       if (nodes[from]) (nodes[from]._c = nodes[from]._c || []).push({ from, to, out, inp });
     },
+    // 镜像 Drawflow 语义：getNodeFromId 返回深拷贝（克隆写不生效）
+    getNodeFromId(id) { return JSON.parse(JSON.stringify(nodes[id])); },
+    updateNodeDataFromId(id, t) { if (nodes[id]) nodes[id].data = t; },
     export() {
       const data = {};
       Object.keys(nodes).forEach(function (id) {
@@ -108,5 +111,22 @@ assert(typeSetFull === typeSetR, 'roundtrip: 节点类型一致');
 assert(roundtrip.edges.length === full.edges.length, 'roundtrip: 边数一致');
 assert(roundtrip.nodes.some(n => n.id === 'q1') && roundtrip.nodes.some(n => n.id === 'h1'), 'roundtrip: 语义引用名 id 保留（q1/h1）');
 assert(FlowGraph.validate(roundtrip).length === 0, 'roundtrip: 往返后 flow_schema 仍校验合法（condition 手柄 true/false 保留）');
+
+// ── 4. 编辑持久化契约：toFlowSchema 读内部存储 → 修改必须写内部（updateNodeDataFromId）──
+const ed4 = mkDrawflow();
+const idS4 = ed4.addNode('开始', 0, 1, 0, 0, 'c-start', { type: 'start', data: {} }, '');
+const idL4 = ed4.addNode('LLM', 1, 1, 0, 0, 'c-llm', { type: 'llm', data: { prompt: '旧提示词' }, id: 'l1' }, '');
+const idE4 = ed4.addNode('结束', 1, 0, 0, 0, 'c-end', { type: 'end', data: {} }, '');
+ed4.addConnection(idS4, idL4, 'output_1', 'input_1');
+ed4.addConnection(idL4, idE4, 'output_1', 'input_1');
+const clone4 = ed4.getNodeFromId(idL4);  // 页面旧逻辑：改克隆
+clone4.data.data = Canvas.fieldsToData('llm', { prompt: '克隆改', system: 'S', model_config_id: 'mc-x' });
+const out4a = Canvas.toFlowSchema(ed4);
+assert(out4a.nodes.find(n => n.id === 'l1').data.prompt === '旧提示词', '持久化契约: 改克隆不生效（getNodeFromId 深拷贝 → 必须写内部）');
+ed4.updateNodeDataFromId(idL4, { type: 'llm', data: Canvas.fieldsToData('llm', { prompt: '新提示词', system: '你是助手', model_config_id: 'mc-x' }), id: 'l1' });
+const out4b = Canvas.toFlowSchema(ed4);
+const l4d = out4b.nodes.find(n => n.id === 'l1').data;
+assert(l4d.prompt === '新提示词' && l4d.system === '你是助手' && l4d.model_config_id === 'mc-x', '持久化契约: updateNodeDataFromId 写内部 → 导出含编辑（prompt/system/model）');
+assert(FlowGraph.validate(out4b).length === 0, '持久化契约: 编辑后图仍合法');
 
 console.log('\n' + passed + ' 断言全部通过（chatflow 画布核心冒烟）');

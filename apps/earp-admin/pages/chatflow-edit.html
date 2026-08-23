@@ -250,7 +250,19 @@ function selectNode(id) {
   var type = node.data.type;
   var data = node.data.data || {};
   ChatflowCanvas.renderPropsPanel(propsEl, type, data, function (fields) {
-    node.data.data = ChatflowCanvas.fieldsToData(type, fields);
+    // F5b 遗留 bug 修复：getNodeFromId 返回深拷贝——写克隆不生效（保存丢编辑）。
+    // 用 updateNodeDataFromId 写内部存储（整体 wrapper，含 type/data/id）。
+    var newData = ChatflowCanvas.fieldsToData(type, fields);
+    try {
+      if (editor.updateNodeDataFromId) {
+        editor.updateNodeDataFromId(id, { type: type, data: newData, id: node.data.id });
+      } else {
+        var mod = editor.getModuleFromNodeId ? editor.getModuleFromNodeId(id) : 'Home';
+        editor.drawflow.drawflow[mod].data[id].data.data = newData;
+      }
+    } catch (e) {
+      console.warn('persist node data failed', e);
+    }
     updateNodeBrief(id, type, fields);
   });
   // 运行详情区（上次运行中该节点的 input/output/branch/error）
