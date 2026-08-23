@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Chatflow 流程编排"><title>Chatflow — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css">
+<style>
+.cf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; }
+.cf-card {
+  display: flex; flex-direction: column; gap: 0.5rem;
+  padding: 1.1rem 1.2rem; background: var(--bg-panel);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card); cursor: pointer; text-decoration: none; color: inherit;
+  transition: box-shadow 0.2s, transform 0.15s, border-color 0.15s; position: relative;
+}
+.cf-card:hover { box-shadow: var(--shadow-elevated); transform: translateY(-1px); border-color: var(--border-standard); }
+.cf-card .cc-top { display: flex; align-items: center; gap: 0.5rem; }
+.cf-badge {
+  font-size: 0.64rem; font-weight: 600; letter-spacing: .02em;
+  background: #fef3c7; color: #92400e; border-radius: 4px; padding: 2px 6px;
+}
+.cf-badge i { font-style: normal; margin-right: 2px; }
+.cf-card .cc-name { font-size: 0.95rem; font-weight: 600; color: var(--text-primary); flex: 1; }
+.cf-card .cc-desc { font-size: 0.78rem; color: var(--text-tertiary); line-height: 1.5; min-height: 2.4em; }
+.cf-card .cc-meta { font-size: 0.72rem; color: var(--text-quaternary); display: flex; gap: 0.75rem; align-items: center; }
+.cf-card .cc-status { margin-left: auto; }
+.new-card {
+  border-style: dashed; align-items: center; justify-content: center;
+  display: flex; min-height: 120px; color: var(--accent-text);
+  font-size: 0.86rem; font-weight: 500; gap: 0.4rem;
+}
+.new-card:hover { border-color: var(--accent); background: var(--accent-light); }
+</style>
+</head>
+<body data-base=".." data-section="workspace" data-sub="chatflow">
+<header id="app-header"></header>
+<main>
+<div class="page-title"><div><h2>Chatflow 流程编排</h2><p class="page-subtitle">创建与编排对话型工作流（LLM / QU / 能力 / 工具 / 条件 / 人工确认）；测试通过后发布到应用中心</p></div></div>
+<div class="cf-grid" id="cf-grid">
+  <a class="cf-card new-card" href="javascript:void(0)" onclick="showCreateModal()">＋ 新建流程</a>
+</div>
+</main>
+
+<!-- 新建弹窗 -->
+<div id="create-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)hideCreateModal()">
+  <div class="modal" style="min-width:360px"><h4>新建 Chatflow 流程</h4>
+    <label class="cfg-label" style="display:block;margin-top:6px">名称</label>
+    <input type="text" id="new-name" placeholder="如：设备维修工单" style="width:100%">
+    <label class="cfg-label" style="display:block;margin-top:8px">描述</label>
+    <input type="text" id="new-desc" placeholder="用途说明" style="width:100%">
+    <div class="form-actions">
+      <button class="primary" onclick="createFlow()">创建</button>
+      <button class="btn-sm" onclick="hideCreateModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<script src="../js/app.js"></script>
+<script src="../js/flow-graph.js"></script>
+<script src="../js/nav.js"></script>
+<script>
+// ── Chatflow 应用列表（Dify 式：只显示 orchestration=flow）──
+var state = { apps: [] };
+
+document.addEventListener('DOMContentLoaded', loadFlows);
+
+async function loadFlows() {
+  var grid = document.getElementById('cf-grid');
+  try {
+    var apps = await EARP.fetchJSON('/chat_apps');
+    // 只显示 flow 应用（把 chatflow 从 chat 中独立出来）
+    state.apps = apps.filter(function (a) { return a.orchestration === 'flow'; });
+  } catch (err) {
+    grid.insertAdjacentHTML('beforeend', '<div class="kb-empty">加载失败: ' + esc(err.message) + '</div>');
+    return;
+  }
+  var cards = state.apps.map(cardHtml).join('');
+  grid.insertAdjacentHTML('beforeend', cards);
+}
+
+function cardHtml(a) {
+  var nodes = (a.flow_schema && a.flow_schema.nodes) ? a.flow_schema.nodes.length : 0;
+  var badge = '<span class="cf-badge"><i>⛓</i>Chatflow</span>';
+  var status = a.status === 'published'
+    ? '<span class="tag tag-green">已发布</span>' : '<span class="tag tag-accent">草稿</span>';
+  return '<a class="cf-card" href="chatflow-edit.html?app=' + encodeURIComponent(a.chat_app_id) + '">'
+    + '<div class="cc-top">' + badge + '<span class="cc-name">' + esc(a.name) + '</span></div>'
+    + '<div class="cc-desc">' + esc(a.description || '暂无描述') + '</div>'
+    + '<div class="cc-meta"><span>'+ nodes +' 节点</span><span class="cc-status">' + status + '</span></div>'
+    + '</a>';
+}
+
+function showCreateModal() { document.getElementById('create-modal').style.display = 'flex'; document.getElementById('new-name').focus(); }
+function hideCreateModal() { document.getElementById('create-modal').style.display = 'none'; }
+
+async function createFlow() {
+  var name = document.getElementById('new-name').value.trim();
+  if (!name) { alert('请填写名称'); return; }
+  var desc = document.getElementById('new-desc').value.trim();
+  var btn = document.querySelector('#create-modal .primary');
+  btn.disabled = true; btn.textContent = '创建中…';
+  try {
+    // flow 模式需带默认 flow_schema（start→end 最小图）
+    var app = await EARP.fetchJSON('/chat_apps', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name, description: desc, orchestration: 'flow',
+        flow_schema: { nodes: [
+          { id: 'start', type: 'start', data: {} },
+          { id: 'end', type: 'end', data: {} },
+        ], edges: [{ source: 'start', target: 'end' }] },
+      }),
+    });
+    hideCreateModal();
+    window.location.href = 'chatflow-edit.html?app=' + encodeURIComponent(app.chat_app_id);
+  } catch (err) {
+    alert('创建失败: ' + err.message);
+    btn.disabled = false; btn.textContent = '创建';
+  }
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+</script>
+</body></html>

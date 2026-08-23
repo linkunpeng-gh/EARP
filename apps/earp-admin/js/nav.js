@@ -37,6 +37,7 @@
     ],
     workspace: [
       { label: 'chat', sub: 'chat', path: '{b}/pages/chat.html' },
+      { label: 'chatflow', sub: 'chatflow', path: '{b}/pages/chatflow.html' },
       { label: 'workflow', sub: 'workflow', planned: 'workspace/workflow' },
       { label: 'Agent', sub: 'agent', planned: 'workspace/agent' },
       { label: 'Skills', sub: 'skills', planned: 'workspace/skills' },

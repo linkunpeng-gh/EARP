@@ -53,6 +53,14 @@
 .cfg-note { font-size: 0.7rem; color: var(--text-quaternary); margin-top: 0.3rem; }
 .cfg-inline { display: flex; gap: 0.5rem; align-items: center; }
 .cfg-inline select { flex: 1; }
+/* Chatflow F5a: flow_schema 编辑区 */
+.flow-err-title { font-size: 0.74rem; font-weight: 600; color: var(--red); margin: 0.5rem 0 0.2rem; }
+.flow-err { font-size: 0.72rem; color: var(--red); margin: 0.1rem 0; line-height: 1.5; }
+.flow-ok { font-size: 0.74rem; color: var(--green, #16a34a); margin: 0.5rem 0 0.2rem; }
+.node-out { font-size: 0.7rem; color: var(--text-secondary); margin: 0.25rem 0; padding: 0.3rem 0.45rem; background: var(--bg-surface); border-radius: 4px; }
+.node-out-id { font-weight: 600; color: var(--text-primary); }
+.node-out-json { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-tertiary); }
+.approval-hint { font-size: 0.7rem; color: var(--text-tertiary); margin-top: 0.4rem; }
 /* 调试对话 */
 .preview-panel { display: flex; flex-direction: column; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); height: calc(100vh - 150px); min-height: 480px; }
 .preview-head { padding: 0.7rem 1rem; border-bottom: 1px solid var(--border-subtle); font-size: 0.78rem; color: var(--text-tertiary); display: flex; gap: 1rem; align-items: center; }
@@ -337,7 +345,7 @@ function confirmKBPicker() {
 }
 
 function collectConfig() {
-  return {
+  var body = {
     name: document.getElementById('cfg-name').value.trim(),
     description: document.getElementById('cfg-desc').value.trim(),
     system_prompt: document.getElementById('cfg-prompt').value.trim(),
@@ -355,13 +363,16 @@ function collectConfig() {
     },
     context_turns: parseInt(document.getElementById('cfg-turns').value, 10) || 6,
   };
+  return body;
 }
 
 function resetPrompt() { document.getElementById('cfg-prompt').value = DEFAULT_PROMPT; }
 
 async function saveApp(quiet) {
   if (!state.app) return;
-  var body = collectConfig();
+  var body;
+  try { body = collectConfig(); }
+  catch (err) { alert(err.message); return; }
   var btn = document.querySelector('.edit-top .secondary');
   if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
   try {

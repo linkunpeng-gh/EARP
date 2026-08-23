@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP Chatflow 流程编排（Dify 式画布）"><title>Chatflow 编排 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css">
+<link rel="stylesheet" href="../vendor/drawflow.min.css">
+<style>
+body { overflow: hidden; }
+.cf-shell { display: flex; height: calc(100vh - 52px); }
+
+/* ── 左：节点库（Dify 式） ── */
+.cf-palette { width: 170px; background: var(--bg-panel); border-right: 1px solid var(--border-subtle); padding: 10px; overflow-y: auto; }
+.cf-palette h4 { font-size: 0.72rem; color: var(--text-tertiary); margin: 4px 2px 8px; text-transform: uppercase; letter-spacing: .04em; }
+.drag-cf { display: flex; align-items: center; gap: 0.45rem; padding: 0.42rem 0.6rem; margin: 3px 0; border: 1px solid var(--border-subtle); border-radius: 6px; font-size: 0.78rem; cursor: grab; user-select: none; background: var(--bg-surface); color: var(--text-secondary); }
+.drag-cf:hover { border-color: var(--accent); color: var(--accent-text); }
+.drag-cf .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.cf-palette .tip { font-size: 0.66rem; color: var(--text-quaternary); margin-top: 10px; line-height: 1.6; }
+
+/* ── 中：画布 ── */
+.cf-canvas { flex: 1; position: relative; display: flex; flex-direction: column; }
+#drawflow { width: 100%; flex: 1; min-height: 0; background: var(--bg-canvas, #f8fafc); }
+.cf-canvas .toolbar { position: absolute; top: 8px; right: 10px; z-index: 20; display: flex; gap: 6px; }
+.cf-canvas .toolbar button { font-size: 0.74rem; padding: 0.3rem 0.7rem; }
+
+/* ── 右：属性面板（Dify 式） ── */
+/* 收起宽度归零（toggle 在画布工具栏内） */
+.cf-props { width: 250px; background: var(--bg-panel); border-left: 1px solid var(--border-subtle); padding: 12px; overflow-y: auto; transition: width .12s ease, padding .12s ease; }
+.cf-shell.cf-props-collapsed .cf-props { width: 0; padding: 0; border-left: none; overflow: hidden; }
+.cf-props .empty { font-size: 0.76rem; color: var(--text-tertiary); margin-top: 8px; }
+.cf-panel-label { font-size: 0.8rem; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+.cf-panel-hint { font-size: 0.68rem; color: var(--text-tertiary); margin-bottom: 8px; }
+.cf-panel-field { display: block; margin-bottom: 10px; }
+.cf-panel-k { display: block; font-size: 0.72rem; color: var(--text-tertiary); margin-bottom: 3px; }
+.cf-panel-field input, .cf-panel-field select, .cf-panel-field textarea { width: 100%; font-size: 0.76rem; }
+.var-tip { color: #7c3aed; font-family: ui-monospace, Menlo, monospace; font-size: 0.68rem; background: var(--bg-surface); border: 1px dashed var(--border-standard); border-radius: 3px; padding: 1px 4px; }
+
+/* ── 画布节点 ── */
+/* 默认：浅色背景（var(--bg-panel)）+ 深色文字 + 类型色顶条 —— 下方 .drawflow-node 即默认浅色 */
+.drawflow-node { width: 190px; background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 8px; box-shadow: var(--shadow-card); }
+/* 选中高亮：覆盖 Drawflow 默认红背景（.drawflow .drawflow-node.selected{background:red}）
+   改为「点击后变深色块 + 白字」——默认浅色、选中深色，对比清晰不刺眼 */
+.drawflow .drawflow-node.selected {
+  background: var(--accent, #5e6ad2);
+  border-color: #454ca0;
+  box-shadow: 0 2px 10px rgba(30, 40, 90, 0.28);
+}
+.drawflow .drawflow-node.selected .cf-node-name { color: #ffffff; }
+.drawflow .drawflow-node.selected .cf-node-brief { color: rgba(255, 255, 255, 0.88); }
+.drawflow .drawflow-node.selected .cf-node-id { color: rgba(255, 255, 255, 0.7); }
+.cf-node { padding: 0.5rem 0.7rem 0.6rem; }
+.cf-node-id { font-size: 0.62rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-tertiary); letter-spacing: .02em; margin-bottom: 2px; }
+.cf-node-name { font-size: 0.78rem; font-weight: 600; color: var(--text-primary); }
+.cf-node-brief { font-size: 0.68rem; color: var(--text-tertiary); margin-top: 3px; word-break: break-all; }
+.drawflow .connection .main-path { stroke: var(--accent, #2563eb); stroke-width: 2.5; }
+
+/* 顶部栏 */
+.cf-top { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 1rem; border-bottom: 1px solid var(--border-subtle); }
+.cf-top h2 { margin: 0; font-size: 0.95rem; }
+.cf-top .spacer { flex: 1; }
+
+/* 运行结果（画布底部横条，替代全屏弹窗） */
+#run-bar-resize { display: none; height: 8px; cursor: ns-resize; position: relative; z-index: 3; }
+#run-bar-resize:hover, #run-bar-resize.active { background: rgba(148,163,184,.4); }
+#run-bar { display: none; border-top: 1px solid var(--border-subtle); background: var(--bg-panel); padding: 10px 14px 12px; height: 45vh; max-height: 70vh; overflow-y: scroll; font-size: 0.82rem; line-height: 1.55; }
+/* 强制可见滚动条（macOS 悬浮滚动条默认不显示轨道；overflow-y:scroll + 以下样式保证常显） */
+#run-bar { scrollbar-width: thin; scrollbar-color: #94a3b8 transparent; }
+#run-bar::-webkit-scrollbar { width: 10px; }
+#run-bar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 5px; }
+#run-bar::-webkit-scrollbar-track { background: transparent; }
+#run-bar .run-trace-all > summary { font-size: 0.74rem; color: var(--text-tertiary); cursor: pointer; margin-top: 6px; }
+.run-approval-row { display: flex; gap: 6px; margin: 6px 0; }
+.run-approval-row input { flex: 1; font-size: 0.8rem; }
+/* 节点运行状态着色：左侧粗色条 + 底色（类型=顶部色条；状态=左条+底色，区分开） */
+#drawflow .drawflow-node.cf-run-ok { border-left: 5px solid #16a34a; }
+#drawflow .drawflow-node.cf-run-ok .cf-node { background: rgba(22,163,74,.12); }
+#drawflow .drawflow-node.cf-run-skip { border-left: 5px solid #94a3b8; opacity: .75; }
+#drawflow .drawflow-node.cf-run-skip .cf-node { background: rgba(148,163,184,.10); }
+#drawflow .drawflow-node.cf-run-err { border-left: 5px solid #dc2626; }
+#drawflow .drawflow-node.cf-run-err .cf-node { background: rgba(220,38,38,.12); }
+#drawflow .drawflow-node.cf-run-wait { border-left: 5px solid #db2777; }
+#drawflow .drawflow-node.cf-run-wait .cf-node { background: rgba(219,39,119,.10); }
+#run-bar .run-answer { font-size: 0.86rem; }
+#run-bar .run-hint { font-size: 0.74rem; }
+#run-bar .run-json { font-size: 0.7rem; }
+/* 右属性面板：运行详情区 */
+.cf-panel-box { border-top: 1px solid var(--border-subtle); margin-top: 10px; padding-top: 8px; }
+.run-answer { font-size: 0.8rem; line-height: 1.6; margin: 6px 0; }
+.run-node { font-size: 0.7rem; color: var(--text-secondary); margin: 3px 0; padding: 0.3rem 0.45rem; background: var(--bg-surface); border-radius: 4px; }
+.run-trace-label { font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); margin: 8px 0 2px; }
+.run-node details { margin: 2px 0; }
+.run-node summary { cursor: pointer; }
+.run-status { display: inline-block; min-width: 58px; font-size: 0.62rem; text-align: center; border-radius: 3px; padding: 1px 5px; margin-right: 5px; }
+.run-status.ok { background: rgba(22,163,74,.15); color: #16a34a; }
+.run-status.skip { background: rgba(100,116,139,.15); color: #64748b; }
+.run-status.err { background: rgba(220,38,38,.15); color: #dc2626; }
+.run-json { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.64rem; color: var(--text-secondary); margin: 3px 0 0 14px; word-break: break-all; }
+.run-k { color: var(--text-tertiary); margin-right: 4px; }
+.run-approval { font-size: 0.78rem; color: #db2777; margin: 6px 0; }
+.run-approval input { width: calc(100% - 70px); margin-right: 4px; font-size: 0.76rem; }
+.run-hint { font-size: 0.7rem; color: var(--text-tertiary); margin-top: 4px; }
+</style>
+</head>
+<body data-base=".." data-section="workspace" data-sub="chatflow">
+<header id="app-header"></header>
+<div class="cf-top">
+  <h2 id="app-title">—</h2><span id="app-status"></span>
+  <span class="spacer"></span>
+  <button class="secondary" onclick="saveFlow()">保存</button>
+  <button class="primary" onclick="publishFlow()" id="publish-btn">发布</button>
+</div>
+<div class="cf-shell">
+
+  <!-- 左：节点库 -->
+  <div class="cf-palette">
+    <h4>节点面板</h4>
+    <span class="drag-cf" data-node="start"    ><span class="dot" style="background:#16a34a"></span>开始</span>
+    <span class="drag-cf" data-node="llm"      ><span class="dot" style="background:#7c3aed"></span>LLM 生成</span>
+    <span class="drag-cf" data-node="knowledge"><span class="dot" style="background:#2563eb"></span>知识检索</span>
+    <span class="drag-cf" data-node="qu"       ><span class="dot" style="background:#ea580c"></span>QU 理解</span>
+    <span class="drag-cf" data-node="capability"><span class="dot" style="background:#dc2626"></span>能力调用</span>
+    <span class="drag-cf" data-node="tool"     ><span class="dot" style="background:#0891b2"></span>工具取数</span>
+    <span class="drag-cf" data-node="chat_history"><span class="dot" style="background:#475569"></span>对话历史</span>
+    <span class="drag-cf" data-node="condition"><span class="dot" style="background:#ca8a04"></span>条件分支</span>
+    <span class="drag-cf" data-node="human_approval"><span class="dot" style="background:#db2777"></span>人工确认</span>
+    <span class="drag-cf" data-node="end"      ><span class="dot" style="background:#64748b"></span>结束</span>
+    <p class="tip">从面板拖到画布，或双击节点；点画布节点在右侧编辑；滚轮缩放、拖空白平移；连线：右圆点 → 左圆点。条件节点第 2 个输出 = ✗否。</p>
+  </div>
+
+  <!-- 中：画布 -->
+  <div class="cf-canvas" id="canvas-wrap">
+    <div class="toolbar">
+      <button class="secondary btn-sm" onclick="runFlow()">▶ 运行</button>
+      <button class="btn-sm" onclick="loadExample()">示例</button>
+      <button class="btn-sm" onclick="clearFlow()">清空</button>
+      <button class="btn-sm" id="props-toggle" onclick="toggleProps()" title="收起/展开属性面板">«</button>
+    </div>
+    <div id="drawflow"></div>
+    <!-- 运行结果横条（不弹窗；节点状态直接看画布着色） -->
+    <!-- 结果条拖拽手柄（调节高度，记忆到 localStorage） -->
+    <div id="run-bar-resize" title="拖拽调节结果条高度"></div>
+    <div id="run-bar">
+      <div id="run-body"></div>
+    </div>
+  </div>
+
+  <!-- 右：属性面板 -->
+  <div class="cf-props" id="props">
+    <div class="empty">选中一个画布节点以编辑其配置。</div>
+  </div>
+</div>
+
+<script src="../js/app.js"></script>
+<script src="../js/flow-graph.js"></script>
+<script src="../vendor/drawflow.min.js"></script>
+<script src="../js/chatflow-canvas.js"></script>
+<script src="../js/nav.js"></script>
+<script>
+// ── Chatflow 画布编排页（Dify 式三栏：节点库 / 画布 / 属性面板）──
+var state = { app: null, selected: null, convId: null };
+var appId = new URLSearchParams(location.search).get('app') || '';
+var editor = null;
+
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  if (!appId) { document.getElementById('app-title').textContent = '缺少 app 参数'; return; }
+  editor = new Drawflow(document.getElementById('drawflow'));
+  editor.start();
+  editor.reroute = true;
+  editor.reroute_fix_curvature = true;
+  bindPaletteDrag();
+  bindCanvasClick();
+  bindRunBarResize();
+  restorePropsToggle();
+  await loadApp();
+}
+
+async function loadApp() {
+  try {
+    state.app = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId));
+  } catch (err) { document.getElementById('app-title').textContent = '加载失败: ' + err.message; return; }
+  var a = state.app;
+  document.getElementById('app-title').textContent = a.name;
+  document.getElementById('app-status').innerHTML = a.status === 'published'
+    ? '<span class="tag tag-green">已发布</span>' : '<span class="tag tag-accent">草稿</span>';
+  document.getElementById('publish-btn').disabled = a.status === 'published';
+  document.getElementById('publish-btn').textContent = a.status === 'published' ? '已发布' : '发布';
+  loadExample(); // 载入现有 flow_schema（或示例打底）
+  if (a.flow_schema && a.flow_schema.nodes && a.flow_schema.nodes.length) {
+    clearFlow();
+    ChatflowCanvas.loadIntoDrawflow(editor, a.flow_schema);
+  }
+}
+
+// ── 节点面板拖拽 → 画布（幽灵图跟随，避免 HTML5 draggable 冲突）──
+var draggingEl = null, ghost = null;
+function bindPaletteDrag() {
+  document.querySelectorAll('.drag-cf').forEach(function (el) {
+    el.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      draggingEl = el;
+      ghost = document.createElement('div');
+      ghost.textContent = el.textContent;
+      ghost.style.cssText = 'position:fixed;z-index:999;pointer-events:none;padding:7px 10px;font-size:12px;background:var(--bg-panel);border:1px solid var(--accent);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.2);opacity:.9;transform:translate(-50%,-50%)';
+      document.body.appendChild(ghost);
+      ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+    });
+    el.addEventListener('dblclick', function () { addNodeAt(el.dataset.node, 120 + Math.random() * 300, 80 + Math.random() * 200); });
+  });
+}
+document.addEventListener('mousemove', function (e) { if (ghost) { ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; } });
+document.addEventListener('mouseup', function (e) {
+  if (draggingEl) {
+    var rect = document.getElementById('canvas-wrap').getBoundingClientRect();
+    var inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+    if (inside) addNodeAt(draggingEl.dataset.node, e.clientX - rect.left - 90, e.clientY - rect.top - 24);
+    draggingEl = null;
+    if (ghost) { ghost.remove(); ghost = null; }
+  }
+});
+
+function addNodeAt(type, x, y) {
+  var def = ChatflowCanvas.NODE_DEFS[type] || { name: type, inputs: 1, outputs: 1 };
+  var data = {};
+  // 默认真实参数（便于快速编辑）
+  if (type === 'llm') data = { prompt: '请回答：{{query}}' };
+  if (type === 'knowledge') data = { query: '{{query}}', top_k: 5 };
+  if (type === 'qu') data = { query: '{{query}}' };
+  if (type === 'chat_history') data = { turns: 6 };
+  if (type === 'human_approval') data = { question: '请确认是否继续' };
+  if (type === 'condition') data = { condition: { left: '', op: '==', right: '' } };
+  var fid = ChatflowCanvas.nextId(type);
+  var id = editor.addNode(def.name, def.inputs, def.outputs, x, y, 'c-' + type, { type: type, data: data, id: fid }, ChatflowCanvas.nodeHtml(type, data, fid));
+  return id;
+}
+
+// 选中节点 → 右属性面板（用 Drawflow 标准事件，比手写 mousedown 可靠）
+function bindCanvasClick() {
+  if (editor.on) {
+    editor.on('nodeSelected', function (id) { selectNode(id); });
+    editor.on('nodeUnSelected', function () { selectNode(null); });
+    editor.on('nodeRemoved', function () { selectNode(null); });
+  }
+}
+
+function selectNode(id) {
+  state.selected = id;
+  var propsEl = document.getElementById('props');
+  if (id == null) { propsEl.innerHTML = '<div class="empty">选中一个画布节点以编辑其配置。</div>'; return; }
+  var node = editor.getNodeFromId(id);
+  if (!node || !node.data || !node.data.type) return;
+  var type = node.data.type;
+  var data = node.data.data || {};
+  ChatflowCanvas.renderPropsPanel(propsEl, type, data, function (fields) {
+    node.data.data = ChatflowCanvas.fieldsToData(type, fields);
+    updateNodeBrief(id, type, fields);
+  });
+  // 运行详情区（上次运行中该节点的 input/output/branch/error）
+  var det = document.createElement('div');
+  det.id = 'run-detail';
+  det.className = 'cf-panel-box';
+  propsEl.appendChild(det);
+  renderRunDetail(det, node.data.id);
+}
+
+function updateNodeBrief(id, type, fields) {
+  var nodeEl = document.querySelector('#drawflow .drawflow-node#node-' + id + ' .cf-node-brief');
+  if (nodeEl) nodeEl.textContent = (ChatflowCanvas.NODE_DEFS[type] || { brief: () => '' }).brief(fields);
+}
+
+// ── 操作 ──
+function clearFlow() {
+  clearRunState();
+  ChatflowCanvas.resetIds();
+  document.getElementById('drawflow').innerHTML = '';
+  editor = new Drawflow(document.getElementById('drawflow'));
+  editor.start();
+  editor.reroute = true;
+  editor.reroute_fix_curvature = true;
+  selectNode(null);
+}
+function loadExample() {
+  clearFlow();
+  ChatflowCanvas.loadIntoDrawflow(editor, FlowGraph.example('full'));
+}
+
+async function saveFlow() {
+  if (!state.app) return;
+  var schema = ChatflowCanvas.toFlowSchema(editor);
+  var errors = FlowGraph.validate(schema);
+  if (errors.length) { alert('flow_schema 校验失败：\n' + errors.slice(0, 6).join('\n')); return; }
+  var btn = document.querySelector('.cf-top .secondary');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    var upd = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId), {
+      method: 'PATCH', body: JSON.stringify({ orchestration: 'flow', flow_schema: schema }),
+    });
+    state.app = upd;
+    if (upd.status === 'draft' && upd.name === state.app.name && upd.orchestration === 'flow') {
+      // 已发布 → 回草稿提示
+    }
+    alert('已保存');
+  } catch (err) { alert('保存失败: ' + err.message); }
+  finally { btn.disabled = false; btn.textContent = '保存'; }
+}
+
+async function publishFlow() {
+  if (!state.app || state.app.status === 'published') return;
+  // 发布前强制保存 + 校验
+  var schema = ChatflowCanvas.toFlowSchema(editor);
+  var errors = FlowGraph.validate(schema);
+  if (errors.length) { alert('发布失败（图不合法）：\n' + errors.slice(0, 4).join('\n')); return; }
+  if (!confirm('确认发布？发布后可在应用中心查看')) return;
+  try {
+    var pub = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId) + '/publish', { method: 'POST' });
+    state.app = pub;
+    alert('已发布');
+    loadApp();
+  } catch (err) { alert('发布失败: ' + err.message); }
+}
+
+// ── 运行：POST /chat → 结果 + 202 人工确认 ──
+async function runFlow() {
+  var schema = ChatflowCanvas.toFlowSchema(editor);
+  var errors = FlowGraph.validate(schema);
+  if (errors.length) { alert('图不合法：\n' + errors.slice(0, 4).join('\n')); return; }
+  var query = prompt('输入要测试的问题：', 'CNC-01 设备状态如何');
+  if (query == null) return;
+  openRun(query);
+}
+
+function openRun(query) {
+  state.lastQuery = query;
+  var bar = document.getElementById('run-bar');
+  bar.style.display = 'block';
+  var handle = document.getElementById('run-bar-resize');
+  if (handle) handle.style.display = 'block';
+  // 恢复上次拖拽高度（localStorage 记忆）
+  var saved = 0;
+  try { saved = parseInt(localStorage.getItem('earp.cf.runbarH') || '', 10) || 0; } catch (e) {}
+  if (saved > 0) bar.style.height = saved + 'px';
+  var body = document.getElementById('run-body');
+  body.innerHTML = '<div class="run-answer">👤 ' + esc(query) + '</div><div class="run-answer">⏳ 执行中…</div>';
+  fetch(EARP.apiBase + '/chat_apps/' + encodeURIComponent(appId) + '/chat', {
+    method: 'POST', headers: EARP.headers(), body: JSON.stringify({ query: query, conversation_id: state.convId }),
+  }).then(function (res) {
+    if (res.status === 202) return res.json().then(function (d) { renderApproval(d); });
+    return res.json().then(function (d) {
+      if (!res.ok) throw new Error(d.detail || (res.status + ' ' + res.statusText));
+      renderResult(d);
+    });
+  }).catch(function (err) {
+    body.innerHTML = (body.innerHTML || '') + '<div class="run-answer" style="color:var(--red)">执行失败：' + esc(err.message) + '</div>';
+    clearRunColors();
+  });
+}
+
+function renderResult(d) {
+  state.convId = d.conversation_id;
+  state.lastTrace = d.trace || [];
+  var body = document.getElementById('run-body');
+  var trace = state.lastTrace;
+  var nOk = trace.filter(function (t) { return t.status === 'completed'; }).length;
+  var nSkip = trace.filter(function (t) { return t.status === 'skipped'; }).length;
+  var nErr = trace.filter(function (t) { return t.status === 'failed'; }).length;
+  var html = '';
+  if (state.lastQuery != null) html += '<div class="run-answer">👤 ' + esc(state.lastQuery) + '</div>';
+  html += '<div class="run-answer" style="color:var(--accent)">🤖 ' + esc(d.answer || '(空回答)') + '</div>';
+  html += '<div class="run-hint">状态：' + esc(d.status) + ' · ' + nOk + ' 执行 / ' + nSkip + ' 跳过 / ' + nErr + ' 失败 · 画布节点已着色，点节点看详情</div>';
+  if (trace.length) {
+    var typeOf = {};
+    try {
+      (ChatflowCanvas.toFlowSchema(editor).nodes || []).forEach(function (n) { typeOf[n.id] = n.type; });
+    } catch (e) {}
+    html += '<details class="run-trace-all"><summary>展开全部节点轨迹（' + trace.length + '）</summary>';
+    trace.forEach(function (t) {
+      var statusCls = t.status === 'completed' ? 'ok' : (t.status === 'failed' ? 'err' : 'skip');
+      html += '<details class="run-node"><summary>'
+        + '<span class="run-status ' + statusCls + '">' + esc(t.status) + '</span>'
+        + '<b>' + esc(t.node_id) + '</b> ' + esc(typeOf[t.node_id] || '')
+        + (t.branch ? ' → <b>' + (t.branch === 'then' ? '✓是' : '✗否') + '</b>' : '')
+        + '</summary>';
+      if (t.input != null) html += '<div class="run-json"><span class="run-k">input</span> ' + esc(JSON.stringify(t.input)) + '</div>';
+      if (t.output != null) html += '<div class="run-json"><span class="run-k">output</span> ' + esc(JSON.stringify(t.output)) + '</div>';
+      if (t.error) html += '<div class="run-json" style="color:var(--red)"><span class="run-k">error</span> ' + esc(t.error) + '</div>';
+      html += '</details>';
+    });
+    html += '</details>';
+  }
+  body.innerHTML = html;
+  applyRunState(trace);
+  if (state.selected != null) selectNode(state.selected);  // 刷新右侧运行详情
+}
+
+function renderApproval(d) {
+  state.convId = d.conversation_id;
+  var body = document.getElementById('run-body');
+  body.innerHTML = '<div class="run-approval">⏸ 等待确认：' + esc(d.question || '') + '</div>'
+    + '<div class="run-approval-row">'
+    + '<input id="approval-reply" placeholder="输入答复…">'
+    + '<button class="primary" style="font-size:0.72rem" onclick="submitApproval()">提交答复</button>'
+    + '</div>'
+    + '<div class="run-hint">输入内容即答复，流程自动继续。</div>';
+  // 挂起点着色（等待状态）
+  clearRunColors();
+  if (d.pending_node_id) {
+    var el = findNodeEl(d.pending_node_id);
+    if (el) el.classList.add('cf-run-wait');
+  }
+}
+function submitApproval() {
+  var reply = document.getElementById('approval-reply').value;
+  if (!reply.trim()) { alert('请输入答复'); return; }
+  openRun(reply.trim());
+}
+
+// ── 节点运行状态着色 + 点选详情 ───────────────────────────────────────────
+function clearRunColors() {
+  document.querySelectorAll('#drawflow .drawflow-node').forEach(function (el) {
+    el.classList.remove('cf-run-ok', 'cf-run-skip', 'cf-run-err', 'cf-run-wait');
+  });
+}
+function findNodeEl(semId) {
+  // 用 DOM + 公开 API（不依赖 Drawflow 内部结构）：逐个节点查 data.id
+  var els = document.querySelectorAll('#drawflow .drawflow-node');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    var m = /^node-(\d+)$/.exec(el.id || '');
+    if (!m) continue;
+    var nd = null;
+    try { nd = editor.getNodeFromId(m[1]); } catch (e) {}
+    if (nd && nd.data && nd.data.id === semId) return el;
+  }
+  return null;
+}
+function applyRunState(trace) {
+  clearRunColors();
+  trace.forEach(function (t) {
+    var el = findNodeEl(t.node_id);
+    if (!el) return;
+    if (t.status === 'failed' || t.error) el.classList.add('cf-run-err');
+    else if (t.status === 'skipped') el.classList.add('cf-run-skip');
+    else el.classList.add('cf-run-ok');
+    // 节点摘要就地更新为本次输出（在图上直接看到结果，前缀状态符号）
+    var brief = el.querySelector('.cf-node-brief');
+    if (brief) {
+      var emoji = (t.status === 'failed' || t.error) ? '❌ ' : (t.status === 'skipped' ? '⏭ ' : '✅ ');
+      var s = '';
+      if (t.branch) s = (t.branch === 'then' ? '✓ 是' : '✗ 否');
+      else if (t.output != null) s = String(JSON.stringify(t.output)).slice(0, 56);
+      else if (t.error) s = String(t.error).slice(0, 40);
+      else if (t.status === 'skipped') s = '未执行';
+      if (s) brief.textContent = emoji + s;
+    }
+  });
+}
+function renderRunDetail(el, semId) {
+  var trace = state.lastTrace || [];
+  var t = null;
+  trace.forEach(function (x) { if (x.node_id === semId) t = x; });
+  var html = '<div class="cf-panel-label">运行详情</div>';
+  if (!t) {
+    html += '<div class="run-hint">该节点本次运行未执行或尚未运行。</div>';
+  } else {
+    html += '<div class="run-hint">状态：' + esc(t.status)
+      + (t.branch ? ' · 分支：' + (t.branch === 'then' ? '✓ 是' : '✗ 否') : '') + '</div>';
+    if (t.input != null) html += '<div class="run-json"><span class="run-k">input</span> ' + esc(JSON.stringify(t.input)) + '</div>';
+    if (t.output != null) html += '<div class="run-json"><span class="run-k">output</span> ' + esc(JSON.stringify(t.output)) + '</div>';
+    if (t.error) html += '<div class="run-json" style="color:var(--red)"><span class="run-k">error</span> ' + esc(t.error) + '</div>';
+  }
+  el.innerHTML = html;
+}
+function clearRunState() {
+  state.lastTrace = null;
+  state.lastQuery = null;
+  state.convId = null;
+  clearRunColors();
+  var bar = document.getElementById('run-bar');
+  if (bar) bar.style.display = 'none';
+  var handle = document.getElementById('run-bar-resize');
+  if (handle) handle.style.display = 'none';
+  var det = document.getElementById('run-detail');
+  if (det) det.innerHTML = '';
+}
+
+// ── 右属性面板 收起/展开 ──────────────────────────────────────────────────
+function toggleProps() {
+  var shell = document.querySelector('.cf-shell');
+  var collapsed = shell.classList.toggle('cf-props-collapsed');
+  document.getElementById('props-toggle').textContent = collapsed ? '»' : '«';
+  try { localStorage.setItem('earp.cf.propsCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+}
+function restorePropsToggle() {
+  var saved = '';
+  try { saved = localStorage.getItem('earp.cf.propsCollapsed') || ''; } catch (e) {}
+  if (saved === '1') {
+    document.querySelector('.cf-shell').classList.add('cf-props-collapsed');
+    document.getElementById('props-toggle').textContent = '»';
+  }
+}
+
+// ── 结果条拖拽调节高度 ─────────────────────────────────────────────────────
+function bindRunBarResize() {
+  var handle = document.getElementById('run-bar-resize');
+  if (!handle) return;
+  handle.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    var bar = document.getElementById('run-bar');
+    var startY = e.clientY;
+    var startH = bar.offsetHeight;
+    handle.classList.add('active');
+    document.body.style.userSelect = 'none';
+    var onMove = function (ev) {
+      // 画布可用高度内夹取（留出画布最小空间）
+      var canvasH = document.getElementById('canvas-wrap').clientHeight;
+      var maxH = Math.max(160, canvasH - 80);
+      var h = Math.max(120, Math.min(startH + (startY - ev.clientY), maxH));
+      bar.style.height = h + 'px';
+      try { localStorage.setItem('earp.cf.runbarH', String(h)); } catch (err) {}
+    };
+    var onUp = function () {
+      handle.classList.remove('active');
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+function esc(s) { return ChatflowCanvas.esc ? ChatflowCanvas.esc(s) : String(s == null ? '' : s); }
+</script>
+</body></html>
