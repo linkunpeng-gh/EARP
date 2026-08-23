@@ -20,7 +20,8 @@
       brief: () => '流程终点' },
     llm: { name: 'LLM', color: '#7c3aed', inputs: 1, outputs: 1,
       fields: [
-        { key: 'prompt', label: '提示词', type: 'textarea', default: '请回答：{{query}}' },
+        { key: 'prompt', label: '提示词（User）', type: 'textarea', default: '请回答：{{query}}' },
+        { key: 'system', label: '系统提示词（角色/规则）', type: 'textarea', default: '' },
         { key: 'model_config_id', label: '模型', type: 'model-select', default: '' },
       ],
       brief: (d) => '生成回复' },

@@ -519,7 +519,7 @@ class TestLlmNodeModelSelect:
     def test_compile_llm_node_model_config_id_passes_through(self) -> None:
         g = _flow_graph(
             {"id": "start", "type": "start", "data": {}},
-            {"id": "l1", "type": "llm", "data": {"prompt": "p", "model_config_id": "mc-node"}},
+            {"id": "l1", "type": "llm", "data": {"prompt": "p", "system": "你是设备助手", "model_config_id": "mc-node"}},
             {"id": "end", "type": "end", "data": {}},
             edges=[{"source": "start", "target": "l1"}, {"source": "l1", "target": "end"}],
         )
@@ -527,7 +527,7 @@ class TestLlmNodeModelSelect:
         l1 = next(i for i in plan.sequence if i.node_id == "l1")
         assert l1.step.capability_call == {
             "adapter_type": "llm.prompt",
-            "input": {"prompt": "p", "model_config_id": "mc-node"},
+            "input": {"prompt": "p", "system": "你是设备助手", "model_config_id": "mc-node"},
         }
 
     async def test_resolve_model_override_roundtrip(self, app_engine: AsyncEngine) -> None:
@@ -581,8 +581,9 @@ class TestLlmNodeModelSelect:
         llm = FakeLLM(text="default-answer")
         connector = Connector(engine=app_engine, llm=llm, settings=_settings())
         out = await connector.execute(
-            {"adapter_type": "llm.prompt", "input": {"prompt": "hi"}},
+            {"adapter_type": "llm.prompt", "input": {"prompt": "hi", "system": "你是设备助手"}},
             ctx=_ctx(),
         )
         assert out == {"text": "default-answer"}
-        assert llm.calls[0]["prompt"] == "hi"  # 应用默认模型路径（无 model_config_id 行为不变）
+        assert llm.calls[0]["prompt"] == "hi"
+        assert llm.calls[0]["system"] == "你是设备助手"  # 应用默认模型路径：system 透传
