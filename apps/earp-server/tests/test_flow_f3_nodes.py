@@ -635,3 +635,16 @@ class TestNoteNode:
         )
         plan = compile_flow_schema(g)
         assert plan is not None
+
+
+class TestNodePosition:
+    def test_node_position_accepted_and_not_in_execution(self) -> None:
+        """节点 position{x,y}（ReactFlow 兼容）可保存、不影响执行序列。"""
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}, "position": {"x": 40, "y": 80}},
+            {"id": "l1", "type": "llm", "data": {"prompt": "p"}, "position": {"x": 300, "y": 150}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "l1"}, {"source": "l1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        assert [i.node_id for i in plan.sequence] == ["l1"]  # 位置仅布局元数据

@@ -30,7 +30,7 @@ function mkDrawflow() {
     start() {}, reroute: false, reroute_fix_curvature: false,
     addNode(name, inputs, outputs, x, y, cls, data, html) {
       const id = nextId++;
-      nodes[id] = { id: id, name: name, data: data, inputs: inputs, outputs: outputs, x: x, y: y, cls: cls, html: html };
+      nodes[id] = { id: id, name: name, data: data, inputs: inputs, outputs: outputs, x: x, y: y, pos_x: x, pos_y: y, cls: cls, html: html };
       (nodes[id].outs = []);
       return id;
     },
@@ -48,7 +48,7 @@ function mkDrawflow() {
         for (let i = 1; i <= n.outputs; i++) {
           outputs['output_' + i] = { connections: (n._c || []).filter(c => c.from === n.id && c.out === 'output_' + i).map(c => ({ node: c.to, output: c.inp })) };
         }
-        data[id] = { id: id, name: n.name, data: n.data, outputs: outputs };
+        data[id] = { id: id, name: n.name, data: n.data, outputs: outputs, pos_x: n.pos_x, pos_y: n.pos_y };
       });
       return { drawflow: { Home: { data: data } } };
     },
@@ -149,5 +149,31 @@ Canvas.loadIntoDrawflow(ed5, noteSchema);
 const round5 = Canvas.toFlowSchema(ed5);
 assert(round5.nodes.some(n => n.id === 'nt1' && n.type === 'note'), 'note: roundtrip 保留注释节点');
 assert(FlowGraph.validate(round5).length === 0, 'note: roundtrip 后仍合法');
+
+
+// ── 6. 节点位置持久化：保存 position{x,y}，重开按保存位置摆放（不漂移） ──
+const posSchema = {
+  nodes: [
+    { id: 'start', type: 'start', data: {}, position: { x: 40, y: 80 } },
+    { id: 'nt1', type: 'note', data: { text: '注释' }, position: { x: 620, y: 30 } },
+    { id: 'l1', type: 'llm', data: { prompt: 'p' }, position: { x: 300, y: 150 } },
+    { id: 'end', type: 'end', data: {}, position: { x: 700, y: 300 } },
+  ],
+  edges: [{ source: 'start', target: 'l1' }, { source: 'l1', target: 'end' }],
+};
+assert(FlowGraph.validate(posSchema).length === 0, 'position: 带位置图合法');
+const ed6 = mkDrawflow();
+Canvas.loadIntoDrawflow(ed6, posSchema);
+const round6 = Canvas.toFlowSchema(ed6);
+function posOf(schema, id) { const n = schema.nodes.find(x => x.id === id); return n && n.position; }
+assert(posOf(round6, 'nt1') && posOf(round6, 'nt1').x === 620 && posOf(round6, 'nt1').y === 30, 'position: 注释节点位置往返保留（620,30）');
+assert(posOf(round6, 'l1') && posOf(round6, 'l1').x === 300 && posOf(round6, 'l1').y === 150, 'position: LLM 节点位置往返保留');
+// 无位置 schema → 自动布局后导出仍带位置（fallback）
+const ed7 = mkDrawflow();
+Canvas.loadIntoDrawflow(ed7, { nodes: [
+  { id: 'start', type: 'start', data: {} }, { id: 'l1', type: 'llm', data: { prompt: 'p' } }, { id: 'end', type: 'end', data: {} },
+], edges: [{ source: 'start', target: 'l1' }, { source: 'l1', target: 'end' }] });
+const round7 = Canvas.toFlowSchema(ed7);
+assert(round7.nodes.every(n => n.position && typeof n.position.x === 'number'), 'position: 无位置载入后自动布局 → 导出仍带位置');
 
 console.log('\n' + passed + ' 断言全部通过（chatflow 画布核心冒烟）');

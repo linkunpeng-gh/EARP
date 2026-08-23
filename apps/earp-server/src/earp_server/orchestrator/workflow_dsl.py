@@ -33,6 +33,8 @@ class WorkflowNode(BaseModel):
     id: str
     type: str
     data: dict[str, Any] = Field(default_factory=dict)
+    # Chatflow 画布位置（ReactFlow 兼容 {x, y}）：缺省 → 前端自动拓扑布局
+    position: dict[str, float] | None = None
 
 
 class WorkflowEdge(BaseModel):

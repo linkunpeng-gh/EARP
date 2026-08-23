@@ -138,7 +138,10 @@
       var fields = dataToFields(type, n.data && n.data.data);
       var fid = (n.data && n.data.id) ? String(n.data.id) : String(n.id);
       idMap[String(n.id)] = fid;
-      return { id: fid, type: type, data: fieldsToData(type, fields) };
+      // 画布位置持久化（ReactFlow 兼容 position{x,y}）——Drawflow export 提供 pos_x/pos_y
+      var pos = (typeof n.pos_x === 'number' && typeof n.pos_y === 'number')
+        ? { x: n.pos_x, y: n.pos_y } : undefined;
+      return { id: fid, type: type, data: fieldsToData(type, fields), position: pos };
     });
     var edges = [];
     ids.forEach(function (id) {
@@ -191,8 +194,13 @@
     nodes.forEach(function (n) {
       var def = NODE_DEFS[n.type] || { name: n.type, inputs: 1, outputs: 1 };
       registerId(n.id);
+      // 位置：优先用保存的 position{x,y}（重开不漂移），缺省回退拓扑分层自动布局
+      var px = layerOf[n.id] * 250 + 40, py = rowOf[n.id] * 130 + 60;
+      if (n.position && typeof n.position.x === 'number' && typeof n.position.y === 'number') {
+        px = n.position.x; py = n.position.y;
+      }
       var did = editor.addNode(def.name, def.inputs, def.outputs,
-        layerOf[n.id] * 250 + 40, rowOf[n.id] * 130 + 60, 'c-' + n.type, { type: n.type, data: n.data, id: n.id }, nodeHtml(n.type, n.data, n.id));
+        px, py, 'c-' + n.type, { type: n.type, data: n.data, id: n.id }, nodeHtml(n.type, n.data, n.id));
       map[n.id] = did;
     });
     // 连接：condition 用 output_2 映射 true，否则 output_1
