@@ -825,8 +825,12 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 ### 15.1 节点 JSON 形状（flow_schema）
 
 ```jsonc
-// QU 节点：理解 → 选策略 → 执行（输出 selection/evidence/citations/chunks）
-{ "id": "q1", "type": "qu", "data": { "query": "{{query}}", "context_turns": 2 } }
+// LLM 节点：生成文字（prompt=User 提示词；system=角色/规则可选，留空不设；model_config_id=模型配置中心选模型，留空=应用默认）
+{ "id": "l1", "type": "llm",
+  "data": { "prompt": "请回答：{{query}}", "system": "你是设备维修助手", "model_config_id": "" } }
+
+// QU 节点：理解→选策略→执行（输出 selection/evidence/citations/chunks；use_llm=false = 纯规则跳过 LLM 升级）
+{ "id": "q1", "type": "qu", "data": { "query": "{{query}}", "context_turns": 2, "use_llm": true } }
 
 // Capability 节点：注册表校验 + 权限门禁 + 审计（capability_id 必填）
 // 两种形状兼容——step 别名（capability_call）或新形状（input）
@@ -840,16 +844,21 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 // Human Approval 节点（F4）：执行到此处挂起，等人在会话里答复后继续
 { "id": "h1", "type": "human_approval",
   "data": { "question": "确认给 CNC-01 派维修单？" } }
+
+// Note 节点：纯标注（不可连线、不执行；可选 position{x,y} 画布位置——所有节点均可带）
+{ "id": "nt1", "type": "note", "data": { "text": "此处需人工确认后通知负责人" }, "position": { "x": 620, "y": 30 } }
 ```
 
 ### 15.2 三个节点做了什么
 
 | 节点 | 执行链路 | 输出 | 备注 |
 |:---|:---|:---|:---|
-| **QU** | understand（规则层，可 LLM 升级）→ select_plan → execute_plan（plan_fact/relation/aggregation） | `{selection, evidence, citations, chunks}` | 输出 citations 供下游 `{{#q1.output.citations#}}`（或简写 `{{#q1.citations#}}`）引用——flow 里放 QU = 自动理解子问题 |
-| **Capability** | business_capabilities 注册表校验（存在 + active）→ required_permissions 门禁 → 执行 | 适配器结果（如 demo.echo → `{"echo": {...}}`） | 无权限：PolicyLayer 403（角色缺 required_permissions）；审计事件 `earp.capability.call.*` 落 audit_logs；capability_id 需在注册表声明 |
-| **Tool** | decrypt_config（AES 解密）→ data_adapter.fetch（REST/DB） | `{rows, count, domain_filtered: false}` | 取数在外部系统（不经 EARP RLS）——raw rows 一期标注 `domain_filtered: false`，需上层/后续做角色域过滤（M3 review 教训 B） |
+| **LLM** | llm.prompt 适配器（`model_config_id` 存在 → 解析节点级模型配置构造独立 LLMConnector；`system` 可选透传） | `{"text": ...}` | 模型：留空=应用/系统默认模型；指定=模型配置中心该配置（provider/base_url/api_key 全量）；配置不存在 → 明确报错不静默回落 |
+| **QU** | understand（规则层，可 LLM 升级 `use_llm`）→ select_plan → execute_plan（plan_fact/relation/aggregation） | `{selection, evidence, citations, chunks}` | 输出 citations 供下游 `{{#q1.output.citations#}}`（或简写 `{{#q1.citations#}}`）引用；`use_llm=false` 纯规则（快，跳过升级）；升级模板由租户在模型配置中心「QU 升级模板」配置（占位符 {query}/{missing}/{relation_candidates}/{context}） |
+| **Capability** | business_capabilities 注册表校验（存在 + active）→ required_permissions 门禁 → 执行 | 适配器结果（如 demo.echo → `{"echo": {...}}`） | 无权限：PolicyLayer 403；审计 `earp.capability.call.*`；capability_id 需在注册表声明；**一期能力真实执行仍限 demo.echo/已知 adapter（通用能力执行器 Phase F）** |
+| **Tool** | decrypt_config（AES 解密）→ data_adapter.fetch（REST/DB） | `{rows, count, domain_filtered: false}` | 取数在外部系统（不经 EARP RLS）——raw rows 一期标注 `domain_filtered: false`，需上层/后续做角色域过滤 |
 | **Human Approval**（F4） | 执行到挂起点 → 抛挂起信号 → flow_runs 持久化 → 202 等人工答复 | 挂起 202 `{status: waiting_human, pending_node_id, question}`；恢复后答复经 `{{#h1.output.reply#}}` 供下游 | 用户下一句消息即答复（复用对话）；等待超时（默认 3600s）→ timeout 终态 |
+| **Note** | 不执行（纯标注） | — | 不可连线（入/出边校验拒绝）、可达性豁免；`position{x,y}` 可选（画布位置，重开不漂移） |
 
 ### 15.3 权限与审计边界（FDE 需知）
 
@@ -878,10 +887,13 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 > chat 列表只显示聊天助手；flow 全在 chatflow 页（互不混杂）。
 
 **操作三步**：
-1. **拖节点 / 连边**：从左边拖 10 种节点到画布（或双击快速添加），连线「右圆点 → 左圆点」；
+1. **拖节点 / 连边**：从左边拖 11 种节点（含注释）到画布（或双击快速添加），连线「右圆点 → 左圆点」；
    条件节点 2 个输出 = ✓是 / ✗否
-2. **配参数**：点选中节点 → 右侧属性面板改字段（能力 ID / 连接 ID / 提示词 / 确认问题…）
-3. **保存 / 运行**：保存时图校验（缺开始/结束、有环、condition 分支不全会提示）；
-   「▶ 运行」输入问题 → 弹结果 + 每个节点输出；人工确认处输答复继续
+2. **配参数**：点选中节点 → 右侧属性面板改字段（能力 ID / 连接 ID / 提示词 / 系统提示词 / 模型 /
+   QU 升级开关 / 确认问题 / 注释内容…）
+3. **保存 / 运行**：保存时图校验（缺开始/结束、有环、condition 分支不全会提示）；**节点位置一并保存**
+   （重开不漂移）；「▶ 运行」→ 画布底部结果条：答案 + 状态统计 + 可展开全部轨迹
 
-**调试**：运行结果弹层逐节点输出；遇 human_approval 弹「⏸ 等待确认」→ 输答复提交 → 流程继续。
+**调试**：运行后**画布节点就地着色**（✅绿执行 / ⏭灰跳过 / ❌红失败 / ⏸粉等待，节点显示输出摘要）；
+点任意节点 → 右侧「运行详情」（状态/耗时/实际输入/输出/错误）；结果条上边缘可拖拽调高；
+遇 human_approval → 结果条内联「等待确认」输答复提交 → 流程继续。
