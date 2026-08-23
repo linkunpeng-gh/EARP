@@ -997,3 +997,23 @@ L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 �
 **记录**：tech-debt 增 **#15**（中台对接归属能力中心，P2，做能力中心时一并处理）、**#16**（单节点调试，P3）、**#17**（运行历史持久化，P3）。
 
 **遗留**：① 节点 id 手动改名（本轮只自动生成+展示）；② 单节点调试（#16）；③ 运行历史（#17）；④ 本轮+F5b 全部改动**待提交**（含 chatflow 页面/画布/vendor Drawflow/后端 trace/tech-debt）；⑤ capability 节点仍限 demo.echo（通用能力执行器 + 能力中心任务书待开工）
+
+### 追加（2026-08-21）— Chatflow 节点能力与 QU 提速（F5b 收尾第二轮）
+
+> 承接第一轮（调试工作台）；本轮：节点编辑持久化 bug 修复、LLM 节点模型选择、注释节点、位置持久化、QU 提速五件套 + 升级 prompt 压缩/可配置。基线 383 tests。
+
+**关键产出**：
+
+1. **修复 F5b 遗留「节点编辑不生效」**：`selectNode` 用 `editor.getNodeFromId()` 拿节点——Drawflow 返回**深拷贝**，属性面板写入克隆、`toFlowSchema` 读内部 → **所有节点字段编辑（prompt/system/model/能力ID…）保存全丢**。修复：`updateNodeDataFromId(id, {type,data,id} 完整 wrapper)` 写内部（含直接写内部 fallback）；冒烟补「持久化契约」3 断言（改克隆不生效/写内部生效/编辑后图合法）。用户表象：LLM 节点配了系统提示词+模型、保存后不生效。
+2. **LLM 节点模型选择**：节点 data `model_config_id`（编译透传 → `llm.prompt` 适配器解析该配置构造独立 LLMConnector，含 provider/base_url/api_key；配置不存在明确报错不静默回落）；`chat_service` 抽 `resolve_model_override`（应用级/节点级共用解密链）；前端 LLM 属性面板「模型」下拉（`/api/model-configs?model_type=llm` 无 admin 门禁可读）。顺带补 **system 提示词 UI**（后端链路原已支持，仅补框 + 测试）。
+3. **标注「注释」节点**（对标 Dify Note）：纯标注、0 入 0 出、不可连线、可达性豁免、编译不产出执行项；画布灰节点 + 属性面板注释内容 textarea；FDE 指南节点字典 11 种。
+4. **画布位置持久化**：`flow_schema` 节点带 `position{x,y}`（ReactFlow 兼容；后端 WorkflowNode 可选字段纯布局元数据）；`toFlowSchema` 导出 Drawflow pos、`loadIntoDrawflow` 优先用保存位置、缺省自动拓扑布局；旧 schema 无需迁移（首次保存即落位）。
+5. **QU 节点提速五件套**（用户反馈「组件热斑是什么引起的」QU 25s）：
+   - 计时拆解：规则理解 0.03s + **LLM 升级 30s 超时**（json_complete 默认 30s）+ 检索 0.4s；
+   - ① `Settings.qu_upgrade_timeout_seconds=8`（env EARP_QU_UPGRADE_TIMEOUT，升级 json_complete 传预算）② 升级结果 LRU 缓存（键=tenant+query，**含负缓存**——超时/失败也记 None，同问题二次 8.5s→75ms）③ `embed_query` 内存 LRU（plan_relation 循环重复 embed 直接命中）④ **use_llm 开关**（方案 C：QU 节点 checkbox，false=纯规则跳过升级，349ms→29ms）⑤ 升级 **prompt 压缩**（关系候选截断 6、规则一句话化、最小输出约束）+ **系统级可配置模板**（migration 0027 `system_model_settings.qu_prompt_template`；模型配置中心「QU 升级模板」textarea，占位符 `{query}/{missing}/{relation_candidates}/{context}`；「载入默认」按钮——默认模板与租户模板统一占位符、等同默认文本保存=默认行为零漂移）。
+   - **诊断关键**：DeepSeek 端点**间歇性挂起**（同 payload 裸调 3s↔30s+ ReadTimeout 波动）——QU 慢的最终根因；中间一度误判 api_key 无效（脚本截断 key 所致 401，已纠正）；postmortem：升级预算/缓存/开关/模板五层兜底均为此。
+   - 完成链路所用默认模型：`system_model_settings(llm) → openai/deepseek-v4-flash`（模型清楚：config.py 默认 qwen3.6:27b + 远程 base_url 才是「未配置时的兜底」；pytest 约定 env `EARP_OLLAMA_CHAT_MODEL=qwen2.5:1.5b` 仅本地最小可跑）。
+
+**质量门**：每次变更随做随提交（12 commit）；全量 383 基线之上各批回归（131-133 相关用例）绿；ruff 无新增（仅既有 UP042）；前端冒烟 10/10 + 内联 JS 语法检查；migration 0027 应用 + 迁移测试 2 绿；dev 真 API 验证（模型选择/注释/位置往返/QU 开关/模板存取）。
+
+**遗留**：① 单节点调试（tech-debt #16）/ 运行历史（#17）未做；② import-linter 3 条过时 ignore 待专门会话清理；③ deepseek 端点间歇问题属外部依赖（生产监控建议加超时分布观测）；④ LLM 节点「流式透传」未做（F5a 遗留）；⑤ 画布位置初次保存后生效（旧图自动布局落位一次即可固定）。
