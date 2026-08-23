@@ -59,7 +59,7 @@ NODE_TYPES: frozenset[str] = frozenset({"start", "end", "step", "condition"})
 # 扩展类型（llm/knowledge/…）F1 可存（结构校验），F2+ 节点适配层各自实现执行。
 FLOW_NODE_TYPES: frozenset[str] = NODE_TYPES | frozenset(
     # capability = step 的声明别名（设计稿 §3 Capability 节点，data.capability_call 同 step 校验）
-    {"capability", "llm", "knowledge", "qu", "chat_history", "human_approval", "tool", "mcp"}
+    {"capability", "llm", "knowledge", "qu", "chat_history", "human_approval", "tool", "mcp", "note"}
 )
 CONDITION_HANDLES: frozenset[str] = frozenset({"true", "false"})
 BranchSide = Literal["then", "else"]
@@ -196,6 +196,14 @@ def validate_workflow(
         if outgoing[end_id]:
             errors.append("end node must have no outgoing edges")
 
+    # note（注释）节点：纯标注、不参与执行——不可连线（无入边无出边）
+    for n in g.nodes:
+        if n.type == "note":
+            if incoming.get(n.id):
+                errors.append(f"note {n.id}: 注释节点不可有入边（纯标注，不连线）")
+            if outgoing.get(n.id):
+                errors.append(f"note {n.id}: 注释节点不可有出边（纯标注，不连线）")
+
     # 节点级约束（F0: 无并行 fan-out——所有非 condition 节点；condition 恰 2 分支边；
     # step 必带 capability_call；扩展类型只做通用结构校验）
     for n in g.nodes:
@@ -244,6 +252,8 @@ def validate_workflow(
             from_start = _reachable(start_id, outgoing)
             to_end = _reachable_backward(end_id, incoming)
             for nid in node_ids:
+                if by_id[nid].type == "note":
+                    continue  # 注释节点不与图相连，豁免可达性
                 if nid not in from_start:
                     errors.append(f"node {nid}: not reachable from start")
                 if nid not in to_end:

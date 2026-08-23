@@ -12,12 +12,13 @@
   'use strict';
 
   var FLOW_TYPES = ['start', 'end', 'step', 'condition', 'capability', 'llm', 'knowledge',
-    'qu', 'chat_history', 'human_approval', 'tool', 'mcp'];
+    'qu', 'chat_history', 'human_approval', 'tool', 'mcp', 'note'];
 
   var NODE_META = {
     start: { color: '#16a34a', label: '开始' },
     end: { color: '#64748b', label: '结束' },
     llm: { color: '#7c3aed', label: 'LLM' },
+    note: { color: '#94a3b8', label: '注释' },
     knowledge: { color: '#2563eb', label: '知识检索' },
     qu: { color: '#ea580c', label: 'QU 理解' },
     capability: { color: '#dc2626', label: '能力调用' },
@@ -89,6 +90,10 @@
         var handles = outs.map(function (e) { return e.sourceHandle || ''; }).slice().sort();
         if (outs.length !== 2 || handles.join(',') !== 'false,true') {
           errors.push('condition ' + n.id + ': 需要恰好 2 条出边（sourceHandle true/false 各一）');
+        }
+      } else if (n.type === 'note') {
+        if ((incoming[n.id] || []).length || outs.length) {
+          errors.push('note ' + n.id + ': 注释节点不可连线（纯标注）');
         }
       } else if (outs.length > 1) {
         errors.push(n.type + ' ' + n.id + ': 最多 1 条出边（flow 一期无并行）');

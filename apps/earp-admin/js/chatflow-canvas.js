@@ -54,6 +54,9 @@
     human_approval: { name: '人工确认', color: '#db2777', inputs: 1, outputs: 1,
       fields: [{ key: 'question', label: '确认问题', type: 'text', default: '请确认是否继续' }],
       brief: (d) => '⏸ ' + (d.question || '人工确认') },
+    note: { name: '注释', color: '#94a3b8', inputs: 0, outputs: 0,
+      fields: [{ key: 'text', label: '注释内容', type: 'textarea', default: '' }],
+      brief: (d) => d.text || '（空注释）' },
   };
 
   // ── 字段 ↔ flow_schema 的 data 映射 ────────────────────────────────────────

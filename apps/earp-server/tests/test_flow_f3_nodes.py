@@ -519,7 +519,10 @@ class TestLlmNodeModelSelect:
     def test_compile_llm_node_model_config_id_passes_through(self) -> None:
         g = _flow_graph(
             {"id": "start", "type": "start", "data": {}},
-            {"id": "l1", "type": "llm", "data": {"prompt": "p", "system": "你是设备助手", "model_config_id": "mc-node"}},
+            {
+                "id": "l1", "type": "llm",
+                "data": {"prompt": "p", "system": "你是设备助手", "model_config_id": "mc-node"},
+            },
             {"id": "end", "type": "end", "data": {}},
             edges=[{"source": "start", "target": "l1"}, {"source": "l1", "target": "end"}],
         )
@@ -587,3 +590,48 @@ class TestLlmNodeModelSelect:
         assert out == {"text": "default-answer"}
         assert llm.calls[0]["prompt"] == "hi"
         assert llm.calls[0]["system"] == "你是设备助手"  # 应用默认模型路径：system 透传
+
+
+# ── note（注释）节点：纯标注、不连线、不执行 ──────────────────────────────────
+
+
+class TestNoteNode:
+    def test_note_node_compiles_and_skips_execution(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "n1", "type": "note", "data": {"text": "此处人工确认后需通知设备负责人"}},
+            {"id": "l1", "type": "llm", "data": {"prompt": "p"}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "l1"}, {"source": "l1", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)  # note 断开 → 校验通过（可达性豁免）
+        assert all(i.node_id != "n1" for i in plan.sequence)  # note 不产出执行项
+
+    def test_note_node_with_edge_rejected(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "n1", "type": "note", "data": {"text": "t"}},
+            {"id": "l1", "type": "llm", "data": {"prompt": "p"}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[
+                {"source": "start", "target": "l1"},
+                {"source": "l1", "target": "n1"},
+                {"source": "l1", "target": "end"},
+            ],
+        )
+        with pytest.raises(WorkflowValidationError, match="注释节点不可有入边"):
+            compile_flow_schema(g)
+
+    def test_note_node_in_flow_node_types(self) -> None:
+        from earp_server.orchestrator import workflow_dsl
+
+        assert "note" in workflow_dsl.FLOW_NODE_TYPES
+        # 空文本也允许（纯占位）；文本可选
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "n1", "type": "note", "data": {}},
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "end"}],
+        )
+        plan = compile_flow_schema(g)
+        assert plan is not None

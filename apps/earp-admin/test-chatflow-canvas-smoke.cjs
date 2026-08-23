@@ -129,4 +129,25 @@ const l4d = out4b.nodes.find(n => n.id === 'l1').data;
 assert(l4d.prompt === '新提示词' && l4d.system === '你是助手' && l4d.model_config_id === 'mc-x', '持久化契约: updateNodeDataFromId 写内部 → 导出含编辑（prompt/system/model）');
 assert(FlowGraph.validate(out4b).length === 0, '持久化契约: 编辑后图仍合法');
 
+
+// ── 5. note（注释）节点：纯标注、不连线即可通过校验、不参与 roundtrip 执行 ──
+const noteSchema = {
+  nodes: [
+    { id: 'start', type: 'start', data: {} },
+    { id: 'nt1', type: 'note', data: { text: '此处需人工确认后通知负责人' } },
+    { id: 'l1', type: 'llm', data: { prompt: 'p' } },
+    { id: 'end', type: 'end', data: {} },
+  ],
+  edges: [{ source: 'start', target: 'l1' }, { source: 'l1', target: 'end' }],
+};
+assert(FlowGraph.validate(noteSchema).length === 0, 'note: 断开注释节点图校验合法（可达性豁免）');
+const badNote = JSON.parse(JSON.stringify(noteSchema));
+badNote.edges.push({ source: 'l1', target: 'nt1' });
+assert(FlowGraph.validate(badNote).some(e => e.indexOf('注释节点不可连线') >= 0), 'note: 注释节点连线被拒');
+const ed5 = mkDrawflow();
+Canvas.loadIntoDrawflow(ed5, noteSchema);
+const round5 = Canvas.toFlowSchema(ed5);
+assert(round5.nodes.some(n => n.id === 'nt1' && n.type === 'note'), 'note: roundtrip 保留注释节点');
+assert(FlowGraph.validate(round5).length === 0, 'note: roundtrip 后仍合法');
+
 console.log('\n' + passed + ' 断言全部通过（chatflow 画布核心冒烟）');
