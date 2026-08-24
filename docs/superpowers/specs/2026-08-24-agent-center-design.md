@@ -13,7 +13,7 @@
 1. 工作台（admin）搭建的 chat / chatflow 应用发布后，在应用中心「智能体」页可见。
 2. 点击卡片，在权限满足的情况下直接运行（内嵌对话抽屉 + 独立运行页）。
 3. 用户可把喜欢的智能体收藏到「我的应用」（跨设备，按 user_id 存库）。
-4. chatflow 改为节点级 SSE 流式，运行界面实时展示节点执行过程（清掉 F5a 遗留「LLM 节点流式透传」）。
+4. chatflow 改为节点级 SSE 流式，运行界面实时展示节点执行过程（落地 F5a 遗留未做项「LLM 节点流式透传」）。
 5. 治理中心统一定义应用使用权限（角色×应用矩阵）与业务分类词表。
 
 ## 2. 需求要点（已确认）
@@ -25,7 +25,7 @@
 | R3 | 分类 | 按类型（chat/chatflow）筛选 + 业务分类（发布时创建人填写，来源为租户级预设词表） |
 | R4 | 查找 | 名字 / 描述 / 创建人 / 标签 模糊搜索 |
 | R5 | 运行交互 | 列表内嵌快速对话抽屉 + 「进入完整对话页」入口，两者都要 |
-| R6 | chatflow 流式 | 本期做 flow 节点级 SSE 流式完整版（选 A），清掉 F5a 遗留 |
+| R6 | chatflow 流式 | 本期做 flow 节点级 SSE 流式完整版（选 A），落地 F5a 遗留未做项 |
 | R7 | 权限模型 | 应用级可见/可运行权限（治理中心统一定义，角色粒度）+ 执行期 PolicyLayer 双重把关（选 C） |
 | R8 | 权限默认策略 | 默认开放：发布即默认所有人可见可运行；治理中心只对需限制的应用做白名单例外 |
 | R9 | 治理中心形态 | 角色×应用矩阵（行=角色、列=应用，勾选即授权） |
@@ -42,17 +42,20 @@
 | R20 | 词表种子 | 财务、人事、客服、IT 运维、数据分析、其他 |
 | R21 | 审计 | 发布/编辑/删除/权限矩阵变更/分类变更写 audit_logs（沿用 _audit + 事件总线）；收藏不审计 |
 
-## 3. 数据模型（新 migration `0032_agent_center`）
+## 3. 数据模型（新 migration `0029_agent_center`）
 
 ### 3.1 `chat_apps` ALTER
 
 | 列 | 类型 | 说明 |
 |---|---|---|
-| `category` | VARCHAR(64) NULL | 业务分类（取值来自租户词表） |
+| `category` | VARCHAR(64) NULL | 业务分类名（存 `app_categories.name` 快照，非 id；NULL=未分类） |
 | `tags` | TEXT[] NOT NULL DEFAULT '{}' | 自由标签 |
 | `created_by` | VARCHAR(64) NULL | 创建人 user_id（历史数据 NULL，列表显示「—」） |
+| `access_mode` | VARCHAR(16) NOT NULL DEFAULT 'open' CHECK (access_mode IN ('open','restricted')) | 应用权限模式：open=默认开放；restricted=仅 `app_role_access` 内角色可访问 |
 
 - `create_chat_app` 写入 `created_by = user_id`；历史数据迁移置空不追溯。
+- `category` 存词表 `name` 字符串（非 category_id），编辑/发布时校验其存在于租户词表；词表 rename 时后端同一事务内同步 `UPDATE chat_apps.category`（见 3.2）。
+- 卡片「创建人」显示 `created_by`（user_id 原文），历史 NULL 显示「—」。
 
 ### 3.2 `app_categories`（租户级预设词表）
 
@@ -66,7 +69,9 @@ UNIQUE (tenant_id, name)
 ```
 
 - 种子：财务、人事、客服、IT 运维、数据分析、其他。
-- RLS 租户隔离，与既有表一致。
+- RLS 三件套（ENABLE/FORCE RLS + tenant_isolation policy）+ `GRANT SELECT,INSERT,UPDATE,DELETE ON app_categories TO earp_app`（对齐 0014：新表必须显式授权）。
+- `category_id` 全局唯一（非复合租户键），生成带随机后缀避免跨租户撞号（对齐 `roles.role_id` 模式）。
+- rename（PATCH）需在**同一事务内**同步 `UPDATE chat_apps SET category = :new WHERE category = :old AND tenant_id = :tid`，保证快照一致。
 
 ### 3.3 `app_role_access`（角色×应用权限矩阵，白名单语义）
 
@@ -78,9 +83,12 @@ created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 PRIMARY KEY (chat_app_id, role_id, tenant_id)
 ```
 
-- **语义**：某应用在表内无任何行 → 默认开放（所有人可看可运行）；存在行 → 白名单模式（仅行内角色可访问）。
+- **语义**：`chat_apps.access_mode` 为权威开关——`open`（默认，所有人可看可运行）；`restricted` → 白名单模式（仅 `app_role_access` 内角色可访问）。`app_role_access` 仅存 `restricted` 应用的授权行。
 - **is_admin 角色始终可见/可运行**（沿用现有跳过数据域过滤的兜底模式）。
-- 治理中心矩阵页：勾选 ≥1 角色 = 白名单；0 勾选 = 开放。
+- 治理中心矩阵页：勾选 ≥1 角色 = restricted；0 勾选 = open（默认）。
+- `role_id` FK 用 `ON DELETE CASCADE`：删除角色时清理其矩阵行。
+- **fail-closed 安全**：删除某应用唯一授权角色后，`access_mode` 仍为 `restricted`、仅无授权行 → 无非 admin 角色可访问（不会回退为全员可见）；管理员重新授权即可恢复。
+- RLS 三件套 + `GRANT SELECT,INSERT,UPDATE,DELETE ON app_role_access TO earp_app`。
 
 ### 3.4 `user_app_favorites`（我的应用）
 
@@ -94,12 +102,14 @@ PRIMARY KEY (user_id, chat_app_id, tenant_id)
 
 - 回草稿（下架路径 = 编辑已发布应用回 draft）→ 收藏行保留但列表隐藏；重新发布自动恢复。
 - 删除应用 → CASCADE 清理收藏。
+- 收藏/取消幂等：INSERT 用 `ON CONFLICT (user_id, chat_app_id, tenant_id) DO NOTHING`；DELETE 无条件删除。
+- RLS 三件套 + `GRANT SELECT,INSERT,DELETE ON user_app_favorites TO earp_app`。
 
 ## 4. 后端 API
 
 | 端点 | 说明 |
 |---|---|
-| `GET /chat_apps` | 扩展参数：`q`（名字/描述/标签/创建人 模糊）、`type`（chat\|flow）、`category`、`tag`、`sort=latest\|hot`（hot 按收藏数）、`fav=1`（只看我的收藏）；返回增加 `category / tags / created_by / favorite / favorite_count`；可见性过滤（非 admin + 白名单应用 → 仅矩阵内角色可见） |
+| `GET /chat_apps` | 扩展参数：`q`（名字/描述/标签/创建人 模糊）、`type`（chat\|flow）、`category`、`tag`、`sort=latest\|hot`（hot 按收藏数）、`fav=1`（只看我的收藏）；返回增加 `category / tags / created_by / favorite / favorite_count`；可见性过滤（`access_mode=restricted` 且非 admin → 仅矩阵内角色可见） |
 | `GET /chat_apps/{id}` | 返回新增字段 |
 | `POST /chat_apps` | 支持 `category / tags` 字段 |
 | `PATCH /chat_apps/{id}` | 支持 `category / tags` 更新 |
@@ -110,8 +120,8 @@ PRIMARY KEY (user_id, chat_app_id, tenant_id)
 | `POST /admin/app_categories` | 新增分类（同名校验） |
 | `PATCH /admin/app_categories/{id}` | 改名称/排序 |
 | `DELETE /admin/app_categories/{id}` | 删除；若被 chat_apps 引用 → 应用 category 置空 |
-| `GET /admin/app_access?chat_app_id=` | 某应用授权角色 + 当前模式（open / restricted） |
-| `PUT /admin/app_access/{chat_app_id}` | body `{roles: []}`；空数组 = 开放（清行），非空 = 白名单 |
+| `GET /admin/app_access?chat_app_id=` | 某应用 `access_mode`（open / restricted）+ 授权角色列表 |
+| `PUT /admin/app_access/{chat_app_id}` | body `{mode: "open"\|"restricted", roles: []}`；open=清行，restricted=写入 roles 白名单；**restricted + roles=[] 为合法防御态**（无授权行→非 admin 均不可访问，勿当脏数据拒绝） |
 | `POST /chat_apps/{id}/chat/stream` | flow 新增 SSE 流式；chat 模式与现有 SSE 一致；原非流式 `POST /chat_apps/{id}/chat` 保持兼容 |
 
 ### 4.1 flow SSE 事件序列
@@ -126,14 +136,17 @@ PRIMARY KEY (user_id, chat_app_id, tenant_id)
 | `done` | `conversation_id, message_id, status` | 整轮完成 |
 | `error` | `message` | 执行失败 |
 
-- 恢复：用户答复后调用 stream 端点续跑（复用现有 `flow_runs` 挂起恢复机制）。
+- 恢复：用户答复后调用 `/chat/stream` 续跑（复用 `flow_runs` 挂起恢复机制）；原非流式 `/chat` 同样支持恢复（保持兼容），二者共享同一恢复逻辑，避免状态分叉。
 
 ### 4.2 实现要点
 
-- `MultiStepExecutor` / `StepRunner` 增加事件回调：`on_node_start / on_node_end / on_token / on_branch`（默认 no-op，flow stream 时注入）。
-- LLM 节点适配器把 `LLMConnector.stream()` 的 token 转发给 `on_token`。
-- `flow_chat` 增加 stream 模式：回调桥接到 SSE（`text/event-stream`）；挂起恢复复用 `flow_runs`。
+- **关键改造在节点适配器层**：当前 flow 执行走 `MultiStepExecutor.execute() → StepRunner.invoke() → Connector.execute()`，LLM 节点用 `llm.complete()`（非流式）。token 级 SSE 必须把 LLM 节点适配器从 `complete` 切换为 `llm.stream()` 并上抛 token——仅加回调不够，`invoke()` 的 `output` 返回语义与流式互斥。
+- `MultiStepExecutor` / `StepRunner` 增加事件回调 `on_node_start / on_node_end / on_token / on_branch`（默认 no-op，flow stream 时注入）；非 LLM 节点仅产生 `node_start` / `node_end`。
+- `flow_chat` 增加 stream 模式：回调桥接到 SSE（`text/event-stream`）；挂起恢复复用 `flow_runs`（与 `/chat` 共享恢复逻辑，见 4.1）。
 - 原非流式 flow 路径保持兼容（调试 trace 输出不变）。
+- **QU 节点边界**：token 事件仅覆盖 `llm.prompt` 节点；`qu.answer`（含 LLM 升级 upgrade_with_llm）仍只发 `node_start` / `node_end`，QU 链路流式留待后续。
+- `GET /chat_apps` / `list_chat_apps` 签名需扩展：传入 `role_id`（白名单过滤 + is_admin 兜底）与 `user_id`（`favorite` 标记）；`sort=hot` 需 JOIN `user_app_favorites` 按租户聚合收藏数。
+- 新增审计事件：`earp.app_category.created/updated/deleted`、`earp.app_access.updated`（权限矩阵变更）沿用 `_audit` + 事件总线。
 
 ## 5. 前端（admin）
 
@@ -154,7 +167,7 @@ PRIMARY KEY (user_id, chat_app_id, tenant_id)
 ### 5.3 治理中心两页（新增）
 
 - `app-categories.html`：词表 CRUD（名称/排序/操作）；删除被引用分类提示「该分类下存在 N 个应用，删除后置空」。
-- `app-access.html`：矩阵页——行=角色（非 admin）、列=已发布应用，勾选即授权；0 勾选 = 开放（默认）；带应用搜索；保存写 `app_role_access`。
+- `app-access.html`：矩阵页——行=角色（非 admin）、列=已发布应用，勾选即授权；每应用一个 mode 开关（open=默认 / restricted=白名单，0 勾选即回 open）；带应用搜索；保存写 `chat_apps.access_mode` + `app_role_access`。删除角色的 fail-closed 提示见 3.3。
 
 ### 5.4 工作台改造（chat / chatflow 编辑页）
 
@@ -176,9 +189,10 @@ PRIMARY KEY (user_id, chat_app_id, tenant_id)
 
 - chat_app_service：新字段读写、搜索（名称/描述/标签/创建人）、排序 hot、发布分类必填校验。
 - 收藏：收藏/取消幂等、`fav=1` 过滤（已发布 + 可见）、删除 CASCADE、回草稿隐藏-重发布恢复。
-- 权限矩阵：默认开放 / 白名单 / is_admin 兜底 / 非 admin 不可见过滤。
-- 分类词表：CRUD、租户隔离、删除被引用分类置空。
-- flow SSE：事件序列（node_start/token/node_end/branch/human_approval/done）、挂起恢复续跑。
+- 权限矩阵：`access_mode` 开关 / open 默认 / restricted 白名单 / is_admin 兜底 / 非 admin 不可见过滤 / 删除唯一授权角色后 fail-closed（不回退开放）。
+- 分类词表：CRUD、租户隔离、删除被引用分类置空、rename 同步更新应用 category。
+- flow SSE：事件序列（node_start/token/node_end/branch/human_approval/done）、挂起恢复续跑、非 LLM 节点无 token 事件。
+- 收藏/排序组合：`sort=hot` 聚合正确、`q` 多字段模糊（名称/描述/标签/创建人）。
 
 ### 6.2 前端 smoke（沿用 `test-*.cjs` 模式）
 
