@@ -1127,3 +1127,4 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .mode-badge { font-size: 0.68rem; font-weight: 600; padding: 1px 7px; border-radius: 4px; }
 .mode-badge.open { background: var(--green-bg); color: var(--green); }
 .mode-badge.restricted { background: var(--amber-bg); color: var(--amber); }
+.fp-node.waiting_human .fp-status { background: var(--amber); }

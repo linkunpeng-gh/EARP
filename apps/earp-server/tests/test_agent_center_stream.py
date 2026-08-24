@@ -220,3 +220,22 @@ async def test_flow_stream_human_approval_event(app_engine: AsyncEngine) -> None
     ha = [d for ev, d in collector.events if ev == "human_approval"]
     assert ha and ha[0]["question"] == "确认派单？"
     assert ha[0]["conversation_id"] == result["conversation_id"]
+    # 挂起节点补发 node_end(waiting_human)——前端节点不再保持 running 闪烁
+    ne = [d for ev, d in collector.events if ev == "node_end" and d.get("node_id") == "h1"]
+    assert ne and ne[-1]["status"] == "waiting_human"
+    # 恢复：h1 补发 node_start + node_end(completed)
+    res = await flow_chat(
+        app_engine,
+        TENANT,
+        "stream-u1",
+        "r1",
+        app,
+        "确认",
+        result["conversation_id"],
+        base_llm=StreamLLM(),
+        settings=_settings(),
+        on_event=collector.emit,
+    )
+    assert res["status"] == "completed"
+    resume_ne = [d for ev, d in collector.events if ev == "node_end" and d.get("node_id") == "h1"]
+    assert resume_ne and resume_ne[-1]["status"] == "completed"

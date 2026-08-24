@@ -330,7 +330,20 @@ class MultiStepExecutor:
             if resume_pool is not None:
                 if item.node_id == resume_pending_node:
                     # F4 恢复：挂起点注入答复（下游 {{#node.output.reply#}} / {{#node.reply#}} 引用）
+                    # 应用中心：补发 node_start/node_end（completed）——否则前端该节点保持 running 闪烁
+                    if on_node_start is not None:
+                        await on_node_start(item.node_id, item.step.capability_call.get("adapter_type", ""))
                     reply_result = StepResult(step_id=item.node_id, status="completed", output={"reply": resume_reply})
+                    if on_node_end is not None:
+                        await on_node_end(
+                            item.node_id,
+                            {
+                                "status": "completed",
+                                "latency_ms": 0,
+                                "output_summary": {"reply": resume_reply},
+                                "error": None,
+                            },
+                        )
                     results.append(reply_result)
                     pool[item.node_id] = reply_result
                     state.completed_steps.append(item.node_id)

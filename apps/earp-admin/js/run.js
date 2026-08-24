@@ -3,7 +3,6 @@
   var app = null;
   var convId = null;
   var streaming = false;
-  var nodeMap = {};
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -53,7 +52,6 @@
     convId = cid;
     var box = document.getElementById('rm-msgs');
     box.innerHTML = '';
-    nodeMap = {};
     if (!cid) return;
     try {
       var msgs = await EARP.fetchJSON('/conversations/' + encodeURIComponent(cid) + '/messages');
@@ -92,15 +90,15 @@
     box.scrollTop = box.scrollHeight;
     return el;
   }
-  function flowNode(panel, nodeId, nodeType, status, meta) {
+  function flowNode(panel, map, nodeId, nodeType, status, meta) {
     var body = panel.querySelector('.fp-body');
-    var row = nodeMap[nodeId];
+    var row = map[nodeId];
     if (!row) {
       row = document.createElement('div');
       row.className = 'fp-node ' + (status || 'running');
       row.innerHTML = '<span class="fp-status"></span><span class="fp-label">' + esc(nodeId) + (nodeType ? ' <em>(' + esc(nodeType) + ')</em>' : '') + '</span><span class="fp-lat"></span>';
       body.appendChild(row);
-      nodeMap[nodeId] = row;
+      map[nodeId] = row;
     }
     row.className = 'fp-node ' + (status || 'running');
     if (meta && meta.latency_ms != null) row.querySelector('.fp-lat').textContent = meta.latency_ms + 'ms';
@@ -142,12 +140,13 @@
       if (app.orchestration === 'flow') {
         answerEl.textContent = '⏳ 执行中…';
         flowEl = addFlowPanel();
+        var nm = {};  // 每次消息独立节点状态表（恢复/多轮不串）
         await EARP.streamFlowSSE('/chat_apps/' + encodeURIComponent(app.chat_app_id) + '/chat/stream',
           { query: query, conversation_id: convId },
           function (ev, data) {
-            if (ev === 'node_start') flowNode(flowEl, data.node_id, data.node_type, 'running');
+            if (ev === 'node_start') flowNode(flowEl, nm, data.node_id, data.node_type, 'running');
             else if (ev === 'token') appendTokens(flowEl, data.text);
-            else if (ev === 'node_end') flowNode(flowEl, data.node_id, null, data.status, data);
+            else if (ev === 'node_end') flowNode(flowEl, nm, data.node_id, null, data.status, data);
             else if (ev === 'branch') addBranch(flowEl, data.branch_id, data.side);
             else if (ev === 'human_approval') {
               convId = data.conversation_id;  // 恢复挂起需同一会话

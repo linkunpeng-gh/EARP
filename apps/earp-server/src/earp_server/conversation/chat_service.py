@@ -571,6 +571,17 @@ async def flow_chat(
         )
         question = state.pending_question or "请确认是否继续"
         await add_message(engine, tenant_id, conversation_id, "assistant", f"⏸ 等待确认：{question}", user_id)
+        # 挂起节点补发 node_end（waiting_human）：否则前端节点保持 running 闪烁
+        await _emit(
+            "node_end",
+            {
+                "node_id": state.pending_node_id,
+                "status": "waiting_human",
+                "latency_ms": 0,
+                "output_summary": None,
+                "error": None,
+            },
+        )
         await _emit(
             "human_approval",
             {
