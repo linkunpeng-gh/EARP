@@ -1066,6 +1066,12 @@ L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 �
 
 **验证**：全量 **425 passed**（419 → +6 净增：新增 7 回归 - 删 1 重复）+ 前端冒烟 15/15 + import-linter 基线（exit=1 同 3 条 F2 遗留 ignore）+ ruff/pyright 改动文件零新增（仅既有 B007/I001）+ OpenAPI 同步；dev 真 API 逐项实测（超长 422/恶意 id 422/重复 409/viewer 详情 404/viewer POST 403/legacy 201）全过。
 
+**追加（2026-08-24）— FDE 指南 v1.2：§15.6 扩写为实操教程**
+
+- §15.6 从字段概述扩为完整操作教程（10 小节）：模型 30 秒理解（执行优先级/参数优先级）→ 前置准备 → 三个实战（tool.fetch 取数能力端到端 / Register Demo 30 秒最小闭环 / llm.prompt 与静态参数边界）→ 权限 403 验证 → 编辑停用（409/422 对照）→ 审计 SQL → 9 条排障表（按报错原文索引）→ API 直调 curl
+- **如实记录两处一期边界**：① 模板替换只作用于节点 input 不替换 execution.params，且画布能力节点一期无 input 编辑入口 → llm.prompt 类能力=固定生成任务，动态 LLM 用 LLM 节点；② audit 页面为占位 → 审计查询给 SQL
+- 指南头部：v1.1→v1.2、适用范围补能力中心、§0 概念速览补「能力/执行方式」两行
+
 **Review 遗留（未修，已定级）**：update/deprecate 读-改-写非原子（并发丢更新/重复审计事件，P1）；migration downgrade 对跨租户同名数据会炸（无前置条件注释，P1）；审计 detail 不含 execution/permissions 变更内容（P1）；前端无 admin 锁定态、`<select>` 预填非白名单 adapter 静默清空 execution（P2）；discover 列表对 is_admin 无豁免（admin 自建能力列表不可见怪癖，既有语义，P2）。
 
 **遗留**：

@@ -1,9 +1,9 @@
 # EARP 知识资产管理 — FDE 使用说明
 
-- 版本: v1.1
-- 日期: 2026-08-17
+- 版本: v1.2
+- 日期: 2026-08-24
 - 适用对象: FDE（一线部署/实施工程师）——负责为客户搭建和运营 EARP 知识资产
-- 适用范围: 实体管理 / 批量导入 / 图谱探索 / 知识检索（含三层检索与引用溯源）/ 评估管理（跑分）
+- 适用范围: 实体管理 / 批量导入 / 图谱探索 / 知识检索（含三层检索与引用溯源）/ 评估管理（跑分）/ 中台对接（M3）/ Chatflow flow 编排（F 系列）/ 能力中心与通用执行器（§15.6）
 - 前置: 服务已启动（API :8000）、Ollama embedding 可达、已通过 `pages/login.html` 登录获取 token
 
 ---
@@ -28,6 +28,8 @@
 | **跑分（eval run）** | 把评估集全部用例跑一遍，输出各指标通过率 + 逐条明细，对照门槛判 ✅/❌ | 交卷出分 |
 | **中台对接**（M3） | 企业数据自动流入知识库：synced（拷贝主数据副本）/ virtual（指标实时直连）——见 §12 操作、§14 原理 | 自来水管 + 实时行情 |
 | **Enrichment**（M3） | 夜间自动维护：档案重编 + 过期事实清理 + 时间线回填 + 热度报告——见 §13 | 夜间保洁员 |
+| **能力**（capability） | 给一个可复用动作（取数/LLM 生成/检索）起名 + 配权限 + 声明执行方式，Chatflow「能力调用」节点按名字调用——见 §15.6 | 定制的快捷指令 |
+| **执行方式**（execution） | 能力注册时声明的"怎么执行"：走哪个 adapter（白名单 6 选 1）+ 固定参数（如走哪条连接） | 菜谱里的"做法" |
 
 **关键认知**：
 1. **实体/事实与文档是两套知识**——实体图谱回答"谁、属于谁、由谁供应"（结构化）；文档（KB）回答"标准是什么、流程怎么走"（非结构化）。检索时两者融合。
@@ -898,31 +900,129 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 点任意节点 → 右侧「运行详情」（状态/耗时/实际输入/输出/错误）；结果条上边缘可拖拽调高；
 遇 human_approval → 结果条内联「等待确认」输答复提交 → 流程继续。
 
-### 15.6 能力中心：注册与管理（能力怎么来的）
+### 15.6 能力中心：注册能力并在 Chatflow 中真实执行（页面：能力中心 → 能力注册）
 
-> 「能力中心 → 能力注册」页（capabilities.html）——FDE 自助新建/编辑/停用能力，flow 的
-> Capability 节点引用的 capability_id 全部在此声明（2026-08-21 前只有写死的 demo 演示能力）。
+> 场景：FDE 自助注册能力（2026-08-21 前只有写死的 demo），Chatflow「能力调用」节点按注册时
+> 声明的「执行方式」**真实执行**（tool.fetch 取数 / llm.prompt 生成 / demo.echo 回显）。
 
-**新建能力（全字段）**：
-- **基础**：Domain / Name / 类型（query|command）/ 版本 / 能力 ID（留空自动生成 `cap-{domain}-{name}`，
-  创建后不可改）
-- **Schema**：input_schema / output_schema（JSON，需含 `properties` 结构——轻量校验，不合规则 422）
-- **权限**：required_permissions（逗号分隔，**不可为空**）——Capability 节点执行时校验
-  「角色 permissions ⊇ 能力 required_permissions」，缺任一项 403
-- **执行方式（execution）**：adapter 下拉（白名单 6 项，见 §15.2）+ params JSON——**声明「这个能力
-  怎么执行」**。例如 tool.fetch + `{"connector_id": "cn-1"}` = 该能力执行时走 cn-1 连接取数；
-  llm.prompt = 走 LLM 生成。params 是固定默认，可被 Capability 节点 input 覆写（优先级：
-  节点 input > execution.params）
+#### 15.6.1 30 秒理解模型
 
-**重要语义（注册 ≠ 自动可执行）**：
-- **未声明 execution 的能力**：回退按 `domain.name` 猜测 adapter——只有 demo.echo 命中（兼容存量），
-  其余执行时报「无执行 adapter（执行声明缺失或未实现）」→ 回能力中心补 execution 声明即可
-- **已停用（deprecated）能力**：被 flow 引用时执行报「已停用」（soft-disable：引用仍可读声明、
-  不可执行，不物理删除）——**停用不可恢复**，编辑可以反复改
-- **变更审计**：注册/更新/停用发 `earp.capability.registered/updated/deprecated` 事件落 audit_logs
-  （entity_type=capability）；调用侧另有 `earp.capability.call.*`
-- **门禁**：写操作（新建/编辑/停用）仅 Admin 角色（403）；列表/详情/搜索对登录角色开放
-- **跨租户隔离**：能力 ID 复合主键 (capability_id, tenant_id)——不同租户可注册同名能力互不冲突
+- **能力 = adapter 的命名封装**：一个能力 = `capability_id` + 权限清单 + 执行方式声明
+- **execution 声明 = 「这个能力怎么跑」**：`{"adapter": "<白名单 6 选 1>", "params": {…固定参数}}`
+- **执行优先级**：execution 声明 → 按 adapter 分派；无声明 → 回退 `domain.name` 猜测（仅 demo.echo
+  命中）；猜不中 → 明确报错「无执行 adapter（执行声明缺失或未实现）」
+- **参数优先级**：节点 input > execution.params。**注意**：Chatflow 画布的能力节点一期只有
+  「能力 ID」一个输入框（节点 input 固定为空）→ 实际参数以 execution.params 为准
 
-**Register Demo 按钮**：一键为当前租户种子 `cap-demo-echo`（带显式 `execution: {adapter: demo.echo}`
-声明）——调试 flow Capability 节点的最小可用能力。
+#### 15.6.2 前置准备（3 项）
+
+1. **Admin 角色登录**：能力写操作（新建/编辑/停用）仅 Admin（其它角色 403）；列表/详情对登录角色开放
+2. **tool.fetch 场景需先建连接**：知识中心 → 结构化知识 → 中台对接 → 连接管理，新建连接记下
+   `connector_id`（如 `cn-equipment`，REST 填 `{"base_url":"…","path":"…","method":"GET"}`，
+   见 §12.1）
+3. **Chatflow 入口**：工作台 → chatflow（画布编辑器操作见 §15.5）
+
+#### 15.6.3 实战一：注册「设备取数能力」并在 Chatflow 真实取数（最典型场景）
+
+1. **注册能力**：能力中心 → 能力注册 → 「+ 新建能力」，按下表填写后保存：
+
+| 字段 | 填写值 | 说明 |
+|:---|:---|:---|
+| 能力 ID | `cap-equipment-fetch`（留空则自动生成 `cap-{domain}-{name}`） | 小写字母/数字/`-`/`_`，≤64 字符 |
+| Domain / Name | `equipment` / `fetch_records` | domain ≤64 字符 |
+| 类型 | query | query 无副作用 / command 走审批 |
+| 所需权限 | `equipment:read` | 逗号分隔多个；**不可为空**——执行时校验「角色 permissions ⊇ 此清单」 |
+| 执行方式 | adapter 选 `tool.fetch` | 「这个能力怎么跑」 |
+| 执行参数 | `{"connector_id": "cn-equipment"}` | 固定走这条连接取数（connector_id 不必每次在图里配） |
+| input/output Schema | 留空即可 | 自动填 `{"type":"object","properties":{}}`（也可自定义，需含 properties） |
+
+2. **搭图**：工作台 → chatflow → 新建应用，画布拖入 `开始 → 能力调用 → LLM → 结束`；
+   选中能力节点 → 右侧属性面板「能力 ID」填 `cap-equipment-fetch`；LLM 节点提示词写
+   `把取到的数据汇总成一句话：{{#c1.output.rows#}}`
+3. **运行**：▶ 运行 → 输入问题（如「查一下设备清单」）
+4. **验证**：结果条展开全部轨迹——能力节点 ✅，运行详情显示输出
+   `{"rows": [...], "count": N, "domain_filtered": false}`；LLM 节点引用了取数结果
+5. **换一个能力名 = 换一条连接**：再建一个能力指向另一 connector_id，图里只改「能力 ID」即可
+   —— 这就是能力的意义：**图不感知连接细节，能力封装执行方式**
+
+#### 15.6.4 实战二：最小验证（Register Demo，30 秒跑通链路）
+
+刚接触时先跑通最小闭环：能力中心 → 「+ Register Demo」按钮（为当前租户种子
+`cap-demo-echo`，带显式 demo.echo 声明）→ chatflow 画布
+`开始 → 能力调用（cap-demo-echo）→ 结束` → 运行 → 能力节点输出 `{"echo": {}}` 即链路通。
+
+#### 15.6.5 实战三：LLM 生成能力（llm.prompt）与「静态参数」边界
+
+注册 adapter = `llm.prompt`、params = `{"prompt": "用一句话概括：设备台账共 12 台，其中 3 台待修"}`
+的能力 → 调用时走 LLM 生成（输出 `{"text": "…"}`，模型为应用/系统默认）。
+
+⚠️ **边界（务必知悉，避免踩坑）**：
+- `{{query}}` / `{{#节点.output.x#}}` 模板替换只作用于**节点 input**，**不替换 execution.params**
+  —— params 里写模板变量会原样传给 adapter，不会被替换
+- 画布能力节点一期没有 input 编辑入口（input 固定 `{}`）→ **带动态参数的能力当前无法在画布配置**
+- 结论：**llm.prompt 类能力一期 = 固定生成任务**；需要引用用户问题/前序输出的动态 LLM，请直接用
+  LLM 节点（完整支持模板）；能力封装适合「参数固定、多处复用」的任务（如固定连接的取数）
+
+#### 15.6.6 权限验证（故意触发 403）
+
+1. 治理中心 → Roles → 新建角色 `r-test`，permissions 留空（不含 `equipment:read`）
+2. 用该角色（或把能力权限改成角色没有的串）运行 15.6.3 的同一张图
+3. 预期：**403**，报错含 `缺少权限 ['equipment:read']`——PolicyLayer 与 connector 双保险，
+   flow 节点会显示 ❌ 且错误信息带权限清单
+4. 补权限：Roles 页给角色加 `equipment:read` → 重跑即通
+
+#### 15.6.7 编辑与停用
+
+- **编辑**：行内「编辑」→ 可改 domain/name/权限/版本/execution（adapter 选不在白名单的值仅
+  警告不阻断，但执行时会报错——别存未知 adapter）；能力 ID 创建后不可改
+- **停用**：行内「停用」→ status=deprecated，**不可恢复**；被 flow 引用时执行报
+  「已停用（deprecated）」——与「不存在」分开报错，方便定位是配置丢失还是被下线
+- **注册校验错误对照**：重复创建 → 409；能力 ID 超 64 字符 / 含大写或特殊字符 / version 超
+  16 字符 / schema 缺 properties / 权限为空 → 422（错误信息含具体原因）
+
+#### 15.6.8 审计追溯（谁注册的、谁调用的）
+
+- **注册侧**：`earp.capability.registered / updated / deprecated`（entity_type=capability，
+  entity_id=能力 ID，detail 含操作者）
+- **调用侧**：能力节点执行发 `earp.capability.call.started / completed / failed`
+- Audit 页面当前为占位页——查审计用 SQL（迁移角色或 psql）：
+
+```sql
+-- 谁动过这个能力（注册/编辑/停用）
+SELECT event_type, user_id, detail, created_at FROM audit_logs
+WHERE tenant_id='tenant-demo' AND entity_type='capability' AND entity_id='cap-equipment-fetch'
+ORDER BY created_at DESC;
+-- 能力被谁调用过（含失败）
+SELECT event_type, user_id, detail, created_at FROM audit_logs
+WHERE tenant_id='tenant-demo' AND event_type LIKE 'earp.capability.call.%'
+ORDER BY created_at DESC LIMIT 20;
+```
+
+#### 15.6.9 排障表（按报错原文找）
+
+| 报错 / 现象 | 原因 | 处理 |
+|:---|:---|:---|
+| `无执行 adapter（执行声明缺失或未实现…）` | 能力没配 execution，且 `domain.name` 猜不中 adapter | 能力中心 → 编辑 → 选执行方式 adapter |
+| `执行声明 adapter 'xxx' 未实现（白名单：…）` | 声明了白名单外的 adapter | 编辑能力改选白名单内 adapter |
+| `capability 'xxx' 不存在` | ID 拼错 / 别的租户注册的（跨租户隔离） | 画布能力 ID 与能力中心列表核对 |
+| `capability 'xxx' 已停用（deprecated）` | 能力被停用（不可恢复） | 新建替代能力并改图里的能力 ID |
+| `角色 xxx 缺少权限 ['…']` | 角色 permissions 未覆盖能力权限清单 | Roles 页给角色补权限（§15.6.6） |
+| `tool.fetch: connector 'xxx' 不存在或配置解密失败` | params 里的 connector_id 拼错/被删 | 中台对接页核对连接 ID，或改能力 params |
+| 注册返回 409 | 同名能力已存在 | 换 ID 或去编辑既有能力 |
+| 注册返回 422 | 字段校验失败（长度/字符/ schema/权限空，信息里有原因） | 按提示改字段 |
+| 能力节点输出 `{"echo": {}}` 但预期取数 | 用了 demo 能力/execution 没配对 | 确认画布能力 ID 指向取数能力 |
+
+#### 15.6.10 进阶：API 直调（进阶，可选）
+
+```bash
+T="Bearer <token>"   # login 页登录获取
+# 注册（Admin）
+curl -s -X POST localhost:8000/capabilities -H "Authorization: $T" -H 'Content-Type: application/json' -d '{
+  "capability_id":"cap-equipment-fetch","domain":"equipment","name":"fetch_records","type":"query",
+  "required_permissions":["equipment:read"],
+  "execution":{"adapter":"tool.fetch","params":{"connector_id":"cn-equipment"}}}'
+# 详情 / 编辑 / 停用
+curl -s localhost:8000/capabilities/cap-equipment-fetch -H "Authorization: $T"
+curl -s -X PATCH localhost:8000/capabilities/cap-equipment-fetch -H "Authorization: $T"   -H 'Content-Type: application/json' -d '{"version":"1.1.0"}'
+curl -s -X DELETE localhost:8000/capabilities/cap-equipment-fetch -H "Authorization: $T"
+```
