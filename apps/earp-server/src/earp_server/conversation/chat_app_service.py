@@ -260,13 +260,17 @@ async def search_chat_apps(
     tag: str | None = None,
     sort: str = "latest",
     fav: bool = False,
+    status: str | None = None,
 ) -> list[dict[str, Any]]:
     """应用中心智能体列表查询（设计 §4：搜索/筛选/排序/可见性/收藏）。
 
-    仅返回已发布应用；visible = access_mode='open' OR is_admin OR 角色在白名单内。
-    可见性由 SQL join app_role_access 实现（is_admin 由调用方从 policy 域传入，避免跨域 import）。
+    - status 缺省 = 全部（工作台 chat/chatflow 列表兼容，草稿可见）；status='published' 仅已发布（应用中心）。
+    - visible = access_mode='open' OR is_admin OR 角色在白名单内。
+    - 可见性由 SQL join app_role_access 实现（is_admin 由调用方从 policy 域传入，避免跨域 import）。
     """
-    conds = ["ca.status = 'published'"]
+    conds: list[str] = []
+    if status == "published":
+        conds.append("ca.status = 'published'")
     params: dict[str, Any] = {"tid": tenant_id}
 
     # 可见性

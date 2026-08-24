@@ -100,20 +100,23 @@ async def test_search_by_name_desc_creator_tag(app_engine: AsyncEngine) -> None:
     await _make_published(app_engine, tid, uid, "财务报销助手", tags=["报销"])
     await _make_published(app_engine, tid, uid, "人事制度", category="人事", tags=["制度"])
     # name 模糊
-    q_names = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, q="报销")
+    q_names = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, q="报销", status="published")
     assert [a["name"] for a in q_names] == ["财务报销助手"]
     # created_by 模糊
-    assert len(await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, q="u-s")) == 2
+    assert len(await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, q="u-s", status="published")) == 2
     # tag 模糊
-    tag_q = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, q="制度")
+    tag_q = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, q="制度", status="published")
     assert [a["name"] for a in tag_q] == ["人事制度"]
     # type 筛选
-    assert len(await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, app_type="chat")) == 2
+    assert (
+        len(await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, app_type="chat", status="published"))
+        == 2
+    )
     # category 筛选
-    cat_q = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, category="人事")
+    cat_q = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, category="人事", status="published")
     assert [a["name"] for a in cat_q] == ["人事制度"]
     # tag 精确筛选
-    tag_q2 = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, tag="报销")
+    tag_q2 = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, tag="报销", status="published")
     assert [a["name"] for a in tag_q2] == ["财务报销助手"]
 
 
@@ -123,22 +126,37 @@ async def test_list_only_published_and_favorite_flag(app_engine: AsyncEngine) ->
     await _seed_role(app_engine, tid, rid)
     pub = await _make_published(app_engine, tid, uid, "已发布")
     await svc.create_chat_app(app_engine, tid, uid, "草稿")
-    lst = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid)
+    lst = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, status="published")
     assert {a["chat_app_id"] for a in lst} == {pub["chat_app_id"]}
     assert all(a["favorite"] is False for a in lst)
     # 收藏
     await svc.favorite_app(app_engine, tid, uid, pub["chat_app_id"])
-    lst2 = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid)
+    lst2 = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, status="published")
     pub_row = next(a for a in lst2 if a["chat_app_id"] == pub["chat_app_id"])
     assert pub_row["favorite"] is True
     assert pub_row["favorite_count"] == 1
     # fav=1 只返回收藏
-    favs = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, fav=True)
+    favs = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, fav=True, status="published")
     assert [a["chat_app_id"] for a in favs] == [pub["chat_app_id"]]
     # 取消收藏
     await svc.unfavorite_app(app_engine, tid, uid, pub["chat_app_id"])
-    favs2 = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, fav=True)
+    favs2 = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, fav=True, status="published")
     assert favs2 == []
+
+
+async def test_default_returns_all_statuses_workbench(app_engine: AsyncEngine) -> None:
+    """工作台编排页语义：缺省 status 返回全部（草稿 + 已发布），草稿不消失。"""
+    tid, uid, rid = "ac-s6", "u-s", "r-s"
+    await _seed_user(app_engine, tid, uid)
+    await _seed_role(app_engine, tid, rid)
+    pub = await _make_published(app_engine, tid, uid, "已发布应用")
+    draft = await svc.create_chat_app(app_engine, tid, uid, "草稿应用")
+    all_rows = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid)
+    ids = {a["chat_app_id"] for a in all_rows}
+    assert pub["chat_app_id"] in ids and draft["chat_app_id"] in ids
+    # 应用中心语义：显式 published 只返回已发布
+    pub_only = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, status="published")
+    assert {a["chat_app_id"] for a in pub_only} == {pub["chat_app_id"]}
 
 
 async def test_favorite_idempotent_and_non_existent(app_engine: AsyncEngine) -> None:
@@ -158,10 +176,10 @@ async def test_favorite_survives_unpublish_and_delete_cascade(app_engine: AsyncE
     await svc.favorite_app(app_engine, tid, uid, app["chat_app_id"])
     # 回草稿 → 列表隐藏（fav=1 不再出现）但收藏行保留
     await svc.update_chat_app(app_engine, tid, uid, app["chat_app_id"], {"description": "改一下"})
-    assert await svc.search_chat_apps(app_engine, tid, role_id="r", user_id=uid, fav=True) == []
+    assert await svc.search_chat_apps(app_engine, tid, role_id="r", user_id=uid, fav=True, status="published") == []
     # 重新发布 → 自动恢复
     await svc.publish_chat_app(app_engine, tid, uid, app["chat_app_id"], category="财务")
-    favs_back = await svc.search_chat_apps(app_engine, tid, role_id="r", user_id=uid, fav=True)
+    favs_back = await svc.search_chat_apps(app_engine, tid, role_id="r", user_id=uid, fav=True, status="published")
     assert [a["chat_app_id"] for a in favs_back] == [app["chat_app_id"]]
     # 删除 → CASCADE 清收藏
     await svc.delete_chat_app(app_engine, tid, uid, app["chat_app_id"])
@@ -185,7 +203,7 @@ async def test_sort_hot_by_favorite_count(app_engine: AsyncEngine) -> None:
     for u in ("u2", "u3", "u4"):
         await _seed_user(app_engine, tid, u)
         await svc.favorite_app(app_engine, tid, u, a["chat_app_id"])
-    hot = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, sort="hot")
+    hot = await svc.search_chat_apps(app_engine, tid, role_id=rid, user_id=uid, sort="hot", status="published")
     assert hot[0]["name"] == "热门应用" and hot[0]["favorite_count"] == 4
 
 

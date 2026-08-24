@@ -2316,6 +2316,14 @@ paths:
           default: false
           title: Fav
           type: boolean
+      - in: query
+        name: status
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
       responses:
         '200':
           content:

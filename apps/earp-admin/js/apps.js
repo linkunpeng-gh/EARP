@@ -29,7 +29,7 @@
   async function loadApps() {
     var grid = document.getElementById('app-grid');
     grid.innerHTML = '<p class="kb-empty">加载中…</p>';
-    var params = new URLSearchParams({ sort: state.sort });
+    var params = new URLSearchParams({ sort: state.sort, status: 'published' });
     if (state.q) params.set('q', state.q);
     if (state.category) params.set('category', state.category);
     if (state.type) params.set('type', state.type);

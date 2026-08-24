@@ -1253,6 +1253,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tag: str | None = None,
         sort: str = "latest",
         fav: bool = False,
+        status: str | None = None,  # 缺省=全部（工作台草稿可见）；published=仅已发布（应用中心）
     ) -> list[dict[str, Any]]:
         is_admin = await is_is_admin(req.app.state.engine, req.state.tenant_id, req.state.role_id)
         return await search_chat_apps(
@@ -1267,6 +1268,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tag=tag,
             sort=sort,
             fav=fav,
+            status=status,
         )
 
     @app.get("/chat_apps/{chat_app_id}", tags=["chat_apps"])
@@ -1477,7 +1479,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     while True:
                         ev, data = await queue.get()
                         yield f"event: {ev}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-                        if ev in ("done", "error"):
+                        # 终态事件后断开：done（完成）/ error（失败）/ human_approval（挂起——
+                        # 前端收到后由用户回复，走新一轮 stream 恢复；若不断开前端 streaming 卡死）
+                        if ev in ("done", "error", "human_approval"):
                             break
                 finally:
                     if not task.done():
