@@ -63,6 +63,7 @@
     ],
     apps: [
       { label: '智能体', sub: 'overview', path: '{b}/pages/apps.html' },
+      { label: '我的应用', sub: 'mine', path: '{b}/pages/my-apps.html' },
     ],
     plugins: [
       { label: '插件管理', sub: 'manage', planned: 'plugins/manage' },
@@ -108,11 +109,6 @@
       label: '连接器', section: 'capability', phase: '第三期', priority: '三期',
       desc: '连接器配置页。连接器（MCP / REST / DB 三类）是 capability 的执行后端，归能力中心（架构一致、配置闭环）；首期实现 MCP，REST/DB 占位。',
       related: [['能力注册', '{b}/pages/capabilities.html'], ['模型配置', '{b}/pages/models.html']],
-    },
-    'apps/mine': {
-      label: '我的应用', section: 'apps', phase: '第三期', priority: '三期',
-      desc: '应用中心「智能体」页内已内置我的应用 Tab（收藏按 user_id 存库）；earp-user 端二期复用同一后端。',
-      related: [['智能体', '{b}/pages/apps.html']],
     },
     'plugins/manage': {
       label: '插件管理', section: 'plugins', phase: '规划中', priority: '—',

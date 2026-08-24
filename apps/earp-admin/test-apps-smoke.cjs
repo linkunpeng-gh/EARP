@@ -108,5 +108,16 @@ new Function('EARP', 'document', 'location', 'localStorage', 'alert', 'URLSearch
   assert(document.getElementById('run-drawer'), '抽屉容器存在');
   console.log('✓ 运行抽屉 DOM 结构');
 
+  // 我的应用页（data-page=my-apps）→ 请求带 fav=1
+  calls.fetch = [];
+  document.body = { getAttribute: (k) => k === 'data-page' ? 'my-apps' : null };
+  new Function('EARP', 'document', 'location', 'localStorage', 'alert', 'URLSearchParams', src + '; return 1;')(
+    global.EARP, global.document, global.location, global.localStorage, global.alert, global.URLSearchParams);
+  document.dispatch('DOMContentLoaded');
+  await new Promise(r => setTimeout(r, 10));
+  const listReq = calls.fetch.find(c => c.url.startsWith('/chat_apps?'));
+  assert(listReq && listReq.url.includes('fav=1'), '我的应用页请求应带 fav=1，实际: ' + (listReq && listReq.url));
+  console.log('✓ 我的应用页 fav=1 过滤');
+
   console.log('apps smoke OK');
 })().catch(e => { console.error('FAIL', e.message); process.exit(1); });

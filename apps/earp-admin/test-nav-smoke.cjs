@@ -147,10 +147,10 @@ allOk = runScenario('workspace.html', { base: '..', section: 'workspace', sub: '
 });
 
 allOk = runScenario('apps.html', { base: '..', section: 'apps', sub: 'overview' }, '', ({ drawer, fail }) => {
-  if (!drawer.innerHTML.includes('pages/apps.html')) fail('apps drawer 概览 should link apps.html');
-  if (drawer.innerHTML.includes('planned.html?section=apps&item=overview')) fail('概览 should not be planned');
-  const mine = drawer.innerHTML.match(/planned.html\?section=apps&item=mine/);
-  if (!mine) fail('我的应用 should stay planned');
+  if (!drawer.innerHTML.includes('pages/apps.html')) fail('apps drawer 智能体 should link apps.html');
+  if (!drawer.innerHTML.includes('pages/my-apps.html')) fail('apps drawer 我的应用 should link my-apps.html');
+  if (drawer.innerHTML.includes('planned.html?section=apps&item=overview')) fail('智能体 should not be planned');
+  if (drawer.innerHTML.includes('planned.html?section=apps&item=mine')) fail('我的应用 should not be planned anymore');
 });
 
 allOk = runScenario('monitor-audit.html', { base: '..', section: 'monitor', sub: 'audit' }, '', ({ drawer, fail }) => {

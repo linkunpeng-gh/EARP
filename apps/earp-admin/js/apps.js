@@ -1,7 +1,9 @@
-/* 应用中心 · 智能体页 — 列表/筛选/搜索/收藏 + 运行抽屉 */
+/* 应用中心 · 智能体页（data-page=apps 全量 | my-apps 我的应用收藏）*/
 (function () {
+  var IS_MINE = (document.body && document.body.getAttribute('data-page') === 'my-apps')
+    || new URLSearchParams(location.search).get('fav') === '1';
   var state = {
-    tab: 'all',        // all | mine
+    tab: IS_MINE ? 'mine' : 'all',        // all=智能体页 | mine=我的应用页
     q: '',
     category: '',
     type: '',
@@ -246,8 +248,6 @@
       state.drawer.favorite = app.favorite;
       document.getElementById('rd-fav').textContent = app.favorite ? '★ 已收藏' : '☆ 收藏';
     };
-    document.getElementById('tab-all').onclick = function () { state.tab = 'all'; renderTab(); loadApps(); };
-    document.getElementById('tab-mine').onclick = function () { state.tab = 'mine'; renderTab(); loadApps(); };
     document.getElementById('f-cat').onchange = function () { state.category = this.value; loadApps(); };
     document.getElementById('f-type').onchange = function () { state.type = this.value; loadApps(); };
     document.getElementById('f-sort').onchange = function () { state.sort = this.value; loadApps(); };
@@ -258,10 +258,6 @@
       debounce = setTimeout(function () { state.q = qInput.value; loadApps(); }, 300);
     });
   }
-  function renderTab() {
-    document.getElementById('tab-all').classList.toggle('active', state.tab === 'all');
-    document.getElementById('tab-mine').classList.toggle('active', state.tab === 'mine');
-  }
   function renderCats() {
     var sel = document.getElementById('f-cat');
     sel.innerHTML = '<option value="">全部分类</option>' + state.categories.map(function (c) {
@@ -271,7 +267,6 @@
 
   document.addEventListener('DOMContentLoaded', async function () {
     bind();
-    renderTab();
     await loadCategories();
     renderCats();
     await loadApps();
