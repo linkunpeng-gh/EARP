@@ -1,57 +1,55 @@
 <!DOCTYPE html>
-<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 应用中心"><title>应用中心 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css">
-<style>
-.app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
-.app-card {
-  display: flex; flex-direction: column; gap: 0.5rem;
-  padding: 1.1rem 1.2rem; background: var(--bg-panel);
-  border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card); text-decoration: none; color: inherit;
-}
-.app-card .ac-top { display: flex; align-items: center; gap: 0.5rem; }
-.app-card .ac-name { font-size: 0.95rem; font-weight: 600; color: var(--text-primary); flex: 1; }
-.app-card .ac-desc { font-size: 0.78rem; color: var(--text-tertiary); line-height: 1.5; }
-.app-card .ac-meta { font-size: 0.72rem; color: var(--text-quaternary); }
-</style>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 应用中心 — 智能体"><title>智能体 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css">
 </head>
 <body data-base=".." data-section="apps" data-sub="overview">
 <header id="app-header"></header>
 <main>
-<div class="page-title"><div><h2>应用中心</h2><p class="page-subtitle">已发布应用（chat 智能体）— 最终使用界面二期开放；发布管理见「工作台 → chat」</p></div></div>
+<div class="page-title"><div><h2>智能体</h2><p class="page-subtitle">工作台已发布的 chat / chatflow 智能体 — 点击卡片直接运行；⭐ 收藏进「我的应用」</p></div></div>
+
+<div class="app-tabbar">
+  <button class="mode-btn active" id="tab-all">全部智能体</button>
+  <button class="mode-btn" id="tab-mine">我的应用</button>
+</div>
+
+<div class="app-toolbar">
+  <input type="search" id="f-q" placeholder="搜索名称 / 描述 / 创建人 / 标签…">
+  <select id="f-cat"><option value="">全部分类</option></select>
+  <select id="f-type">
+    <option value="">全部类型</option>
+    <option value="chat">chat</option>
+    <option value="flow">chatflow</option>
+  </select>
+  <select id="f-sort">
+    <option value="latest">最新发布</option>
+    <option value="hot">最热（收藏数）</option>
+  </select>
+</div>
+
 <div class="app-grid" id="app-grid">
-  <p class="kb-empty" id="loading">加载中…</p>
+  <p class="kb-empty">加载中…</p>
 </div>
 </main>
+
+<!-- 运行抽屉 -->
+<div class="run-drawer-overlay" id="run-drawer">
+  <div class="run-drawer">
+    <div class="run-drawer-header">
+      <h3 id="rd-name">—</h3>
+      <span class="ac-cat" id="rd-sub"></span>
+      <button class="btn-sm btn-outline" id="rd-fav" title="收藏">☆ 收藏</button>
+      <button class="btn-sm btn-outline" id="rd-full" title="全屏运行页">⛶ 全屏</button>
+      <button class="btn-sm btn-outline" id="rd-close" title="关闭">✕</button>
+    </div>
+    <div class="run-drawer-msgs" id="rd-msgs"></div>
+    <div id="rd-ha" class="ha-bar" style="display:none;margin:0 1rem 0.5rem;"></div>
+    <div class="run-drawer-input">
+      <textarea id="rd-input" rows="1" placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <button class="primary" id="rd-send">发送</button>
+    </div>
+  </div>
+</div>
+
 <script src="../js/app.js"></script>
 <script src="../js/nav.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', loadApps);
-
-async function loadApps() {
-  try {
-    var apps = await EARP.fetchJSON('/chat_apps');
-    var published = apps.filter(function (a) { return a.status === 'published'; });
-    var grid = document.getElementById('app-grid');
-    if (!published.length) {
-      grid.innerHTML = '<div class="app-grid" style="grid-column:1/-1"><p class="kb-empty">暂无已发布应用 — 请先在「工作台 → chat」创建并发布。</p></div>';
-      return;
-    }
-    grid.innerHTML = published.map(function (a) {
-      return '<div class="app-card">'
-        + '<div class="ac-top"><span class="ac-name">' + esc(a.name) + '</span><span class="tag tag-green">已发布</span></div>'
-        + '<div class="ac-desc">' + esc(a.description || '暂无描述') + '</div>'
-        + '<div class="ac-meta">使用界面二期开放</div>'
-        + '</div>';
-    }).join('');
-  } catch (err) {
-    document.getElementById('app-grid').innerHTML = '<p class="kb-empty">加载失败: ' + esc(err.message) + '</p>';
-  }
-}
-
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-  });
-}
-</script>
+<script src="../js/apps.js"></script>
 </body></html>

@@ -114,6 +114,14 @@
       <select id="cfg-model"><option value="">系统默认</option></select>
     </div>
     <div class="cfg-field">
+      <label class="cfg-label">业务分类 <span class="cfg-tip">?<span class="tip-pop">发布必填（发布弹窗可改）。来源为治理中心「应用分类」租户词表。</span></span></label>
+      <select id="cfg-category"><option value="">— 请选择 —</option></select>
+    </div>
+    <div class="cfg-field">
+      <label class="cfg-label">标签 <span class="cfg-tip">?<span class="tip-pop">自由标签，逗号分隔；用于应用中心搜索（如「报销、制度」）。</span></span></label>
+      <input type="text" id="cfg-tags" placeholder="报销, 制度">
+    </div>
+    <div class="cfg-field">
       <label class="cfg-label">系统提示词 <span class="cfg-tip">?<span class="tip-pop">人设/风格/边界（如「你是财务部助手，回答简洁」）。引用标注 [1][2]、只基于资料回答等结构规则会自动追加，不可修改。</span></span></label>
       <textarea id="cfg-prompt"></textarea>
       <button class="btn-sm" style="margin-top:0.35rem" onclick="resetPrompt()">↺ 重置默认模板</button>
@@ -188,6 +196,22 @@
 
 </div>
 </main>
+
+<!-- 发布表单（应用中心：分类必填 + 标签） -->
+<div class="modal-overlay" id="pub-modal" style="display:none;">
+  <div class="modal">
+    <h4>发布智能体</h4>
+    <div class="form-row"><label>名称</label><input type="text" id="pub-name" disabled></div>
+    <div class="form-row"><label>描述</label><input type="text" id="pub-desc" disabled></div>
+    <div class="form-row"><label>业务分类 <span style="color:var(--red);">*</span></label><select id="pub-category"><option value="">— 请选择 —</option></select></div>
+    <div class="form-row"><label>标签</label><input type="text" id="pub-tags" placeholder="报销, 制度"></div>
+    <div class="form-actions">
+      <button class="btn-sm btn-outline" onclick="document.getElementById('pub-modal').style.display='none'">取消</button>
+      <button class="btn-sm" id="pub-ok" onclick="doPublish()">确认发布</button>
+    </div>
+  </div>
+</div>
+
 <script src="../js/app.js"></script>
 <script src="../js/nav.js"></script>
 <script src="../js/copilot.js"></script>
@@ -202,8 +226,14 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
   if (!appId) { document.getElementById('app-title').textContent = '缺少 app 参数'; return; }
-  await Promise.all([loadApp(), loadKBs(), loadModels()]);
+  await Promise.all([loadApp(), loadKBs(), loadModels(), loadCats()]);
   renderConfig();
+}
+
+async function loadCats() {
+  try {
+    state.categories = await EARP.fetchJSON('/api/app_categories');
+  } catch (e) { state.categories = []; }
 }
 
 async function loadApp() {
@@ -260,6 +290,14 @@ function renderConfig() {
   document.getElementById('cfg-topp').value = gen.top_p != null ? gen.top_p : 0.9;
   document.getElementById('cfg-topp-v').textContent = gen.top_p != null ? gen.top_p : 0.9;
   document.getElementById('cfg-maxtokens').value = gen.max_tokens || 1024;
+
+  // 应用中心：业务分类 + 标签
+  document.getElementById('cfg-category').innerHTML = '<option value="">— 请选择 —</option>'
+    + state.categories.map(function (c) {
+      var sel = c.name === a.category ? ' selected' : '';
+      return '<option value="' + esc(c.name) + '"' + sel + '>' + esc(c.name) + '</option>';
+    }).join('');
+  document.getElementById('cfg-tags').value = (a.tags || []).join(', ');
 
   state.kbScope = (a.kb_scope || []).slice();
   renderBoundKBs();
@@ -364,8 +402,14 @@ function collectConfig() {
       max_tokens: parseInt(document.getElementById('cfg-maxtokens').value, 10) || 1024,
     },
     context_turns: parseInt(document.getElementById('cfg-turns').value, 10) || 6,
+    category: document.getElementById('cfg-category').value || null,
+    tags: parseTags(document.getElementById('cfg-tags').value),
   };
   return body;
+}
+
+function parseTags(s) {
+  return String(s || '').split(/[,，]/).map(function (t) { return t.trim(); }).filter(Boolean);
 }
 
 function resetPrompt() { document.getElementById('cfg-prompt').value = DEFAULT_PROMPT; }
@@ -394,13 +438,34 @@ async function saveApp(quiet) {
 async function publishApp() {
   if (!state.app) return;
   if (state.app.status === 'published') return;
-  if (!confirm('确认发布？发布后可在「应用中心」查看。')) return;
+  // 发布表单：确认名称/描述 + 分类（必填）+ 标签（可改）
+  document.getElementById('pub-name').value = state.app.name || '';
+  document.getElementById('pub-desc').value = state.app.description || '';
+  document.getElementById('pub-category').innerHTML = '<option value="">— 请选择 —</option>'
+    + state.categories.map(function (c) {
+      var sel = c.name === (document.getElementById('cfg-category').value || state.app.category) ? ' selected' : '';
+      return '<option value="' + esc(c.name) + '"' + sel + '>' + esc(c.name) + '</option>';
+    }).join('');
+  document.getElementById('pub-tags').value = (document.getElementById('cfg-tags').value || (state.app.tags || []).join(', '));
+  document.getElementById('pub-modal').style.display = 'flex';
+}
+
+async function doPublish() {
+  var category = document.getElementById('pub-category').value;
+  if (!category) { alert('请选择业务分类（发布必填）'); return; }
+  var btn = document.getElementById('pub-ok');
+  btn.disabled = true;
   try {
-    var pub = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId) + '/publish', { method: 'POST' });
+    var pub = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId) + '/publish', {
+      method: 'POST',
+      body: JSON.stringify({ category: category, tags: parseTags(document.getElementById('pub-tags').value) }),
+    });
     state.app = pub;
+    document.getElementById('pub-modal').style.display = 'none';
     alert('已发布，可在应用中心查看。');
     renderConfig();
   } catch (err) { alert('发布失败: ' + err.message); }
+  finally { btn.disabled = false; }
 }
 
 // ── 调试对话（流式 + 引用卡）──

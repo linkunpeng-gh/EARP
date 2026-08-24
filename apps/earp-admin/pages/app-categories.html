@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="description" content="EARP 治理中心 — 应用分类"><title>应用分类 — EARP</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"><link rel="stylesheet" href="../css/admin.css">
+</head>
+<body data-base=".." data-section="governance" data-sub="app-categories">
+<header id="app-header"></header>
+<main>
+<div class="page-title"><div><h2>应用分类</h2><p class="page-subtitle">租户级业务分类词表 — 智能体发布时必选分类；重命名会同步更新已发布应用</p></div></div>
+
+<div class="toolbar">
+  <input type="text" id="cat-name" placeholder="新分类名称" style="padding:0.35rem 0.6rem;font-size:0.81rem;border:1px solid var(--border-standard);border-radius:var(--radius-md);">
+  <button class="btn-sm" id="cat-add">+ 新增分类</button>
+</div>
+
+<table class="access-matrix" style="max-width:720px;">
+  <thead><tr><th>分类名</th><th style="width:90px;">操作</th></tr></thead>
+  <tbody id="cat-list"><tr><td colspan="2" style="color:var(--text-quaternary);">加载中…</td></tr></tbody>
+</table>
+</main>
+
+<!-- 重命名模态 -->
+<div class="modal-overlay" id="rename-modal" style="display:none;">
+  <div class="modal">
+    <h4>重命名分类</h4>
+    <div class="form-row"><label>新名称</label><input type="text" id="rename-input"></div>
+    <div class="form-actions">
+      <button class="btn-sm btn-outline" id="rename-cancel">取消</button>
+      <button class="btn-sm" id="rename-ok">保存</button>
+    </div>
+  </div>
+</div>
+
+<script src="../js/app.js"></script>
+<script src="../js/nav.js"></script>
+<script src="../js/app-categories.js"></script>
+</body></html>

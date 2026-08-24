@@ -172,6 +172,7 @@ async function init() {
   bindRunBarResize();
   restorePropsToggle();
   loadModels();
+  loadCats();
   await loadApp();
 }
 
@@ -322,13 +323,46 @@ async function publishFlow() {
   var schema = ChatflowCanvas.toFlowSchema(editor);
   var errors = FlowGraph.validate(schema);
   if (errors.length) { alert('发布失败（图不合法）：\n' + errors.slice(0, 4).join('\n')); return; }
-  if (!confirm('确认发布？发布后可在应用中心查看')) return;
+  // 发布表单：分类（必填）+ 标签
+  document.getElementById('pub-category').innerHTML = '<option value="">— 请选择 —</option>'
+    + (state.categories || []).map(function (c) {
+      var sel = c.name === state.app.category ? ' selected' : '';
+      return '<option value="' + esc(c.name) + '"' + sel + '>' + esc(c.name) + '</option>';
+    }).join('');
+  document.getElementById('pub-tags').value = (state.app.tags || []).join(', ');
+  document.getElementById('pub-modal').style.display = 'flex';
+}
+
+async function doPublishFlow() {
+  var category = document.getElementById('pub-category').value;
+  if (!category) { alert('请选择业务分类（发布必填）'); return; }
+  var btn = document.getElementById('pub-ok');
+  btn.disabled = true;
   try {
-    var pub = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId) + '/publish', { method: 'POST' });
+    // 先保存图，再发布（发布门禁会重校验 flow_schema）
+    var schema = ChatflowCanvas.toFlowSchema(editor);
+    await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId), {
+      method: 'PATCH', body: JSON.stringify({ orchestration: 'flow', flow_schema: schema }),
+    });
+    var pub = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId) + '/publish', {
+      method: 'POST',
+      body: JSON.stringify({ category: category, tags: parseFlowTags(document.getElementById('pub-tags').value) }),
+    });
     state.app = pub;
+    document.getElementById('pub-modal').style.display = 'none';
     alert('已发布');
     loadApp();
   } catch (err) { alert('发布失败: ' + err.message); }
+  finally { btn.disabled = false; }
+}
+
+function parseFlowTags(s) {
+  return String(s || '').split(/[,，]/).map(function (t) { return t.trim(); }).filter(Boolean);
+}
+
+async function loadCats() {
+  try { state.categories = await EARP.fetchJSON('/api/app_categories'); }
+  catch (e) { state.categories = []; }
 }
 
 // ── 运行：POST /chat → 结果 + 202 人工确认 ──
@@ -556,4 +590,17 @@ function bindRunBarResize() {
 function esc(s) { return ChatflowCanvas.esc ? ChatflowCanvas.esc(s) : String(s == null ? '' : s); }
 function fmtDur(ms) { return (ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms) + 'ms'); }
 </script>
+
+<!-- 发布表单（应用中心：分类必填 + 标签） -->
+<div class="modal-overlay" id="pub-modal" style="display:none;">
+  <div class="modal">
+    <h4>发布 Chatflow</h4>
+    <div class="form-row"><label>业务分类 <span style="color:var(--red);">*</span></label><select id="pub-category"><option value="">— 请选择 —</option></select></div>
+    <div class="form-row"><label>标签</label><input type="text" id="pub-tags" placeholder="报销, 制度"></div>
+    <div class="form-actions">
+      <button class="btn-sm btn-outline" onclick="document.getElementById('pub-modal').style.display='none'">取消</button>
+      <button class="btn-sm" id="pub-ok" onclick="doPublishFlow()">确认发布</button>
+    </div>
+  </div>
+</div>
 </body></html>

@@ -50,10 +50,10 @@ const EARP = {
     }
   },
 
-  // SSE streaming helper
-  async streamSSE(url, body, onToken) {
+  // SSE streaming helper (supports AbortController signal)
+  async streamSSE(url, body, onToken, signal) {
     const res = await fetch(this.apiBase + url, {
-      method: 'POST', headers: this.headers(), body: JSON.stringify(body),
+      method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal: signal,
     });
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -69,6 +69,31 @@ const EARP = {
         const data = line.slice(6);
         if (data === '[DONE]') { onToken({ token: '[DONE]', index: -1 }); return; }
         try { onToken(JSON.parse(data)); } catch {}
+      }
+    }
+  },
+
+  // flow 节点级 SSE（named events: node_start/token/node_end/branch/human_approval/done/error）
+  async streamFlowSSE(url, body, onEvent, signal) {
+    const res = await fetch(this.apiBase + url, {
+      method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal: signal,
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let pendingEvent = 'message';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) { pendingEvent = line.slice(7).trim(); continue; }
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        try { onEvent(pendingEvent, JSON.parse(data)); } catch {}
+        pendingEvent = 'message';
       }
     }
   },

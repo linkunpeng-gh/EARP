@@ -62,8 +62,7 @@
       { label: '模型配置', sub: 'models', path: '{b}/pages/models.html' },
     ],
     apps: [
-      { label: '概览', sub: 'overview', path: '{b}/pages/apps.html' },
-      { label: '我的应用', sub: 'mine', planned: 'apps/mine' },
+      { label: '智能体', sub: 'overview', path: '{b}/pages/apps.html' },
     ],
     plugins: [
       { label: '插件管理', sub: 'manage', planned: 'plugins/manage' },
@@ -71,6 +70,8 @@
     governance: [
       { label: 'Audit', sub: 'audit', path: '{b}/pages/audit.html' },
       { label: 'Roles', sub: 'roles', path: '{b}/pages/roles.html' },
+      { label: '应用分类', sub: 'app-categories', path: '{b}/pages/app-categories.html' },
+      { label: '应用权限', sub: 'app-access', path: '{b}/pages/app-access.html' },
       { label: 'Org', sub: 'org', planned: 'governance/org' },
       { label: 'Tenants', sub: 'tenants', planned: 'governance/tenants' },
       { label: 'Policy', sub: 'policy', planned: 'governance/policy' },
@@ -110,8 +111,8 @@
     },
     'apps/mine': {
       label: '我的应用', section: 'apps', phase: '第三期', priority: '三期',
-      desc: 'user 端「我的应用」使用流程（earp-user 侧），随 user 端迭代。',
-      related: [],
+      desc: '应用中心「智能体」页内已内置我的应用 Tab（收藏按 user_id 存库）；earp-user 端二期复用同一后端。',
+      related: [['智能体', '{b}/pages/apps.html']],
     },
     'plugins/manage': {
       label: '插件管理', section: 'plugins', phase: '规划中', priority: '—',
