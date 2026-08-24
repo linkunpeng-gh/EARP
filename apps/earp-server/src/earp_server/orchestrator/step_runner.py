@@ -20,10 +20,14 @@ if TYPE_CHECKING:
 
 
 class StepRunner:
-    def __init__(self, engine: AsyncEngine, *, llm=None, settings=None) -> None:
+    def __init__(self, engine: AsyncEngine, *, llm=None, settings=None, token_callback=None) -> None:
         self._checkpoint = CheckpointStore(engine)
         self._llm = llm  # Chatflow F2: 对话节点适配器（llm.prompt）注入
         self._settings = settings  # Chatflow F3: qu.answer 的 upgrade_with_llm 需要完整 ollama 配置
+        self._token_callback = token_callback  # 应用中心：LLM 节点流式透传（on_token）
+
+    def set_token_callback(self, cb) -> None:
+        self._token_callback = cb
 
     async def invoke(self, step: Step, *, layers: list[Layer], ctx: InvokeContext) -> StepResult:
         for layer in layers:
@@ -77,7 +81,12 @@ class StepRunner:
         from earp_server.connector import Connector
 
         # Chatflow F2/F3: flow 执行链路注入 engine/llm/settings（对话节点适配器）+ ctx（tenant/role/session）
-        connector = Connector(engine=self._checkpoint._engine, llm=self._llm, settings=self._settings)
+        connector = Connector(
+            engine=self._checkpoint._engine,
+            llm=self._llm,
+            settings=self._settings,
+            token_callback=self._token_callback,  # 应用中心：LLM 节点流式透传
+        )
         return await connector.execute(step.capability_call, ctx=ctx)
 
     async def stream(

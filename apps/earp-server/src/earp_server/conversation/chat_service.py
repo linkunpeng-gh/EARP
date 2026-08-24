@@ -439,12 +439,14 @@ async def flow_chat(
     base_llm: LLMConnector,
     settings,
     bus=None,
+    on_event=None,  # 应用中心：flow 节点级 SSE 流式事件回调 async (event_type, data) -> None
 ) -> dict[str, Any]:
     """Chatflow F2/F4: orchestration='flow' 时走声明式图执行（设计稿 §2/§7）。
 
     会话创建/续接（chat_apps 归属 + 用户消息先落）→ compile_flow_schema →
     MultiStepExecutor（对话节点适配器注入）→ outputs → 助手消息 + citations 落库。
-    非流式 JSON 响应；SSE 节点级透传 F5a 再做。
+    非流式 JSON 响应；on_event 注入时透传节点级事件（node_start/token/node_end/branch/
+    human_approval/done/error）——应用中心 flow SSE 流式。
 
     Chatflow F4: human_approval 挂起/恢复——同 conversation 的 waiting_human run 存在则
     恢复（用户下一句即答复），否则新建；挂起 → flow_runs(status=waiting_human) 落库 +
@@ -455,6 +457,13 @@ async def flow_chat(
     from earp_server.orchestrator.multi_step import ExecutionStatus, MultiStepExecutor
     from earp_server.orchestrator.types import InvokeContext, Step
     from earp_server.orchestrator.workflow_dsl import CondExec, compile_flow_schema, deserialize_pool, serialize_pool
+
+    async def _emit(ev: str, data: dict) -> None:
+        if on_event is not None:
+            try:
+                await on_event(ev, data)
+            except Exception:
+                logger.warning("flow_chat on_event failed (ev=%s)", ev, exc_info=True)
 
     if not (query or "").strip():
         raise ChatError("问题不能为空")
@@ -507,6 +516,7 @@ async def flow_chat(
             step=Step(step_id="start", capability_call={}),
         )
         pool = deserialize_pool(waiting.get("node_state"))
+        exec_kwargs = _flow_exec_kwargs(_emit) if on_event is not None else {}
         results, state = await executor.execute(
             plan.steps,
             ctx,
@@ -516,6 +526,7 @@ async def flow_chat(
             resume_pool=pool,
             resume_pending_node=waiting.get("pending_node_id"),
             resume_reply=query,
+            **exec_kwargs,
         )
         attempts = int(waiting.get("attempts") or 1) + 1
     else:
@@ -536,12 +547,14 @@ async def flow_chat(
             role_id=role_id,
             step=Step(step_id="start", capability_call={}),
         )
+        exec_kwargs = _flow_exec_kwargs(_emit) if on_event is not None else {}
         results, state = await executor.execute(
             plan.steps,
             ctx,
             layers=[],
             plan=plan,
             flow_input=flow_input,
+            **exec_kwargs,
         )
         attempts = 1
 
@@ -558,6 +571,15 @@ async def flow_chat(
         )
         question = state.pending_question or "请确认是否继续"
         await add_message(engine, tenant_id, conversation_id, "assistant", f"⏸ 等待确认：{question}", user_id)
+        await _emit(
+            "human_approval",
+            {
+                "execution_id": exec_id,
+                "conversation_id": conversation_id,
+                "question": question,
+                "pending_node_id": state.pending_node_id,
+            },
+        )
         return {
             "execution_id": exec_id,
             "conversation_id": conversation_id,
@@ -581,17 +603,42 @@ async def flow_chat(
         if isinstance(item, CondExec):
             side = state.chosen.get(item.branch_id)
             if side is None:
-                trace.append({"node_id": item.node_id, "status": "skipped", "branch": None,
-                              "input": None, "output": None, "error": None})
+                trace.append(
+                    {
+                        "node_id": item.node_id,
+                        "status": "skipped",
+                        "branch": None,
+                        "input": None,
+                        "output": None,
+                        "error": None,
+                    }
+                )
             else:
-                trace.append({"node_id": item.node_id, "status": "completed", "branch": side,
-                              "input": None, "output": {"branch": side}, "error": None})
+                trace.append(
+                    {
+                        "node_id": item.node_id,
+                        "status": "completed",
+                        "branch": side,
+                        "input": None,
+                        "output": {"branch": side},
+                        "error": None,
+                    }
+                )
         else:
             r = results_by_id.get(item.node_id)
             if r is None:
                 continue  # 防御：resume/重启路径无结果记录的节点不输出
-            trace.append({"node_id": r.step_id, "status": r.status, "branch": None,
-                          "input": r.input, "output": r.output, "error": r.error, "latency_ms": r.latency_ms})
+            trace.append(
+                {
+                    "node_id": r.step_id,
+                    "status": r.status,
+                    "branch": None,
+                    "input": r.input,
+                    "output": r.output,
+                    "error": r.error,
+                    "latency_ms": r.latency_ms,
+                }
+            )
 
     # 助手消息：最后 completed 节点输出（text 优先，否则 JSON 摘要）
     answer = ""
@@ -607,6 +654,17 @@ async def flow_chat(
     if citations:
         await _set_citations(engine, tenant_id, msg["message_id"], citations)
 
+    await _emit(
+        "done",
+        {
+            "execution_id": exec_id,
+            "conversation_id": conversation_id,
+            "status": state.status.value,
+            "message_id": msg["message_id"],
+            "answer": answer,
+        },
+    )
+
     return {
         "execution_id": exec_id,
         "conversation_id": conversation_id,
@@ -615,6 +673,17 @@ async def flow_chat(
         "trace": trace,
         "message_id": msg["message_id"],
         "answer": answer,
+    }
+
+
+def _flow_exec_kwargs(emit) -> dict:
+    """应用中心：flow 节点级 SSE 流式回调注入（仅 on_event 存在时启用——
+    避免非流式路径意外切换到 LLM stream()，保持既有 complete() 语义）。"""
+    return {
+        "on_node_start": lambda nid, at: emit("node_start", {"node_id": nid, "node_type": at}),
+        "on_node_end": lambda nid, meta: emit("node_end", {"node_id": nid, **meta}),
+        "on_token": lambda tok: emit("token", {"text": tok}),
+        "on_branch": lambda bid, side: emit("branch", {"branch_id": bid, "side": side}),
     }
 
 

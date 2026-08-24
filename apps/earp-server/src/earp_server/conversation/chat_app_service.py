@@ -37,6 +37,8 @@ _UPDATABLE = (
     "context_turns",
     "orchestration",
     "flow_schema",
+    "category",
+    "tags",
 )
 
 
@@ -129,7 +131,36 @@ def _row_to_dict(row) -> dict[str, Any]:
     d["retrieval"] = _jsonb(d.get("retrieval")) or dict(_DEFAULT_RETRIEVAL)
     d["generation"] = _jsonb(d.get("generation")) or dict(_DEFAULT_GENERATION)
     d["flow_schema"] = _jsonb(d.get("flow_schema"))
+    # 应用中心字段（tags 从 TEXT[] 归一为 list；access_mode 缺省 open；favorite 默认 False）
+    d["tags"] = list(d.get("tags") or [])
+    d["category"] = d.get("category") or None
+    d["access_mode"] = d.get("access_mode") or "open"
+    d.setdefault("favorite", False)
+    d.setdefault("favorite_count", 0)
     return d
+
+
+async def _validate_category(engine: AsyncEngine, tenant_id: str, category: str | None) -> str | None:
+    """分类校验：非空则必须存在于租户有效词表（autocreate 默认词表兜底），否则 422。"""
+    if category is None or not (category := (category or "").strip()):
+        return None
+    from earp_server.conversation.category_service import is_valid_category
+
+    if not await is_valid_category(engine, tenant_id, category):
+        raise ValueError(f"分类不在租户词表内: {category}")
+    return category
+
+
+def _normalize_tags(tags: list[str] | tuple | None) -> list[str]:
+    """tags 归一为去重、去空的字符串列表（TEXT[] 参数）。"""
+    if tags is None:
+        return []
+    out: list[str] = []
+    for t in tags:
+        t = (t or "").strip()
+        if t and t not in out:
+            out.append(t)
+    return out
 
 
 async def create_chat_app(
@@ -143,11 +174,15 @@ async def create_chat_app(
     system_prompt: str | None = None,
     orchestration: str = "auto",
     flow_schema: dict[str, Any] | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a chat agent (status=draft). name is required (前端新建模态已校验)."""
     name = (name or "").strip()
     if not name:
         raise ValueError("name is required")
+    category = await _validate_category(engine, tenant_id, category)
+    tags = _normalize_tags(tags)
     _check_flow_fields(None, {"orchestration": orchestration, "flow_schema": flow_schema})
     chat_app_id = f"app-{uuid.uuid4().hex[:12]}"
     flow_json = json.dumps(flow_schema) if flow_schema is not None else None
@@ -158,8 +193,8 @@ async def create_chat_app(
             await conn.execute(
                 text(
                     "INSERT INTO chat_apps (chat_app_id, tenant_id, name, description, "
-                    "orchestration, flow_schema, created_at, updated_at) "
-                    "VALUES (:id, :tid, :name, :desc, :orch, :flow, now(), now())"
+                    "orchestration, flow_schema, created_by, category, tags, created_at, updated_at) "
+                    "VALUES (:id, :tid, :name, :desc, :orch, :flow, :created_by, :category, :tags, now(), now())"
                 ),
                 {
                     "id": chat_app_id,
@@ -168,14 +203,18 @@ async def create_chat_app(
                     "desc": description.strip(),
                     "orch": orchestration,
                     "flow": flow_json,
+                    "created_by": user_id,
+                    "category": category,
+                    "tags": tags,
                 },
             )
         else:
             await conn.execute(
                 text(
                     "INSERT INTO chat_apps (chat_app_id, tenant_id, name, description, system_prompt, "
-                    "orchestration, flow_schema, created_at, updated_at) "
-                    "VALUES (:id, :tid, :name, :desc, :prompt, :orch, :flow, now(), now())"
+                    "orchestration, flow_schema, created_by, category, tags, created_at, updated_at) "
+                    "VALUES (:id, :tid, :name, :desc, :prompt, :orch, :flow, "
+                    ":created_by, :category, :tags, now(), now())"
                 ),
                 {
                     "id": chat_app_id,
@@ -185,6 +224,9 @@ async def create_chat_app(
                     "prompt": system_prompt,
                     "orch": orchestration,
                     "flow": flow_json,
+                    "created_by": user_id,
+                    "category": category,
+                    "tags": tags,
                 },
             )
         await conn.commit()
@@ -203,6 +245,151 @@ async def list_chat_apps(engine: AsyncEngine, tenant_id: str) -> list[dict[str, 
             {"tid": tenant_id},
         )
         return [_row_to_dict(r) for r in rows]
+
+
+async def search_chat_apps(
+    engine: AsyncEngine,
+    tenant_id: str,
+    *,
+    role_id: str | None = None,
+    is_admin: bool = False,
+    user_id: str | None = None,
+    q: str | None = None,
+    app_type: str | None = None,
+    category: str | None = None,
+    tag: str | None = None,
+    sort: str = "latest",
+    fav: bool = False,
+) -> list[dict[str, Any]]:
+    """应用中心智能体列表查询（设计 §4：搜索/筛选/排序/可见性/收藏）。
+
+    仅返回已发布应用；visible = access_mode='open' OR is_admin OR 角色在白名单内。
+    可见性由 SQL join app_role_access 实现（is_admin 由调用方从 policy 域传入，避免跨域 import）。
+    """
+    conds = ["ca.status = 'published'"]
+    params: dict[str, Any] = {"tid": tenant_id}
+
+    # 可见性
+    if is_admin:
+        vis = "true"
+    else:
+        vis = (
+            "(ca.access_mode = 'open' OR EXISTS (SELECT 1 FROM app_role_access ar "
+            "WHERE ar.chat_app_id = ca.chat_app_id AND ar.role_id = :rid "
+            "AND ar.tenant_id = ca.tenant_id))"
+        )
+    conds.append(vis)
+    params["rid"] = role_id or ""
+
+    # 搜索：q 匹配 name / description / created_by / 任一标签
+    if q and (q := q.strip()):
+        conds.append(
+            "(ca.name ILIKE :q OR ca.description ILIKE :q OR ca.created_by ILIKE :q "
+            "OR EXISTS (SELECT 1 FROM unnest(ca.tags) t WHERE t ILIKE :q))"
+        )
+        params["q"] = f"%{q}%"
+
+    # 类型筛选（chat → orchestration='auto'；flow → 'flow'）
+    if app_type == "flow":
+        conds.append("ca.orchestration = 'flow'")
+    elif app_type == "chat":
+        conds.append("ca.orchestration = 'auto'")
+
+    # 分类 / 标签筛选
+    if category:
+        conds.append("ca.category = :category")
+        params["category"] = category
+    if tag:
+        conds.append(":tag = ANY(ca.tags)")
+        params["tag"] = tag
+
+    # 只收藏
+    if fav and user_id:
+        conds.append(
+            "EXISTS (SELECT 1 FROM user_app_favorites f WHERE f.chat_app_id = ca.chat_app_id "
+            "AND f.user_id = :fav_uid AND f.tenant_id = :tid)"
+        )
+        params["fav_uid"] = user_id
+
+    where = " AND ".join(conds)
+    if sort == "hot":
+        order = "COALESCE(favc.c, 0) DESC, ca.created_at DESC"
+        fav_join = (
+            "LEFT JOIN (SELECT chat_app_id, count(*) AS c FROM user_app_favorites f0 "
+            "WHERE f0.tenant_id = :tid GROUP BY chat_app_id) favc ON favc.chat_app_id = ca.chat_app_id"
+        )
+        fav_flag = (
+            ", CASE WHEN f2.chat_app_id IS NOT NULL THEN true ELSE false END AS favorite, "
+            "COALESCE(favc.c, 0) AS favorite_count "
+        )
+    else:
+        order = "ca.created_at DESC"
+        fav_join = ""
+        fav_flag = (
+            ", CASE WHEN f2.chat_app_id IS NOT NULL THEN true ELSE false END AS favorite, "
+            "COALESCE((SELECT count(*) FROM user_app_favorites fc WHERE fc.chat_app_id = ca.chat_app_id "
+            "AND fc.tenant_id = :tid), 0) AS favorite_count "
+        )
+    fav_flag_join = (
+        "LEFT JOIN user_app_favorites f2 ON f2.chat_app_id = ca.chat_app_id "
+        "AND f2.user_id = :uid AND f2.tenant_id = :tid"
+    )
+    params["uid"] = user_id or ""
+
+    sql = (
+        f"SELECT ca.chat_app_id, ca.name, ca.description, ca.category, ca.tags, ca.created_by, "
+        f"ca.access_mode, ca.orchestration, ca.status, ca.created_at, ca.updated_at"
+        f"{fav_flag} "
+        f"FROM chat_apps ca {fav_join} {fav_flag_join} "
+        f"WHERE {where} ORDER BY {order}"
+    )
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        rows = await conn.execute(text(sql), params)
+        return [_row_to_dict(r) for r in rows]
+
+
+async def favorite_app(engine: AsyncEngine, tenant_id: str, user_id: str, chat_app_id: str) -> bool:
+    """收藏（幂等：ON CONFLICT DO NOTHING）。应用不存在返回 False。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        app = (
+            await conn.execute(
+                text("SELECT 1 FROM chat_apps WHERE chat_app_id = :id AND tenant_id = :tid"),
+                {"id": chat_app_id, "tid": tenant_id},
+            )
+        ).first()
+        if app is None:
+            return False
+        await conn.execute(
+            text(
+                "INSERT INTO user_app_favorites (user_id, chat_app_id, tenant_id) "
+                "VALUES (:uid, :id, :tid) ON CONFLICT DO NOTHING"
+            ),
+            {"uid": user_id, "id": chat_app_id, "tid": tenant_id},
+        )
+        await conn.commit()
+    return True
+
+
+async def unfavorite_app(engine: AsyncEngine, tenant_id: str, user_id: str, chat_app_id: str) -> bool:
+    """取消收藏（幂等 DELETE）。应用不存在返回 False。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        app = (
+            await conn.execute(
+                text("SELECT 1 FROM chat_apps WHERE chat_app_id = :id AND tenant_id = :tid"),
+                {"id": chat_app_id, "tid": tenant_id},
+            )
+        ).first()
+        if app is None:
+            return False
+        await conn.execute(
+            text("DELETE FROM user_app_favorites WHERE user_id = :uid AND chat_app_id = :id AND tenant_id = :tid"),
+            {"uid": user_id, "id": chat_app_id, "tid": tenant_id},
+        )
+        await conn.commit()
+    return True
 
 
 async def get_chat_app(engine: AsyncEngine, tenant_id: str, chat_app_id: str) -> dict[str, Any] | None:
@@ -278,6 +465,14 @@ async def update_chat_app(
                 raise ValueError("name is required")
             sets.append("name = :name")
             params["name"] = val
+        elif key == "category":
+            val = await _validate_category(engine, tenant_id, val)
+            sets.append("category = :category")
+            params["category"] = val
+        elif key == "tags":
+            val = _normalize_tags(val)
+            sets.append("tags = :tags")
+            params["tags"] = val
         else:
             sets.append(f"{key} = :{key}")
             params[key] = val
@@ -321,23 +516,44 @@ async def delete_chat_app(engine: AsyncEngine, tenant_id: str, user_id: str, cha
 
 
 async def publish_chat_app(
-    engine: AsyncEngine, tenant_id: str, user_id: str, chat_app_id: str, *, bus=None
+    engine: AsyncEngine,
+    tenant_id: str,
+    user_id: str,
+    chat_app_id: str,
+    *,
+    bus=None,
+    category: str | None = None,
+    tags: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """draft → published. Idempotent: already-published returns current state.
 
     Chatflow F1: orchestration='flow' 时强制重校验 flow_schema（发布评审覆盖
     flow 变更——设计稿 §9 开放问题 1 落地）；校验失败拒绝发布。
+    应用中心（D4）：发布校验 category 必填（编辑页可填，发布弹窗可改，后端兜底 422）。
     """
     app = await get_chat_app(engine, tenant_id, chat_app_id)
     if app is None:
         return None
     if app["status"] != "published":
         _check_flow_fields(app, {})
+        # 发布表单可改 category/tags：传了则覆盖合并；未传则沿用库内现值
+        if category is not None:
+            category = await _validate_category(engine, tenant_id, category)
+            app["category"] = category
+        if tags is not None:
+            app["tags"] = _normalize_tags(tags)
+        else:
+            app["tags"] = _normalize_tags(app.get("tags"))
+        if not app.get("category"):
+            raise ValueError("发布必须选择业务分类（category required）")
         async with engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
             await conn.execute(
-                text("UPDATE chat_apps SET status = 'published', updated_at = now() WHERE chat_app_id = :id"),
-                {"id": chat_app_id},
+                text(
+                    "UPDATE chat_apps SET status = 'published', category = :category, tags = :tags, "
+                    "updated_at = now() WHERE chat_app_id = :id"
+                ),
+                {"id": chat_app_id, "category": app["category"], "tags": app["tags"]},
             )
             await conn.commit()
         _audit(bus, "earp.chat_app.published", tenant_id, user_id, chat_app_id, {"name": app.get("name")})

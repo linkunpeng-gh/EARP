@@ -8,7 +8,7 @@ from alembic import command
 
 from tests.conftest import alembic_config
 
-EXPECTED_TABLES = 45  # tenants+baseline+0005/6/8/9/14+0018/19+0025/26 表
+EXPECTED_TABLES = 48  # tenants+baseline+0005/6/8/9/14+0018/19+0025/26/0029(app_categories+app_role_access+user_app_favorites) 表
 
 
 @pytest.fixture(scope="module")
@@ -51,11 +51,11 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
         assert row is not None and int(row[0]) == 1  # superuser bypasses RLS
 
     command.downgrade(cfg, "0014_chat_apps")
-    # head=0026：回退 0026(flow_runs 表) + 0025(import_rules 表) + 0024(列) + 0023(表) + 0022(列) +
-    # 0021(列) + 0020(CHECK) + 0019(eval 4 表) + 0018(tbox_changes 表) + 0017(加列) + 0016(纯 UPDATE)
-    # + 0015(加列) → 0014；表被回退（flow_runs 1 + import_rules 1 + tbox_changes 1 + eval 4）= 7
-    # → 表数 = EXPECTED_TABLES - 7
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 7
+    # head=0029：回退 0029(agent 3 表) + 0026(flow_runs 表) + 0025(import_rules 表) + 0024(列) + 0023(表)
+    # + 0022(列) + 0021(列) + 0020(CHECK) + 0019(eval 4 表) + 0018(tbox_changes 表) + 0017(加列)
+    # + 0016(纯 UPDATE) + 0015(加列) → 0014；表被回退（agent 3 + flow_runs 1 + import_rules 1 + tbox_changes 1 + eval 4）= 10
+    # → 表数 = EXPECTED_TABLES - 10
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 10
 
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES

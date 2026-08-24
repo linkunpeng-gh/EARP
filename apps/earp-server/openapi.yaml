@@ -1,5 +1,20 @@
 components:
   schemas:
+    AppAccessIn:
+      properties:
+        mode:
+          title: Mode
+          type: string
+        roles:
+          default: []
+          items:
+            type: string
+          title: Roles
+          type: array
+      required:
+      - mode
+      title: AppAccessIn
+      type: object
     Body_import_abox_endpoint_v1_ontology_import_post:
       properties:
         dry_run:
@@ -173,8 +188,40 @@ components:
           title: Visible Roles
       title: CapabilityUpdate
       type: object
+    CategoryIn:
+      properties:
+        name:
+          title: Name
+          type: string
+        sort_order:
+          default: 0
+          title: Sort Order
+          type: integer
+      required:
+      - name
+      title: CategoryIn
+      type: object
+    CategoryUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        sort_order:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Sort Order
+      title: CategoryUpdate
+      type: object
     ChatAppCreate:
       properties:
+        category:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Category
         description:
           default: ''
           title: Description
@@ -198,12 +245,24 @@ components:
           - type: string
           - type: 'null'
           title: System Prompt
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
       required:
       - name
       title: ChatAppCreate
       type: object
     ChatAppUpdate:
       properties:
+        category:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Category
         context_turns:
           anyOf:
           - type: integer
@@ -259,6 +318,13 @@ components:
           - type: string
           - type: 'null'
           title: System Prompt
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
       title: ChatAppUpdate
       type: object
     ChatRequest:
@@ -356,6 +422,34 @@ components:
           title: Title
           type: string
       title: ConvCreate
+      type: object
+    CopilotAssistRequest:
+      properties:
+        conversation_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Conversation Id
+        form_state:
+          additionalProperties: true
+          default: {}
+          title: Form State
+          type: object
+        intent:
+          default: explain
+          title: Intent
+          type: string
+        page_id:
+          title: Page Id
+          type: string
+        query:
+          minLength: 1
+          title: Query
+          type: string
+      required:
+      - page_id
+      - query
+      title: CopilotAssistRequest
       type: object
     DataDomainCreate:
       properties:
@@ -984,6 +1078,22 @@ components:
       - intent
       title: PlanRequest
       type: object
+    PublishBody:
+      properties:
+        category:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Category
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
+      title: PublishBody
+      type: object
     RelationTypeIn:
       properties:
         cardinality:
@@ -1219,6 +1329,11 @@ components:
       type: object
     SystemSettingsIn:
       properties:
+        copilot:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Copilot
         embedding:
           anyOf:
           - type: string
@@ -1323,6 +1438,172 @@ info:
   version: 0.1.0
 openapi: 3.1.0
 paths:
+  /api/app_access:
+    get:
+      operationId: get_app_access_api_app_access_get
+      parameters:
+      - in: query
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get App Access Api App Access Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get App Access
+      tags:
+      - app_center
+  /api/app_access/{chat_app_id}:
+    put:
+      operationId: set_app_access_api_app_access__chat_app_id__put
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppAccessIn'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Set App Access Api App Access  Chat App Id  Put
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Set App Access
+      tags:
+      - app_center
+  /api/app_categories:
+    get:
+      operationId: list_categories_api_app_categories_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Categories Api App Categories Get
+                type: array
+          description: Successful Response
+      summary: List Categories
+      tags:
+      - app_center
+    post:
+      operationId: create_category_api_app_categories_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Category Api App Categories Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Category
+      tags:
+      - app_center
+  /api/app_categories/{category_id}:
+    delete:
+      operationId: delete_category_api_app_categories__category_id__delete
+      parameters:
+      - in: path
+        name: category_id
+        required: true
+        schema:
+          title: Category Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Delete Category Api App Categories  Category Id  Delete
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete Category
+      tags:
+      - app_center
+    patch:
+      operationId: update_category_api_app_categories__category_id__patch
+      parameters:
+      - in: path
+        name: category_id
+        required: true
+        schema:
+          title: Category Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Update Category Api App Categories  Category Id  Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Update Category
+      tags:
+      - app_center
   /api/data-domains:
     get:
       operationId: list_data_domains_endpoint_api_data_domains_get
@@ -1988,6 +2269,53 @@ paths:
   /chat_apps:
     get:
       operationId: list_chat_apps_ep_chat_apps_get
+      parameters:
+      - in: query
+        name: q
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Q
+      - in: query
+        name: type
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Type
+      - in: query
+        name: category
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Category
+      - in: query
+        name: tag
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - in: query
+        name: sort
+        required: false
+        schema:
+          default: latest
+          title: Sort
+          type: string
+      - in: query
+        name: fav
+        required: false
+        schema:
+          default: false
+          title: Fav
+          type: boolean
       responses:
         '200':
           content:
@@ -1999,6 +2327,12 @@ paths:
                 title: Response List Chat Apps Ep Chat Apps Get
                 type: array
           description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
       summary: List Chat Apps Ep
       tags:
       - chat_apps
@@ -2144,6 +2478,101 @@ paths:
       summary: Chat Ep
       tags:
       - chat_apps
+  /chat_apps/{chat_app_id}/chat/stream:
+    post:
+      description: '应用中心：对话流式入口。auto = 现有 SSE 逐字；flow = 节点级 SSE（设计 §4.1）。
+
+
+        flow 事件序列：node_start → token → node_end → (branch | human_approval | done
+        | error)。
+
+        挂起后用户答复恢复 → 再次调用本端点（复用 flow_runs 恢复逻辑，与 /chat 共享）。'
+      operationId: chat_stream_ep_chat_apps__chat_app_id__chat_stream_post
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Chat Stream Ep
+      tags:
+      - chat_apps
+  /chat_apps/{chat_app_id}/favorite:
+    delete:
+      operationId: unfavorite_chat_app_ep_chat_apps__chat_app_id__favorite_delete
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Unfavorite Chat App Ep Chat Apps  Chat App Id  Favorite
+                  Delete
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Unfavorite Chat App Ep
+      tags:
+      - chat_apps
+    post:
+      operationId: favorite_chat_app_ep_chat_apps__chat_app_id__favorite_post
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Favorite Chat App Ep Chat Apps  Chat App Id  Favorite
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Favorite Chat App Ep
+      tags:
+      - chat_apps
   /chat_apps/{chat_app_id}/publish:
     post:
       operationId: publish_chat_app_ep_chat_apps__chat_app_id__publish_post
@@ -2154,6 +2583,14 @@ paths:
         schema:
           title: Chat App Id
           type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/PublishBody'
+              - type: 'null'
+              title: Req Body
       responses:
         '200':
           content:
@@ -2175,7 +2612,9 @@ paths:
       - chat_apps
   /conversations:
     get:
-      description: Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源。
+      description: 'Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源；
+
+        应用中心运行页：可选 chat_app_id 过滤 + 按当前用户过滤。'
       operationId: list_conv_conversations_get
       parameters:
       - in: query
@@ -2192,6 +2631,14 @@ paths:
           default: 0
           title: Offset
           type: integer
+      - in: query
+        name: chat_app_id
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Chat App Id
       responses:
         '200':
           content:
@@ -2315,6 +2762,55 @@ paths:
       summary: Add Msg
       tags:
       - conversations
+  /copilot/assist:
+    post:
+      description: 'AI 配置助手 — SSE 流式响应。
+
+
+        前端传入当前页面 ID + 表单状态 + 用户问题，
+
+        后端组装上下文（页面 schema + KB 检索 + LLM）并流式返回。'
+      operationId: copilot_assist_ep_copilot_assist_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopilotAssistRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Copilot Assist Ep
+      tags:
+      - copilot
+  /copilot/pages:
+    get:
+      description: 返回所有已注册的 Copilot 页面列表。
+      operationId: copilot_pages_ep_copilot_pages_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties:
+                    type: string
+                  type: object
+                title: Response Copilot Pages Ep Copilot Pages Get
+                type: array
+          description: Successful Response
+      summary: Copilot Pages Ep
+      tags:
+      - copilot
   /health:
     get:
       operationId: health_health_get

@@ -190,7 +190,7 @@ class TestUpdate:
         app = await svc.create_chat_app(
             app_engine, "f1-t1", "u1", "已发布", orchestration="flow", flow_schema=_sequential_flow()
         )
-        pub = await svc.publish_chat_app(app_engine, "f1-t1", "u1", app["chat_app_id"])
+        pub = await svc.publish_chat_app(app_engine, "f1-t1", "u1", app["chat_app_id"], category="财务")
         assert pub is not None and pub["status"] == "published"
         updated = await svc.update_chat_app(app_engine, "f1-t1", "u1", app["chat_app_id"], {"description": "改"})
         assert updated is not None and updated["status"] == "draft"
@@ -204,7 +204,7 @@ class TestPublish:
         app = await svc.create_chat_app(
             app_engine, "f1-t1", "u1", "发布流程", orchestration="flow", flow_schema=_sequential_flow()
         )
-        pub = await svc.publish_chat_app(app_engine, "f1-t1", "u1", app["chat_app_id"])
+        pub = await svc.publish_chat_app(app_engine, "f1-t1", "u1", app["chat_app_id"], category="财务")
         assert pub is not None and pub["status"] == "published"
 
     async def test_publish_flow_rejects_invalid_schema(self, app_engine: AsyncEngine) -> None:
@@ -222,12 +222,12 @@ class TestPublish:
                 {"bad": __import__("json").dumps(_cycle_flow()), "id": app["chat_app_id"]},
             )
         with pytest.raises(ValueError, match="invalid flow_schema"):
-            await svc.publish_chat_app(app_engine, "f1-t1", "u1", app["chat_app_id"])
+            await svc.publish_chat_app(app_engine, "f1-t1", "u1", app["chat_app_id"], category="财务")
 
     async def test_publish_auto_ignores_schema_gate(self, app_engine: AsyncEngine) -> None:
         """auto 模式发布不受 flow 门禁影响（存量语义）。"""
         app = await svc.create_chat_app(app_engine, "f1-t1", "u1", "auto 发布")
-        pub = await svc.publish_chat_app(app_engine, "f1-t1", "u1", app["chat_app_id"])
+        pub = await svc.publish_chat_app(app_engine, "f1-t1", "u1", app["chat_app_id"], category="财务")
         assert pub is not None and pub["status"] == "published"
 
 

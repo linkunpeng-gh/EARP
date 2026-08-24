@@ -121,11 +121,13 @@ class Connector:
         engine: AsyncEngine | None = None,
         llm=None,
         settings=None,
+        token_callback=None,  # 应用中心：LLM 节点流式透传（on_token），None=非流式
     ) -> None:
         self._bus = eventbus
         self._engine = engine
         self._llm = llm
         self._settings = settings
+        self._token_callback = token_callback
 
     @retry(
         retry=retry_if_exception_type(ConnectorError),
@@ -185,15 +187,33 @@ class Connector:
             llm = LLMConnector(self._settings, model_override=override)
         if llm is None:
             raise ConnectorError("llm.prompt requires llm injection (flow executor)")
-        text = await llm.complete(
-            prompt,
-            system=str(input_.get("system", "") or ""),
-            temperature=float(input_.get("temperature", 0.7) or 0.7),
-            max_tokens=int(input_["max_tokens"]) if input_.get("max_tokens") else None,
-        )
-        if text is None:
+        system = str(input_.get("system", "") or "")
+        temperature = float(input_.get("temperature", 0.7) or 0.7)
+        max_tokens = int(input_["max_tokens"]) if input_.get("max_tokens") else None
+        # 应用中心：token 级流式透传（on_token 注入时走 stream；否则 keep 非流式 complete）
+        if self._token_callback is not None:
+            text = await self._stream_llm_prompt(llm, prompt, system, temperature, max_tokens)
+        else:
+            text = await llm.complete(prompt, system=system, temperature=temperature, max_tokens=max_tokens)
+        if not text:
             raise ConnectorError("llm.prompt: LLM generation failed (provider unreachable or empty)")
         return {"text": text}
+
+    async def _stream_llm_prompt(
+        self, llm, prompt: str, system: str, temperature: float, max_tokens: int | None
+    ) -> str:
+        """LLM 节点流式：逐 token 上抛 on_token，累积文本返回。"""
+        parts: list[str] = []
+        # llm.stream 用默认配置；模型级参数（temperature/max_tokens）由指定 stream 变体承载
+        async for ev in llm.stream(prompt, system=system):
+            tok = getattr(ev, "token", None)
+            if tok is None:
+                continue
+            parts.append(tok)
+            cb = self._token_callback
+            if cb is not None:
+                await cb(tok)
+        return "".join(parts)
 
     async def _execute_knowledge_search(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
         """knowledge.search: query → embed → 三层检索 → {"chunks", "citations"}。"""
@@ -246,8 +266,14 @@ class Connector:
     async def _execute_qu_answer(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
         """qu.answer: understand →（可选 upgrade_with_llm）→ select_plan → execute_plan。
 
-        输出 {selection, evidence, citations, chunks}（D1）——citations 为三源引用结构，
-        下游 LLM 节点可 {{#qu.citations#}} 直接引用。settings 由 flow 执行链路注入。
+        输出 {selection, evidence, citations, chunks, entities}（D1 + F6）——citations 为三源引用结构，
+        下游 LLM 节点可 {{#qu.citations#}} 直接引用；entities 为规则层实体提及（mention/semantic_type），
+        capability 节点用 {{#qu.entities.0.mention#}} 取首实体（F6 场景 A 设备引用传参）。
+        settings 由 flow 执行链路注入。
+
+        F6 D3 摸底：会话上下文（指代消解）最小接入——从会话历史（_recent_pairs）取上一轮用户
+        消息做规则层理解，把其实体作为 context.last_entities 注入本轮 understand/execute_plan，
+        使「它/该设备」等指代词可映射到上文实体（C 系列全量落库见 arch 设计稿，待后续任务书）。
         """
         if self._engine is None or ctx is None:
             raise ConnectorError("qu.answer requires engine + ctx (flow executor)")
@@ -257,7 +283,8 @@ class Connector:
         query = str(input_.get("query", "") or "")
         if not query.strip():
             raise ConnectorError("qu.answer: input.query required")
-        result = await understand(self._engine, ctx.tenant_id, query, context={})
+        context = await self._history_context(ctx)
+        result = await understand(self._engine, ctx.tenant_id, query, context=context)
         settings = self._settings
         # 方案 C：use_llm=false → 纯规则理解，跳过 LLM 升级（快、确定性）；缺省启用升级
         if input_.get("use_llm") is not False and settings is not None and hasattr(settings, "ollama_chat_model"):
@@ -270,7 +297,7 @@ class Connector:
             query,
             sq,
             settings=settings,
-            context={},
+            context=context,
             top_k=5,
         )
         return {
@@ -278,7 +305,31 @@ class Connector:
             "evidence": [e.model_dump() for e in plan_result.evidence],
             "citations": plan_result.citations,
             "chunks": _evidence_to_chunks(plan_result.evidence),
+            # F6：规则层实体提及（供 capability 节点取设备引用）
+            "entities": [{"mention": e.mention, "semantic_type": e.semantic_type} for e in result.entities],
         }
+
+    async def _history_context(self, ctx: Any) -> dict:
+        """F6 D3 最小会话上下文：从消息历史推导 last_entities（上一轮用户消息的规则实体）。
+
+        仅在 flow 执行（ctx.session_id 为 conversation）且历史存在时产出；异常/无历史 → {}（现状）。
+        完整方案（conversations.context 落库 + last_intent/last_relations）见 arch 设计稿 C 系列。
+        """
+        if self._engine is None or not getattr(ctx, "session_id", None):
+            return {}
+        try:
+            from earp_server.conversation.chat_service import _recent_pairs
+            from earp_server.ontology.understanding import understand
+
+            msgs = await _recent_pairs(self._engine, ctx.tenant_id, ctx.session_id, 4)
+            prev = next((m.get("content", "") for m in reversed(msgs) if m.get("role") == "user"), "")
+            if not prev.strip():
+                return {}
+            prev_result = await understand(self._engine, ctx.tenant_id, prev, context={})
+            last_entities = [{"mention": e.mention, "semantic_type": e.semantic_type} for e in prev_result.entities]
+            return {"last_entities": last_entities} if last_entities else {}
+        except Exception:  # noqa: BLE001 — 上下文推导失败不阻断 QU（维持现状语义）
+            return {}
 
     async def _execute_capability_call(self, capability_call: dict[str, Any], ctx: Any) -> dict[str, Any]:
         """capability.call: business_capabilities 注册表校验 + required_permissions 门禁 → 真实执行。
@@ -336,9 +387,7 @@ class Connector:
                 # params 提供 adapter 固定默认（如 tool.fetch 的 connector_id），可被 capability input 覆写
                 params = _coerce_jsonb_dict(execution.get("params"))
                 merged_input = {**params, **cap_input}
-                return await self.execute(
-                    {**capability_call, "adapter_type": adapter, "input": merged_input}, ctx=ctx
-                )
+                return await self.execute({**capability_call, "adapter_type": adapter, "input": merged_input}, ctx=ctx)
             # 显式声明但 adapter 未知 → 明确报错（执行器任务书 D5：执行声明缺失或未实现）
             raise ConnectorError(
                 f"capability.call: 能力 {capability_id!r} 执行声明 adapter {adapter!r} 未实现"

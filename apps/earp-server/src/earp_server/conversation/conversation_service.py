@@ -100,11 +100,22 @@ async def list_conversations(
     tenant_id: str,
     limit: int = 50,
     offset: int = 0,
+    chat_app_id: str | None = None,
+    user_id: str | None = None,
 ) -> list[dict]:
     """Conversation list with message count + last message time.
 
     P1 问答链路一期新增端点（设计 §4.2 Q1）——对话日志与二期应用形态的数据源。
+    应用中心：可选按 chat_app_id（运行页会话历史按智能体维度）与 user_id 过滤。
     """
+    conds = ["c.tenant_id = :tid"]
+    params: dict = {"tid": tenant_id, "lim": limit, "off": offset}
+    if chat_app_id:
+        conds.append("c.chat_app_id = :cid")
+        params["cid"] = chat_app_id
+    if user_id:
+        conds.append("c.user_id = :uid")
+        params["uid"] = user_id
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         rows = await conn.execute(
@@ -112,11 +123,11 @@ async def list_conversations(
                 "SELECT c.conversation_id, c.title, c.chat_app_id, c.user_id, c.created_at, "
                 "       count(m.message_id) AS message_count, max(m.created_at) AS last_message_at "
                 "FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.conversation_id "
-                "WHERE c.tenant_id = :tid "
+                "WHERE " + " AND ".join(conds) + " "
                 "GROUP BY c.conversation_id, c.title, c.chat_app_id, c.user_id, c.created_at "
                 "ORDER BY COALESCE(max(m.created_at), c.created_at) DESC "
                 "LIMIT :lim OFFSET :off"
             ),
-            {"tid": tenant_id, "lim": limit, "off": offset},
+            params,
         )
         return [dict(r._mapping) for r in rows]

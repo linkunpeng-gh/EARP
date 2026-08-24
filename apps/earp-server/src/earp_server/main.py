@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from earp_server.admin.app_center_routes import router as app_center_router
 from earp_server.admin.model_routes import router as model_routes_router
 from earp_server.admin.roles_routes import router as roles_router
 from earp_server.audit.consumer import audit_handler_factory
@@ -30,21 +31,23 @@ from earp_server.capability.service import (
 )
 from earp_server.config import Settings
 from earp_server.connector import LLMConnector
+from earp_server.conversation.chat_app_service import (
+    create_chat_app,
+    delete_chat_app,
+    favorite_app,
+    get_chat_app,
+    publish_chat_app,
+    search_chat_apps,
+    unfavorite_app,
+    update_chat_app,
+)
+from earp_server.conversation.chat_service import ChatError, chat_sse, flow_chat
 from earp_server.conversation.conversation_service import (
     add_message,
     create_conversation,
     get_messages,
     list_conversations,
 )
-from earp_server.conversation.chat_app_service import (
-    create_chat_app,
-    delete_chat_app,
-    get_chat_app,
-    list_chat_apps,
-    publish_chat_app,
-    update_chat_app,
-)
-from earp_server.conversation.chat_service import ChatError, chat_sse, flow_chat
 from earp_server.gateway.auth import JWTMiddleware, create_token
 from earp_server.gateway.input_guard import sanitize_body
 from earp_server.infra.db import build_engine, check_db
@@ -81,6 +84,7 @@ from earp_server.knowledge.search_service import search_chunks
 from earp_server.ontology.eval_routes import router as eval_router
 from earp_server.ontology.routes import router as ontology_router
 from earp_server.planner.task_planner import SimpleTaskPlanner
+from earp_server.policy.app_access_service import is_is_admin
 from earp_server.runtime.invoke import router as invoke_router
 from earp_server.runtime.session_service import close_session, create_session, get_session, list_sessions
 from earp_server.schemas.sessions import SessionCreateRequest, SessionResponse
@@ -278,6 +282,8 @@ class ChatAppCreate(BaseModel):
     system_prompt: str | None = None  # None → DB 默认模板
     orchestration: str = "auto"  # Chatflow F1: auto | flow（默认 auto，前端零改动）
     flow_schema: dict[str, Any] | None = None  # flow 模式必填，图校验（F0 白名单扩展）
+    category: str | None = None  # 应用中心：业务分类（租户词表内，发布必填）
+    tags: list[str] | None = None  # 应用中心：自由标签
 
 
 class ChatAppUpdate(BaseModel):
@@ -291,6 +297,13 @@ class ChatAppUpdate(BaseModel):
     context_turns: int | None = None
     orchestration: str | None = None
     flow_schema: dict[str, Any] | None = None
+    category: str | None = None
+    tags: list[str] | None = None
+
+
+class PublishBody(BaseModel):
+    category: str | None = None
+    tags: list[str] | None = None
 
 
 class ChatRequest(BaseModel):
@@ -308,6 +321,14 @@ class StreamRequest(BaseModel):
     prompt: str
     system: str = ""
     session_id: str = ""
+
+
+class CopilotAssistRequest(BaseModel):
+    page_id: str
+    intent: str = "explain"  # explain | diagnose | suggest | autofill | apply
+    query: str = Field(min_length=1)
+    form_state: dict[str, Any] = {}
+    conversation_id: str | None = None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -345,6 +366,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Phase 2: LLM cache + structured output via Ollama
         llm_connector = LLMConnector(cfg, rate_limiter=app.state.rate_limiter)
         # PRD-2026-031: DB-configured models take priority (env fallback inside connector)
+        runtime_models: dict = {}
         try:
             from earp_server.admin import model_service as _ms
             from earp_server.infra.ext.ext_embedding import init_embedding_provider as _reinit_emb
@@ -384,6 +406,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         llm_connector.tracer = tracer
         app.state.planner = SimpleTaskPlanner(llm=llm_connector)
         app.state.llm = llm_connector  # P1 chat 链路直接使用（含 DB model_configs 解析）
+        # Copilot 专用 LLM（轻量快速模型，独立于主聊天模型）
+        copilot_config = runtime_models.get("copilot") if runtime_models else None
+        if copilot_config:
+            copilot_llm = LLMConnector(cfg, rate_limiter=app.state.rate_limiter, model_override=copilot_config)
+        else:
+            copilot_llm = LLMConnector(
+                cfg, rate_limiter=app.state.rate_limiter,
+                model_override={"provider": "ollama", "model_name": cfg.copilot_model},
+            )
+        app.state.copilot_llm = copilot_llm
         if cfg.app_env in ("dev", "test"):
             # in-process audit: subscribe handler to local EventBus
             # (prod uses independent audit worker process — see entrypoints/audit.py)
@@ -534,6 +566,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(eval_router)
     app.include_router(model_routes_router)
     app.include_router(roles_router)
+    app.include_router(app_center_router)
 
     # ── Capability Registry ──
     @app.post("/capabilities", status_code=201, tags=["capabilities"])
@@ -1220,10 +1253,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    # ── Chat Apps（工作台 · chat 智能体，P1 问答链路一期）──
+    # ── Chat Apps（工作台 · chat 智能体，P1 问答链路一期；应用中心：搜索/筛选/收藏/可见性，D4）──
     @app.get("/chat_apps", tags=["chat_apps"])
-    async def list_chat_apps_ep(req: Request) -> list[dict[str, Any]]:
-        return await list_chat_apps(req.app.state.engine, req.state.tenant_id)
+    async def list_chat_apps_ep(
+        req: Request,
+        q: str | None = None,
+        type: str | None = None,
+        category: str | None = None,
+        tag: str | None = None,
+        sort: str = "latest",
+        fav: bool = False,
+    ) -> list[dict[str, Any]]:
+        is_admin = await is_is_admin(req.app.state.engine, req.state.tenant_id, req.state.role_id)
+        return await search_chat_apps(
+            req.app.state.engine,
+            req.state.tenant_id,
+            role_id=req.state.role_id,
+            is_admin=is_admin,
+            user_id=req.state.user_id,
+            q=q,
+            app_type=type,
+            category=category,
+            tag=tag,
+            sort=sort,
+            fav=fav,
+        )
 
     @app.get("/chat_apps/{chat_app_id}", tags=["chat_apps"])
     async def get_chat_app_ep(chat_app_id: str, req: Request) -> dict[str, Any]:
@@ -1245,6 +1299,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 system_prompt=req_body.system_prompt,
                 orchestration=req_body.orchestration,
                 flow_schema=req_body.flow_schema,
+                category=req_body.category,
+                tags=req_body.tags,
             )
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e)) from e
@@ -1279,17 +1335,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="chat app not found")
 
     @app.post("/chat_apps/{chat_app_id}/publish", tags=["chat_apps"])
-    async def publish_chat_app_ep(chat_app_id: str, req: Request) -> dict[str, Any]:
-        app = await publish_chat_app(
-            req.app.state.engine,
-            req.state.tenant_id,
-            req.state.user_id,
-            chat_app_id,
-            bus=req.app.state.eventbus,
-        )
+    async def publish_chat_app_ep(
+        chat_app_id: str, req: Request, req_body: PublishBody | None = None
+    ) -> dict[str, Any]:
+        body = req_body or PublishBody()
+        try:
+            app = await publish_chat_app(
+                req.app.state.engine,
+                req.state.tenant_id,
+                req.state.user_id,
+                chat_app_id,
+                bus=req.app.state.eventbus,
+                category=body.category,
+                tags=body.tags,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
         if app is None:
             raise HTTPException(status_code=404, detail="chat app not found")
         return app
+
+    @app.post("/chat_apps/{chat_app_id}/favorite", tags=["chat_apps"])
+    async def favorite_chat_app_ep(chat_app_id: str, req: Request) -> dict[str, Any]:
+        ok = await favorite_app(req.app.state.engine, req.state.tenant_id, req.state.user_id, chat_app_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="chat app not found")
+        return {"chat_app_id": chat_app_id, "favorited": True}
+
+    @app.delete("/chat_apps/{chat_app_id}/favorite", tags=["chat_apps"])
+    async def unfavorite_chat_app_ep(chat_app_id: str, req: Request) -> dict[str, Any]:
+        ok = await unfavorite_app(req.app.state.engine, req.state.tenant_id, req.state.user_id, chat_app_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="chat app not found")
+        return {"chat_app_id": chat_app_id, "favorited": False}
 
     @app.post("/chat_apps/{chat_app_id}/chat", tags=["chat_apps"], response_model=None)
     async def chat_ep(
@@ -1357,15 +1435,122 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
 
+    @app.post("/chat_apps/{chat_app_id}/chat/stream", tags=["chat_apps"], response_model=None)
+    async def chat_stream_ep(
+        chat_app_id: str, req_body: ChatRequest, req: Request
+    ) -> StreamingResponse:
+        """应用中心：对话流式入口。auto = 现有 SSE 逐字；flow = 节点级 SSE（设计 §4.1）。
+
+        flow 事件序列：node_start → token → node_end → (branch | human_approval | done | error)。
+        挂起后用户答复恢复 → 再次调用本端点（复用 flow_runs 恢复逻辑，与 /chat 共享）。
+        """
+        app = await get_chat_app(req.app.state.engine, req.state.tenant_id, chat_app_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="chat app not found")
+
+        if app.get("orchestration") == "flow":
+            import asyncio
+
+            from earp_server.connector import ConnectorError
+            from earp_server.orchestrator.workflow_dsl import WorkflowValidationError
+
+            queue: asyncio.Queue = asyncio.Queue()
+
+            async def emit(ev: str, data: dict) -> None:
+                await queue.put((ev, data))
+
+            async def run_flow() -> None:
+                try:
+                    await flow_chat(
+                        req.app.state.engine,
+                        req.state.tenant_id,
+                        req.state.user_id,
+                        req.state.role_id,
+                        app,
+                        req_body.query,
+                        req_body.conversation_id,
+                        base_llm=req.app.state.llm,
+                        settings=req.app.state.settings,
+                        bus=req.app.state.eventbus,
+                        on_event=emit,
+                    )
+                except HTTPException as e:
+                    # PolicyLayer 权限拒绝 403 透传 → error 事件（SSE 无 HTTP 状态码语义）
+                    await emit("error", {"message": e.detail, "http_status": e.status_code})
+                except (ConnectorError, ChatError, WorkflowValidationError) as e:
+                    await emit("error", {"message": f"flow 执行失败：{e}"})
+                except Exception:
+                    logger.exception("flow chat stream failed")
+                    await emit("error", {"message": "flow 执行失败，请稍后重试"})
+
+            async def gen():
+                task = asyncio.create_task(run_flow())
+                try:
+                    while True:
+                        ev, data = await queue.get()
+                        yield f"event: {ev}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+                        if ev in ("done", "error"):
+                            break
+                finally:
+                    if not task.done():
+                        task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+
+            return StreamingResponse(
+                gen(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache, no-transform",
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        async def gen():
+            async for line in chat_sse(
+                req.app.state.engine,
+                req.state.tenant_id,
+                req.state.user_id,
+                req.state.role_id,
+                app,
+                req_body.query,
+                req_body.conversation_id,
+                base_llm=req.app.state.llm,
+                settings=req.app.state.settings,
+                rate_limiter=req.app.state.rate_limiter,
+                embedding_dim=req.app.state.settings.embedding_dim,
+            ):
+                yield line
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
     # ── Conversation ──
     @app.post("/conversations", status_code=201, tags=["conversations"])
     async def create_conv(req_body: ConvCreate, req: Request) -> dict[str, Any]:
         return await create_conversation(req.app.state.engine, req.state.tenant_id, req.state.user_id, req_body.title)
 
     @app.get("/conversations", tags=["conversations"])
-    async def list_conv(limit: int = 50, offset: int = 0, req: Request = None) -> list[dict[str, Any]]:  # type: ignore[assignment]
-        """Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源。"""
-        return await list_conversations(req.app.state.engine, req.state.tenant_id, limit, offset)
+    async def list_conv(
+        limit: int = 50, offset: int = 0, chat_app_id: str | None = None, req: Request = None
+    ) -> list[dict[str, Any]]:  # type: ignore[assignment]
+        """Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源；
+        应用中心运行页：可选 chat_app_id 过滤 + 按当前用户过滤。"""
+        return await list_conversations(
+            req.app.state.engine,
+            req.state.tenant_id,
+            limit,
+            offset,
+            chat_app_id=chat_app_id,
+            user_id=req.state.user_id,
+        )
 
     @app.post("/conversations/{conv_id}/messages", status_code=201, tags=["conversations"])
     async def add_msg(conv_id: str, req_body: MsgAdd, req: Request) -> dict[str, Any]:
@@ -1378,13 +1563,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await get_messages(req.app.state.engine, req.state.tenant_id, conv_id, limit, offset)
 
     # ── Copilot (AI 配置助手) ──
-    class CopilotAssistRequest(BaseModel):
-        page_id: str
-        intent: str = "explain"  # explain | diagnose | suggest
-        query: str = Field(min_length=1)
-        form_state: dict[str, Any] = {}
-        conversation_id: str | None = None
-
     @app.post("/copilot/assist", tags=["copilot"], response_model=None)
     async def copilot_assist_ep(
         req_body: CopilotAssistRequest, req: Request
@@ -1404,7 +1582,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 req_body.form_state,
                 req_body.query,
                 req_body.intent,
-                llm=req.app.state.llm,
+                llm=req.app.state.copilot_llm,
                 settings=req.app.state.settings,
                 rate_limiter=req.app.state.rate_limiter,
                 embedding_dim=req.app.state.settings.embedding_dim,

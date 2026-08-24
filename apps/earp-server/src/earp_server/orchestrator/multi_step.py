@@ -95,6 +95,11 @@ class MultiStepExecutor:
         resume_pool: dict[str, StepResult] | None = None,
         resume_pending_node: str | None = None,
         resume_reply: str = "",
+        # 应用中心：flow 节点级 SSE 流式事件回调（默认 no-op，注入时透传）
+        on_node_start=None,
+        on_node_end=None,
+        on_token=None,
+        on_branch=None,
     ) -> tuple[list[StepResult], ExecutionState]:
         """Execute plan steps sequentially with checkpoint + Saga compensation.
 
@@ -118,6 +123,10 @@ class MultiStepExecutor:
                 resume_pool=resume_pool,
                 resume_pending_node=resume_pending_node,
                 resume_reply=resume_reply,
+                on_node_start=on_node_start,
+                on_node_end=on_node_end,
+                on_token=on_token,
+                on_branch=on_branch,
             )
         results: list[StepResult] = []
         saga = SagaCompensation()
@@ -231,6 +240,11 @@ class MultiStepExecutor:
         resume_pool: dict[str, StepResult] | None = None,
         resume_pending_node: str | None = None,
         resume_reply: str = "",
+        # 应用中心：flow 节点级 SSE 流式事件回调（默认 no-op，注入时透传）
+        on_node_start=None,
+        on_node_end=None,
+        on_token=None,
+        on_branch=None,
     ) -> tuple[list[StepResult], ExecutionState]:
         """Execute a CompiledWorkflow with runtime conditional branch selection.
 
@@ -303,6 +317,8 @@ class MultiStepExecutor:
                         return results, state
                     chosen[item.branch_id] = "then" if taken else "else"
                     state.chosen[item.branch_id] = chosen[item.branch_id]
+                    if on_branch is not None:
+                        await on_branch(item.branch_id, chosen[item.branch_id])
                 continue
 
             # StepExec
@@ -314,9 +330,7 @@ class MultiStepExecutor:
             if resume_pool is not None:
                 if item.node_id == resume_pending_node:
                     # F4 恢复：挂起点注入答复（下游 {{#node.output.reply#}} / {{#node.reply#}} 引用）
-                    reply_result = StepResult(
-                        step_id=item.node_id, status="completed", output={"reply": resume_reply}
-                    )
+                    reply_result = StepResult(step_id=item.node_id, status="completed", output={"reply": resume_reply})
                     results.append(reply_result)
                     pool[item.node_id] = reply_result
                     state.completed_steps.append(item.node_id)
@@ -359,6 +373,13 @@ class MultiStepExecutor:
             # required_permissions 门禁）；其它节点（llm/knowledge/qu/tool）不挂层（避免噪音）。
             is_capability = step.capability_call.get("adapter_type") == "capability.call"
             step_layers = self._capability_layers if is_capability else layers
+            # 应用中心：LLM 节点流式透传（token 回调注入 runner）
+            if on_token is not None:
+                self._runner.set_token_callback(on_token)
+            else:
+                self._runner.set_token_callback(None)
+            if on_node_start is not None:
+                await on_node_start(item.node_id, step.capability_call.get("adapter_type", ""))
             try:
                 result = await self._runner.invoke(step, layers=step_layers, ctx=step_ctx)
             except ApprovalPending as ap:
@@ -369,6 +390,16 @@ class MultiStepExecutor:
                 state.current_step_index = processed
                 state.completed_steps = [r.step_id for r in results if r.status == "completed"]
                 return results, state
+            if on_node_end is not None:
+                await on_node_end(
+                    item.node_id,
+                    {
+                        "status": result.status,
+                        "latency_ms": result.latency_ms,
+                        "output_summary": str(result.output)[:500] if result.output else None,
+                        "error": result.error,
+                    },
+                )
             # Chatflow 调试：捕获节点实际输入（模板解析后的 input）供 trace
             if flow_input is not None and result is not None and isinstance(resolved_call, dict):
                 result.input = resolved_call.get("input")

@@ -60,12 +60,12 @@ async def test_publish_then_edit_reverts_to_draft(app_engine: AsyncEngine) -> No
     bus = MockBus()
     app = await svc.create_chat_app(app_engine, tid, "u1", "发布测试", bus=bus)
 
-    pub = await svc.publish_chat_app(app_engine, tid, "u1", app["chat_app_id"], bus=bus)
+    pub = await svc.publish_chat_app(app_engine, tid, "u1", app["chat_app_id"], category="财务", bus=bus)
     assert pub["status"] == "published"
     assert bus.events[-1].type == "earp.chat_app.published"
 
     # publish 幂等
-    pub2 = await svc.publish_chat_app(app_engine, tid, "u1", app["chat_app_id"], bus=bus)
+    pub2 = await svc.publish_chat_app(app_engine, tid, "u1", app["chat_app_id"], category="财务", bus=bus)
     assert pub2["status"] == "published"
 
     # 编辑已发布 → 回 draft
