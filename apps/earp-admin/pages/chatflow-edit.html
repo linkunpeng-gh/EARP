@@ -102,6 +102,12 @@ body { overflow: hidden; }
 <header id="app-header"></header>
 <div class="cf-top">
   <h2 id="app-title">—</h2><span id="app-status"></span>
+  <label class="cf-meta" style="display:flex;align-items:center;gap:0.3rem;font-size:0.75rem;color:var(--text-tertiary);">分类
+    <select id="cf-category" style="font-size:0.75rem;padding:0.25rem 0.4rem;border:1px solid var(--border-standard);border-radius:var(--radius-md);background:var(--bg-panel);color:var(--text-primary);"><option value="">— 请选择 —</option></select>
+  </label>
+  <label class="cf-meta" style="display:flex;align-items:center;gap:0.3rem;font-size:0.75rem;color:var(--text-tertiary);">标签
+    <input type="text" id="cf-tags" placeholder="报销, 制度" style="font-size:0.75rem;padding:0.25rem 0.4rem;width:140px;border:1px solid var(--border-standard);border-radius:var(--radius-md);background:var(--bg-panel);color:var(--text-primary);">
+  </label>
   <span class="spacer"></span>
   <button class="secondary" onclick="saveFlow()">保存</button>
   <button class="primary" onclick="publishFlow()" id="publish-btn">发布</button>
@@ -186,6 +192,13 @@ async function loadApp() {
     ? '<span class="tag tag-green">已发布</span>' : '<span class="tag tag-accent">草稿</span>';
   document.getElementById('publish-btn').disabled = a.status === 'published';
   document.getElementById('publish-btn').textContent = a.status === 'published' ? '已发布' : '发布';
+  // 应用中心：业务分类 + 标签（顶部常驻字段，发布弹窗预填）
+  document.getElementById('cf-category').innerHTML = '<option value="">— 请选择 —</option>'
+    + (state.categories || []).map(function (c) {
+      var sel = c.name === a.category ? ' selected' : '';
+      return '<option value="' + esc(c.name) + '"' + sel + '>' + esc(c.name) + '</option>';
+    }).join('');
+  document.getElementById('cf-tags').value = (a.tags || []).join(', ');
   loadExample(); // 载入现有 flow_schema（或示例打底）
   if (a.flow_schema && a.flow_schema.nodes && a.flow_schema.nodes.length) {
     clearFlow();
@@ -306,7 +319,11 @@ async function saveFlow() {
   btn.disabled = true; btn.textContent = '保存中…';
   try {
     var upd = await EARP.fetchJSON('/chat_apps/' + encodeURIComponent(appId), {
-      method: 'PATCH', body: JSON.stringify({ orchestration: 'flow', flow_schema: schema }),
+      method: 'PATCH', body: JSON.stringify({
+        orchestration: 'flow', flow_schema: schema,
+        category: document.getElementById('cf-category').value || null,
+        tags: parseFlowTags(document.getElementById('cf-tags').value),
+      }),
     });
     state.app = upd;
     if (upd.status === 'draft' && upd.name === state.app.name && upd.orchestration === 'flow') {
@@ -323,13 +340,15 @@ async function publishFlow() {
   var schema = ChatflowCanvas.toFlowSchema(editor);
   var errors = FlowGraph.validate(schema);
   if (errors.length) { alert('发布失败（图不合法）：\n' + errors.slice(0, 4).join('\n')); return; }
-  // 发布表单：分类（必填）+ 标签
+  // 发布表单：分类（必填）+ 标签 —— 预填顶部常驻字段当前值（或库内现值）
+  var curCat = document.getElementById('cf-category').value || state.app.category || '';
+  var curTags = document.getElementById('cf-tags').value || (state.app.tags || []).join(', ');
   document.getElementById('pub-category').innerHTML = '<option value="">— 请选择 —</option>'
     + (state.categories || []).map(function (c) {
-      var sel = c.name === state.app.category ? ' selected' : '';
+      var sel = c.name === curCat ? ' selected' : '';
       return '<option value="' + esc(c.name) + '"' + sel + '>' + esc(c.name) + '</option>';
     }).join('');
-  document.getElementById('pub-tags').value = (state.app.tags || []).join(', ');
+  document.getElementById('pub-tags').value = curTags;
   document.getElementById('pub-modal').style.display = 'flex';
 }
 
