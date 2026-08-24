@@ -178,7 +178,7 @@ async function init() {
   bindRunBarResize();
   restorePropsToggle();
   loadModels();
-  loadCats();
+  await loadCats();  // 先加载分类词表，再渲染顶部分类下拉（否则下拉无选项）
   await loadApp();
 }
 
