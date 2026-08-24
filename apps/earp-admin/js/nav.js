@@ -45,7 +45,7 @@
     knowledge: [
       { label: '数据域', sub: 'data-domains', path: '{b}/pages/data-domains.html', group: '文档知识' },
       { label: '知识库', sub: 'knowledge', path: '{b}/pages/knowledge.html', group: '文档知识' },
-      { label: '类型管理', sub: 'tbox', path: '{b}/pages/tbox.html', group: '结构化知识' },
+      { label: '本体管理', sub: 'tbox', path: '{b}/pages/tbox.html', group: '结构化知识' },
       { label: '实体管理', sub: 'entities', path: '{b}/pages/entities.html', group: '结构化知识' },
       { label: '实体导入', sub: 'entity-import', path: '{b}/pages/entity-import.html', group: '结构化知识' },
       { label: '中台对接', sub: 'data-source', path: '{b}/pages/data-source.html', group: '结构化知识' },
