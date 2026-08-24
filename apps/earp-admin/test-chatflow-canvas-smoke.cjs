@@ -196,4 +196,14 @@ assert(c1 && c1.data.capability_call && c1.data.capability_call.input
   'capability: 节点 input.params 往返保留（不再硬编码 {}）');
 assert(t1 && t1.data.params && t1.data.params.q === '{{query}}', 'tool: 节点 params 往返保留');
 
+// ── 参数 JSON 编辑字段（capability/tool 节点可填模板参数）──
+const fieldsC = Canvas.dataToFields('capability', { capability_call: { capability_id: 'cap-x', input: { params: { equipment_id: '{{#qu1.entities.0.mention#}}' } } } });
+assert(fieldsC.capability_id === 'cap-x' && fieldsC.params_json.includes('equipment_id'), 'capability: dataToFields 导出 params_json');
+const dataC = Canvas.fieldsToData('capability', { capability_id: 'cap-x', params_json: '{"equipment_id": "{{#qu1.entities.0.mention#}}"}' });
+assert(dataC.capability_call.input.params.equipment_id === '{{#qu1.entities.0.mention#}}', 'capability: fieldsToData 解析 params_json → input.params');
+const dataT = Canvas.fieldsToData('tool', { connector_id: 'cn-x', params_json: '{"q": "x"}' });
+assert(dataT.params.q === 'x', 'tool: fieldsToData 解析 params_json → params');
+const bad = Canvas.fieldsToData('capability', { capability_id: 'cap-x', params_json: '{bad json' });
+assert(bad.capability_call.input.params._json_error, 'capability: 非法 JSON 不崩溃（容错 _json_error）');
+
 console.log('\n' + passed + ' 断言全部通过（chatflow 画布核心冒烟）');

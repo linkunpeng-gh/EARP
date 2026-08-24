@@ -38,10 +38,16 @@
       ],
       brief: (d) => '自动理解→检索' },
     capability: { name: '能力调用', color: '#dc2626', inputs: 1, outputs: 1,
-      fields: [{ key: 'capability_id', label: '能力 ID', type: 'text', default: '' }],
+      fields: [
+        { key: 'capability_id', label: '能力 ID', type: 'text', default: '' },
+        { key: 'params_json', label: '参数（JSON，可含 {{模板}}）', type: 'textarea', default: '', monospace: true },
+      ],
       brief: (d) => '能力: ' + (d.capability_id || '未选') },
     tool: { name: '工具取数', color: '#0891b2', inputs: 1, outputs: 1,
-      fields: [{ key: 'connector_id', label: '连接 ID', type: 'text', default: '' }],
+      fields: [
+        { key: 'connector_id', label: '连接 ID', type: 'text', default: '' },
+        { key: 'params_json', label: '参数（JSON，可含 {{模板}}）', type: 'textarea', default: '', monospace: true },
+      ],
       brief: (d) => '取数: ' + (d.connector_id || '未选') },
     chat_history: { name: '历史', color: '#475569', inputs: 1, outputs: 1,
       fields: [{ key: 'turns', label: '轮数', type: 'number', default: 6 }],
@@ -64,13 +70,26 @@
 
   // ── 字段 ↔ flow_schema 的 data 映射 ────────────────────────────────────────
   // 普通节点 data 直接是字段键值；特殊节点有包裹结构（对齐 F1 定稿 schema 形状）
+  function parseParams(s) {
+    var t = String(s == null ? '' : s).trim();
+    if (!t) return {};
+    try { return JSON.parse(t); } catch (e) { return { _json_error: String(s) }; }
+  }
+
   function dataToFields(type, data) {
     if (type === 'capability') {
       var cc = (data && data.capability_call) || {};
-      return { capability_id: cc.capability_id || '' };
+      var ccInput = (cc.input && cc.input.params) || {};
+      return {
+        capability_id: cc.capability_id || '',
+        params_json: Object.keys(ccInput).length ? JSON.stringify(ccInput, null, 2) : '',
+      };
     }
     if (type === 'tool') {
-      return { connector_id: (data && data.connector_id) || '' };
+      return {
+        connector_id: (data && data.connector_id) || '',
+        params_json: (data && data.params && Object.keys(data.params).length) ? JSON.stringify(data.params, null, 2) : '',
+      };
     }
     if (type === 'condition') {
       var cond = (data && data.condition) || {};
@@ -86,10 +105,10 @@
 
   function fieldsToData(type, fields) {
     if (type === 'capability') {
-      return { capability_call: { capability_id: fields.capability_id || '', input: {} } };
+      return { capability_call: { capability_id: fields.capability_id || '', input: { params: parseParams(fields.params_json) } } };
     }
     if (type === 'tool') {
-      return { connector_id: fields.connector_id || '', params: {} };
+      return { connector_id: fields.connector_id || '', params: parseParams(fields.params_json) };
     }
     if (type === 'condition') {
       return { condition: { left: fields.left || '', op: fields.op || '==', right: fields.right || '' } };
@@ -246,6 +265,7 @@
       var input;
       if (f.type === 'textarea') {
         input = el('textarea', { rows: 4, 'data-key': f.key });
+        if (f.monospace) input.style = 'font-family: monospace; font-size: 0.72rem;';
         input.value = fields[f.key] != null ? fields[f.key] : '';
       } else if (f.type === 'checkbox') {
         input = el('input', { type: 'checkbox', 'data-key': f.key });
