@@ -92,6 +92,7 @@
   <h2 id="app-title">—</h2>
   <span id="app-status"></span>
   <span class="spacer"></span>
+  <button class="ai-trigger" onclick="EARPCopilot.toggle()">✨ AI 助手</button>
   <button class="secondary" onclick="saveApp()">保存</button>
   <button class="primary" onclick="publishApp()" id="publish-btn">发布</button>
 </div>
@@ -189,6 +190,7 @@
 </main>
 <script src="../js/app.js"></script>
 <script src="../js/nav.js"></script>
+<script src="../js/copilot.js"></script>
 <script>
 // ── Chat 智能体编排页（设计 §5.2）：左配置 / 右调试预览 ──
 var DEFAULT_PROMPT = '你是企业知识库智能助手。请基于提供的资料准确回答用户问题；资料不足时明确说明，不要编造。回答用中文，简洁清晰。';
@@ -508,5 +510,25 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+
+// ── Copilot init ──
+document.addEventListener('DOMContentLoaded', function() {
+  EARPCopilot.init({
+    pageId: 'chat-edit',
+    getFormState: function() {
+      var app = state.app || {};
+      return {
+        app_name: app.name || '',
+        system_prompt: document.getElementById('sys-prompt') ? document.getElementById('sys-prompt').value : '',
+        orchestration: app.orchestration || 'auto',
+        kb_scope: state.kbScope || [],
+        context_turns: app.context_turns,
+        model_config_id: app.model_config_id || '',
+        retrieval: app.retrieval || {},
+        generation: app.generation || {},
+      };
+    },
+  });
+});
 </script>
 </body></html>

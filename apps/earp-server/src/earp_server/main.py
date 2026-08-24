@@ -1377,6 +1377,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def list_msgs(conv_id: str, limit: int = 50, offset: int = 0, req: Request = None) -> list[dict[str, Any]]:  # type: ignore[assignment]
         return await get_messages(req.app.state.engine, req.state.tenant_id, conv_id, limit, offset)
 
+    # ── Copilot (AI 配置助手) ──
+    class CopilotAssistRequest(BaseModel):
+        page_id: str
+        intent: str = "explain"  # explain | diagnose | suggest
+        query: str = Field(min_length=1)
+        form_state: dict[str, Any] = {}
+        conversation_id: str | None = None
+
+    @app.post("/copilot/assist", tags=["copilot"], response_model=None)
+    async def copilot_assist_ep(
+        req_body: CopilotAssistRequest, req: Request
+    ) -> StreamingResponse:
+        """AI 配置助手 — SSE 流式响应。
+
+        前端传入当前页面 ID + 表单状态 + 用户问题，
+        后端组装上下文（页面 schema + KB 检索 + LLM）并流式返回。
+        """
+        from earp_server.copilot.service import copilot_assist
+
+        async def gen():
+            async for line in copilot_assist(
+                req.app.state.engine,
+                req.state.tenant_id,
+                req_body.page_id,
+                req_body.form_state,
+                req_body.query,
+                req_body.intent,
+                llm=req.app.state.llm,
+                settings=req.app.state.settings,
+                rate_limiter=req.app.state.rate_limiter,
+                embedding_dim=req.app.state.settings.embedding_dim,
+                conversation_id=req_body.conversation_id,
+                role_id=req.state.role_id,
+            ):
+                yield line
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
+    @app.get("/copilot/pages", tags=["copilot"])
+    async def copilot_pages_ep() -> list[dict[str, str]]:
+        """返回所有已注册的 Copilot 页面列表。"""
+        from earp_server.copilot.page_registry import list_pages
+
+        return list_pages()
+
     # ── WebSocket ──
     from earp_server.gateway.websocket_gateway import ws_endpoint
 

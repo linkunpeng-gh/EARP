@@ -5,7 +5,8 @@
 
 <main>
 
-<div class="page-title"><div><h2>Knowledge Base</h2><p class="page-subtitle">Manage knowledge bases and documents · <a href="data-domains.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">Data Domains →</a></p></div></div>
+<div class="page-title"><div><h2>Knowledge Base</h2><p class="page-subtitle">Manage knowledge bases and documents · <a href="data-domains.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">Data Domains →</a></p></div>
+  <button class="ai-trigger" onclick="EARPCopilot.toggle()">✨ AI 助手</button></div>
 
 <div class="kb-layout">
 
@@ -67,6 +68,7 @@
 
 <script src="../js/app.js"></script>
 <script src="../js/nav.js"></script>
+<script src="../js/copilot.js"></script>
 <script>
 // ── State (live API — PRD-2026-028 §6.5) ──
 var state = { selectedKB: null, kbs: [], docs: [], ddNames: {} };
@@ -679,5 +681,26 @@ async function saveDocMetadata() {
     await loadDocs(state.selectedKB);
   } catch (err) { alert('保存失败: ' + err.message); }
 }
+
+// ── Copilot init ──
+document.addEventListener('DOMContentLoaded', function() {
+  EARPCopilot.init({
+    pageId: 'knowledge',
+    getFormState: function() {
+      var kb = {};
+      if (state.selectedKB) {
+        kb = state.kbs.find(function(k) { return k.knowledge_base_id === state.selectedKB; }) || {};
+      }
+      return {
+        kb_name: kb.name || '',
+        data_domain_id: kb.data_domain_id || '',
+        description: kb.description || '',
+        indexing_technique: kb.indexing_technique || '',
+        retrieval_model: kb.retrieval_model || {},
+        document_count: (state.docs || []).length,
+      };
+    },
+  });
+});
 </script>
 </body></html>

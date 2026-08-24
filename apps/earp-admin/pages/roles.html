@@ -5,7 +5,8 @@
 
 <main>
 
-<div class="page-title"><div><h2>角色与权限</h2><p class="page-subtitle">角色域权限管理（tech-debt #9）· <b>Admin 角色全权限</b>（is_admin 跳过数据域过滤，新建数据域自动可见）· 其余角色按 data_domain_access 白名单 · 审批人角色门禁：角色需 <code>tbox.approve</code> 权限（或 admin）方可审批 TBox 变更</p></div></div>
+<div class="page-title"><div><h2>角色与权限</h2><p class="page-subtitle">角色域权限管理（tech-debt #9）· <b>Admin 角色全权限</b>（is_admin 跳过数据域过滤，新建数据域自动可见）· 其余角色按 data_domain_access 白名单 · 审批人角色门禁：角色需 <code>tbox.approve</code> 权限（或 admin）方可审批 TBox 变更</p></div>
+  <button class="ai-trigger" onclick="EARPCopilot.toggle()">✨ AI 助手</button></div>
 
 <section style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;margin-bottom:14px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -58,6 +59,7 @@
 </main>
 <script src="../js/nav.js"></script>
 <script src="../js/app.js"></script>
+<script src="../js/copilot.js"></script>
 <script>
 var DDS = [], editRole = null;
 
@@ -184,6 +186,19 @@ async function delRole(roleId) {
     loadRoles();
   } catch (e) { alert('删除失败: ' + e.message); }
 }
+
+// ── Copilot init ──
+document.addEventListener('DOMContentLoaded', function() {
+  EARPCopilot.init({
+    pageId: 'roles',
+    getFormState: function() {
+      return {
+        total_roles: document.getElementById('role-count') ? document.getElementById('role-count').textContent : '',
+        data_domains: DDS.map(function(d) { return d.data_domain_id; }),
+      };
+    },
+  });
+});
 
 init();
 </script>

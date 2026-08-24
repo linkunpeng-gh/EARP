@@ -3,7 +3,8 @@
 <body data-base=".." data-section="knowledge" data-sub="data-domains">
 <header id="app-header"></header>
 <main>
-<div class="page-title"><div><h2>Data Domains</h2><p class="page-subtitle">Manage governance boundaries — KB membership and role access · <a href="knowledge.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">Knowledge Base →</a></p></div></div>
+<div class="page-title"><div><h2>Data Domains</h2><p class="page-subtitle">Manage governance boundaries — KB membership and role access · <a href="knowledge.html" style="color:var(--accent-text);text-decoration:none;font-weight:500">Knowledge Base →</a></p></div>
+  <button class="ai-trigger" onclick="EARPCopilot.toggle()">✨ AI 助手</button></div>
 
 <div class="toolbar" style="margin-bottom:16px">
   <select id="class-filter" style="width:auto" onchange="filterByClass()">
@@ -52,6 +53,7 @@
 
 <script src="../js/app.js"></script>
 <script src="../js/nav.js"></script>
+<script src="../js/copilot.js"></script>
 <script>
 // ── State (live API — PRD-2026-028 §6.6) ──
 var ddState = { domains: [], selected: null };
@@ -271,6 +273,24 @@ async function saveDd() {
     await loadDds();
   } catch (err) { alert('Create failed: ' + err.message); }
 }
+
+// ── Copilot init ──
+document.addEventListener('DOMContentLoaded', function() {
+  EARPCopilot.init({
+    pageId: 'data-domains',
+    getFormState: function() {
+      var sel = ddState.selected || {};
+      return {
+        name: sel.name || '',
+        description: sel.description || '',
+        data_classification: sel.data_classification || '',
+        owner: sel.owner || '',
+        routing_description: sel.routing_description || '',
+        total_domains: (ddState.domains || []).length,
+      };
+    },
+  });
+});
 </script>
 
 <style>

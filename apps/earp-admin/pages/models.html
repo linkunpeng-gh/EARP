@@ -3,7 +3,8 @@
 <body data-base=".." data-section="capability" data-sub="models">
 <header id="app-header"></header>
 <main>
-<div class="page-title"><div><h2>模型配置</h2><p class="page-subtitle">Model providers · 默认模型 · 凭证管理（PRD-2026-031）</p></div></div>
+<div class="page-title"><div><h2>模型配置</h2><p class="page-subtitle">Model providers · 默认模型 · 凭证管理（PRD-2026-031）</p></div>
+  <button class="ai-trigger" onclick="EARPCopilot.toggle()">✨ AI 助手</button></div>
 
 <!-- 默认模型设置 -->
 <div class="section-card" style="margin-bottom:16px">
@@ -53,6 +54,7 @@
 
 <script src="../js/app.js"></script>
 <script src="../js/nav.js"></script>
+<script src="../js/copilot.js"></script>
 <script>
 // ── State (PRD-2026-031) ──
 var state = { providers: [], configs: [], defaults: {} };
@@ -205,5 +207,23 @@ async function saveModel() {
     renderConfigs(); renderDefaults();
   } catch (e) { alert('保存失败: ' + e.message); }
 }
+
+// ── Copilot init ──
+document.addEventListener('DOMContentLoaded', function() {
+  EARPCopilot.init({
+    pageId: 'models',
+    getFormState: function() {
+      return {
+        default_llm: document.getElementById('def-llm').value,
+        default_embedding: document.getElementById('def-embedding').value,
+        default_rerank: document.getElementById('def-rerank').value,
+        qu_prompt_template: document.getElementById('def-qu-tpl').value,
+        configs: state.configs.map(function(c) {
+          return { provider: c.provider, model_type: c.model_type, model_name: c.model_name, enabled: c.enabled };
+        }),
+      };
+    },
+  });
+});
 </script>
 </main></body></html>
