@@ -176,4 +176,24 @@ Canvas.loadIntoDrawflow(ed7, { nodes: [
 const round7 = Canvas.toFlowSchema(ed7);
 assert(round7.nodes.every(n => n.position && typeof n.position.x === 'number'), 'position: 无位置载入后自动布局 → 导出仍带位置');
 
+// ── capability/tool 节点 input/params round-trip 保留（F6 场景流事故回归）──
+const ed8 = mkDrawflow();
+const capSchema = {
+  nodes: [
+    { id: 'start', type: 'start', data: {} },
+    { id: 'c1', type: 'capability', data: { capability_call: { capability_id: 'cap-f6-equip-status', input: { params: { equipment_id: '{{#qu1.entities.0.mention#}}' } } } } },
+    { id: 't1', type: 'tool', data: { connector_id: 'cn-x', params: { q: '{{query}}' } } },
+    { id: 'end', type: 'end', data: {} },
+  ],
+  edges: [{ source: 'start', target: 'c1' }, { source: 'c1', target: 't1' }, { source: 't1', target: 'end' }],
+};
+Canvas.loadIntoDrawflow(ed8, capSchema);
+const round8 = Canvas.toFlowSchema(ed8);
+const c1 = round8.nodes.find(n => n.id === 'c1');
+const t1 = round8.nodes.find(n => n.id === 't1');
+assert(c1 && c1.data.capability_call && c1.data.capability_call.input
+  && c1.data.capability_call.input.params.equipment_id === '{{#qu1.entities.0.mention#}}',
+  'capability: 节点 input.params 往返保留（不再硬编码 {}）');
+assert(t1 && t1.data.params && t1.data.params.q === '{{query}}', 'tool: 节点 params 往返保留');
+
 console.log('\n' + passed + ' 断言全部通过（chatflow 画布核心冒烟）');

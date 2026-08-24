@@ -144,7 +144,18 @@
       // 画布位置持久化（ReactFlow 兼容 position{x,y}）——Drawflow export 提供 pos_x/pos_y
       var pos = (typeof n.pos_x === 'number' && typeof n.pos_y === 'number')
         ? { x: n.pos_x, y: n.pos_y } : undefined;
-      return { id: fid, type: type, data: fieldsToData(type, fields), position: pos };
+      var nodeData = fieldsToData(type, fields);
+      // 保留原 capability/tool 节点的 input/params：画布属性面板不编辑这些字段，
+      // 若导出时硬编码空对象会丢参（F6 场景流事故根因——capability 节点 input 曾被覆盖为 {}）。
+      var orig = (n.data && n.data.data) || {};
+      if (type === 'capability' && orig.capability_call && orig.capability_call.input
+          && nodeData.capability_call) {
+        nodeData.capability_call.input = orig.capability_call.input;
+      }
+      if (type === 'tool' && orig.params && nodeData.params) {
+        nodeData.params = orig.params;
+      }
+      return { id: fid, type: type, data: nodeData, position: pos };
     });
     var edges = [];
     ids.forEach(function (id) {
