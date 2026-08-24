@@ -412,7 +412,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             copilot_llm = LLMConnector(cfg, rate_limiter=app.state.rate_limiter, model_override=copilot_config)
         else:
             copilot_llm = LLMConnector(
-                cfg, rate_limiter=app.state.rate_limiter,
+                cfg,
+                rate_limiter=app.state.rate_limiter,
                 model_override={"provider": "ollama", "model_name": cfg.copilot_model},
             )
         app.state.copilot_llm = copilot_llm
@@ -570,9 +571,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ── Capability Registry ──
     @app.post("/capabilities", status_code=201, tags=["capabilities"])
-    async def register_capability_endpoint(
-        req: Request, body: CapabilityCreate | None = None
-    ) -> dict[str, Any]:
+    async def register_capability_endpoint(req: Request, body: CapabilityCreate | None = None) -> dict[str, Any]:
         if body is None:
             # 向后兼容（老「Register Demo」按钮，无 gate 历史语义保留）：无 body → seed demo 租户基线。
             # 自定义注册（有 body）不 seed——副作用不得先于鉴权（2026-08-21 review 修复 #2）。
@@ -617,9 +616,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return cap
 
     @app.patch("/capabilities/{capability_id}", tags=["capabilities"])
-    async def update_capability_endpoint(
-        capability_id: str, body: CapabilityUpdate, req: Request
-    ) -> dict[str, Any]:
+    async def update_capability_endpoint(capability_id: str, body: CapabilityUpdate, req: Request) -> dict[str, Any]:
         await _require_admin(req)
         try:
             cap = await update_capability(
@@ -783,9 +780,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         q_emb = await embed_query(req_body.query)
         kb_ids = req_body.knowledge_base_ids
         if kb_ids is None and req_body.data_domain_ids is None:
-            routed = await route_query(
-                engine, req.state.tenant_id, req_body.query, q_emb, req.state.role_id
-            )
+            routed = await route_query(engine, req.state.tenant_id, req_body.query, q_emb, req.state.role_id)
             cand_dds = [dd["data_domain_id"] for dd in routed["candidate_dds"]]
             cand_kbs = [kb["knowledge_base_id"] for kb in routed["candidate_kbs"]]
             if cand_dds:
@@ -1017,18 +1012,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def update_doc_status_endpoint(doc_id: str, req_body: DocStatusUpdate, req: Request) -> dict[str, Any]:
         if req_body.status not in ("active", "disabled"):
             raise HTTPException(status_code=400, detail="status must be active|disabled")
-        updated = await update_document_status(
-            req.app.state.engine, req.state.tenant_id, doc_id, req_body.status
-        )
+        updated = await update_document_status(req.app.state.engine, req.state.tenant_id, doc_id, req_body.status)
         if updated is None:
             raise HTTPException(status_code=404, detail="Document not found")
         return updated
 
     @app.put("/knowledge/documents/{doc_id}/process-rule", tags=["knowledge"])
     async def save_doc_process_rule_endpoint(doc_id: str, req_body: DocProcessRule, req: Request) -> dict[str, Any]:
-        saved = await save_document_process_rule(
-            req.app.state.engine, req.state.tenant_id, doc_id, req_body.rules
-        )
+        saved = await save_document_process_rule(req.app.state.engine, req.state.tenant_id, doc_id, req_body.rules)
         if saved is None:
             raise HTTPException(status_code=404, detail="Document not found")
         return saved
@@ -1171,10 +1162,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             kbs = [
                 f"{r.name}（{r.description}）" if r.description else r.name
                 for r in await conn.execute(
-                    _text(
-                        "SELECT name, description FROM knowledge_bases "
-                        "WHERE data_domain_id = :dd ORDER BY name"
-                    ),
+                    _text("SELECT name, description FROM knowledge_bases WHERE data_domain_id = :dd ORDER BY name"),
                     {"dd": data_domain_id},
                 )
             ]
@@ -1208,14 +1196,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Knowledge base not found")
             titles = [
                 r.title
-                for r in (await conn.execute(
-                    _text(
-                        "SELECT title FROM documents WHERE knowledge_base_id = :kid "
-                        "AND status = 'active' AND title IS NOT NULL AND title <> '' "
-                        "ORDER BY created_at LIMIT 60"
-                    ),
-                    {"kid": kb_id},
-                )).fetchall()
+                for r in (
+                    await conn.execute(
+                        _text(
+                            "SELECT title FROM documents WHERE knowledge_base_id = :kid "
+                            "AND status = 'active' AND title IS NOT NULL AND title <> '' "
+                            "ORDER BY created_at LIMIT 60"
+                        ),
+                        {"kid": kb_id},
+                    )
+                ).fetchall()
             ]
         kb_label = f"{kb.name}（{kb.description}）" if kb.description else kb.name
         title_text = "；".join(titles) if titles else "（暂无文档）"
@@ -1436,9 +1426,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/chat_apps/{chat_app_id}/chat/stream", tags=["chat_apps"], response_model=None)
-    async def chat_stream_ep(
-        chat_app_id: str, req_body: ChatRequest, req: Request
-    ) -> StreamingResponse:
+    async def chat_stream_ep(chat_app_id: str, req_body: ChatRequest, req: Request) -> StreamingResponse:
         """应用中心：对话流式入口。auto = 现有 SSE 逐字；flow = 节点级 SSE（设计 §4.1）。
 
         flow 事件序列：node_start → token → node_end → (branch | human_approval | done | error)。
@@ -1539,8 +1527,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/conversations", tags=["conversations"])
     async def list_conv(
-        limit: int = 50, offset: int = 0, chat_app_id: str | None = None, req: Request = None
-    ) -> list[dict[str, Any]]:  # type: ignore[assignment]
+        limit: int = 50,
+        offset: int = 0,
+        chat_app_id: str | None = None,
+        req: Request = None,  # type: ignore[assignment]
+    ) -> list[dict[str, Any]]:
         """Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源；
         应用中心运行页：可选 chat_app_id 过滤 + 按当前用户过滤。"""
         return await list_conversations(
@@ -1564,9 +1555,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ── Copilot (AI 配置助手) ──
     @app.post("/copilot/assist", tags=["copilot"], response_model=None)
-    async def copilot_assist_ep(
-        req_body: CopilotAssistRequest, req: Request
-    ) -> StreamingResponse:
+    async def copilot_assist_ep(req_body: CopilotAssistRequest, req: Request) -> StreamingResponse:
         """AI 配置助手 — SSE 流式响应。
 
         前端传入当前页面 ID + 表单状态 + 用户问题，

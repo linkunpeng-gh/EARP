@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 
 from sqlalchemy import text
@@ -516,7 +516,7 @@ async def flow_chat(
             step=Step(step_id="start", capability_call={}),
         )
         pool = deserialize_pool(waiting.get("node_state"))
-        exec_kwargs = _flow_exec_kwargs(_emit) if on_event is not None else {}
+        exec_kwargs: dict[str, Any] = _flow_exec_kwargs(_emit) if on_event is not None else {}
         results, state = await executor.execute(
             plan.steps,
             ctx,
@@ -547,7 +547,7 @@ async def flow_chat(
             role_id=role_id,
             step=Step(step_id="start", capability_call={}),
         )
-        exec_kwargs = _flow_exec_kwargs(_emit) if on_event is not None else {}
+        exec_kwargs: dict[str, Any] = _flow_exec_kwargs(_emit) if on_event is not None else {}
         results, state = await executor.execute(
             plan.steps,
             ctx,
@@ -676,14 +676,27 @@ async def flow_chat(
     }
 
 
-def _flow_exec_kwargs(emit) -> dict:
+def _flow_exec_kwargs(emit: Callable[[str, dict], Awaitable[None]]) -> dict[str, Callable[..., Awaitable[None]]]:
     """应用中心：flow 节点级 SSE 流式回调注入（仅 on_event 存在时启用——
     避免非流式路径意外切换到 LLM stream()，保持既有 complete() 语义）。"""
+
+    async def node_start(nid: str, at: str) -> None:
+        await emit("node_start", {"node_id": nid, "node_type": at})
+
+    async def node_end(nid: str, meta: dict) -> None:
+        await emit("node_end", {"node_id": nid, **meta})
+
+    async def token(tok: str) -> None:
+        await emit("token", {"text": tok})
+
+    async def branch(bid: str, side: str) -> None:
+        await emit("branch", {"branch_id": bid, "side": side})
+
     return {
-        "on_node_start": lambda nid, at: emit("node_start", {"node_id": nid, "node_type": at}),
-        "on_node_end": lambda nid, meta: emit("node_end", {"node_id": nid, **meta}),
-        "on_token": lambda tok: emit("token", {"text": tok}),
-        "on_branch": lambda bid, side: emit("branch", {"branch_id": bid, "side": side}),
+        "on_node_start": node_start,
+        "on_node_end": node_end,
+        "on_token": token,
+        "on_branch": branch,
     }
 
 
