@@ -312,6 +312,10 @@ function loadExample() {
 
 async function saveFlow() {
   if (!state.app) return;
+  if (state.app.status === 'published') {
+    // 方案 A：编辑已发布 → 立即下架。保存前明确提示，防误操作。
+    if (!confirm('该智能体已发布。保存修改将立即下架（应用中心不可见），需重新测试并发布后恢复。确定保存？')) return;
+  }
   var schema = ChatflowCanvas.toFlowSchema(editor);
   var errors = FlowGraph.validate(schema);
   if (errors.length) { alert('flow_schema 校验失败：\n' + errors.slice(0, 6).join('\n')); return; }

@@ -39,3 +39,4 @@
 | 6 | `step_runner.py:77` | batch() 废弃标注 | 2026-07-21 |
 | 7 | `infra/ext/ext_logging.py` | 凭证 key 主动日志脱敏 (CredentialMaskingFilter) | 2026-07-21 |
 | 8 | `infra/db.py` + `tenant_service.py` | tenant_session() 推荐模式文档化 + 示范迁移 | 2026-07-21 |
+| 9 | `chat_apps` 发布语义（方案 B） | **已发布应用编辑即下架（方案 A）**：编辑保存→回草稿→应用中心下线。遗留优化（方案 B）：版本分离——已发布快照持续生效，编辑只更新草稿，显式「重新发布」才替换。需 migration 增列 published_flow_schema + 执行链路读快照 + 发布状态机调整 + 前端草稿/已发布版本标识 | 2026-08-24 |
