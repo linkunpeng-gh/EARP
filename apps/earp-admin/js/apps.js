@@ -106,6 +106,7 @@
 
   async function sendDrawerMsg() {
     if (state.streaming) return;
+    hideHABar();  // 新消息发送：清理可能残留的人工确认条
     var input = document.getElementById('rd-input');
     var query = input.value.trim();
     if (!query || !state.drawer) return;
@@ -128,7 +129,7 @@
             else if (ev === 'token') { appendTokens(flowEl, data.text); }
             else if (ev === 'node_end') { flowNode(flowEl, nodeMap, data.node_id, null, data.status, data); }
             else if (ev === 'branch') { addBranch(flowEl, data.branch_id, data.side); }
-            else if (ev === 'human_approval') { showHABar(data); }
+            else if (ev === 'human_approval') { state.convId = data.conversation_id; showHABar(data); }
             else if (ev === 'done') {
               state.convId = data.conversation_id;
               answerEl.textContent = data.answer || '(无输出)';
@@ -155,7 +156,7 @@
     } finally {
       state.streaming = false;
       document.getElementById('rd-send').disabled = false;
-      hideHABar();
+      // 注意：不在 finally 隐藏确认条——human_approval 后流正常结束，确认条须保留供回复
     }
   }
 

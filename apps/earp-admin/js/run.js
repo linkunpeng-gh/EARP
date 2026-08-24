@@ -128,6 +128,7 @@
 
   async function send() {
     if (streaming) return;
+    hideHA();  // 新消息发送：清理可能残留的人工确认条
     var input = document.getElementById('rm-input');
     var query = input.value.trim();
     if (!query) return;
@@ -148,7 +149,10 @@
             else if (ev === 'token') appendTokens(flowEl, data.text);
             else if (ev === 'node_end') flowNode(flowEl, data.node_id, null, data.status, data);
             else if (ev === 'branch') addBranch(flowEl, data.branch_id, data.side);
-            else if (ev === 'human_approval') showHA(data);
+            else if (ev === 'human_approval') {
+              convId = data.conversation_id;  // 恢复挂起需同一会话
+              showHA(data);
+            }
             else if (ev === 'done') {
               convId = data.conversation_id;
               answerEl.textContent = data.answer || '(无输出)';
@@ -178,7 +182,8 @@
     } finally {
       streaming = false;
       document.getElementById('rm-send').disabled = false;
-      hideHA();
+      // 注意：不在 finally 隐藏确认条——human_approval 后流正常结束，
+      // 确认条必须保留供用户回复；由下一次 send 开头清理。
     }
   }
 
