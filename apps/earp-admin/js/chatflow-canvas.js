@@ -18,38 +18,38 @@
       brief: () => '流程起点' },
     end: { name: '结束', color: '#64748b', inputs: 1, outputs: 0, fields: [],
       brief: () => '流程终点' },
-    llm: { name: 'LLM', color: '#7c3aed', inputs: 1, outputs: 1,
+    llm: { name: 'LLM', color: '#7c3aed', inputs: 1, outputs: 2,
       fields: [
         { key: 'prompt', label: '提示词（User）', type: 'textarea', default: '请回答：{{query}}' },
         { key: 'system', label: '系统提示词（角色/规则）', type: 'textarea', default: '' },
         { key: 'model_config_id', label: '模型', type: 'model-select', default: '' },
       ],
       brief: (d) => '生成回复' },
-    knowledge: { name: '知识检索', color: '#2563eb', inputs: 1, outputs: 1,
+    knowledge: { name: '知识检索', color: '#2563eb', inputs: 1, outputs: 2,
       fields: [
         { key: 'query', label: '检索词', type: 'text', default: '{{query}}' },
         { key: 'top_k', label: 'TopK', type: 'number', default: 5 },
       ],
       brief: () => '知识库检索' },
-    qu: { name: 'QU 理解', color: '#ea580c', inputs: 1, outputs: 1,
+    qu: { name: 'QU 理解', color: '#ea580c', inputs: 1, outputs: 2,
       fields: [
         { key: 'query', label: '理解问题', type: 'text', default: '{{query}}' },
         { key: 'use_llm', label: '启用 LLM 升级（低置信时智能补全）', type: 'checkbox', default: true },
       ],
       brief: (d) => '自动理解→检索' },
-    capability: { name: '能力调用', color: '#dc2626', inputs: 1, outputs: 1,
+    capability: { name: '能力调用', color: '#dc2626', inputs: 1, outputs: 2,
       fields: [
         { key: 'capability_id', label: '能力 ID', type: 'text', default: '' },
         { key: 'params_json', label: '参数（JSON，可含 {{模板}}）', type: 'textarea', default: '', monospace: true },
       ],
       brief: (d) => '能力: ' + (d.capability_id || '未选') },
-    tool: { name: '工具取数', color: '#0891b2', inputs: 1, outputs: 1,
+    tool: { name: '工具取数', color: '#0891b2', inputs: 1, outputs: 2,
       fields: [
         { key: 'connector_id', label: '连接 ID', type: 'text', default: '' },
         { key: 'params_json', label: '参数（JSON，可含 {{模板}}）', type: 'textarea', default: '', monospace: true },
       ],
       brief: (d) => '取数: ' + (d.connector_id || '未选') },
-    chat_history: { name: '历史', color: '#475569', inputs: 1, outputs: 1,
+    chat_history: { name: '历史', color: '#475569', inputs: 1, outputs: 2,
       fields: [{ key: 'turns', label: '轮数', type: 'number', default: 6 }],
       brief: () => '最近对话' },
     condition: { name: '条件', color: '#ca8a04', inputs: 1, outputs: 2,
@@ -60,7 +60,7 @@
         { key: 'right', label: '右值', type: 'text', default: '' },
       ],
       brief: (d) => d.left + ' ' + (d.op || '==') + ' ' + d.right },
-    human_approval: { name: '人工确认', color: '#db2777', inputs: 1, outputs: 1,
+    human_approval: { name: '人工确认', color: '#db2777', inputs: 1, outputs: 2,
       fields: [{ key: 'question', label: '确认问题', type: 'text', default: '请确认是否继续' }],
       brief: (d) => '⏸ ' + (d.question || '人工确认') },
     note: { name: '注释', color: '#94a3b8', inputs: 0, outputs: 0,
@@ -183,10 +183,16 @@
       var outCount = (NODE_DEFS[type] || { outputs: 1 }).outputs;
       Object.keys(n.outputs || {}).forEach(function (outIdx) {
         (n.outputs[outIdx].connections || []).forEach(function (c) {
-          // 手柄对齐 flow_schema 规范：2 输出源（condition）output_1→true / output_2→false；
-          // 1 输出节点源不留手柄（空串），校验/roundtrip 与 flow-graph.js 一致。
+          // 手柄对齐 flow_schema 规范：
+          //  - condition（true/false）：output_1→true / output_2→false
+          //  - 可执行节点成功/失败分支：output_1→''(成功) / output_2→'error'(失败)
+          //  - 1 输出节点源不留手柄（空串）
           var sh = '';
-          if (outCount === 2) { sh = (outIdx === 'output_2') ? 'false' : 'true'; }
+          if (outCount === 2) {
+            sh = (type === 'condition')
+              ? ((outIdx === 'output_2') ? 'false' : 'true')
+              : ((outIdx === 'output_2') ? 'error' : '');
+          }
           edges.push({ source: idMap[String(n.id)], target: idMap[String(c.node)], sourceHandle: sh, targetHandle: String(c.output) });
         });
       });
@@ -240,7 +246,8 @@
     edges.forEach(function (e) {
       var srcDef = NODE_DEFS[byId[e.source].type] || { outputs: 1 };
       var outIdx = 'output_1';
-      if (srcDef.outputs === 2) { outIdx = (e.sourceHandle === 'false') ? 'output_2' : 'output_1'; }
+      // 2 输出源：condition 的 false / 可执行节点的 error 都连到 output_2
+      if (srcDef.outputs === 2) { outIdx = (e.sourceHandle === 'false' || e.sourceHandle === 'error') ? 'output_2' : 'output_1'; }
       try { editor.addConnection(map[e.source], map[e.target], outIdx, 'input_1'); } catch (err) { /* 防重复/非法边 */ }
     });
     return map;

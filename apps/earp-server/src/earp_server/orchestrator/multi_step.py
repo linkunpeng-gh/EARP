@@ -95,6 +95,9 @@ class MultiStepExecutor:
         resume_pool: dict[str, StepResult] | None = None,
         resume_pending_node: str | None = None,
         resume_reply: str = "",
+        # 应用中心：超时/失败恢复——挂起点视为失败（走 error 分支）
+        resume_pending_failed: bool = False,
+        resume_error: str = "",
         # 应用中心：flow 节点级 SSE 流式事件回调（默认 no-op，注入时透传）
         on_node_start=None,
         on_node_end=None,
@@ -123,6 +126,8 @@ class MultiStepExecutor:
                 resume_pool=resume_pool,
                 resume_pending_node=resume_pending_node,
                 resume_reply=resume_reply,
+                resume_pending_failed=resume_pending_failed,
+                resume_error=resume_error,
                 on_node_start=on_node_start,
                 on_node_end=on_node_end,
                 on_token=on_token,
@@ -240,6 +245,9 @@ class MultiStepExecutor:
         resume_pool: dict[str, StepResult] | None = None,
         resume_pending_node: str | None = None,
         resume_reply: str = "",
+        # 应用中心：超时/失败恢复——挂起点视为失败（走 error 分支）
+        resume_pending_failed: bool = False,
+        resume_error: str = "",
         # 应用中心：flow 节点级 SSE 流式事件回调（默认 no-op，注入时透传）
         on_node_start=None,
         on_node_end=None,
@@ -333,6 +341,29 @@ class MultiStepExecutor:
                     # 应用中心：补发 node_start/node_end（completed）——否则前端该节点保持 running 闪烁
                     if on_node_start is not None:
                         await on_node_start(item.node_id, item.step.capability_call.get("adapter_type", ""))
+                    if resume_pending_failed:
+                        # 超时未确认 → 挂起点视为失败（走 error 分支，流程继续）
+                        fail_result = StepResult(
+                            step_id=item.node_id, status="failed", error=resume_error or "超时未确认"
+                        )
+                        if on_node_end is not None:
+                            await on_node_end(
+                                item.node_id,
+                                {
+                                    "status": "failed",
+                                    "latency_ms": 0,
+                                    "output_summary": None,
+                                    "error": fail_result.error,
+                                },
+                            )
+                        results.append(fail_result)
+                        pool[item.node_id] = fail_result
+                        state.completed_steps = [r.step_id for r in results if r.status == "completed"]
+                        branch_id = plan.result_branches.get(item.node_id)
+                        if branch_id:
+                            chosen[branch_id] = "error"
+                            state.chosen[branch_id] = "error"
+                        continue
                     reply_result = StepResult(step_id=item.node_id, status="completed", output={"reply": resume_reply})
                     if on_node_end is not None:
                         await on_node_end(
@@ -419,6 +450,17 @@ class MultiStepExecutor:
             results.append(result)
             pool[item.node_id] = result
 
+            # 应用中心：节点成功/失败双分支路由（节点存在 sourceHandle='error' 出边时）
+            # completed → chosen='success'；failed → chosen='error' 且流程继续（不 fail-fast）
+            result_branch_id = plan.result_branches.get(item.node_id)
+            if result_branch_id:
+                if result.status == "completed":
+                    chosen[result_branch_id] = "success"
+                    state.chosen[result_branch_id] = "success"
+                else:
+                    chosen[result_branch_id] = "error"
+                    state.chosen[result_branch_id] = "error"
+
             if result.status == "completed":
                 if item.step.compensate_call:
 
@@ -450,7 +492,8 @@ class MultiStepExecutor:
                     checkpoint_ns=f"plan:{item.step.step_id}",
                 )
 
-            if result.status == "failed":
+            # fail-fast：仅当节点无失败分支（error 边）时失败即终止；有分支则已路由 chosen='error' 继续
+            if result.status == "failed" and result_branch_id is None:
                 if saga.count > 0:
                     logger.info(
                         "MultiStepExecutor: step %s failed, rolling back %d completed steps",

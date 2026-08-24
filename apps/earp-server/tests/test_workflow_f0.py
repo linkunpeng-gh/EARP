@@ -286,13 +286,35 @@ class TestValidate:
         assert any("capability_call" in e for e in self._errors(graph))
 
     def test_fanout_rejected(self) -> None:
+        # 2 条出边但手柄非法（两个成功边，缺 error）→ 拒绝
         graph = _seq_graph("a", "b")
         graph["edges"] = [
             {"source": "start", "target": "n1"},
             {"source": "n1", "target": "n2"},
-            {"source": "n1", "target": "end"},  # n1 fan-out > 1（F0 无并行）
+            {"source": "n1", "target": "end"},  # n1 2 条出边但无 error 手柄（双分支须 '' + error）
         ]
-        assert any("F0 无并行" in e for e in self._errors(graph))
+        assert any("双分支" in e or "F0" in e for e in self._errors(graph))
+
+    def test_error_only_edge_rejected(self) -> None:
+        # 只有失败分支边（缺成功边）→ 拒绝
+        graph = _seq_graph("a", "b")
+        graph["edges"] = [
+            {"source": "start", "target": "n1"},
+            {"source": "n1", "target": "n2", "sourceHandle": "error"},
+        ]
+        assert any("失败分支" in e for e in self._errors(graph))
+
+    def test_success_error_branch_allowed(self) -> None:
+        # 成功/失败双分支（'' + error）→ 合法
+        graph = _seq_graph("a", "b", "c")
+        graph["edges"] = [
+            {"source": "start", "target": "n1"},
+            {"source": "n1", "target": "n2", "sourceHandle": ""},
+            {"source": "n1", "target": "n3", "sourceHandle": "error"},
+            {"source": "n2", "target": "end"},
+            {"source": "n3", "target": "end"},
+        ]
+        assert self._errors(graph) == []
 
     def test_unreachable_node(self) -> None:
         graph = _seq_graph("a")

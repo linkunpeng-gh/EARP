@@ -206,4 +206,40 @@ assert(dataT.params.q === 'x', 'tool: fieldsToData 解析 params_json → params
 const bad = Canvas.fieldsToData('capability', { capability_id: 'cap-x', params_json: '{bad json' });
 assert(bad.capability_call.input.params._json_error, 'capability: 非法 JSON 不崩溃（容错 _json_error）');
 
+// ── 成功/失败双分支：2 输出手柄 roundtrip + 旧边兼容 ──
+const ed9 = mkDrawflow();
+const branchSchema = {
+  nodes: [
+    { id: 'start', type: 'start', data: {} },
+    { id: 'c1', type: 'capability', data: { capability_call: { capability_id: 'cap-x', input: {} } } },
+    { id: 'ok1', type: 'llm', data: { prompt: 'ok' } },
+    { id: 'err1', type: 'llm', data: { prompt: 'err' } },
+    { id: 'end', type: 'end', data: {} },
+  ],
+  edges: [
+    { source: 'start', target: 'c1' },
+    { source: 'c1', target: 'ok1', sourceHandle: '' },
+    { source: 'c1', target: 'err1', sourceHandle: 'error' },
+    { source: 'ok1', target: 'end' },
+    { source: 'err1', target: 'end' },
+  ],
+};
+assert(FlowGraph.validate(branchSchema).length === 0, 'branch: 成功/失败双分支图合法');
+Canvas.loadIntoDrawflow(ed9, branchSchema);
+const round9 = Canvas.toFlowSchema(ed9);
+const c1e = round9.edges.filter(e => e.source === 'c1');
+const sh = c1e.map(e => e.sourceHandle).sort();
+assert(sh.join(',') === ',error', 'branch: 双分支出边 roundtrip 为 ""(成功) + error(失败)，实际 ' + sh.join(','));
+assert(FlowGraph.validate(round9).length === 0, 'branch: roundtrip 后仍合法');
+// 旧边兼容：单成功边（无 error）仍合法
+const oldSchema = {
+  nodes: [
+    { id: 'start', type: 'start', data: {} },
+    { id: 'c1', type: 'capability', data: { capability_call: { capability_id: 'cap-x', input: {} } } },
+    { id: 'end', type: 'end', data: {} },
+  ],
+  edges: [{ source: 'start', target: 'c1' }, { source: 'c1', target: 'end', sourceHandle: '' }],
+};
+assert(FlowGraph.validate(oldSchema).length === 0, 'branch: 旧单成功边图仍合法');
+
 console.log('\n' + passed + ' 断言全部通过（chatflow 画布核心冒烟）');

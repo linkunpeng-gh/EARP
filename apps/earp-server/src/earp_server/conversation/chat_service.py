@@ -497,11 +497,21 @@ async def flow_chat(
 
     # F4: 同 conversation 的 waiting_human run → 恢复模式；否则新建（D6：唯一性）
     waiting = await flow_runs.get_waiting_run(engine, tenant_id, conversation_id)
+    resume_failed = False
+    resume_error = ""
     if waiting is not None and _approval_expired(waiting, _approval_ttl(settings)):
-        # D4 惰性超时检查：超时 → timeout 终态 + 消息，本轮按新建处理
-        await flow_runs.finish_run(engine, tenant_id, waiting["execution_id"], status="timeout")
-        await add_message(engine, tenant_id, conversation_id, "assistant", "⏰ 等待超时，流程终止", user_id)
-        waiting = None
+        # D4 惰性超时检查
+        pending = waiting.get("pending_node_id")
+        if pending and plan.result_branches.get(pending):
+            # 应用中心：挂起点连了失败分支 → 超时未确认视为失败，走 error 分支继续执行
+            resume_failed = True
+            resume_error = "等待超时未确认"
+            await add_message(engine, tenant_id, conversation_id, "assistant", "⏰ 等待超时，按失败分支处理", user_id)
+        else:
+            # 无失败分支：超时 → timeout 终态 + 消息，本轮按新建处理（维持现状）
+            await flow_runs.finish_run(engine, tenant_id, waiting["execution_id"], status="timeout")
+            await add_message(engine, tenant_id, conversation_id, "assistant", "⏰ 等待超时，流程终止", user_id)
+            waiting = None
 
     flow_input = {"query": query, "conversation_id": conversation_id}
     if waiting is not None:
@@ -526,6 +536,8 @@ async def flow_chat(
             resume_pool=pool,
             resume_pending_node=waiting.get("pending_node_id"),
             resume_reply=query,
+            resume_pending_failed=resume_failed,
+            resume_error=resume_error,
             **exec_kwargs,
         )
         attempts = int(waiting.get("attempts") or 1) + 1

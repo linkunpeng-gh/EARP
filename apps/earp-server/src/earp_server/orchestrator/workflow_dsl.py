@@ -64,7 +64,7 @@ FLOW_NODE_TYPES: frozenset[str] = NODE_TYPES | frozenset(
     {"capability", "llm", "knowledge", "qu", "chat_history", "human_approval", "tool", "mcp", "note"}
 )
 CONDITION_HANDLES: frozenset[str] = frozenset({"true", "false"})
-BranchSide = Literal["then", "else"]
+BranchSide = Literal["then", "else", "success", "error"]
 
 
 class WorkflowValidationError(ValueError):
@@ -112,6 +112,8 @@ class CompiledWorkflow:
     steps: list[Step] = field(default_factory=list)
     step_ids: list[str] = field(default_factory=list)
     step_index: dict[str, int] = field(default_factory=dict)
+    # 应用中心：节点成功/失败双分支——step_id → branch_id（节点存在 sourceHandle='error' 出边）
+    result_branches: dict[str, str] = field(default_factory=dict)
 
 
 # ── 校验 ─────────────────────────────────────────────────────────────────────
@@ -235,8 +237,15 @@ def validate_workflow(
                 if len(parts) < 2 or parts[1] != "output":
                     errors.append(f"condition {n.id}: left must be '<node_id>.output.<path>', got {left!r}")
         else:
-            if len(outs) > 1:
-                errors.append(f"{n.type} {n.id}: F0 无并行 — at most 1 outgoing edge (got {len(outs)})")
+            # 应用中心：可执行节点支持成功/失败双分支（sourceHandle ''=成功、'error'=失败）
+            # 规则：出边 ≤2；2 条时必须一 '' 一 'error'；1 条时必须 ''（成功）——error-only 拒绝
+            handles = sorted(e.sourceHandle or "" for e in outs)
+            if len(outs) > 2:
+                errors.append(f"{n.type} {n.id}: at most 2 outgoing edges (success/error), got {len(outs)}")
+            elif len(outs) == 2 and handles != ["", "error"]:
+                errors.append(f"{n.type} {n.id}: 双分支出边必须 sourceHandle ''(成功)+'error'(失败)，got {handles}")
+            elif len(outs) == 1 and handles == ["error"]:
+                errors.append(f"{n.type} {n.id}: 只有失败分支边（缺少成功边 ''）")
             if n.type == "step":
                 if not isinstance(n.data.get("capability_call"), dict):
                     errors.append(f"step {n.id}: data.capability_call (dict) required")
@@ -407,9 +416,7 @@ def _qu_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> Ste
     """Chatflow F3: qu 节点 → qu.answer 适配器（understand → select_plan → execute_plan）。"""
     query = node.data.get("query", "{{query}}")
     if not isinstance(query, str):
-        raise WorkflowValidationError(
-            f"workflow validation failed:\n- node {node.id}: qu data.query 必须是字符串模板"
-        )
+        raise WorkflowValidationError(f"workflow validation failed:\n- node {node.id}: qu data.query 必须是字符串模板")
     input_: dict[str, Any] = {"query": query}
     turns = node.data.get("context_turns")
     if turns is not None:
@@ -422,9 +429,7 @@ def _qu_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> Ste
     # 方案 C：use_llm 开关（false = 纯规则理解，跳过 LLM 升级；缺省 = 启用/升级）
     use_llm = node.data.get("use_llm", True)
     if not isinstance(use_llm, bool):
-        raise WorkflowValidationError(
-            f"workflow validation failed:\n- node {node.id}: qu data.use_llm 必须是布尔值"
-        )
+        raise WorkflowValidationError(f"workflow validation failed:\n- node {node.id}: qu data.use_llm 必须是布尔值")
     if not use_llm:
         input_["use_llm"] = False
     return StepExec(
@@ -522,6 +527,11 @@ def _compile_graph(
 
     # gate 前向计算：join（多入边）处取各入边上下文交集
     gate: dict[str, frozenset[tuple[str, BranchSide]]] = {start_id: frozenset()}
+
+    def _is_result_branch_source(nid: str) -> bool:
+        """节点存在 sourceHandle='error' 出边 → 结果双分支源（成功/失败）。"""
+        return any(e.sourceHandle == "error" for e in outgoing.get(nid, []))
+
     for nid in order:
         if nid == start_id:
             continue
@@ -533,6 +543,10 @@ def _compile_graph(
                 side: BranchSide = "then" if e.sourceHandle == "true" else "else"
                 branch_edge: frozenset[tuple[str, BranchSide]] = frozenset({(f"cond:{e.source}", side)})
                 ctx = ctx | branch_edge
+            elif _is_result_branch_source(e.source):
+                rside: BranchSide = "error" if e.sourceHandle == "error" else "success"
+                rbranch: frozenset[tuple[str, BranchSide]] = frozenset({(f"result:{e.source}", rside)})
+                ctx = ctx | rbranch
             contexts.append(ctx)
         if not contexts:
             gate[nid] = frozenset[tuple[str, BranchSide]]()
@@ -542,10 +556,13 @@ def _compile_graph(
             merged = merged & other
         gate[nid] = merged
 
-    # 线性执行序（start/end 不产出执行项）
+    # 线性执行序（start/end 不产出执行项）+ 结果双分支登记
     sequence: list[ExecItem] = []
+    result_branches: dict[str, str] = {}
     for nid in order:
         node = by_id[nid]
+        if _is_result_branch_source(nid):
+            result_branches[nid] = f"result:{nid}"
         item = builder(node, gate[nid])
         if item is not None:
             sequence.append(item)
@@ -557,6 +574,7 @@ def _compile_graph(
         steps=steps,
         step_ids=step_ids,
         step_index={nid: i for i, nid in enumerate(step_ids)},
+        result_branches=result_branches,
     )
 
 
@@ -611,15 +629,26 @@ def resolve_templates(
                     return m.group(0)
                 result = pool.get(parts[0])
                 if result is None or result.output is None:
+                    # 失败节点池引用：{{#node.error#}}（错误消息）不依赖 output
+                    if len(parts) == 2 and parts[1] == "error" and result is not None:
+                        return str(result.error) if result.error else m.group(0)
                     return m.group(0)
                 # F2 形式 {{#node.output.path#}} 与 F3 简写 {{#node.path#}} 兼容：
                 # 显式 .output. 段跳过，其余键均为 output 内的路径
+                if parts[1] == "error":
+                    # {{#node.error#}} — 错误消息（error 为字符串，无子路径）
+                    return str(result.error) if result.error else m.group(0)
                 keys = parts[2:] if parts[1] == "output" else parts[1:]
                 v: Any = result.output
                 for key in keys:
-                    if not isinstance(v, dict) or key not in v:
+                    if isinstance(v, dict) and key in v:
+                        v = v[key]
+                    elif isinstance(v, list) and key.isdigit() and int(key) < len(v):
+                        # F6 修复：列表索引（{{#node.output.rows.0.status#}}）——场景 A/B 条件与
+                        # capability 输入引用 qu/knowledge 输出的首元素需要（评估发现的最小缺口）
+                        v = v[int(key)]
+                    else:
                         return m.group(0)
-                    v = v[key]
                 return _stringify(v)
             key = m.group(2)
             return _stringify(flow_input[key]) if key in flow_input else m.group(0)
@@ -713,9 +742,14 @@ def _resolve(left: str, node_id: str, pool: dict[str, StepResult]) -> Any:
         return None
     value: Any = result.output
     for key in left.split(".")[2:]:
-        if not isinstance(value, dict) or key not in value:
+        if isinstance(value, dict) and key in value:
+            value = value[key]
+        elif isinstance(value, list) and key.isdigit() and int(key) < len(value):
+            # F6 修复：列表索引（<node_id>.output.rows.0.status）——条件表达式此前只支持
+            # dict 路径，场景 A（设备状态行）与场景 B（检索 chunk 首条）分支需要（评估发现）
+            value = value[int(key)]
+        else:
             return None
-        value = value[key]
     return value
 
 

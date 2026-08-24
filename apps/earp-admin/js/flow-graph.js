@@ -95,8 +95,16 @@
         if ((incoming[n.id] || []).length || outs.length) {
           errors.push('note ' + n.id + ': 注释节点不可连线（纯标注）');
         }
-      } else if (outs.length > 1) {
-        errors.push(n.type + ' ' + n.id + ': 最多 1 条出边（flow 一期无并行）');
+      } else {
+        // 可执行节点：成功/失败双分支——出边 ≤2；2 条必须 ''（成功）+ 'error'（失败）；1 条必须 ''
+        var handles = outs.map(function (e) { return e.sourceHandle || ''; }).slice().sort();
+        if (outs.length > 2) {
+          errors.push(n.type + ' ' + n.id + ': 最多 2 条出边（成功/失败分支各一）');
+        } else if (outs.length === 2 && handles.join(',') !== ',error') {
+          errors.push(n.type + ' ' + n.id + ': 双分支出边必须 sourceHandle ""(成功) + error(失败)');
+        } else if (outs.length === 1 && handles[0] === 'error') {
+          errors.push(n.type + ' ' + n.id + ': 只有失败分支边（缺少成功边）');
+        }
       }
     });
 
@@ -257,11 +265,15 @@
       });
       svg.appendChild(line);
       if (e.sourceHandle) {
+        var isGood = (e.sourceHandle === 'true' || e.sourceHandle === 'success' || e.sourceHandle === '');
+        var isCond = byId[e.source] && byId[e.source].type === 'condition';
+        var labelText = isCond ? (e.sourceHandle === 'true' ? '✓ 是' : '✗ 否')
+          : (e.sourceHandle === 'error' ? '✗ 失败' : '✓ 成功');
         var label = el('text', {
           x: midX + 4, y: (y1 + y2) / 2 - 4, 'font-size': 10,
-          fill: e.sourceHandle === 'true' ? '#16a34a' : '#dc2626',
+          fill: isGood ? '#16a34a' : '#dc2626',
           'font-weight': 600,
-        }, e.sourceHandle === 'true' ? '✓ 是' : '✗ 否');
+        }, labelText);
         svg.appendChild(label);
       }
     });
