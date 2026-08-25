@@ -681,21 +681,29 @@ async def flow_chat(
                     "input": r.input,
                     "output": r.output,
                     "error": r.error,
+                    # F7 (Task 2 D4): 错误分类码透传给前端（connection/unknown_capability/…）
+                    "error_code": r.error_code,
                     "latency_ms": r.latency_ms,
                 }
             )
 
-    # 助手消息：回答节点优先（Dify 式终点——最后一个完成的 answer 节点文本）；
-    # 无回答节点 → 兜底最后 completed 节点输出（text 优先，否则 JSON 摘要）
+    # 助手消息：answer_from 显式指定答案节点（F7 Task 3 D5——多分支/副作用节点置后不再
+    # 覆盖答复，告别「答案=最后执行节点输出」隐性语义）；未指定/节点未完成 → 回落现状：
+    # 回答节点优先（Dify 式终点——最后一个完成的 answer 节点文本）；无回答节点 → 兜底
+    # 最后 completed 节点输出（text 优先，否则 JSON 摘要）
     answer = ""
     if completed:
-        answer_nodes = [r for r in completed if r.step_id in plan.answer_steps]
-        if answer_nodes:
-            last_ans = answer_nodes[-1].output or {}
-            answer = str(last_ans.get("text") or "")
-        if not answer:
-            last = completed[-1].output or {}
-            answer = str(last.get("text") or json.dumps(last, ensure_ascii=False))
+        if plan.answer_from and plan.answer_from in outputs:
+            src = outputs[plan.answer_from] or {}
+            answer = str(src.get("text") or json.dumps(src, ensure_ascii=False))
+        else:
+            answer_nodes = [r for r in completed if r.step_id in plan.answer_steps]
+            if answer_nodes:
+                last_ans = answer_nodes[-1].output or {}
+                answer = str(last_ans.get("text") or "")
+            if not answer:
+                last = completed[-1].output or {}
+                answer = str(last.get("text") or json.dumps(last, ensure_ascii=False))
     msg = await add_message(engine, tenant_id, conversation_id, "assistant", answer, user_id)
 
     citations: list[dict[str, Any]] = []

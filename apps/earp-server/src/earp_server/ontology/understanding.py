@@ -17,7 +17,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -32,6 +32,27 @@ logger = logging.getLogger(__name__)
 _UPGRADE_CACHE: OrderedDict[tuple[str, str], dict | None] = OrderedDict()
 _UPGRADE_CACHE_MAX = 128
 _CACHE_MISS = object()  # 区分「未缓存」与「缓存了失败(None)」
+
+# F7 (Task 1 D1): upgrade_with_llm 复用带缓存的 LLMConnector——模块级共享 LLMCache
+# （Redis + 内存双栈，TTL = EARP_LLM_CACHE_TTL）；与 _UPGRADE_CACHE（tenant+query LRU）
+# 互补：同租户同 query 命中 LRU，跨进程/跨租户同 prompt 命中 connector 缓存。
+_upgrade_llm_cache: Any | None = None
+
+
+def _shared_llm_cache(settings) -> Any:
+    """F7 (Task 1 D1): 返回模块级共享 LLMCache（首次按 settings 的 TTL 惰性初始化）。
+
+    upgrade_with_llm 每次 new 一个 fresh LLMConnector（无 cache）——挂上共享缓存后
+    json_complete 才能命中 connector 缓存（D1：在 connector 统一加 cache，而非只给
+    upgrade 加）。
+    """
+    global _upgrade_llm_cache
+    if _upgrade_llm_cache is None:
+        from earp_server.infra.llm_cache import LLMCache
+
+        ttl = int(getattr(settings, "llm_cache_ttl", 3600) or 3600)
+        _upgrade_llm_cache = LLMCache(ttl=ttl)
+    return _upgrade_llm_cache
 
 # 内置压缩默认升级 prompt —— 同一套占位符 {query}/{missing}/{relation_candidates}/{context}（= 租户模板约定，
 # 「载入默认」可直接当模板编辑；保存等同默认的文本 = 默认行为，零漂移）。JSON 大括号原样保留。
@@ -736,6 +757,9 @@ async def upgrade_with_llm(
     from earp_server.connector import LLMConnector
 
     conn = LLMConnector(settings, model_override=llm_cfg or None)
+    # F7 (Task 1 D1): fresh connector 挂共享缓存 → json_complete 命中 connector 缓存
+    # （同 prompt 二次升级不再重复全量 LLM 调用；_UPGRADE_CACHE 兜底同租户同 query）
+    conn.cache = _shared_llm_cache(settings)
     # 压缩版 prompt（2026-08-21 优化）：① 关系候选截断到前 N（候选多→prompt 长→生成慢）
     # ② 规则一句话化 ③ 最小输出约束（只出未命中字段键，空则 {}——生成 token 大头）
     _REL_CAND_MAX = 6

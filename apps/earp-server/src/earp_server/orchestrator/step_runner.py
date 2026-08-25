@@ -35,6 +35,7 @@ class StepRunner:
 
         t0 = time.monotonic()
         error: str | None = None
+        error_code: str | None = None
         output: dict | None = None
         status: str = "failed"
         try:
@@ -44,6 +45,8 @@ class StepRunner:
             raise  # Chatflow F4: 挂起点穿透——由 MultiStepExecutor 捕获转 waiting_human 状态
         except Exception as exc:
             error = str(exc)
+            # F7 (Task 2 D4): 错误分类码透传（ConnectorError.code；其它异常 None）
+            error_code = getattr(exc, "code", None)
         latency_ms = int((time.monotonic() - t0) * 1000)
 
         state = {
@@ -52,6 +55,7 @@ class StepRunner:
             "latency_ms": latency_ms,
             "output_summary": str(output)[:500] if output else None,
             "error": error,
+            "error_code": error_code,
         }
         channels = {"raw_output": str(output).encode() if output else b"{}"}
         checkpoint_id = await self._checkpoint.write(
@@ -68,6 +72,7 @@ class StepRunner:
             status=status,
             output=output,
             error=error,
+            error_code=error_code,
             latency_ms=latency_ms,
             checkpoint_id=checkpoint_id,
         )

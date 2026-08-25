@@ -530,6 +530,101 @@ class TestF3Adapters:
             )
 
 
+# ── F7 (Task 2): 失败语义归一 + 错误分类 ─────────────────────────────────────
+
+
+def test_connector_fetch_error_normalized_to_connector_error() -> None:
+    """F7 (Task 2 D3): ConnectorFetchError ⊂ ConnectorError（code=connection）——
+    chat_ep 422 名单（except ConnectorError）自动收口，连接类不再 fallthrough 500。"""
+    from earp_server.connector import ConnectorError
+    from earp_server.ontology.data_adapter import ConnectorFetchError
+
+    assert issubclass(ConnectorFetchError, ConnectorError)
+    err = ConnectorFetchError("REST 取数连接失败")
+    assert err.code == "connection"
+
+
+async def test_connector_error_codes_classify_failures(app_engine: AsyncEngine) -> None:
+    """F7 (Task 2 D4): 错误分类码——unknown_capability / permission / 默认 validation。"""
+    connector = Connector(engine=app_engine)
+    with pytest.raises(ConnectorError) as ei:
+        await connector.execute(
+            {"adapter_type": "capability.call", "capability_id": "cap-nope", "input": {}},
+            ctx=_ctx(role_id="f3-r1"),
+        )
+    assert ei.value.code == "unknown_capability"
+    with pytest.raises(ConnectorError) as ei:
+        await connector.execute(
+            {"adapter_type": "capability.call", "capability_id": CAP_ID, "input": {}},
+            ctx=_ctx(role_id="f3-r2"),
+        )
+    assert ei.value.code == "permission"
+    with pytest.raises(ConnectorError) as ei:
+        await connector.execute({"adapter_type": "qu.answer", "input": {}}, ctx=_ctx())
+    assert ei.value.code == "validation"  # 默认分类（输入缺失）
+
+
+async def test_flow_tool_fetch_connection_error_classified(app_engine: AsyncEngine, monkeypatch) -> None:
+    """F7 (Task 2 D4): flow 内 tool.fetch 连接失败 → 200+status=failed 语义保持（不
+    fallthrough 500），trace error_code=connection——前端可精确提示「连接失败」。"""
+    from earp_server.conversation.chat_service import flow_chat
+    from earp_server.ontology import data_adapter
+    from earp_server.ontology.connector_service import create_connector
+
+    await create_connector(
+        app_engine,
+        TENANT,
+        connector_id="cn-f7-conn",
+        adapter_type="rest",
+        config={"base_url": "http://internal.example", "path": "/x", "method": "GET"},
+    )
+
+    async def _boom(cfg, params=None):
+        raise data_adapter.ConnectorFetchError("REST 取数连接失败: http://internal.example/x")
+
+    monkeypatch.setattr(data_adapter, "fetch", _boom)
+    g = _flow_graph(
+        {"id": "start", "type": "start", "data": {}},
+        {"id": "t1", "type": "tool", "data": {"connector_id": "cn-f7-conn"}},
+        {"id": "end", "type": "end", "data": {}},
+        edges=[{"source": "start", "target": "t1"}, {"source": "t1", "target": "end"}],
+    )
+    app = await _flow_app(app_engine, g, "f7-tool-conn")
+    result = await flow_chat(
+        app_engine, TENANT, "f3-u1", "f3-r1", app, "q", None,
+        base_llm=FakeLLM(), settings=_settings(),
+    )
+    assert result["status"] == ExecutionStatus.FAILED.value  # 200+failed 语义保持
+    t1 = next(t for t in result["trace"] if t["node_id"] == "t1")
+    assert t1["status"] == "failed"
+    assert t1["error_code"] == "connection"
+    assert "REST 取数连接失败" in (t1["error"] or "")
+
+
+async def test_flow_capability_unknown_classified(app_engine: AsyncEngine) -> None:
+    """F7 (Task 2 D4): flow 内 capability 不存在 → status=failed + error_code=unknown_capability。"""
+    from earp_server.conversation.chat_service import flow_chat
+
+    g = _flow_graph(
+        {"id": "start", "type": "start", "data": {}},
+        {
+            "id": "c1",
+            "type": "capability",
+            "data": {"capability_call": {"capability_id": "cap-nope", "input": {}}},
+        },
+        {"id": "end", "type": "end", "data": {}},
+        edges=[{"source": "start", "target": "c1"}, {"source": "c1", "target": "end"}],
+    )
+    app = await _flow_app(app_engine, g, "f7-cap-unknown")
+    result = await flow_chat(
+        app_engine, TENANT, "f3-u1", "f3-r1", app, "q", None,
+        base_llm=FakeLLM(), settings=_settings(),
+    )
+    assert result["status"] == ExecutionStatus.FAILED.value
+    c1 = next(t for t in result["trace"] if t["node_id"] == "c1")
+    assert c1["error_code"] == "unknown_capability"
+
+
 # ── flow_chat 集成 ──────────────────────────────────────────────────────────
 
 

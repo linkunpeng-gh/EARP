@@ -23,6 +23,8 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from earp_server.connector import ConnectorError
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 30.0
@@ -30,8 +32,15 @@ _MAX_ROWS = 10000
 _IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
-class ConnectorFetchError(Exception):
-    """取数失败（配置缺失/超时/连接/HTTP/表名非法）——调用方兜底，不假造值。"""
+class ConnectorFetchError(ConnectorError):
+    """取数失败（配置缺失/超时/连接/HTTP/表名非法）——调用方兜底，不假造值。
+
+    F7 (Task 2 D3)：归一进 ConnectorError（code=connection）——chat_ep 422 名单
+    （except ConnectorError）自动收口、Connector.execute 重试策略统一适用、
+    flow 错误分类一致（连接类不再被 StepRunner 兜底成无法分类的泛异常）。
+    """
+
+    code = "connection"
 
 
 def _check_ident(value: str, what: str) -> str:

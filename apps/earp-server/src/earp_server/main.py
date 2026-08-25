@@ -1403,7 +1403,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except HTTPException:
                 raise  # Chatflow F3: PolicyLayer 权限拒绝 403 透传（勿转 500）
             except (ConnectorError, ChatError, WorkflowValidationError) as e:
-                raise HTTPException(status_code=422, detail=f"flow 执行失败：{e}") from e
+                # F7 (Task 2 D4): 422 统一 + 错误分类码（ConnectorFetchError 已归一进
+                # ConnectorError → 连接类不再 fallthrough 500）
+                code = getattr(e, "code", None)
+                detail = f"flow 执行失败：{e}" if not code else f"flow 执行失败[{code}]：{e}"
+                raise HTTPException(status_code=422, detail=detail) from e
             except Exception:
                 logger.exception("flow chat failed")
                 raise HTTPException(status_code=500, detail="flow 执行失败，请稍后重试") from None
@@ -1476,7 +1480,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     # PolicyLayer 权限拒绝 403 透传 → error 事件（SSE 无 HTTP 状态码语义）
                     await emit("error", {"message": e.detail, "http_status": e.status_code})
                 except (ConnectorError, ChatError, WorkflowValidationError) as e:
-                    await emit("error", {"message": f"flow 执行失败：{e}"})
+                    # F7 (Task 2 D4): SSE error 事件带错误分类码（与 /chat 422 一致）
+                    code = getattr(e, "code", None)
+                    msg = f"flow 执行失败：{e}" if not code else f"flow 执行失败[{code}]：{e}"
+                    await emit("error", {"message": msg})
                 except Exception:
                     logger.exception("flow chat stream failed")
                     await emit("error", {"message": "flow 执行失败，请稍后重试"})

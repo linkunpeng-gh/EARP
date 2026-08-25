@@ -46,6 +46,9 @@ class WorkflowEdge(BaseModel):
 class WorkflowGraph(BaseModel):
     nodes: list[WorkflowNode]
     edges: list[WorkflowEdge] = Field(default_factory=list)
+    # F7 (Task 3 D5): 显式指定答案节点（可选）——flow_chat 用其输出作最终答复；
+    # 缺省 None → 回落「回答节点优先，兜底最后完成节点」（存量兼容）
+    answer_from: str | None = None
 
 
 class ConditionExpr(BaseModel):
@@ -116,6 +119,9 @@ class CompiledWorkflow:
     result_branches: dict[str, str] = field(default_factory=dict)
     # 应用中心：回答节点（answer）——flow_chat 优先取最后完成的回答节点文本作为最终答复
     answer_steps: frozenset[str] = frozenset()
+    # F7 (Task 3 D5): 显式指定答案节点（可选）——flow_chat 用它取 answer（text 优先否则
+    # JSON 摘要）；None → 缺省回落（answer_steps → 最后完成节点），存量兼容
+    answer_from: str | None = None
 
 
 # ── 校验 ─────────────────────────────────────────────────────────────────────
@@ -146,6 +152,10 @@ def validate_workflow(
 
     node_ids = [n.id for n in g.nodes]
     by_id: dict[str, WorkflowNode] = {n.id: n for n in g.nodes}
+
+    # F7 (Task 3 D5): answer_from 显式答案节点必须存在（编译期校验，发布门禁提前拦截）
+    if g.answer_from is not None and g.answer_from not in by_id:
+        errors.append(f"answer_from: 未知节点 {g.answer_from!r}（flow_schema 顶层 answer_from 需指向已有节点）")
 
     # node id 唯一
     seen: set[str] = set()
@@ -627,6 +637,7 @@ def _compile_graph(
         step_index={nid: i for i, nid in enumerate(step_ids)},
         result_branches=result_branches,
         answer_steps=frozenset(answer_steps),
+        answer_from=g.answer_from,  # F7 (Task 3 D5): 显式答案节点透传给 flow_chat
     )
 
 

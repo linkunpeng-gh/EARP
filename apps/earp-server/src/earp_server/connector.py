@@ -101,7 +101,17 @@ def _evidence_to_chunks(evidence: list[Any]) -> list[dict[str, Any]]:
 
 
 class ConnectorError(Exception):
-    """Raised when a capability adapter fails after exhausting retries."""
+    """Raised when a capability adapter fails after exhausting retries.
+
+    F7 (Task 2 D4): code 分类码（connection/unknown_capability/permission/validation）——
+    flow 前端可据 code 精确提示；未显式指定默认 validation（输入缺失/声明非法等）。
+    """
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        # 显式 code 优先；否则子类类属性（如 ConnectorFetchError.code="connection"）；
+        # 兜底 validation（输入缺失/声明非法等）
+        self.code = code or getattr(type(self), "code", None) or "validation"
 
 
 class Connector:
@@ -198,7 +208,7 @@ class Connector:
         else:
             text = await llm.complete(prompt, system=system, temperature=temperature, max_tokens=max_tokens)
         if not text:
-            raise ConnectorError("llm.prompt: LLM generation failed (provider unreachable or empty)")
+            raise ConnectorError("llm.prompt: LLM generation failed (provider unreachable or empty)", code="connection")
         return {"text": text}
 
     async def _stream_llm_prompt(
@@ -385,9 +395,11 @@ class Connector:
             )
             cap = row.fetchone()
         if cap is None:
-            raise ConnectorError(f"capability.call: capability {capability_id!r} 不存在")
+            raise ConnectorError(f"capability.call: capability {capability_id!r} 不存在", code="unknown_capability")
         if cap.status != "active":
-            raise ConnectorError(f"capability.call: capability {capability_id!r} 已停用（deprecated）")
+            raise ConnectorError(
+                f"capability.call: capability {capability_id!r} 已停用（deprecated）", code="unknown_capability"
+            )
 
         # 命令能力审批门禁（D1：能力层兜底）——type=command 且未过审批 gate → 抛
         # ApprovalPending 挂起等待人工审批；flow 显式 human_approval 已把关（编译期
@@ -410,7 +422,8 @@ class Connector:
             missing = [p for p in required if p not in granted]
             if missing:
                 raise ConnectorError(
-                    f"capability.call: 角色 {ctx.role_id} 缺少权限 {missing}（capability {capability_id!r}）"
+                    f"capability.call: 角色 {ctx.role_id} 缺少权限 {missing}（capability {capability_id!r}）",
+                    code="permission",
                 )
 
         # 执行声明分派（通用执行器任务书 D2）：声明优先于 domain.name 猜测
@@ -459,7 +472,9 @@ class Connector:
             raise ConnectorError("tool.fetch: input.connector_id required")
         cfg = await decrypt_config(self._engine, ctx.tenant_id, connector_id)
         if not cfg:
-            raise ConnectorError(f"tool.fetch: connector {connector_id!r} 不存在或配置解密失败")
+            raise ConnectorError(
+                f"tool.fetch: connector {connector_id!r} 不存在或配置解密失败", code="unknown_capability"
+            )
         params = input_.get("params") if isinstance(input_.get("params"), dict) else {}
         rows = await data_fetch(cfg, params)
         return {"rows": rows, "count": len(rows), "domain_filtered": False}
@@ -607,7 +622,7 @@ class LLMConnector:
                 data = resp.json()
         except httpx.HTTPError as exc:
             logger.error("LLMConnector: Ollama chat failed: %s", exc)
-            raise ConnectorError(f"Ollama chat call failed: {exc}") from exc
+            raise ConnectorError(f"Ollama chat call failed: {exc}", code="connection") from exc
 
         content = data.get("message", {}).get("content", "")
         try:
@@ -655,6 +670,8 @@ class LLMConnector:
         供 QU LLM 升级（understanding.upgrade_with_llm）与 suggest 系列共用。
         timeout: 调用级超时（T2 2026-08-18：120s → 30s，防 llm 跑分超时累积挂起）；
         超时回落 None，schema 合规不破。
+        F7 (Task 1 D1): 接 LLM 缓存（self._cache）——键 = 实际 model + messages 序列化
+        （含 query/missing/relation_candidates/context，精确防误命中）；仅缓存成功 dict。
         """
         override = model_override or self._model_override
         provider = override.get("provider") or "ollama"
@@ -665,6 +682,16 @@ class LLMConnector:
             {"role": "system", "content": system},
             {"role": "user", "content": user_prompt},
         ]
+        # F7 (Task 1 D1): json_complete 接 LLM 缓存——键含 json_complete 命名空间前缀，
+        # 与 plan() 缓存（同模型同 prompt 形状不同）互不冲突（风险 4）；失败/超时不缓存
+        # （瞬时故障不毒化 TTL 缓存，风险 1）。suggest/QU 升级共用本方法 → 一次改全受益。
+        cache_key: str | None = None
+        if self._cache:
+            cache_key = f"{model_name}||json_complete||{json.dumps(messages, ensure_ascii=False, sort_keys=True)}"
+            cached = await self._cache.get(model_name, cache_key)
+            if cached is not None:
+                logger.info("LLMConnector.json_complete: cache hit")
+                return cached if isinstance(cached, dict) else None
         try:
             async with httpx.AsyncClient(timeout=timeout, transport=self._transport) as client:
                 if provider == "openai":
@@ -694,7 +721,11 @@ class LLMConnector:
                     resp.raise_for_status()
                     content = resp.json()["message"]["content"]
             data = json.loads(content)
-            return data if isinstance(data, dict) else None
+            if isinstance(data, dict):
+                if self._cache and cache_key is not None:
+                    await self._cache.set(model_name, cache_key, data)
+                return data
+            return None
         except Exception as exc:
             logger.warning("LLMConnector.json_complete: %s/%s failed: %s", provider, model_name, exc)
             return None

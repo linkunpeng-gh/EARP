@@ -108,3 +108,61 @@ async def test_json_complete_non_json_falls_back_none() -> None:
     conn = LLMConnector(Settings(), transport=httpx.MockTransport(_bad_handler))
     out = await conn.json_complete("sys", "user", timeout=1)
     assert out is None
+
+
+# ── F7 (Task 1 D1): json_complete 接 LLM 缓存 ─────────────────────────────────
+
+
+class _FakeCache:
+    """内存版 LLMCache 替身：记录 get/set，不依赖 Redis。"""
+
+    def __init__(self) -> None:
+        self.store: dict = {}
+        self.gets = 0
+
+    async def get(self, model: str, key: str):
+        self.gets += 1
+        return self.store.get(key)
+
+    async def set(self, model: str, key: str, value) -> None:
+        self.store[key] = value
+
+
+async def test_json_complete_cache_hit_skips_llm_call() -> None:
+    """F7 (Task 1): 同 messages 第二次 json_complete 命中缓存 → 零 HTTP 调用。"""
+    calls: list[int] = []
+
+    def _counting_handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(
+            200, json={"message": {"content": '{"intent": "FACT"}'}}
+        )
+
+    conn = LLMConnector(Settings(), transport=httpx.MockTransport(_counting_handler))
+    conn.cache = _FakeCache()
+    r1 = await conn.json_complete("sys", "同一条提示", timeout=1)
+    r2 = await conn.json_complete("sys", "同一条提示", timeout=1)
+    assert r1 == {"intent": "FACT"}
+    assert r2 == {"intent": "FACT"}
+    assert len(calls) == 1  # 第二次命中缓存，未再调 LLM（冷启动重复全量调用消除）
+    # 不同 prompt → 缓存键不同 → miss 再调
+    r3 = await conn.json_complete("sys", "另一条提示", timeout=1)
+    assert r3 == {"intent": "FACT"}
+    assert len(calls) == 2
+
+
+async def test_json_complete_failure_not_cached() -> None:
+    """F7 (Task 1): 失败/非 JSON 不写缓存——瞬时故障不毒化 TTL 缓存（风险 1）。"""
+    calls: list[int] = []
+
+    def _fail_then_ok(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(200, json={"message": {"content": "bad json"}})
+        return httpx.Response(200, json={"message": {"content": '{"intent": "FACT"}'}})
+
+    conn = LLMConnector(Settings(), transport=httpx.MockTransport(_fail_then_ok))
+    conn.cache = _FakeCache()
+    assert await conn.json_complete("sys", "p", timeout=1) is None
+    assert await conn.json_complete("sys", "p", timeout=1) == {"intent": "FACT"}
+    assert len(calls) == 2  # 失败未缓存 → 第二次仍重试调用（不会命中「失败」）

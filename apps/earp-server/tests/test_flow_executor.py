@@ -110,6 +110,37 @@ class TestCompileFlowSchema:
             "input": {"query": "{{query}}", "top_k": 3},
         }
 
+    # F7 (Task 3 D5): flow_schema 顶层 answer_from（显式答案节点）
+    def test_compile_answer_from_passthrough(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            _llm_node("l1", "p"),
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "l1"}, {"source": "l1", "target": "end"}],
+        )
+        g["answer_from"] = "l1"
+        plan = compile_flow_schema(g)
+        assert plan.answer_from == "l1"
+        # 缺省（存量 flow_schema 无该字段）→ None（回落原语义）
+        g2 = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            _llm_node("l1", "p"),
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "l1"}, {"source": "l1", "target": "end"}],
+        )
+        assert compile_flow_schema(g2).answer_from is None
+
+    def test_compile_answer_from_unknown_node_rejected(self) -> None:
+        g = _flow_graph(
+            {"id": "start", "type": "start", "data": {}},
+            _llm_node("l1", "p"),
+            {"id": "end", "type": "end", "data": {}},
+            edges=[{"source": "start", "target": "l1"}, {"source": "l1", "target": "end"}],
+        )
+        g["answer_from"] = "nope"
+        with pytest.raises(WorkflowValidationError, match="answer_from"):
+            compile_flow_schema(g)
+
     def test_unimplemented_types_rejected(self) -> None:
         g = _flow_graph(
             {"id": "start", "type": "start", "data": {}},
@@ -323,6 +354,117 @@ class TestFlowChat:
                 )
             ).fetchall()
         assert [r.role for r in rows] == ["user", "assistant"]
+
+    # ── F7 (Task 3 D5): 显式指定答案节点（answer_from）─────────────────────────
+
+    class _PromptLLM:
+        """按 prompt 返回不同文本——区分多 LLM 节点输出。"""
+
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        async def complete(
+            self, prompt: str, *, system: str = "", temperature: float = 0.7, max_tokens: int | None = None
+        ):
+            self.calls.append({"prompt": prompt})
+            return f"answer:{prompt}"
+
+    async def test_flow_chat_answer_from_explicit_node(self, app_engine: AsyncEngine) -> None:
+        """answer_from 指向 l1 → 答复取 l1 输出（即使副作用节点 l2 在最后执行）。"""
+        g = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                _llm_node("l1", "主答复"),
+                _llm_node("l2", "副作用处理"),
+                {"id": "end", "type": "end", "data": {}},
+            ],
+            "edges": [
+                {"source": "start", "target": "l1"},
+                {"source": "l1", "target": "l2"},
+                {"source": "l2", "target": "end"},
+            ],
+            "answer_from": "l1",
+        }
+        app = await _flow_app(app_engine, g, "f7-answer-from")
+        llm = self._PromptLLM()
+        result = await flow_chat(
+            app_engine,
+            "f2-t1",
+            "u1",
+            "r1",
+            app,
+            "q",
+            None,
+            base_llm=llm,
+            settings=Settings(database_url="postgresql+psycopg://x/x", app_env="test"),
+        )
+        assert result["status"] == ExecutionStatus.COMPLETED.value
+        assert result["answer"] == "answer:主答复"  # 非最后一个执行节点的输出
+        assert result["outputs"]["l2"] == {"text": "answer:副作用处理"}  # l2 仍正常执行
+
+    async def test_flow_chat_answer_from_json_summary(self, app_engine: AsyncEngine) -> None:
+        """answer_from 节点输出无 text → JSON 摘要兜底（output.text 优先，否则 JSON 摘要）。"""
+        g = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                {"id": "h1", "type": "chat_history", "data": {"turns": 2}},
+                {"id": "end", "type": "end", "data": {}},
+            ],
+            "edges": [
+                {"source": "start", "target": "h1"},
+                {"source": "h1", "target": "end"},
+            ],
+            "answer_from": "h1",  # chat.history 输出 {"messages": [...]}，无 text 键
+        }
+        app = await _flow_app(app_engine, g, "f7-answer-json")
+        result = await flow_chat(
+            app_engine,
+            "f2-t1",
+            "u1",
+            "r1",
+            app,
+            "q",
+            None,
+            base_llm=FakeLLM(),
+            settings=Settings(database_url="postgresql+psycopg://x/x", app_env="test"),
+        )
+        assert result["status"] == ExecutionStatus.COMPLETED.value
+        assert result["answer"].startswith('{"messages":')  # JSON 摘要
+
+    async def test_flow_chat_answer_from_failed_node_falls_back(self, app_engine: AsyncEngine) -> None:
+        """answer_from 节点运行失败（未完成）→ 回落默认语义（最后完成节点）。"""
+        g = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                _llm_node("l1", "主答复"),
+                {
+                    "id": "c1",
+                    "type": "capability",
+                    "data": {"capability_call": {"capability_id": "cap-nope", "input": {}}},
+                },
+                {"id": "end", "type": "end", "data": {}},
+            ],
+            "edges": [
+                {"source": "start", "target": "l1"},
+                {"source": "l1", "target": "c1"},
+                {"source": "c1", "target": "end"},
+            ],
+            "answer_from": "c1",  # 节点存在但运行失败（capability 未注册）→ 回落
+        }
+        app = await _flow_app(app_engine, g, "f7-answer-fail")
+        result = await flow_chat(
+            app_engine,
+            "f2-t1",
+            "u1",
+            "r1",
+            app,
+            "q",
+            None,
+            base_llm=FakeLLM(text="兜底答复"),
+            settings=Settings(database_url="postgresql+psycopg://x/x", app_env="test"),
+        )
+        assert result["status"] == ExecutionStatus.FAILED.value
+        assert result["answer"] == "兜底答复"  # 回落最后完成节点（l1）
 
     async def test_flow_chat_condition_only_hit_branch(self, app_engine: AsyncEngine) -> None:
         """condition 只走命中分支：未命中分支的 llm 节点不 invoke。"""

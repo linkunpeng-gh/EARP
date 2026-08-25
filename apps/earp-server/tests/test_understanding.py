@@ -7,6 +7,8 @@ intent 分类（可靠子集 + 显式回落）/ relation 提取（动词 + 方�
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -514,6 +516,83 @@ async def test_upgrade_with_llm_negative_cache_skips_retry(migrated: str, app_ur
     o2 = await upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r2, settings=_test_settings(app_url))
     assert len(calls) == 1  # 第二次负缓存命中，零 LLM 调用
     assert o2.intent is None  # 规则回落保持一致
+
+
+async def test_upgrade_with_llm_attaches_shared_llm_cache(migrated: str, app_url: str, monkeypatch) -> None:
+    """F7 (Task 1 D1): upgrade_with_llm 构造的 connector 挂共享缓存（json_complete 才能命中）。"""
+    from earp_server.ontology import understanding as U
+
+    engine = _engine(app_url)
+    tid = "qu-t13"
+    await _seed_entity_graph(engine, tid)
+
+    r = await understand(engine, tid, "主轴轴承最近为什么故障增加")
+    sentinel = object()
+    monkeypatch.setattr(U, "_shared_llm_cache", lambda settings: sentinel)
+    seen: dict = {}
+
+    class _Recorder:
+        def __init__(self, settings, *, model_override=None) -> None:
+            self.cache = None
+
+        async def json_complete(self, system, prompt, **kw):
+            seen["cache"] = self.cache
+            return {"intent": "CAUSAL", "relations": []}
+
+    monkeypatch.setattr("earp_server.connector.LLMConnector", _Recorder)
+    await U.upgrade_with_llm(engine, tid, "主轴轴承最近为什么故障增加", r, settings=_test_settings(app_url))
+    assert seen.get("cache") is sentinel  # fresh connector 已挂共享缓存
+
+
+async def test_upgrade_with_llm_connector_cache_hit_across_tenants(migrated: str, app_url: str, monkeypatch) -> None:
+    """F7 (Task 1 D1): 跨租户同 prompt 第二次升级命中 connector 缓存 → 零 LLM 调用。
+
+    _UPGRADE_CACHE（tenant+query LRU）跨租户不命中；connector 缓存键 = model+messages
+    （同 query+missing+context）→ 第二次直接命中，不再重复全量 LLM 调用。
+    """
+    from earp_server.ontology import understanding as U
+
+    class _FakeCache:
+        """内存版 LLMCache 替身（同 test_connector_timeout 模式）。"""
+
+        def __init__(self) -> None:
+            self.store: dict = {}
+
+        async def get(self, model: str, key: str):
+            return self.store.get(key)
+
+        async def set(self, model: str, key: str, value) -> None:
+            self.store[key] = value
+
+    engine = _engine(app_url)
+    cache = _FakeCache()
+    calls: list[int] = []
+    monkeypatch.setattr(U, "_shared_llm_cache", lambda settings: cache)
+
+    async def _fake_json_complete(self, system, prompt, **kw):
+        # 模拟真实 json_complete 的缓存读写（真实实现见 connector.json_complete）
+        msgs = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]
+        key = f"{self._model}||json_complete||{json.dumps(msgs, ensure_ascii=False, sort_keys=True)}"
+        cached = await cache.get(self._model, key)
+        if cached is not None:
+            return cached
+        calls.append(1)
+        data = {"intent": "CAUSAL", "relations": []}
+        await cache.set(self._model, key, data)
+        return data
+
+    monkeypatch.setattr("earp_server.connector.LLMConnector.json_complete", _fake_json_complete)
+    await _seed_entity_graph(engine, "qu-t14")
+    r1 = await understand(engine, "qu-t14", "主轴轴承最近为什么故障增加")
+    await upgrade_with_llm(engine, "qu-t14", "主轴轴承最近为什么故障增加", r1, settings=_test_settings(app_url))
+    await _seed_entity_graph(engine, "qu-t15")
+    r2 = await understand(engine, "qu-t15", "主轴轴承最近为什么故障增加")
+    o2 = await upgrade_with_llm(engine, "qu-t15", "主轴轴承最近为什么故障增加", r2, settings=_test_settings(app_url))
+    assert len(calls) == 1  # 第二租户同 prompt 命中 connector 缓存
+    assert o2.intent == Intent.CAUSAL
 
 
 # ── Part 2：QU 升级 prompt 模板（可配置） ─────────────────────────────────────
