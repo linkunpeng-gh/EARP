@@ -182,6 +182,12 @@
     }
     row.className = 'fp-node ' + (status || 'running');
     if (meta && meta.latency_ms != null) row.querySelector('.fp-lat').textContent = (meta.latency_ms) + 'ms';
+    if (meta && meta.output && typeof meta.output.text === 'string') {
+      // 应用中心：回答节点（answer.output）输出文本直接显示在节点面板
+      var out = row.querySelector(':scope > .fp-answer');
+      if (!out) { out = document.createElement('div'); out.className = 'fp-answer'; row.appendChild(out); }
+      out.textContent = meta.output.text;
+    }
     if (meta && meta.error) {
       var err = document.createElement('div');
       err.className = 'fp-tokens';

@@ -1128,3 +1128,4 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .mode-badge.open { background: var(--green-bg); color: var(--green); }
 .mode-badge.restricted { background: var(--amber-bg); color: var(--amber); }
 .fp-node.waiting_human .fp-status { background: var(--amber); }
+.fp-answer { margin: 0.25rem 0 0 1.2rem; color: var(--text-primary); background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.4rem 0.6rem; white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; }

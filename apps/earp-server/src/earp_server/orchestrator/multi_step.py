@@ -446,6 +446,8 @@ class MultiStepExecutor:
                         "status": result.status,
                         "latency_ms": result.latency_ms,
                         "output_summary": str(result.output)[:500] if result.output else None,
+                        # 应用中心：回答节点等输出含 text → 前端节点面板直接显示
+                        "output": result.output if isinstance(result.output, dict) else None,
                         "error": result.error,
                     },
                 )
