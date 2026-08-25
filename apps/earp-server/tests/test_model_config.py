@@ -51,10 +51,12 @@ async def test_system_settings_and_delete_guard(app_engine: AsyncEngine) -> None
     emb = await model_service.create_model_config(app_engine, tid, "ollama", "embedding", "bge-m3:latest", {})
 
     settings = await model_service.set_system_model_settings(
-        app_engine, tid, {"llm": llm["config_id"], "embedding": emb["config_id"]}
+        app_engine, tid, {"llm": llm["config_id"], "embedding": emb["config_id"], "copilot": llm["config_id"]}
     )
     assert settings["llm"]["model_name"] == "qwen3.6:35b"
     assert settings["embedding"]["model_name"] == "bge-m3:latest"
+    # copilot (AI 助手专用模型) 作为合法 setting_type 可持久化（migration 0030 放宽 CHECK）
+    assert settings["copilot"]["model_name"] == "qwen3.6:35b"
 
     # delete referenced config → refused
     deleted, error = await model_service.delete_model_config(app_engine, tid, llm["config_id"])

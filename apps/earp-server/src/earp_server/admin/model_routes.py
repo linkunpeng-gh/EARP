@@ -36,6 +36,7 @@ class SystemSettingsIn(BaseModel):
     llm: str | None = None
     embedding: str | None = None
     rerank: str | None = None
+    copilot: str | None = None  # Copilot 配置助手专用模型
     # Chatflow QU 升级 prompt 模板（可选；空串=清除）；需已配置默认 LLM
     qu_prompt_template: str | None = None
 

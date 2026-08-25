@@ -19,6 +19,10 @@
   <div class="form-row"><label>重排序 (Rerank)</label>
     <select id="def-rerank" style="flex:1"><option value="">— 未配置（Phase 2）—</option></select>
     <button class="btn-sm" onclick="testDefault('rerank')">测试</button></div>
+  <div class="form-row"><label>Copilot 配置助手</label>
+    <select id="def-copilot" style="flex:1"><option value="">— 使用默认模型 —</option></select>
+    <button class="btn-sm" onclick="testDefault('copilot')">测试</button>
+    <span style="font-size:0.72rem;color:var(--text-tertiary,#8b8d91);margin-left:8px">AI 助手专用模型</span></div>
   <div class="form-row" style="align-items:flex-start"><label style="padding-top:4px">QU 升级模板</label>
     <div style="flex:1">
       <textarea id="def-qu-tpl" rows="4" placeholder="留空=使用内置默认；或点「载入默认」以默认内容为底稿修改。占位符：{query} {missing} {relation_candidates} {context}。需先配置默认 LLM。" style="width:100%;font-size:0.76rem;font-family:ui-monospace,Menlo,monospace"></textarea>
@@ -72,20 +76,30 @@ async function init() {
   renderConfigs();
 }
 
-function fillSelect(id, items, selected) {
+var defaultEmptyLabels = {
+  llm: '— 使用环境变量默认 —',
+  embedding: '— 使用环境变量默认 —',
+  rerank: '— 未配置（Phase 2）—',
+  copilot: '— 使用默认模型 —'
+};
+
+function fillSelect(id, items, selected, emptyLabel) {
   var sel = document.getElementById(id);
-  sel.innerHTML = items.map(function(it) {
+  var html = '<option value="">' + (emptyLabel || '— 未配置 —') + '</option>';
+  html += items.map(function(it) {
     var s = it.value === selected ? ' selected' : '';
     return '<option value="' + it.value + '"' + s + '>' + it.label + '</option>';
   }).join('');
+  sel.innerHTML = html;
+  if (!selected) sel.value = '';
 }
 
 function renderDefaults() {
-  ['llm', 'embedding', 'rerank'].forEach(function(t) {
-    var items = state.configs.filter(function(c) { return c.model_type === t; })
+  ['llm', 'embedding', 'rerank', 'copilot'].forEach(function(t) {
+    var items = state.configs.filter(function(c) { return c.model_type === t || (t === 'copilot' && c.model_type === 'llm'); })
       .map(function(c) { return { value: c.config_id, label: c.provider + ' · ' + c.model_name }; });
     var cur = state.defaults[t] ? state.defaults[t].model_config_id : '';
-    fillSelect('def-' + t, items, cur);
+    fillSelect('def-' + t, items, cur, defaultEmptyLabels[t]);
   });
   var tplEl = document.getElementById('def-qu-tpl');
   if (tplEl) tplEl.value = state.defaults.qu_prompt_template || '';
@@ -97,7 +111,7 @@ function loadDefaultTpl() {
 
 async function saveDefaults() {
   var body = {};
-  ['llm', 'embedding', 'rerank'].forEach(function(t) {
+  ['llm', 'embedding', 'rerank', 'copilot'].forEach(function(t) {
     var v = document.getElementById('def-' + t).value;
     if (v) body[t] = v;
   });
@@ -112,7 +126,7 @@ async function saveDefaults() {
   try {
     var res = await EARP.fetchJSON('/api/system-model-settings', { method: 'PUT', body: JSON.stringify(body) });
     state.defaults.qu_prompt_template = res.qu_prompt_template;
-    document.getElementById('default-msg').textContent = '已保存: ' + JSON.stringify(res);
+    document.getElementById('default-msg').textContent = '✅ 保存成功';
   } catch (e) { document.getElementById('default-msg').textContent = '保存失败: ' + e.message; }
 }
 

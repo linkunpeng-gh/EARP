@@ -17,7 +17,8 @@ from earp_server.infra import credential_crypto, model_registry
 
 logger = logging.getLogger(__name__)
 
-VALID_TYPES = model_registry.MODEL_TYPES  # llm / embedding / rerank
+VALID_TYPES = model_registry.MODEL_TYPES  # llm / embedding / rerank / copilot
+# system_model_settings.setting_type 由 migration 0030 放宽为 llm/embedding/rerank/copilot。
 
 
 async def create_model_config(
