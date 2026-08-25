@@ -511,6 +511,12 @@ async def flow_chat(
             # 无失败分支：超时 → timeout 终态 + 消息，本轮按新建处理（维持现状）
             await flow_runs.finish_run(engine, tenant_id, waiting["execution_id"], status="timeout")
             await add_message(engine, tenant_id, conversation_id, "assistant", "⏰ 等待超时，流程终止", user_id)
+            # Task 4 (D4): 命令能力审批超时 → earp.approval.timed_out 审计
+            if pending:
+                ps = _pending_step(plan, str(pending))
+                if ps is not None and ps.capability_call.get("adapter_type") == "capability.call":
+                    _publish_approval_event(bus, "timed_out", tenant_id, user_id, role_id,
+                                            waiting["execution_id"], conversation_id, ps)
             waiting = None
 
     flow_input = {"query": query, "conversation_id": conversation_id}
@@ -609,6 +615,17 @@ async def flow_chat(
             "status": ExecutionStatus.WAITING_HUMAN.value,
             "pending_node_id": state.pending_node_id,
             "question": question,
+        }
+
+    # 命令能力审批驳回（Task 3，D2）：驳回 → flow 终态 rejected（下游不执行）
+    if state.status == ExecutionStatus.REJECTED:
+        await flow_runs.finish_run(engine, tenant_id, exec_id, status=ExecutionStatus.REJECTED.value)
+        await add_message(engine, tenant_id, conversation_id, "assistant", "⛔ 审批驳回，流程已终止", user_id)
+        await _emit("error", {"message": "审批驳回，流程已终止"})
+        return {
+            "execution_id": exec_id,
+            "conversation_id": conversation_id,
+            "status": ExecutionStatus.REJECTED.value,
         }
 
     # 完成/失败（F4：终态化 flow_runs）
@@ -750,3 +767,40 @@ def _approval_expired(run: dict[str, Any], ttl: int) -> bool:
     if updated.tzinfo is None:
         updated = updated.replace(tzinfo=UTC)
     return datetime.now(UTC) - updated > timedelta(seconds=ttl)
+
+
+def _pending_step(plan, node_id: str):
+    """Task 1/3: 从编译产物中找到挂起节点对应的 Step（判定 command 审批 vs human_approval）。"""
+    from earp_server.orchestrator.workflow_dsl import StepExec
+
+    for item in plan.sequence:
+        if isinstance(item, StepExec) and item.node_id == node_id:
+            return item.step
+    return None
+
+
+def _publish_approval_event(bus, kind: str, tenant_id: str, user_id: str, role_id: str,
+                            execution_id: str, session_id: str, step) -> None:
+    """Task 4: 命令能力审批审计事件（timed_out 等 flow_chat 侧决策）。step=None 时 silent。"""
+    if bus is None or step is None:
+        return
+    from earp_server.infra.eventbus import CloudEvent
+
+    capability_id = step.capability_call.get("capability_id", "")
+    bus.publish(
+        CloudEvent(
+            type=f"earp.approval.{kind}",
+            source="earp-server/chat",
+            tenant_id=tenant_id,
+            data={
+                "execution_id": execution_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                "role_id": role_id,
+                "entity_type": "capability",
+                "entity_id": capability_id,
+                "capability_id": capability_id,
+                "decision": kind,
+            },
+        )
+    )

@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import json
 import logging
+import re
 from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 from typing import Any
@@ -31,6 +32,16 @@ from earp_server.orchestrator.workflow_dsl import (
 
 logger = logging.getLogger(__name__)
 
+# 命令能力审批决策（Task 3，D2）：恢复时用户下一句即答复。命中任一明确拒绝词 → 驳回
+# （终态 rejected）；否则视为批准（与 F4 human_approval「下一句即确认」语义一致——
+# 避免误伤「确认，请继续」「感谢，请处理」等自然确认表达）。
+_REJECT_RE = re.compile(r"驳回|拒绝|不同意|不要|取消|不用|算了|不执行|撤销|no|reject")
+
+
+def _is_reject_reply(reply: str) -> bool:
+    """命令审批：恢复答复是否明确拒绝。False（含空/普通确认语）视为批准。"""
+    return bool(_REJECT_RE.search((reply or "").strip().lower()))
+
 
 class ExecutionStatus(StrEnum):
     PENDING = "pending"
@@ -40,6 +51,8 @@ class ExecutionStatus(StrEnum):
     REPLANNING = "replanning"
     INTERRUPTED = "interrupted"
     ROLLED_BACK = "rolled_back"
+    # 命令能力审批驳回（Task 3）：审批人不批准 → 流程终态 rejected，下游不执行
+    REJECTED = "rejected"
     # Chatflow F4: human_approval 节点挂起等待人工答复
     WAITING_HUMAN = "waiting_human"
 
@@ -66,6 +79,7 @@ class MultiStepExecutor:
     """Execute a Plan (list[Step]) with checkpoint + Saga compensation."""
 
     def __init__(self, engine: AsyncEngine, bus: EventBus | None = None, *, llm=None, settings=None) -> None:
+        self._engine = engine  # Task 2: 补偿执行注入（_compensate → Connector(engine=...) 真实调用）
         self._runner = StepRunner(engine, llm=llm, settings=settings)  # Chatflow F2/F3: 适配器注入
         self._checkpoint = CheckpointStore(engine)
         self._bus = bus
@@ -80,6 +94,31 @@ class MultiStepExecutor:
     def resume(self) -> None:
         """Clear the interrupt flag for recovery."""
         self._interrupted = False
+
+    def _publish_approval(self, kind: str, ctx: InvokeContext, step: Step) -> None:
+        """Task 4 (D4): 命令能力审批决策落审计 earp.approval.{requested,approved,rejected}。"""
+        if self._bus is None:
+            return
+        from earp_server.infra.eventbus import CloudEvent
+
+        capability_id = step.capability_call.get("capability_id", "")
+        self._bus.publish(
+            CloudEvent(
+                type=f"earp.approval.{kind}",
+                source="earp-server/orchestrator",
+                tenant_id=ctx.tenant_id,
+                data={
+                    "execution_id": ctx.execution_id,
+                    "session_id": ctx.session_id,
+                    "user_id": ctx.user_id,
+                    "role_id": ctx.role_id,
+                    "entity_type": "capability",
+                    "entity_id": capability_id,
+                    "capability_id": capability_id,
+                    "decision": kind,
+                },
+            )
+        )
 
     async def execute(
         self,
@@ -178,7 +217,7 @@ class MultiStepExecutor:
                     async def _compensate(ctx_dict: dict) -> None:
                         from earp_server.connector import Connector
 
-                        connector = Connector()
+                        connector = Connector(self._bus, engine=self._engine)
                         await connector.execute(ctx_dict.get("compensate_call", {}))
 
                     saga.register(
@@ -364,6 +403,105 @@ class MultiStepExecutor:
                             chosen[branch_id] = "error"
                             state.chosen[branch_id] = "error"
                         continue
+                    # 命令能力审批恢复（Task 1/3，D2）：挂起点为 command 能力 → 批准/驳回决策。
+                    # 批准→真实执行命令（标记 approval_granted 跳过能力层强制审批）；驳回→终态 rejected。
+                    if item.step.capability_call.get("adapter_type") == "capability.call":
+                        if _is_reject_reply(resume_reply):
+                            state.status = ExecutionStatus.REJECTED
+                            state.pending_node_id = None
+                            self._publish_approval("rejected", ctx, item.step)
+                            reject_result = StepResult(step_id=item.node_id, status="failed", error="审批驳回")
+                            if on_node_end is not None:
+                                await on_node_end(
+                                    item.node_id,
+                                    {"status": "rejected", "latency_ms": 0, "output_summary": None,
+                                     "output": None, "error": "审批驳回"},
+                                )
+                            results.append(reject_result)
+                            pool[item.node_id] = reject_result
+                            state.completed_steps = [r.step_id for r in results if r.status == "completed"]
+                            rb0 = plan.result_branches.get(item.node_id)
+                            if rb0:
+                                chosen[rb0] = "error"
+                                state.chosen[rb0] = "error"
+                            return results, state
+                        self._publish_approval("approved", ctx, item.step)
+                        granted_step = Step(
+                            step_id=item.step.step_id,
+                            capability_call={**item.step.capability_call, "approval_granted": True},
+                            retry_config=item.step.retry_config,
+                            timeout_seconds=item.step.timeout_seconds,
+                            compensate_call=item.step.compensate_call,
+                        )
+                        granted_ctx = replace(ctx, step=granted_step)
+                        try:
+                            result = await self._runner.invoke(
+                                granted_step, layers=self._capability_layers, ctx=granted_ctx
+                            )
+                        except ApprovalPending as ap:
+                            state.status = ExecutionStatus.WAITING_HUMAN
+                            state.pending_node_id = ap.node_id
+                            state.pending_question = ap.question
+                            state.current_step_index = processed
+                            state.completed_steps = [r.step_id for r in results if r.status == "completed"]
+                            return results, state
+                        if on_node_end is not None:
+                            await on_node_end(
+                                item.node_id,
+                                {"status": result.status, "latency_ms": result.latency_ms,
+                                 "output_summary": str(result.output)[:500] if result.output else None,
+                                 "output": result.output if isinstance(result.output, dict) else None,
+                                 "error": result.error},
+                            )
+                        results.append(result)
+                        pool[item.node_id] = result
+                        state.completed_steps.append(item.step.step_id)
+                        if item.step.compensate_call:
+
+                            async def _compensate_g(ctx_dict: dict) -> None:
+                                from earp_server.connector import Connector
+
+                                connector = Connector(self._bus, engine=self._engine)
+                                await connector.execute(ctx_dict.get("compensate_call", {}))
+
+                            saga.register(
+                                item.step.step_id,
+                                _compensate_g,
+                                {"compensate_call": item.step.compensate_call, "step_id": item.step.step_id},
+                            )
+                        await self._checkpoint.write(
+                            execution_id=ctx.execution_id,
+                            session_id=ctx.session_id,
+                            tenant_id=ctx.tenant_id,
+                            state={
+                                "current_step_index": processed,
+                                "completed_step_ids": [r.step_id for r in results if r.status == "completed"],
+                                "last_result_status": result.status,
+                            },
+                            channels={"step_results": _serialize_results(results)},
+                            checkpoint_ns=f"plan:{item.step.step_id}",
+                        )
+                        ok_branch = plan.result_branches.get(item.node_id)
+                        if ok_branch:
+                            chosen[ok_branch] = "success" if result.status == "completed" else "error"
+                            state.chosen[ok_branch] = chosen[ok_branch]
+                        if result.status == "failed" and ok_branch is None:
+                            if saga.count > 0:
+                                logger.info(
+                                    "MultiStepExecutor: step %s failed, rolling back %d completed steps",
+                                    item.step.step_id,
+                                    saga.count,
+                                )
+                                await saga.rollback()
+                                state.status = ExecutionStatus.ROLLED_BACK
+                                state.rollback_results = [
+                                    {"step_id": sid, "status": "rolled_back"} for sid in state.completed_steps
+                                ]
+                            else:
+                                state.status = ExecutionStatus.FAILED
+                            state.current_step_index = processed
+                            return results, state
+                        continue
                     reply_result = StepResult(step_id=item.node_id, status="completed", output={"reply": resume_reply})
                     if on_node_end is not None:
                         await on_node_end(
@@ -438,6 +576,9 @@ class MultiStepExecutor:
                 state.pending_question = ap.question
                 state.current_step_index = processed
                 state.completed_steps = [r.step_id for r in results if r.status == "completed"]
+                # Task 4 (D4): 命令能力等待人工审批 → 落 earp.approval.requested 审计
+                if step.capability_call.get("adapter_type") == "capability.call":
+                    self._publish_approval("requested", ctx, step)
                 return results, state
             if on_node_end is not None:
                 await on_node_end(
@@ -474,7 +615,7 @@ class MultiStepExecutor:
                     async def _compensate(ctx_dict: dict) -> None:
                         from earp_server.connector import Connector
 
-                        connector = Connector()
+                        connector = Connector(self._bus, engine=self._engine)
                         await connector.execute(ctx_dict.get("compensate_call", {}))
 
                     saga.register(

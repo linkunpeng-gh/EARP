@@ -1,6 +1,6 @@
 # 任务清单 — 命令审批流（Command Approval Flow）: 命令能力审批治理 + Saga 补偿细化
 
-**状态：规划定稿，待开工**
+**状态：Task 1/2/3/4 已实现并全绿（475 pytest + verify_f6 80/0），Task 5（FDE 指南）待补**
 **依据**：F6 评估报告 §10（D2：命令审批流 = 下一阶段立项依据）+ `arch/design/2026-08-18-chatflow-integration-design.md` 开放问题 2 + 能力中心 task（type=command 走审批）
 **依赖**：F4 human_approval ✅（挂起/恢复/超时）+ 能力中心 ✅（execution 声明 + command 类型）+ MultiStep 补偿 ✅（M12 minimal）
 **日期**：2026-08-24
@@ -96,6 +96,17 @@ Task 5（兼容回归）→ 最后
 
 ---
 **规划定稿，确认后开工。**
+
+---
+## 完成记录（2026-08-25 会话，已实现 Task 1/2/3/4）
+
+- **Task 1 门禁**：`connector.py _execute_capability_call` 增 `type` 查询；type=command 且未过 gate → 抛 ApprovalPending（挂起等待人工审批）；`workflow_dsl._compile_graph` flow 内含 human_approval 节点 → 所有 command 能力节点编译期注入 `already_approved=True`（场景 A c2/c3 兼容，不双审）
+- **Task 3 决策**：`multi_step.py _execute_plan` 恢复路径区分 human.approval 与 command 挂起——批准（默认/确认语）→ 注入 `approval_granted` 真实执行命令；驳回（`_REJECT_RE` 命中）→ 终态 `REJECTED`（新增 ExecutionStatus）；flow_runs 迁移 0031 扩 CHECK 含 rejected；flow_chat 驳回 → finish_run(rejected) + ⛔ 消息 + {status: rejected}；超时沿用 `EARP_APPROVAL_TTL` 惰性检查
+- **Task 4 审计**：`earp.approval.{requested,approved,rejected}` 由执行器发布（requested 在挂起捕获点、approved/rejected 在恢复决策点）；`timed_out` 由 flow_chat 惰性超时路径发布；main.py + entrypoints/audit.py 订阅 `earp.approval.*` → audit_logs
+- **Task 2 补偿**：`_compensate` 闭包注入 engine（`Connector(self._bus, engine=self._engine)`，MultiStepExecutor 增 `_engine`）；能力 execution 声明可携带 `compensate_call`（connector 挂到 ctx.step 供执行器注册）；mock 增 `/_control/cancel-order`、`/_control/cancel-notify` + cancelled 日志；flow 路径真实回滚单测（LIFO + rolled_back）
+- **场景 B 对齐（验收 1 vs 5 冲突的裁决）**：archive（command 无审批）按验收 1 必须过审批 → verify_f6 场景 B 增 human_approval 节点 + 两轮执行（挂起 202 → 确认 → completed）；断言 78 → 80
+- **验证**：全量 pytest 475 通过（仅排除既有 test_openapi_export 3 失败，与本任务无关）；新增 tests/test_command_approval.py 9 用例全绿；verify_f6 80 PASS / 0 FAIL；ruff 零新增；pyright 零新增（既有 6 处 HEAD 同源错误未动）
+- **遗留**：Task 5 的 FDE 指南文案（arch/guides 补「命令能力需审批 + compensate 声明」）；审批决策端点 `POST /chat_apps/{id}/approvals/{exec_id}`（D2 允许「对话下一句 或 端点」，一期走对话路径）；mock 已重启含新端点（8001）；注意并行 copilot 会话 90d1577 已把 main.py 的 earp.approval 订阅扫进其提交（内容正确）
 
 ---
 ## 开工提示（下个会话用，已核实 2026-08-24）

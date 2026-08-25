@@ -257,11 +257,15 @@ def _find_or_create_app(name: str, schema: dict, metrics: list[dict]) -> dict:
     app = next((a for a in apps if a.get("name") == name), None)
     if app is None:
         code, app = _req("POST", "/chat_apps",
-                         {"name": name, "orchestration": "flow", "flow_schema": schema}, expect=201)
+                         {"name": name, "orchestration": "flow", "flow_schema": schema,
+                          "category": "IT 运维"}, expect=201)
         _check(code == 201, f"chat app 创建 {name}", metrics, "setup.app")
     else:
-        # 已有：覆盖 schema（保证与脚本一致）
-        _req("PATCH", f"/chat_apps/{app['chat_app_id']}", {"flow_schema": schema}, expect=200)
+        # 已有：覆盖 schema（保证与脚本一致）+ 补分类（发布校验分类必填）
+        patch: dict = {"flow_schema": schema}
+        if not app.get("category"):
+            patch["category"] = "IT 运维"
+        _req("PATCH", f"/chat_apps/{app['chat_app_id']}", patch, expect=200)
     return app
 
 
@@ -309,14 +313,18 @@ def _scenario_a_schema() -> dict:
 
 
 def _scenario_b_schema(kb_id: str) -> dict:
-    """设计稿 §5 示例 B：start→知识(历史投诉)→条件(VIP?)→分支（归档+话术）。
+    """设计稿 §5 示例 B：start→审批→知识(历史投诉)→条件(VIP?)→分支（归档+话术）。
 
     归档（capability）在分支内先执行、LLM 话术节点最后——flow_chat 的 answer 取最后
     completed 节点输出，归档副作用不影响回复文本。
+    命令审批流（Task 1）：archive_complaint 为 command 能力——flow 显式含 human_approval
+    → 编译期 already_approved（能力层不双审）；运行期先挂起等确认再执行归档。
     """
     return {
         "nodes": [
             {"id": "start", "type": "start", "data": {}},
+            {"id": "h1", "type": "human_approval",
+             "data": {"question": "收到客户投诉，是否记录归档并回复？"}},
             {"id": "k1", "type": "knowledge",
              "data": {"query": "{{query}}", "kb_ids": [kb_id], "top_k": 3}},
             {"id": "cond1", "type": "condition",
@@ -340,7 +348,8 @@ def _scenario_b_schema(kb_id: str) -> dict:
             {"id": "end", "type": "end", "data": {}},
         ],
         "edges": [
-            {"source": "start", "target": "k1"},
+            {"source": "start", "target": "h1"},
+            {"source": "h1", "target": "k1"},
             {"source": "k1", "target": "cond1"},
             {"source": "cond1", "target": "c1", "sourceHandle": "true"},
             {"source": "c1", "target": "l1"},
@@ -452,9 +461,20 @@ def scenario_b(ctx: dict, metrics: list[dict]) -> None:
     print(f"[{_now()}] === 场景 B 客户投诉分流（VIP / 普通） ===")
     app_id = ctx["app_b"]
 
+    def _approval_round(query: str) -> tuple[dict, str]:
+        """命令审批流（Task 1）：归档为 command 能力 → 先挂起（202 h1）→ 确认后完成。"""
+        code, body, ms = _chat(app_id, query)
+        _check(code == 202 and body.get("status") == "waiting_human"
+               and body.get("pending_node_id") == "h1",
+               f"归档前置审批挂起 202（{ms:.0f}ms）", metrics, "B.approval.pending")
+        conv = body.get("conversation_id")
+        code, body, ms = _chat(app_id, "确认，请处理", conv)
+        _check(code == 200 and body.get("status") == "completed",
+               f"确认后 completed（{ms:.0f}ms）", metrics, "B.approval.confirm")
+        return body, conv
+
     # VIP 分支
-    code, body, ms = _chat(app_id, "张伟反映上次设备安装响应太慢，需要处理")
-    _check(code == 200 and body.get("status") == "completed", f"VIP 分支 completed（{ms:.0f}ms）", metrics, "B.vip.completed")
+    body, _ = _approval_round("张伟反映上次设备安装响应太慢，需要处理")
     trace = body.get("trace", [])
     by_id = {t["node_id"]: t for t in trace}
     _check(by_id.get("cond1", {}).get("branch") == "then", "条件 → then（VIP）", metrics, "B.vip.branch")
@@ -470,8 +490,7 @@ def scenario_b(ctx: dict, metrics: list[dict]) -> None:
     _check(recs and recs[-1].get("vip") is True, f"归档记录 VIP 标志 {recs[-1] if recs else None}", metrics, "B.vip.archive")
 
     # 普通分支
-    code, body, ms = _chat(app_id, "李明反映说明书更新不及时，需要处理")
-    _check(code == 200 and body.get("status") == "completed", f"普通分支 completed（{ms:.0f}ms）", metrics, "B.normal.completed")
+    body, _ = _approval_round("李明反映说明书更新不及时，需要处理")
     by_id = {t["node_id"]: t for t in body.get("trace", [])}
     _check(by_id.get("cond1", {}).get("branch") == "else", "条件 → else（普通）", metrics, "B.normal.branch")
     for nid in ("k1", "c2", "l2"):

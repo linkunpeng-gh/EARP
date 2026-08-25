@@ -11,6 +11,8 @@
   POST /notify                    → 通知（body: {channel, recipient, message}）→ {ack, notify_id}
   POST /complaints                → 投诉归档（body: {customer, category, vip}）→ {record_id}
 控制 / 验证端点（不进 flow，仅脚本/人工用）：
+  POST /_control/cancel-order     → 撤单（Saga 补偿：body: {order_no}，幂等）→ {cancelled}
+  POST /_control/cancel-notify    → 撤回通知（Saga 补偿：body: {notify_id}，幂等）→ {cancelled}
   POST /_control/equipment        → 设置设备状态（body: {equipment_id, status, temperature}）
   GET  /_state                    → 设备状态 + 调用日志 dump（verify 断言用）
 """
@@ -46,6 +48,7 @@ class MockState:
         self.orders: list[dict[str, Any]] = []
         self.notifications: list[dict[str, Any]] = []
         self.complaints: list[dict[str, Any]] = []
+        self.cancelled: list[dict[str, Any]] = []  # Saga 补偿日志（撤单/撤通知，验证断言数据源）
         self._seq = 0
 
     def _next(self, prefix: str) -> str:
@@ -109,12 +112,33 @@ class MockState:
         self.complaints.append(rec)
         return rec
 
+    def cancel_order(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Saga 补偿端点：按 order_no 撤单（幂等），记录到 cancelled 日志供验证断言。"""
+        order_no = str(payload.get("order_no") or "")
+        for o in self.orders:
+            if o.get("order_no") == order_no:
+                o["status"] = "cancelled"
+        rec = {"order_no": order_no, "cancelled": True}
+        self.cancelled.append(rec)
+        return rec
+
+    def cancel_notification(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Saga 补偿端点：按 notify_id 撤回通知（幂等），记录到 cancelled 日志供验证断言。"""
+        notify_id = str(payload.get("notify_id") or "")
+        for n in self.notifications:
+            if n.get("notify_id") == notify_id:
+                n["ack"] = False
+        rec = {"notify_id": notify_id, "cancelled": True}
+        self.cancelled.append(rec)
+        return rec
+
     def dump(self) -> dict[str, Any]:
         return {
             "equipment": {k: dict(v) for k, v in self.equipment.items()},
             "orders": list(self.orders),
             "notifications": list(self.notifications),
             "complaints": list(self.complaints),
+            "cancelled": list(self.cancelled),
         }
 
     def reset(self) -> dict[str, Any]:
@@ -123,6 +147,7 @@ class MockState:
         self.orders = []
         self.notifications = []
         self.complaints = []
+        self.cancelled = []
         self._seq = 0
         return self.dump()
 
@@ -196,6 +221,12 @@ class F6Handler(BaseHTTPRequestHandler):
                 return
             st = STATE.set_equipment(code, status, temp)
             _ok(self, [st])
+            return
+        if path == "/_control/cancel-order":
+            _ok(self, [STATE.cancel_order(payload)])
+            return
+        if path == "/_control/cancel-notify":
+            _ok(self, [STATE.cancel_notification(payload)])
             return
         if path == "/maintenance-orders":
             order = STATE.create_order(payload)

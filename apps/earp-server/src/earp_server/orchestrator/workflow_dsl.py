@@ -605,6 +605,19 @@ def _compile_graph(
         if item is not None:
             sequence.append(item)
 
+    # 命令能力审批门禁（D1）：flow 内显式含 human_approval 节点 → 该 flow 的所有 command
+    # 能力视为「已人工把关」（能力层强制审批跳过，避免双审批——场景 A 的 c2/c3 兼容：
+    # 显式 human_approval 即治理，即使其位于该命令能力之后也视为已把关）。
+    # 无 human_approval 的 flow 调用 command 能力则交由能力层兜底强制审批（Task 1）。
+    # 作者若已在能力节点显式声明 already_approved，保持原值。
+    if any(n.type == "human_approval" for n in g.nodes):
+        for item in sequence:
+            if not isinstance(item, StepExec):
+                continue
+            call = item.step.capability_call
+            if call.get("adapter_type") == "capability.call" and not call.get("already_approved"):
+                call["already_approved"] = True
+
     steps = [item.step for item in sequence if isinstance(item, StepExec)]
     step_ids = [item.node_id for item in sequence if isinstance(item, StepExec)]
     return CompiledWorkflow(

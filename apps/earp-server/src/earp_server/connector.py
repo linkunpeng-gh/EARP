@@ -361,7 +361,8 @@ class Connector:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{ctx.tenant_id}'"))
             row = await conn.execute(
                 text(
-                    "SELECT domain, name, required_permissions, status, execution FROM business_capabilities "
+                    "SELECT domain, name, type, required_permissions, status, execution "
+                    "FROM business_capabilities "
                     "WHERE capability_id = :cid AND tenant_id = :tid"
                 ),
                 {"cid": capability_id, "tid": ctx.tenant_id},
@@ -371,6 +372,21 @@ class Connector:
             raise ConnectorError(f"capability.call: capability {capability_id!r} 不存在")
         if cap.status != "active":
             raise ConnectorError(f"capability.call: capability {capability_id!r} 已停用（deprecated）")
+
+        # 命令能力审批门禁（D1：能力层兜底）——type=command 且未过审批 gate → 抛
+        # ApprovalPending 挂起等待人工审批；flow 显式 human_approval 已把关（编译期
+        # 注入 already_approved）或用户批准恢复（approval_granted）→ 跳过本层强制审批。
+        if str(cap.type or "query") == "command" and not (
+            capability_call.get("already_approved") or capability_call.get("approval_granted")
+        ):
+            if ctx is None or ctx.step is None or not getattr(ctx.step, "step_id", None):
+                raise ConnectorError(
+                    f"capability.call: 命令能力 {capability_id!r} 需人工审批（请通过 flow 执行）"
+                )
+            raise ApprovalPending(
+                ctx.step.step_id,
+                f"命令能力 {capability_id!r}（{cap.domain}.{cap.name}）需人工审批：确认执行？",
+            )
 
         required = list(cap.required_permissions or [])
         if required:
@@ -383,6 +399,10 @@ class Connector:
 
         # 执行声明分派（通用执行器任务书 D2）：声明优先于 domain.name 猜测
         execution = _coerce_jsonb_dict(cap.execution)
+        # Task 2（D3）：命令能力执行声明可附带 compensate_call → 挂到 ctx.step，MultiStepExecutor
+        # 成功结账时据此注册 Saga 补偿（真实 rollback 的补偿语义——撤单/撤通知等反向撤销）。
+        if ctx is not None and ctx.step is not None and execution.get("compensate_call"):
+            ctx.step.compensate_call = execution.get("compensate_call")
         adapter = execution.get("adapter")
         if adapter:
             if adapter in _FLOW_ADAPTER_TYPES:

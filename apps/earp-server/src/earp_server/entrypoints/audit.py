@@ -32,6 +32,8 @@ async def _run() -> int:
     # （chat_app 审计：P1 问答链路一期，设计 §4.6 F2）
     bus.subscribe("earp.execution.*", audit_handler_factory(engine))
     bus.subscribe("earp.chat_app.*", audit_handler_factory(engine))
+    bus.subscribe("earp.capability.*", audit_handler_factory(engine))
+    bus.subscribe("earp.approval.*", audit_handler_factory(engine))
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
