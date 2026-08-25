@@ -310,3 +310,46 @@ async def test_answer_node_without_end_and_multiple_branches(app_engine: AsyncEn
     # 失败 → error 分支回答节点：{{#cap1.error#}} 解析为错误消息
     assert "❌ 失败" in result["answer"]
     assert "demo.bogus" in result["answer"]
+
+
+async def test_answer_after_approval_confirm_routes_success_branch(app_engine: AsyncEngine) -> None:
+    """回归：h1 确认恢复 → 挂起点视为成功 → success 分支回答节点执行（不能 skip）。"""
+    g = {
+        "nodes": [
+            {"id": "start", "type": "start", "data": {}},
+            {"id": "h1", "type": "human_approval", "data": {"question": "确认？"}},
+            _answer("ok_ans", "✅ 已确认完成"),
+            _answer("err_ans", "❌ 已取消"),
+        ],
+        "edges": [
+            {"source": "start", "target": "h1"},
+            {"source": "h1", "target": "ok_ans", "sourceHandle": ""},
+            {"source": "h1", "target": "err_ans", "sourceHandle": "error"},
+        ],
+    }
+    app = await _flow_app(app_engine, g, "br-approval-answer")
+    first = await flow_chat(
+        app_engine,
+        TENANT,
+        "br-u1",
+        "r1",
+        app,
+        "q",
+        None,
+        base_llm=FakeLLM(),
+        settings=_settings(),
+    )
+    assert first["status"] == ExecutionStatus.WAITING_HUMAN.value
+    second = await flow_chat(
+        app_engine,
+        TENANT,
+        "br-u1",
+        "r1",
+        app,
+        "确认",
+        first["conversation_id"],
+        base_llm=FakeLLM(),
+        settings=_settings(),
+    )
+    assert second["status"] == ExecutionStatus.COMPLETED.value
+    assert second["answer"] == "✅ 已确认完成"  # 回答节点文本，非挂起点 reply 兜底

@@ -378,6 +378,11 @@ class MultiStepExecutor:
                     results.append(reply_result)
                     pool[item.node_id] = reply_result
                     state.completed_steps.append(item.node_id)
+                    # 恢复=确认 → 挂起点视为成功：设置结果分支 chosen，否则下游 success 分支被 skip
+                    rb = plan.result_branches.get(item.node_id)
+                    if rb:
+                        chosen[rb] = "success"
+                        state.chosen[rb] = "success"
                     continue
                 if item.node_id in pool:
                     # 前序 run 已执行的节点：不重放（结果已在 pool，供条件确定性求值）
