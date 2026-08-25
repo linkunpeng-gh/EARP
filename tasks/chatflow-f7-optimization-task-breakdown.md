@@ -18,7 +18,7 @@ F6 评估发现的三个**高优先级**问题，修复后消除「评估明确�
 - **#1 QU 缓存**：`understanding.upgrade_with_llm` 调用 `LLMConnector.json_complete`——该路径**不查 `self._cache`**（代码核实：仅 `plan()` 查缓存，`json_complete`/`complete`/`chat_stream` 都不查）；且 `upgrade_with_llm` 每次 new 一个无 cache 的 LLMConnector。实测：规则 QU ~60ms；LLM 升级冷启动 ~8s、热 ~70ms（同 query 两次仍 ~70ms 无缓存收益）
 - **#2 失败归一**：`data_adapter.ConnectorFetchError` 独立于 `connector.ConnectorError`；`_execute_tool_fetch`/`_execute_capability_call` 抛 ConnectorFetchError **不包成 ConnectorError**；`chat_ep` 的 422 捕获名单 `(ConnectorError, ChatError, WorkflowValidationError)` 不含它——当前靠 StepRunner `except Exception` 兜底成 status=failed（200），但错误类型语义不统一、无法精确分类
 - **#3 答案节点**：`flow_chat` 答案 = `completed[-1].output`（最后完成的节点）；场景 B 已用「LLM 放最后」规避（副作用节点放最后会覆盖答复）
-- 基线：431 tests（3 个 openapi 失败系既有 copilot 问题，非本任务范围）
+- 基线：**475 passed**（3 个 openapi 失败系既有 copilot 问题，非本任务范围）；verify_f6 **80 断言全绿**（命令审批流交付后 78→80）
 
 ## 既定决策（开工前置确认）
 
@@ -64,7 +64,7 @@ Task 1 / Task 2 / Task 3 相对独立，可并行；统一收尾回归
 1. QU 同 query 两次升级第二次命中缓存（耗时显著下降）；规则路径零回归
 2. 连接类失败不再 fallthrough 500，422 统一 + 错误分类码；query 403 / flow 语义零回归
 3. flow 可用 `answer_from` 显式指定答案节点（多分支/副作用不覆盖）；缺省兼容
-4. 全量 pytest 绿 + ruff/pyright 零新增 + verify_f6 78 绿
+4. 全量 pytest 绿 + ruff/pyright 零新增 + verify_f6 80 绿
 
 ## 风险提示
 
@@ -75,3 +75,25 @@ Task 1 / Task 2 / Task 3 相对独立，可并行；统一收尾回归
 
 ---
 **规划定稿，确认后开工。**
+
+---
+## 开工提示（下个会话用，已核实 2026-08-25）
+
+**定位**：F6 评估问题清单高优 1-3 的集中清理——三件互相独立的快赢（合计 1.5-3 天），各带「默认行为不变」兼容约束。
+
+**基线与环境**：工作树仅并行 copilot 会话文件未提交（勿动）；dev 8000 API（--reload）运行中；mock 8001 运行中；Ollama 11434。pytest 需带 `EARP_OLLAMA_BASE_URL=http://127.0.0.1:11434 EARP_OLLAMA_CHAT_MODEL=qwen2.5:1.5b`。全量基线：**475 passed / 3 failed**（3 个失败全是既有 test_openapi_export——copilot 提交引入，与本次无关，勿碰）。`verify_f6.py` **80 断言全绿**（命令审批流交付后由 78→80）为回归基线。dev DB 0031_flow_runs_rejected。
+
+**现状锚点（已核实 2026-08-25，三个问题均未被动过）**：
+- **#1 QU 缓存**：`connector.py` 的 `_cache` 仅在 `plan()` 使用（758/797 行 get/set）；`json_complete`（QU 升级路径 `upgrade_with_llm` 走它）与 `complete`/`chat_stream` 均不查缓存；`upgrade_with_llm`（`ontology/understanding.py`）每次 new 一个无 cache 的 LLMConnector。实测规则 QU ~60ms、LLM 升级冷启动 ~8s / 热 ~70ms
+- **#2 失败归一**：`ontology/data_adapter.py:33 class ConnectorFetchError(Exception)` 独立于 `connector.ConnectorError`（103 行）；`_execute_tool_fetch`/`_execute_capability_call` 抛 ConnectorFetchError 不包装；`main.py chat_ep` 422 捕获名单 `(ConnectorError, ChatError, WorkflowValidationError)` 不含它——当前靠 StepRunner `except Exception` 兜底成 200+failed
+- **#3 answer_from**：全代码库无 `answer_from`（未实现）；`flow_chat` 答案 = `completed[-1].output`
+- 命令审批流（已交付）改动注意：`multi_step._compensate` 已注入 engine（补偿可真实执行）；flow_runs 已有 rejected 终态——F7 改 connector/错误路径时勿破坏这些
+- 相关既有测试：`tests/test_flow_f3_nodes.py`（错误路径/权限 403）、`tests/test_understanding.py`、`tests/test_connector_service.py`、`tests/test_flow_executor.py`（模板/答案）
+
+**既定决策（D1-D7，勿推翻）**：D1 缓存键=model+QU 升级 prompt（query+missing+relation_candidates+context）——倾向 `json_complete` 本身接 cache（一次改 plan/suggest/upgrade 全受益）；D2 复用 `EARP_LLM_CACHE_TTL`（config.py:49，默认 3600s）；D3 `ConnectorFetchError` 继承或包装进 `ConnectorError`，`chat_ep` 422 名单收口不再 fallthrough 500；D4 保留 200+status=failed 语义但 error 带分类码（connection/unknown_capability/permission/validation）；D5 flow_schema 顶层 `answer_from`（可选 String）+ compile 校验节点存在 + flow_chat 取 answer（output.text 优先否则 JSON 摘要）+ 缺省回落最后完成节点；D6 所有改动默认值保持现状行为；D7 单测+集成+verify_f6 回归，不新增评估维度外功能。
+
+**建议执行序**：三 Task 互相独立可并行；建议 `1 → 2 → 3` 逐个提交（各自带测试），统一收尾跑 verify_f6 + 全量。
+
+**验收**：① 同 query 两次升级第二次命中缓存（耗时显著下降）；规则路径零回归 ② 连接类失败不再 fallthrough 500、422 统一 + 错误分类码；query 403 / flow 200+failed 语义零回归 ③ flow 可用 `answer_from` 显式指定答案节点；缺省兼容 ④ 全量 pytest 绿 + ruff/pyright 零新增 + verify_f6 80 绿。
+
+**风险**：缓存误命中（键要含 query+missing+上下文哈希，防不同问题互相污染）；失败归一影响面（ConnectorFetchError 被 StepRunner/invoke 多处 catch——只统一分类不改 200+failed 语义）；answer_from 兼容（存量无该字段回落原语义）；plan() 已有缓存逻辑（统一时避免双重缓存/键冲突）。
