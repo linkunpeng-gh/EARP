@@ -48,20 +48,47 @@ _SYSTEM_SUGGEST = (
     "4. 输出格式：用编号列出建议，每项包含【建议】【原因】【预期效果】"
 )
 
+_SYSTEM_AUTOFILL = (
+    "你是 EARP 平台的智能配置填充助手。你的任务是根据当前页面上下文和用户描述，"
+    "为表单字段生成推荐值。\n\n"
+    "规则：\n"
+    "1. 仔细分析当前已填写的字段，保持合理的已有配置\n"
+    "2. 为每个需要填写或优化的字段给出推荐值\n"
+    "3. 每个建议必须包含置信度（0-1）和简短理由\n"
+    "4. 不要修改用户已明确设置的字段，除非明显错误\n"
+    "5. 敏感字段（如 api_key）不要给出具体值，仅提示需要填写\n"
+    "6. 输出格式：严格输出 JSON 数组，不要包含任何其他文本\n\n"
+    "JSON 格式：\n"
+    '[{"field": "字段名", "value": "推荐值", "confidence": 0.9, "reason": "推荐理由"}]\n\n'
+    "字段名必须与页面参数说明中的字段名一致。"
+)
+
+_SYSTEM_APPLY = (
+    "你是 EARP 平台的一键配置助手。根据管理员的场景描述，为当前页面的所有字段生成完整配置方案。\n\n"
+    "规则：\n"
+    "1. 必须为页面中的每个字段都给出值，不要遗漏任何字段\n"
+    "2. 敏感字段（如 api_key）用 placeholder 代替，不要给出真实值\n"
+    "3. 根据场景需求合理设置每个参数，参考知识库中的最佳实践\n"
+    "4. 保持当前已填写的合理配置，不要无故修改\n"
+    "5. 输出格式：严格输出 JSON 对象，不要包含任何其他文本\n\n"
+    "JSON 格式：\n"
+    '{"fields": {"字段名": "值", ...}, "explanation": "配置方案说明"}\n\n'
+    'fields 必须包含页面参数说明中的所有字段（敏感字段值填 "__PLACEHOLDER__"）。'
+    "explanation 用 2-3 句话说明整体配置思路。"
+)
+
 _INTENT_SYSTEM_PROMPTS = {
     "explain": _SYSTEM_EXPLAIN,
     "diagnose": _SYSTEM_DIAGNOSE,
     "suggest": _SYSTEM_SUGGEST,
+    "autofill": _SYSTEM_AUTOFILL,
+    "apply": _SYSTEM_APPLY,
 }
 
 
 def _sensitive_fields(schema: dict[str, Any]) -> set[str]:
     """Return field names marked as sensitive (should not be sent to LLM)."""
-    return {
-        fname
-        for fname, meta in schema.get("fields", {}).items()
-        if meta.get("sensitive")
-    }
+    return {fname for fname, meta in schema.get("fields", {}).items() if meta.get("sensitive")}
 
 
 def build_copilot_context(
@@ -121,14 +148,34 @@ def build_copilot_context(
     if kb_context:
         kb_block = f"\n\n相关知识库参考：\n{kb_context}"
 
-    # Assemble user prompt
-    user_prompt = (
-        f"页面：{schema['description']}\n\n"
-        f"页面参数说明：\n{field_desc}"
-        f"{current_values_block}"
-        f"{kb_block}\n\n"
-        f"用户问题：{query}"
-    )
+    # Assemble user prompt — for autofill/apply, include all fields for comprehensive suggestions
+    if intent == "autofill":
+        user_prompt = (
+            f"页面：{schema['description']}\n\n"
+            f"页面参数说明：\n{field_desc}"
+            f"{current_values_block}"
+            f"{kb_block}\n\n"
+            f"用户请求：{query}\n\n"
+            f"请为上述字段生成推荐值，输出严格 JSON 数组格式。"
+        )
+    elif intent == "apply":
+        user_prompt = (
+            f"页面：{schema['description']}\n\n"
+            f"页面参数说明：\n{field_desc}"
+            f"{current_values_block}"
+            f"{kb_block}\n\n"
+            f"用户场景：{query}\n\n"
+            f"请为上述所有字段生成完整配置方案，输出严格 JSON 对象格式。"
+            f'注意：必须为每个字段都给出值，不要遗漏。敏感字段值填 "__PLACEHOLDER__"。'
+        )
+    else:
+        user_prompt = (
+            f"页面：{schema['description']}\n\n"
+            f"页面参数说明：\n{field_desc}"
+            f"{current_values_block}"
+            f"{kb_block}\n\n"
+            f"用户问题：{query}"
+        )
 
     system_prompt = _INTENT_SYSTEM_PROMPTS.get(intent, _SYSTEM_EXPLAIN)
 

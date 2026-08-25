@@ -112,6 +112,7 @@ body { overflow: hidden; }
   <span class="spacer"></span>
   <button class="secondary" onclick="saveFlow()">保存</button>
   <button class="primary" onclick="publishFlow()" id="publish-btn">发布</button>
+  <button class="ai-trigger-btn" onclick="openCopilot()" title="AI 配置助手">✨ AI 助手</button>
 </div>
 <div class="cf-shell">
 
@@ -160,6 +161,7 @@ body { overflow: hidden; }
 <script src="../js/flow-graph.js"></script>
 <script src="../vendor/drawflow.min.js"></script>
 <script src="../js/chatflow-canvas.js"></script>
+<script src="../js/copilot.js"></script>
 <script src="../js/nav.js"></script>
 <script>
 // ── Chatflow 画布编排页（Dify 式三栏：节点库 / 画布 / 属性面板）──
@@ -614,6 +616,60 @@ function bindRunBarResize() {
 }
 function esc(s) { return ChatflowCanvas.esc ? ChatflowCanvas.esc(s) : String(s == null ? '' : s); }
 function fmtDur(ms) { return (ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms) + 'ms'); }
+
+// ── AI 助手集成 ──
+function openCopilot() { EARPCopilot.open(); }
+function copilotGetFormState() {
+  var formState = {};
+  // 应用基本信息
+  if (state.app) {
+    formState.app_name = state.app.name || '';
+    formState.orchestration = state.app.orchestration || 'flow';
+    formState.status = state.app.status || '';
+    formState.description = state.app.description || '';
+  }
+  // 画布节点信息
+  var schema = null;
+  try { schema = ChatflowCanvas.toFlowSchema(editor); } catch (e) {}
+  if (schema && schema.nodes) {
+    formState.flow_nodes = schema.nodes.map(function (n) {
+      var def = ChatflowCanvas.NODE_DEFS[n.type] || { name: n.type };
+      var brief = n.data || {};
+      var info = def.name;
+      if (n.type === 'llm' && brief.prompt) info += ': ' + brief.prompt.slice(0, 80);
+      if (n.type === 'knowledge' && brief.query) info += ': ' + brief.query.slice(0, 60);
+      return info;
+    });
+    formState.node_count = schema.nodes.length;
+    // 提取 LLM 节点配置
+    schema.nodes.forEach(function (n) {
+      if (n.type === 'llm' && n.data) {
+        formState.system_prompt = n.data.prompt || '';
+        if (n.data.temperature != null) formState.temperature = n.data.temperature;
+        if (n.data.max_tokens != null) formState.max_tokens = n.data.max_tokens;
+      }
+      if (n.type === 'knowledge' && n.data) {
+        if (n.data.top_k) formState.retrieval_top_k = n.data.top_k;
+        if (n.data.knowledge_scope) formState.knowledge_scope = n.data.knowledge_scope;
+      }
+    });
+    // 提取连接信息
+    if (schema.connections) {
+      formState.connections = schema.connections.map(function (c) {
+        return c.from + ' → ' + c.to;
+      });
+    }
+  }
+  return formState;
+}
+
+// 页面加载后初始化 copilot
+document.addEventListener('DOMContentLoaded', function () {
+  EARPCopilot.init({
+    pageId: 'chatflow-edit',
+    getFormState: copilotGetFormState,
+  });
+});
 </script>
 
 <!-- 发布表单（应用中心：分类必填 + 标签） -->

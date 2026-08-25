@@ -6,7 +6,8 @@
 <main>
 <p class="breadcrumb"><a href="knowledge.html" id="back-kb-link">&larr; Back to Knowledge Base</a> <span id="crumb-doc" style="color:var(--text-quaternary)"></span></p>
 
-<div class="page-title"><div><h2 id="page-title">分段设置</h2><p class="page-subtitle" id="page-sub">加载中...</p></div></div>
+<div class="page-title"><div><h2 id="page-title">分段设置</h2><p class="page-subtitle" id="page-sub">加载中...</p></div>
+  <button class="ai-trigger" onclick="EARPCopilot.toggle()">✨ AI 助手</button></div>
 
 <div class="ds-layout">
 
@@ -56,6 +57,7 @@
 
 <script src="../js/app.js"></script>
 <script src="../js/nav.js"></script>
+<script src="../js/copilot.js"></script>
 <script>
 var docId = new URLSearchParams(location.search).get('doc_id');
 var doc = null;
@@ -221,6 +223,25 @@ function fmtChars(n) {
 function esc(s) {
   return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+// ── Copilot init ──
+document.addEventListener('DOMContentLoaded', function() {
+  EARPCopilot.init({
+    pageId: 'doc-seg',
+    getFormState: function() {
+      var rules = collectRules();
+      return {
+        separators: document.getElementById('ds-sep').value,
+        max_tokens: rules.segmentation.max_tokens,
+        chunk_overlap: rules.segmentation.chunk_overlap,
+        remove_extra_spaces: rules.pre_processing_rules[0].enabled,
+        doc_id: docId,
+        doc_title: doc ? (doc.title || doc.name) : '',
+        kb_name: doc ? doc.kb_name : '',
+      };
+    },
+  });
+});
 </script>
 <style>
 .ds-layout { display: grid; grid-template-columns: 320px 1fr; gap: 1.25rem; align-items: start; }

@@ -2,6 +2,10 @@
 
 The registry provides field metadata so the Copilot context builder can
 assemble a focused prompt without sending raw DOM to the LLM.
+
+IMPORTANT: When adding/modifying fields in admin pages, update this registry!
+The Copilot uses these descriptions to explain parameters to users.
+See docs/copilot-tasks.md for maintenance guidelines.
 """
 
 from __future__ import annotations
@@ -277,6 +281,93 @@ PAGE_SCHEMAS: dict[str, dict[str, Any]] = {
             "内置角色有哪些？可以修改吗？",
         ],
     },
+    "doc-seg": {
+        "description": "文档分段设置页面。配置文档的分段标识符、分段大小、重叠长度等参数，控制文档如何被切分为文本块。",
+        "fields": {
+            "separators": {
+                "type": "text",
+                "label": "分段标识符",
+                "description": "多个用逗号分隔，按优先级排列，最多5个。如 \\n\\n, \\n, 。 → 先按段落切，切不动降级按行/句号。常见标识符：\\n\\n（段落）、\\n（行）、。（句号）、；（分号）、. （英文句号）。",
+            },
+            "max_tokens": {
+                "type": "number",
+                "label": "分段最大长度（tokens）",
+                "description": "每个文本块的最大 token 数。中文约1字符=1token。过小丢失上下文，过大降低检索精度。推荐 500-1500，技术文档可适当增大。",
+            },
+            "chunk_overlap": {
+                "type": "number",
+                "label": "分段重叠长度（tokens）",
+                "description": "相邻块的重叠 token 数，防止语义断裂。建议为分段最大长度的 10%-20%。如 max_tokens=1000 时推荐 overlap=100~200。",
+            },
+            "remove_extra_spaces": {
+                "type": "checkbox",
+                "label": "去除多余空格",
+                "description": "预处理规则：去除文本中连续多个空格。建议开启，减少噪音。",
+            },
+        },
+        "common_questions": [
+            "分段标识符怎么选择？不同文档类型有什么推荐？",
+            "分段大小和重叠怎么设置效果最好？",
+            "技术文档和普通文档的分段策略有什么区别？",
+            "分段后如何验证切块质量？",
+            "如何根据文档结构自动推荐分隔符？",
+        ],
+    },
+    "chatflow-edit": {
+        "description": "Chatflow 流程编排页面。使用画布式拖拽编排 LLM、知识检索、条件分支、能力调用等节点，构建对话型工作流。",
+        "fields": {
+            "app_name": {
+                "type": "text",
+                "label": "应用名称",
+                "description": "Chatflow 智能体的显示名称。",
+            },
+            "orchestration": {
+                "type": "select",
+                "label": "编排模式",
+                "options": ["flow"],
+                "description": "当前为 flow（可视化画布编排）模式。",
+            },
+            "flow_nodes": {
+                "type": "text",
+                "label": "流程节点",
+                "description": "画布中已添加的节点列表。节点类型：开始、LLM 生成、知识检索、QU 理解、能力调用、工具取数、对话历史、条件分支、人工确认、回答、结束。",
+            },
+            "system_prompt": {
+                "type": "textarea",
+                "label": "系统提示词（LLM 节点）",
+                "description": "LLM 节点的系统提示词，定义 AI 角色和行为。可用变量：{{query}}、{{knowledge}}、{{history}} 等。",
+            },
+            "knowledge_scope": {
+                "type": "multi-select",
+                "label": "知识检索范围",
+                "description": "知识检索节点可检索的知识库。不选则自动路由。",
+            },
+            "retrieval_top_k": {
+                "type": "number",
+                "label": "检索 Top K",
+                "description": "知识检索节点每次返回的文本块数量。",
+            },
+            "temperature": {
+                "type": "number",
+                "label": "温度（Temperature）",
+                "description": "LLM 节点的生成随机性。0=确定性，1=创造性。配置类任务建议 0.3。",
+            },
+            "max_tokens": {
+                "type": "number",
+                "label": "最大输出长度",
+                "description": "LLM 节点单次回复的最大 token 数。",
+            },
+        },
+        "common_questions": [
+            "Chatflow 和普通 Chat 应用有什么区别？",
+            "如何设计一个合理的多节点工作流？",
+            "条件分支节点怎么配置？",
+            "QU 理解节点的作用是什么？什么时候需要用？",
+            "LLM 节点的变量 {{query}} {{knowledge}} 怎么用？",
+            "人工确认节点在什么场景下使用？",
+            "如何调试和测试 Chatflow？",
+        ],
+    },
 }
 
 
@@ -285,9 +376,13 @@ def get_page_schema(page_id: str) -> dict[str, Any] | None:
     return PAGE_SCHEMAS.get(page_id)
 
 
-def list_pages() -> list[dict[str, str]]:
-    """Return a summary list of all registered pages."""
+def list_pages() -> list[dict[str, Any]]:
+    """Return a summary list of all registered pages with common questions."""
     return [
-        {"page_id": pid, "description": schema["description"]}
+        {
+            "page_id": pid,
+            "description": schema["description"],
+            "common_questions": schema.get("common_questions", []),
+        }
         for pid, schema in PAGE_SCHEMAS.items()
     ]

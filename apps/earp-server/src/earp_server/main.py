@@ -410,12 +410,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         copilot_config = runtime_models.get("copilot") if runtime_models else None
         if copilot_config:
             copilot_llm = LLMConnector(cfg, rate_limiter=app.state.rate_limiter, model_override=copilot_config)
+            logger.info(
+                "copilot_llm: using DB config provider=%s model=%s",
+                copilot_config.get("provider"),
+                copilot_config.get("model_name"),
+            )
         else:
             copilot_llm = LLMConnector(
                 cfg,
                 rate_limiter=app.state.rate_limiter,
                 model_override={"provider": "ollama", "model_name": cfg.copilot_model},
             )
+            logger.info("copilot_llm: using default model=%s", cfg.copilot_model)
         app.state.copilot_llm = copilot_llm
         if cfg.app_env in ("dev", "test"):
             # in-process audit: subscribe handler to local EventBus
@@ -424,6 +430,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.eventbus.subscribe("earp.chat_app.*", audit_handler_factory(app.state.engine))
             # Chatflow F3: capability 节点审计（capability.call 层事件 → audit_logs）
             app.state.eventbus.subscribe("earp.capability.*", audit_handler_factory(app.state.engine))
+            # 命令审批流（Task 4）：审批决策/超时审计 earp.approval.*
+            app.state.eventbus.subscribe("earp.approval.*", audit_handler_factory(app.state.engine))
         if cfg.app_env in ("dev", "test"):
             try:
                 # Seed demo tenant baseline: tenant/user/role/data-domains/capability.
@@ -1581,6 +1589,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 embedding_dim=req.app.state.settings.embedding_dim,
                 conversation_id=req_body.conversation_id,
                 role_id=req.state.role_id,
+                user_id=req.state.user_id or "user-copilot",
             ):
                 yield line
 
@@ -1595,7 +1604,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.get("/copilot/pages", tags=["copilot"])
-    async def copilot_pages_ep() -> list[dict[str, str]]:
+    async def copilot_pages_ep() -> list[dict[str, Any]]:
         """返回所有已注册的 Copilot 页面列表。"""
         from earp_server.copilot.page_registry import list_pages
 

@@ -16,6 +16,11 @@ var EARPCopilot = (function() {
   var _conversationId = null;
   var _isOpen = false;
   var _isStreaming = false;
+  var _abortController = null;
+  var _suggestions = [];
+  var _ghostElements = {};
+  var _applyPlan = null;
+  var _commonQuestions = [];
 
   function _escapeHtml(text) {
     var d = document.createElement('div');
@@ -75,9 +80,30 @@ var EARPCopilot = (function() {
     var emptyDiv = document.createElement('div');
     emptyDiv.id = 'ai-empty';
     emptyDiv.className = 'ai-empty';
-    emptyDiv.innerHTML = '<p><strong>\u914D\u7F6E\u52A9\u624B</strong></p><p>\u6211\u53EF\u4EE5\u5E2E\u4F60\u7406\u89E3\u53C2\u6570\u542B\u4E49\u3001\u8BCA\u65AD\u914D\u7F6E\u95EE\u9898\u3001\u5EFA\u8BAE\u6700\u4F73\u5B9E\u8DF5\u3002</p>';
+    emptyDiv.innerHTML = '<p><strong>\u914D\u7F6E\u52A9\u624B</strong></p><p>\u6211\u53EF\u4EE5\u5E2E\u4F60\u7406\u89E3\u53C2\u6570\u542B\u4E49\u3001\u8BCA\u65AD\u914D\u7F6E\u95EE\u9898\u3001\u5EFA\u8BAE\u6700\u4F73\u5B9E\u8DF5\u3001\u667A\u80FD\u586B\u5145\u3002</p>';
     msgDiv.appendChild(emptyDiv);
     panel.appendChild(msgDiv);
+
+    // Suggestions action bar
+    var suggestionsBar = document.createElement('div');
+    suggestionsBar.id = 'ai-suggestions-bar';
+    suggestionsBar.className = 'ai-suggestions-bar';
+    suggestionsBar.style.display = 'none';
+    var countSpan = document.createElement('span');
+    countSpan.className = 'ai-suggestions-count';
+    countSpan.textContent = '0 个建议';
+    suggestionsBar.appendChild(countSpan);
+    var acceptAllBtn = document.createElement('button');
+    acceptAllBtn.className = 'ai-suggestions-btn';
+    acceptAllBtn.textContent = '接受全部';
+    acceptAllBtn.onclick = function() { acceptAllSuggestions(); };
+    suggestionsBar.appendChild(acceptAllBtn);
+    var rejectAllBtn = document.createElement('button');
+    rejectAllBtn.className = 'ai-suggestions-btn secondary';
+    rejectAllBtn.textContent = '清除全部';
+    rejectAllBtn.onclick = function() { rejectAllSuggestions(); };
+    suggestionsBar.appendChild(rejectAllBtn);
+    panel.appendChild(suggestionsBar);
 
     var inputDiv = document.createElement('div');
     inputDiv.className = 'ai-panel-input';
@@ -87,9 +113,18 @@ var EARPCopilot = (function() {
     input.onkeydown = function(e) { if (e.key === 'Enter') send(); };
     inputDiv.appendChild(input);
     var sendBtn = document.createElement('button');
+    sendBtn.id = 'ai-send-btn';
+    sendBtn.className = 'ai-send-btn';
     sendBtn.textContent = '\u53D1\u9001';
     sendBtn.onclick = function() { send(); };
     inputDiv.appendChild(sendBtn);
+    var stopBtn = document.createElement('button');
+    stopBtn.id = 'ai-stop-btn';
+    stopBtn.className = 'ai-stop-btn';
+    stopBtn.style.display = 'none';
+    stopBtn.innerHTML = '\u25A0 \u505C\u6B62';
+    stopBtn.onclick = function() { stop(); };
+    inputDiv.appendChild(stopBtn);
     panel.appendChild(inputDiv);
 
     overlay.appendChild(panel);
@@ -98,10 +133,16 @@ var EARPCopilot = (function() {
 
   function _renderQuickPrompts(prompts) {
     var container = document.getElementById('ai-quick-prompts');
-    if (!container || !prompts || !prompts.length) return;
-    container.innerHTML = prompts.map(function(p) {
-      return '<button class="ai-quick-btn" onclick="EARPCopilot.quickAsk(\'' + _escapeHtml(p).replace(/'/g, "\\'") + '\')">' + _escapeHtml(p) + '</button>';
-    }).join('');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!prompts || !prompts.length) return;
+    prompts.forEach(function(p) {
+      var btn = document.createElement('button');
+      btn.className = 'ai-quick-btn';
+      btn.textContent = p;
+      btn.onclick = function() { EARPCopilot.quickAsk(p); };
+      container.appendChild(btn);
+    });
   }
 
   function _addMessage(role, content, sources) {
@@ -156,6 +197,274 @@ var EARPCopilot = (function() {
     }
   }
 
+  function _toggleButtons(streaming) {
+    var sendBtn = document.getElementById('ai-send-btn');
+    var stopBtn = document.getElementById('ai-stop-btn');
+    var input = document.getElementById('ai-input');
+    if (sendBtn) sendBtn.style.display = streaming ? 'none' : '';
+    if (stopBtn) stopBtn.style.display = streaming ? '' : 'none';
+    if (input) input.disabled = streaming;
+  }
+
+  // ── Ghost Text & Suggestions ──
+
+  function _clearAllGhostTexts() {
+    Object.keys(_ghostElements).forEach(function(fieldId) {
+      var el = _ghostElements[fieldId];
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    });
+    _ghostElements = {};
+  }
+
+  function _renderGhostText(fieldId, suggestion) {
+    // Find the input element by field ID
+    var inputEl = document.getElementById(fieldId);
+    if (!inputEl) {
+      // Try common ID patterns
+      var patterns = [
+        'def-' + fieldId,
+        'add-' + fieldId,
+        fieldId.replace('_', '-'),
+      ];
+      for (var i = 0; i < patterns.length; i++) {
+        inputEl = document.getElementById(patterns[i]);
+        if (inputEl) break;
+      }
+    }
+    if (!inputEl) return;
+
+    // Remove existing ghost text for this field
+    _removeGhostText(fieldId);
+
+    // Create ghost text container
+    var ghost = document.createElement('div');
+    ghost.className = 'ai-ghost-text';
+    ghost.dataset.field = fieldId;
+
+    // Value display
+    var valueSpan = document.createElement('span');
+    valueSpan.className = 'ai-ghost-value';
+    valueSpan.textContent = '建议: ' + suggestion.value;
+    ghost.appendChild(valueSpan);
+
+    // Confidence badge
+    var confBadge = document.createElement('span');
+    confBadge.className = 'ai-ghost-confidence';
+    confBadge.textContent = Math.round(suggestion.confidence * 100) + '%';
+    ghost.appendChild(confBadge);
+
+    // Reason
+    if (suggestion.reason) {
+      var reasonSpan = document.createElement('span');
+      reasonSpan.className = 'ai-ghost-reason';
+      reasonSpan.textContent = suggestion.reason;
+      ghost.appendChild(reasonSpan);
+    }
+
+    // Accept button
+    var acceptBtn = document.createElement('button');
+    acceptBtn.className = 'ai-ghost-btn accept';
+    acceptBtn.textContent = '✓ 接受';
+    acceptBtn.onclick = function(e) {
+      e.stopPropagation();
+      acceptSuggestion(fieldId);
+    };
+    ghost.appendChild(acceptBtn);
+
+    // Reject button
+    var rejectBtn = document.createElement('button');
+    rejectBtn.className = 'ai-ghost-btn reject';
+    rejectBtn.textContent = '✕ 跳过';
+    rejectBtn.onclick = function(e) {
+      e.stopPropagation();
+      rejectSuggestion(fieldId);
+    };
+    ghost.appendChild(rejectBtn);
+
+    // Insert ghost text after the input element
+    inputEl.parentNode.insertBefore(ghost, inputEl.nextSibling);
+    _ghostElements[fieldId] = ghost;
+
+    // Tab key to accept
+    inputEl.addEventListener('keydown', function handler(e) {
+      if (e.key === 'Tab' && _ghostElements[fieldId]) {
+        e.preventDefault();
+        acceptSuggestion(fieldId);
+        inputEl.removeEventListener('keydown', handler);
+      }
+    });
+  }
+
+  function _removeGhostText(fieldId) {
+    var el = _ghostElements[fieldId];
+    if (el && el.parentNode) {
+      el.parentNode.removeChild(el);
+    }
+    delete _ghostElements[fieldId];
+  }
+
+  function acceptSuggestion(fieldId) {
+    var suggestion = _suggestions.find(function(s) { return s.field === fieldId; });
+    if (!suggestion) return;
+
+    // Find input element and set value
+    var inputEl = document.getElementById(fieldId);
+    if (!inputEl) {
+      var patterns = ['def-' + fieldId, 'add-' + fieldId, fieldId.replace('_', '-')];
+      for (var i = 0; i < patterns.length; i++) {
+        inputEl = document.getElementById(patterns[i]);
+        if (inputEl) break;
+      }
+    }
+    if (inputEl) {
+      inputEl.value = suggestion.value;
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    _removeGhostText(fieldId);
+    _suggestions = _suggestions.filter(function(s) { return s.field !== fieldId; });
+    _updateSuggestionsBar();
+  }
+
+  function rejectSuggestion(fieldId) {
+    _removeGhostText(fieldId);
+    _suggestions = _suggestions.filter(function(s) { return s.field !== fieldId; });
+    _updateSuggestionsBar();
+  }
+
+  function acceptAllSuggestions() {
+    var fields = _suggestions.map(function(s) { return s.field; });
+    fields.forEach(function(fieldId) {
+      acceptSuggestion(fieldId);
+    });
+  }
+
+  function rejectAllSuggestions() {
+    var fields = _suggestions.map(function(s) { return s.field; });
+    fields.forEach(function(fieldId) {
+      rejectSuggestion(fieldId);
+    });
+  }
+
+  function _updateSuggestionsBar() {
+    var bar = document.getElementById('ai-suggestions-bar');
+    if (!bar) return;
+    if (_suggestions.length === 0) {
+      bar.style.display = 'none';
+      return;
+    }
+    bar.style.display = 'flex';
+    bar.querySelector('.ai-suggestions-count').textContent = _suggestions.length + ' 个建议';
+  }
+
+  function _renderSuggestions(suggestions) {
+    _suggestions = suggestions;
+    _clearAllGhostTexts();
+
+    if (suggestions.length === 0) {
+      _addMessage('assistant', '没有找到需要建议的字段。', []);
+      return;
+    }
+
+    // Render ghost text for each suggestion
+    suggestions.forEach(function(s) {
+      _renderGhostText(s.field, s);
+    });
+
+    // Show suggestions bar
+    _updateSuggestionsBar();
+
+    // Add summary message
+    var summary = '已生成 ' + suggestions.length + ' 个配置建议：\n';
+    suggestions.forEach(function(s, i) {
+      var conf = Math.round(s.confidence * 100);
+      summary += (i + 1) + '. **' + s.field + '** → ' + s.value + ' (' + conf + '%) ' + s.reason + '\n';
+    });
+    summary += '\n点击字段下方的「接受」或按 Tab 键采纳建议。';
+    _addMessage('assistant', summary, []);
+  }
+
+  // ── Apply Plan (一键配置) ──
+
+  function _renderApplyPlan(plan) {
+    _applyPlan = plan;
+    var fields = plan.fields || {};
+    var explanation = plan.explanation || '';
+    var formState = _collectFormState();
+
+    if (Object.keys(fields).length === 0) {
+      _addMessage('assistant', 'AI 未能生成配置方案，请重试。', []);
+      return;
+    }
+
+    // Build diff rows
+    var rows = '';
+    Object.keys(fields).forEach(function(fieldId) {
+      var newVal = fields[fieldId];
+      var oldVal = formState[fieldId];
+      var oldDisplay = (oldVal !== undefined && oldVal !== null && oldVal !== '') ? String(oldVal) : '(空)';
+      var newDisplay = String(newVal);
+      var isChanged = String(oldVal) !== String(newVal);
+      var isPlaceholder = newVal === '__PLACEHOLDER__';
+      var rowClass = isPlaceholder ? 'placeholder' : (isChanged ? 'changed' : 'same');
+      rows += '<div class="ai-apply-row ' + rowClass + '">'
+        + '<span class="ai-apply-field">' + _escapeHtml(fieldId) + '</span>'
+        + '<span class="ai-apply-old">' + _escapeHtml(oldDisplay) + '</span>'
+        + '<span class="ai-apply-arrow">→</span>'
+        + '<span class="ai-apply-new">' + _escapeHtml(newDisplay) + '</span>'
+        + '</div>';
+    });
+
+    var html = '<div class="ai-apply-plan">'
+      + '<div class="ai-apply-header">配置方案预览</div>'
+      + (explanation ? '<div class="ai-apply-explanation">' + _escapeHtml(explanation) + '</div>' : '')
+      + '<div class="ai-apply-rows">' + rows + '</div>'
+      + '<div class="ai-apply-actions">'
+      + '<button class="ai-apply-btn primary" onclick="EARPCopilot.applyPlan()">应用配置</button>'
+      + '<button class="ai-apply-btn secondary" onclick="EARPCopilot.cancelPlan()">取消</button>'
+      + '</div>'
+      + '</div>';
+
+    _addMessage('assistant', html, []);
+  }
+
+  function applyPlan() {
+    if (!_applyPlan || !_applyPlan.fields) return;
+    var fields = _applyPlan.fields;
+    var applied = 0;
+    var skipped = 0;
+
+    Object.keys(fields).forEach(function(fieldId) {
+      var value = fields[fieldId];
+      if (value === '__PLACEHOLDER__') { skipped++; return; }
+
+      var inputEl = document.getElementById(fieldId);
+      if (!inputEl) {
+        var patterns = ['def-' + fieldId, 'add-' + fieldId, fieldId.replace('_', '-')];
+        for (var i = 0; i < patterns.length; i++) {
+          inputEl = document.getElementById(patterns[i]);
+          if (inputEl) break;
+        }
+      }
+      if (!inputEl) { skipped++; return; }
+
+      inputEl.value = value;
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+      applied++;
+    });
+
+    var msg = '已应用 ' + applied + ' 个字段配置。';
+    if (skipped > 0) msg += '\n' + skipped + ' 个敏感字段需手动填写。';
+    msg += '\n请检查后点击页面上的「保存」按钮。';
+    _addMessage('assistant', msg, []);
+    _applyPlan = null;
+  }
+
+  function cancelPlan() {
+    _applyPlan = null;
+    _addMessage('assistant', '已取消配置方案。', []);
+  }
+
   // ── Public API ──
 
   function init(opts) {
@@ -177,7 +486,7 @@ var EARPCopilot = (function() {
     else open();
   }
 
-  function open() {
+  async function open() {
     _ensurePanel();
     _isOpen = true;
     var overlay = document.getElementById('ai-panel-overlay');
@@ -186,12 +495,27 @@ var EARPCopilot = (function() {
     var input = document.getElementById('ai-input');
     if (input) input.focus();
 
-    // Load quick prompts
-    _renderQuickPrompts([
-      '\u89E3\u91CA\u5F53\u524D\u9875\u9762\u6240\u6709\u53C2\u6570',
-      '\u68C0\u67E5\u6211\u7684\u914D\u7F6E\u662F\u5426\u6B63\u786E',
-      '\u6839\u636E\u6700\u4F73\u5B9E\u8DF5\u4F18\u5316\u914D\u7F6E',
-    ]);
+    // Default prompts as fallback
+    var defaultPrompts = [
+      '解释当前页面所有参数',
+      '检查我的配置是否正确',
+    ];
+
+    // Fetch page-specific common questions from API
+    try {
+      var pages = await EARP.fetchJSON('/copilot/pages');
+      var page = pages.find(function(p) { return p.page_id === _pageId; });
+      _commonQuestions = (page && page.common_questions) || [];
+    } catch (e) {
+      _commonQuestions = [];
+    }
+
+    // Render quick prompts — use page-specific questions, fallback to defaults
+    var prompts = _commonQuestions.length > 0 ? _commonQuestions : defaultPrompts;
+    _renderQuickPrompts(prompts);
+
+    // Restore suggestions bar if there are pending suggestions
+    _updateSuggestionsBar();
   }
 
   function close() {
@@ -205,6 +529,20 @@ var EARPCopilot = (function() {
     send();
   }
 
+  function stop() {
+    if (_abortController) {
+      _abortController.abort();
+      _abortController = null;
+    }
+  }
+
+  function _toggleSendStop(streaming) {
+    var sendBtn = document.getElementById('ai-send-btn');
+    var stopBtn = document.getElementById('ai-stop-btn');
+    if (sendBtn) sendBtn.style.display = streaming ? 'none' : '';
+    if (stopBtn) stopBtn.style.display = streaming ? '' : 'none';
+  }
+
   async function send() {
     var input = document.getElementById('ai-input');
     var query = input.value.trim();
@@ -214,13 +552,17 @@ var EARPCopilot = (function() {
     _addMessage('user', query);
     _showTyping();
     _isStreaming = true;
+    _toggleSendStop(true);
 
     // Determine intent from query
     var intent = 'explain';
-    if (/检查|诊断|问题|错误|不对|不正确|验证/.test(query)) intent = 'diagnose';
+    if (/一键配置|完整配置|帮我配|帮我配置/.test(query)) intent = 'apply';
+    else if (/自动填充|自动|填充|帮我自动配置/.test(query)) intent = 'autofill';
+    else if (/检查|诊断|问题|错误|不对|不正确|验证/.test(query)) intent = 'diagnose';
     else if (/优化|建议|改进|最佳|推荐|怎么配/.test(query)) intent = 'suggest';
 
     var formState = _collectFormState();
+    _abortController = new AbortController();
 
     try {
       var responseText = '';
@@ -239,13 +581,17 @@ var EARPCopilot = (function() {
           _updateStreamingMessage(responseText, sources);
         } else if (ev.type === 'sources') {
           sources = ev.items || [];
+        } else if (ev.type === 'suggestions') {
+          _renderSuggestions(ev.items || []);
+        } else if (ev.type === 'apply_plan') {
+          _renderApplyPlan(ev);
         } else if (ev.type === 'done') {
           if (ev.conversation_id) _conversationId = ev.conversation_id;
         } else if (ev.type === 'error') {
           responseText = ev.message || 'AI 助手出错';
           _updateStreamingMessage(responseText, []);
         }
-      });
+      }, _abortController.signal);
 
       // Finalize: remove streaming indicator, show final message
       _removeTyping();
@@ -254,9 +600,15 @@ var EARPCopilot = (function() {
       }
     } catch (e) {
       _removeTyping();
-      _addMessage('assistant', '请求失败: ' + e.message, []);
+      if (e.name === 'AbortError') {
+        _addMessage('assistant', '已停止当前任务。', []);
+      } else {
+        _addMessage('assistant', '请求失败: ' + e.message, []);
+      }
     } finally {
       _isStreaming = false;
+      _abortController = null;
+      _toggleSendStop(false);
     }
   }
 
@@ -290,7 +642,14 @@ var EARPCopilot = (function() {
     close: close,
     toggle: toggle,
     send: send,
+    stop: stop,
     quickAsk: quickAsk,
+    acceptSuggestion: acceptSuggestion,
+    rejectSuggestion: rejectSuggestion,
+    acceptAllSuggestions: acceptAllSuggestions,
+    rejectAllSuggestions: rejectAllSuggestions,
+    applyPlan: applyPlan,
+    cancelPlan: cancelPlan,
   };
 })();
 
