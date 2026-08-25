@@ -20,7 +20,7 @@
 - `understanding.py` `_COREF_RE` 指代正则已存在：`(它|这个|该设备|该机器|这台|那台)`，映射 `context.last_entities`，但缺「entity_id 回填 + trace 记录」
 - `understand()` 的 `context` 参数签名既有；`execute_plan` 透传 `ctx.context`
 - **auto 模式（chat_sse）指代消解未接入**（问题清单 #9）——F6 摸底只覆盖 qu.answer 路径
-- 最新 migration 0028；下一次从 0029 起
+- **最新 migration 0031_flow_runs_rejected（命令审批流已交付，2026-08-25）**；下一次从 0032 起——正文下方编号已按此更新（原稿 0029/0030 被 0029_agent_center / 0030_copilot_system_settings 占用）
 
 ## 既定决策（开工前置确认）
 
@@ -36,8 +36,8 @@
 
 ## Task 拆解（建议执行序 1 → 2 → 3 → 4 → 5 → 6）
 
-### Task 1 — migration 0029 会话上下文列（0.5 天）
-**文件**：`migrations/versions/0029_conversation_context.py`（新）
+### Task 1 — migration 0032 会话上下文列（0.5 天）
+**文件**：`migrations/versions/0032_conversation_context.py`（新）
 - `conversations.context JSONB DEFAULT '{}'`、`last_active_at`、`message_count`、`status`
 - RLS 三件套 + GRANT；`test_migrations.EXPECTED_TABLES` / `test_rls` 更新
 - 验证：migration 往返 + RLS 隔离
@@ -63,7 +63,7 @@
 - 验证：评估集全绿 + 门槛达标
 
 ### Task 5 — chat_apps 可见范围（visible_roles + 过滤）（1 天）
-**文件**：`migrations/versions/0030_chat_apps_visible_roles.py`（新）、`src/earp_server/conversation/chat_app_service.py`、`src/earp_server/conversation/chat_service.py`
+**文件**：`migrations/versions/0033_chat_apps_visible_roles.py`（新）、`src/earp_server/conversation/chat_app_service.py`、`src/earp_server/conversation/chat_service.py`
 - `chat_apps.visible_roles JSONB DEFAULT '[]'`（空=全员 loose 语义）
 - GET /chat_apps 按角色过滤；conversations 查询走 chat_app 可见性（防缝隙）
 - 验证：角色可见性单测（admin 全员 / 指定角色可见 / 不可见 404）
@@ -100,3 +100,28 @@ Task 5（可见范围）独立于 1-4，可与 2 并行；Task 6 依赖 5
 
 ---
 **规划定稿，确认后开工。**
+
+---
+## 开工提示（下个会话用，已核实 2026-08-25）
+
+**定位**：F6 评估 D3 立项（摸底判定 (b) 档→补完整化）——把会话上下文从「flow 路径即时推导」升级为「落库 + auto/flow 双路径 + 可溯源 + 元数据/可见范围」。任务书正文 migration 编号已更新（从 0032 起）。
+
+**基线与环境**：工作树仅并行 copilot 会话文件未提交（勿动）；dev 8000 API（--reload）运行中；mock 8001 运行中；Ollama 11434。pytest 需带 `EARP_OLLAMA_BASE_URL=http://127.0.0.1:11434 EARP_OLLAMA_CHAT_MODEL=qwen2.5:1.5b`。全量基线：**475 passed / 3 failed**（3 个失败全是既有 test_openapi_export——copilot 提交引入，与本次无关，勿碰）。`verify_f6.py` **80 断言全绿**（命令审批流交付后由 78→80）为回归基线。dev DB 已升到 **0031_flow_runs_rejected**。
+
+**现状锚点（已核实，勿凭猜）**：
+- `conversations` 列 = conversation_id/tenant_id/user_id/title/created_at/chat_app_id——**无 context/last_active_at/message_count/status**（Task 1 加，migration 0032）
+- `chat_apps` 列 = …/access_mode——**无 visible_roles**（Task 5 加，migration 0033）
+- `flow_runs` 已有 **rejected 终态**（命令审批流 0031 加）——C 系列不冲突，但写 flow 相关代码时注意 CHECK 约束已含 rejected
+- F6 最小实现：`connector._history_context`（~20 行，从 `_recent_pairs` 取上一轮 user 消息做规则理解推导 last_entities）——保留为**兜底**，C 系列落库后优先读 context、缺失再即时推导（任务书 D4）
+- `understanding.py` `_COREF_RE = (它|这个|该设备|该机器|这台|那台)` 已存在，`_extract_entities` 的 coref 分支读 `context.last_entities`（仅 mention，无 entity_id 回填、无 references trace）
+- `understand(engine, tenant, query, context=...)` 签名既有；`execute_plan` 透传 `ctx.context`；`chat_sse._retrieve` 的 execute_plan 路径**未传 context**（Task 3 补 auto 路径）
+- 写 context 只写「实体非空」轮次（任务书风险 1：审批「确认」轮不覆写 last_entities，防污染）
+- 验证素材现成：verify_f6.py 的「F6 摸底 指代消解」qu-only 应用（两轮「CNC-01 温度异常」→「它刚才还报警了」）可直接复用断言 conversations.context 已写
+
+**既定决策（D1-D7，勿推翻）**：D1 只存上一轮（last-*）不存全量历史；D2 写时机=chat_sse execute_plan 路径 + flow qu.answer 每轮 upsert，kb_scope 限定路径不写；D3 读=understand/_extract_entities 指代映射 + entity_id 回填 + references trace；D4 F6 _history_context 降级为兜底；D5 visible_roles 空=全员 loose 语义，conversations 查询走 chat_app 可见性防缝隙；D6 会话级共享一期不做；D7 测试=单测+understanding_eval ctx 用例+dev 两轮指代+回归。
+
+**建议执行序**：`1（migration 0032）→ 2（chat_sse+qu.answer 读写）→ 3（指代完整化+auto 路径）→ 4（评估门槛 ≥80%）`核心，`5（visible_roles+过滤）→ 6（前端）`可并行/后置，合计 3-5 天。
+
+**验收**：① dev 真 API 两轮指代：conversations.context 已写 last_entities；auto 与 flow 双路径均解析「它→CNC-01」② 指代可溯源（references 记录）+ 命中率 ≥80%（understanding_eval）③ 单轮/无 context 零回归 ④ 应用可见范围按角色过滤、对话不可枚举 ⑤ verify_f6.py 仍 80 绿 + 全量 pytest 绿 + ruff/pyright 零新增。
+
+**风险**：审批「确认」轮污染 last_entities（只写实体非空轮次）；只存上一轮 vs 多轮连续指代（留 last-*，Phase F 升级会话记忆）；kb_scope 限定路径不写 context（保持理解层单源）；visible_roles 默认空=全员（勿误隐藏存量应用）；migration 编号从 0032 起（0029_agent_center/0030_copilot/0031_flow_runs_rejected 已占用）。
