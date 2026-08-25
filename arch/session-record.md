@@ -1080,3 +1080,23 @@ L2 规范从 `01-runtime/runtime-specification.md` 开始读，它是整个 L2 �
 3. visible_roles 仍无可视化编辑入口（沿用现查询逻辑，D8 一期不做）
 4. 能力「执行测试」按钮（D8 一期不做——依赖 tech-debt #16 单节点调试）
 5. import-linter 3 条过时 ignore 待专门架构会话（既有遗留，未动）
+
+**追加（2026-08-24）— Chatflow F6 完成：flow 模式端到端评估（示例 A/B + 会话上下文摸底）**
+
+- **交付**：`scripts/f6_mock_server.py`（8001 本地 mock：设备状态/开单/通知/投诉归档）+ `scripts/verify_f6.py`
+  （dev 真 API 冒烟，78 项断言全绿）+ `docs/chatflow-f6-evaluation-report.md`（四维度 + 问题清单分级）
+  + `tests/test_flow_f6_fixes.py`（9 个修复回归）+ FDE Chatflow 指南 §7.5/§7.6（照着搭场景 B/C）
+- **场景 A（设备维修单）**：QU 理解 CNC-01 → 状态查询（mock）→ 条件 faulty/ok 分支 → 开单 → human_approval
+  挂起 202 → 第二轮恢复 → 通知 → 完成；正常路径 else → LLM「设备正常」。耗时：确定性骨架 <150ms，
+  LLM 节点占 >90%（qwen2.5:1.5b 本地 1.3-3.1s）
+- **场景 B（投诉分流）**：知识检索 → `chunks.0.metadata.vip` 条件 → VIP/普通分支（归档+话术）全通
+- **D3 摸底结论 (b) 档**：指代消解「它→CNC-01」修复前断链（qu.answer context={}），已补最小实现
+  （`connector._history_context` 从消息历史推导 last_entities）→ 两轮对话解析成功；完整 C 系列
+  （conversations.context 落库）另立任务书
+- **评估发现并修复 4 个缺陷**（均有回归测试）：① 条件/模板列表索引（场景 A/B 分支与传参必需）
+  ② qu.answer 输出 entities ③ **checkpoint_blobs resume 重放唯一键冲突 500**（场景 A 拓扑即触发，
+  审批恢复第二句必现——最严重）④ checkpoint 写 upsert 化
+- **耗时发现**：QU LLM 升级路径（json_complete）无应用层缓存——同 query 重复全量 LLM 调用；
+  观察到的「8.3s→70ms」是 Ollama 冷/热加载差异（问题清单 #1）
+- **遗留**：命令审批流（Saga 补偿细化）与 C 系列任务书为下一阶段立项依据；flow 执行在 API 进程内联
+  （worker 重启维度 N/A，跨进程 checkpoint 恢复留 Phase F）

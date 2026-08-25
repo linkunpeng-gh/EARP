@@ -847,6 +847,11 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 { "id": "h1", "type": "human_approval",
   "data": { "question": "确认给 CNC-01 派维修单？" } }
 
+// Condition 节点（F0/F6）：条件分流。left = '<节点id>.output.<路径>'；路径支持
+// 列表下标（F6 修复：rows.0.status / chunks.0.metadata.vip）；op ∈ ==/!=/>/>=/</<=/contains/exists
+{ "id": "cond1", "type": "condition",
+  "data": { "condition": { "left": "c1.output.rows.0.status", "op": "==", "right": "faulty" } } }
+
 // Note 节点：纯标注（不可连线、不执行；可选 position{x,y} 画布位置——所有节点均可带）
 { "id": "nt1", "type": "note", "data": { "text": "此处需人工确认后通知负责人" }, "position": { "x": 620, "y": 30 } }
 ```
@@ -856,7 +861,7 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 | 节点 | 执行链路 | 输出 | 备注 |
 |:---|:---|:---|:---|
 | **LLM** | llm.prompt 适配器（`model_config_id` 存在 → 解析节点级模型配置构造独立 LLMConnector；`system` 可选透传） | `{"text": ...}` | 模型：留空=应用/系统默认模型；指定=模型配置中心该配置（provider/base_url/api_key 全量）；配置不存在 → 明确报错不静默回落 |
-| **QU** | understand（规则层，可 LLM 升级 `use_llm`）→ select_plan → execute_plan（plan_fact/relation/aggregation） | `{selection, evidence, citations, chunks}` | 输出 citations 供下游 `{{#q1.output.citations#}}`（或简写 `{{#q1.citations#}}`）引用；`use_llm=false` 纯规则（快，跳过升级）；升级模板由租户在模型配置中心「QU 升级模板」配置（占位符 {query}/{missing}/{relation_candidates}/{context}） |
+| **QU** | understand（规则层，可 LLM 升级 `use_llm`）→ select_plan → execute_plan（plan_fact/relation/aggregation） | `{selection, evidence, citations, chunks, entities}` | 输出 citations 供下游 `{{#q1.output.citations#}}`（或简写 `{{#q1.citations#}}`）引用；**F6 新增 `entities`**（规则层实体提及 `[{mention, semantic_type}]`）——能力节点取设备引用 `{{#q1.entities.0.mention#}}`、条件分支判断实体；`use_llm=false` 纯规则（快，跳过升级）；升级模板由租户在模型配置中心「QU 升级模板」配置（占位符 {query}/{missing}/{relation_candidates}/{context}）；**F6 会话上下文最小接入**：同一会话上一轮用户消息的实体自动作为指代消解上下文（「它」→ 上文实体，规则层非 LLM） |
 | **Capability** | business_capabilities 注册表校验（存在 + active）→ required_permissions 门禁 → 执行 | 适配器结果（如 demo.echo → `{"echo": {...}}`） | 无权限：PolicyLayer 403；审计 `earp.capability.call.*`；capability_id 需在注册表声明；**执行分派按能力的 execution 声明**（adapter ∈ 白名单：demo.echo / llm.prompt / knowledge.search / chat.history / qu.answer / tool.fetch，params 为 adapter 固定默认、可被节点 input 覆写）；无声明 → 回退 domain.name 猜测（兼容 demo.echo）；显式未知 adapter / 猜测不中 → 明确报错「无执行 adapter（执行声明缺失或未实现）」；已停用（deprecated）→ 报「已停用」。**能力注册/管理见能力中心页（§15.6）** |
 | **Tool** | decrypt_config（AES 解密）→ data_adapter.fetch（REST/DB） | `{rows, count, domain_filtered: false}` | 取数在外部系统（不经 EARP RLS）——raw rows 一期标注 `domain_filtered: false`，需上层/后续做角色域过滤 |
 | **Human Approval**（F4） | 执行到挂起点 → 抛挂起信号 → flow_runs 持久化 → 202 等人工答复 | 挂起 202 `{status: waiting_human, pending_node_id, question}`；恢复后答复经 `{{#h1.output.reply#}}` 供下游 | 用户下一句消息即答复（复用对话）；等待超时（默认 3600s）→ timeout 终态 |
@@ -880,6 +885,9 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 - `{{query}}` → 当前用户问题（图输入）
 - `{{#node_id.output.path#}}` → 前序节点输出（如 `{{#q1.output.citations#}}`）；F3 起支持
   简写 `{{#node_id.path#}}`（省略 `.output.` 段）
+- **列表下标**（F6）：`{{#node_id.列表.0.字段#}}` 取首元素——如 `{{#qu1.entities.0.mention#}}`
+  取 QU 识别的第一个实体、`{{#k1.chunks.0.metadata.customer#}}` 取检索首条元数据；
+  条件左值同规则：`c1.output.rows.0.status`
 - 缺失引用原样保留（不静默吞掉）——适配器/LLM 端兜底
 
 ### 15.5 编排 Chatflow 应用（F5b，画布编辑器 + 独立标签）

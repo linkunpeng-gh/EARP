@@ -47,7 +47,12 @@ class CheckpointStore:
                 await conn.execute(
                     text(
                         "INSERT INTO checkpoint_blobs (thread_id, checkpoint_ns, channel, version, "
-                        "tenant_id, type, blob) VALUES (:tid, :ns, :ch, '1', :tenant, 'default', :blob)"
+                        "tenant_id, type, blob) VALUES (:tid, :ns, :ch, '1', :tenant, 'default', :blob) "
+                        # F6 修复（评估发现）：resume 重放时 else 分支 skipped 节点会重写
+                        # 同名命名空间（thread_id, checkpoint_ns, channel, version 唯一）——
+                        # upsert 保证幂等（确定性重放内容一致，不重复失败）
+                        "ON CONFLICT (thread_id, checkpoint_ns, channel, version) "
+                        "DO UPDATE SET blob = EXCLUDED.blob, type = EXCLUDED.type"
                     ),
                     {"tid": thread_id, "ns": ckpt_ns, "ch": channel_name, "tenant": tenant_id, "blob": blob},
                 )

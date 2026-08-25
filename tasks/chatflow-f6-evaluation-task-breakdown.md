@@ -1,6 +1,6 @@
 # 任务清单 — Chatflow F6: flow 模式端到端评估（示例 A/B + 会话上下文摸底）
 
-**状态：规划定稿，待开工**
+**状态：✅ 已完成（2026-08-24）**——验收项全过；产出见 `docs/chatflow-f6-evaluation-report.md`
 **依据**：`arch/design/2026-08-18-chatflow-integration-design.md` §5（示例 A/B 场景）/ §7（F6：flow 模式端到端验证 + 会话上下文联动）
 **依赖**：F0-F5 ✅（workflow 真实化 → flow_schema → 执行器 → qu/capability/tool 节点 → human_approval → 画布编辑器）+ 能力中心 ✅（#7/#14，Capability 真实执行前置）
 **日期**：2026-08-24
@@ -33,7 +33,7 @@
 
 ## Task 拆解（建议执行序 1 → 2 → 3 → 4 → 5）
 
-### Task 1 — 场景准备：mock 服务 + 能力注册 + 素材（1 天）
+### Task 1 — 场景准备：mock 服务 + 能力注册 + 素材（1 天） ✅
 **文件**：`scripts/f6_mock_server.py`（新）、能力中心 UI / seed 脚本、`scripts/verify_f6.py`（骨架）
 - mock 服务：`GET /equipment/{id}/status`（返回 fault/ok + 温度值）、`POST /maintenance-orders`（开单，返回单号）、`POST /notify`（通知，返回 ack）——三个端点供 REST 能力指向
 - 能力中心注册 3 个 REST 能力（execution 声明=rest）+ 权限/审计门禁验证前置
@@ -41,25 +41,25 @@
 - 画布搭场景 A/B 图（F5b 编辑器），保存 flow_schema
 - 验证：mock 服务 curl 通、能力注册可见、flow 图保存成功
 
-### Task 2 — 场景 A 端到端（1 天）
+### Task 2 — 场景 A 端到端（1 天） ✅
 **文件**：`scripts/verify_f6.py`、dev 真 API
 - 跑通：`POST /chat_apps/{id}/chat`（orchestration=flow）→ QU 理解「CNC-01 温度异常」→ 状态查询（mock）→ 分支（faulty）→ 开维修单（mock）→ **human_approval 挂起（202）** → 第二轮消息恢复 → 通知（mock）→ 完成
 - 另跑反例：设备正常 → 分支走 no → LLM 生成「设备正常」答复
 - 记录四维度数据（正确性/耗时/失败恢复/权限审计）——脚本断言关键路径 + 手工记录评估表
 - 验证：两条路径全通；audit_logs 有 capability 事件；挂起-恢复无残留 flow_runs
 
-### Task 3 — 场景 B 端到端 + 会话上下文摸底（1 天）
+### Task 3 — 场景 B 端到端 + 会话上下文摸底（1 天） ✅
 **文件**：`scripts/verify_f6.py`、`arch/session-record.md`、评估报告
 - 场景 B：`start → knowledge(查历史投诉) → condition(VIP?) → 分支话术 → 归档`——VIP 与普通各跑一遍
 - **指代摸底**：两轮对话「CNC-01 温度异常」→「它刚才还报警了」——按 D3 三档判定并落地（验证/最小实现/缺口清单）
 - 验证：场景 B 两分支通；摸底结论记录 + 决策（是否引出新任务书）
 
-### Task 4 — 评估报告 + 问题清单（0.5 天）
+### Task 4 — 评估报告 + 问题清单（0.5 天） ✅
 **文件**：`docs/chatflow-f6-evaluation-report.md`（新，或并入 session-record）
 - 四维度结论汇总：各环节正确性矩阵、耗时表（QU 缓存前后）、失败恢复用例结果、权限审计抽查
 - 问题清单分级（高/中/低）——高优先级问题即时修复，中低进 backlog
 
-### Task 5 — FDE 指南 + 收尾（0.5 天）
+### Task 5 — FDE 指南 + 收尾（0.5 天） ✅
 **文件**：`docs/fde-guide.md`（或对应指南文件）、`tasks/chatflow-f6-evaluation-task-breakdown.md`（标 ✅）、`arch/session-record.md`
 - FDE 指南补「搭 Chatflow 场景」实操：注册能力 → 建 flow → 调试 → 发布 → 对话验证（对齐 §15.6 能力中心教程风格）
 - 全量 pytest + ruff/pyright + OpenAPI 基线（新增 mock 脚本不入服务，应无变化）
