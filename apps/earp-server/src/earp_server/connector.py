@@ -218,35 +218,51 @@ class Connector:
         return "".join(parts)
 
     async def _execute_knowledge_search(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
-        """knowledge.search: query → embed → 三层检索 → {"chunks", "citations"}。"""
+        """knowledge.search: query → embed → 三层检索 → {"chunks", "citations"}。
+
+        2026-08-25 设计：与 chat 检索同源——绑定 kb_ids 只限定文档层（chunk），
+        实体/图谱（ABox）按角色域权限照常生效。
+        """
         if self._engine is None or ctx is None:
             raise ConnectorError("knowledge.search requires engine + ctx (flow executor)")
         query = str(input_.get("query", "") or "")
         if not query.strip():
             raise ConnectorError("knowledge.search: input.query required")
         from earp_server.knowledge.embedding_service import embed_query
-        from earp_server.knowledge.search_service import search_chunks
+        from earp_server.ontology.search import knowledge_search
 
         q_emb = await embed_query(query)
-        chunks = await search_chunks(
+        chunks = await knowledge_search(
             self._engine,
             ctx.tenant_id,
-            q_emb,
-            ctx.role_id,
-            top_k=max(1, min(20, int(input_.get("top_k", 5) or 5))),
+            query,
+            embedding=q_emb,
+            role_id=ctx.role_id,
             data_domain_ids=input_.get("data_domain_ids"),
             knowledge_base_ids=input_.get("kb_ids"),
+            top_k=max(1, min(20, int(input_.get("top_k", 5) or 5))),
             query_text=query,
         )
-        citations = [
-            {
-                "chunk_id": c.get("chunk_id"),
-                "document_id": c.get("document_id"),
-                "title": c.get("title"),
-                "content": c.get("content"),
-            }
-            for c in chunks
-        ]
+        citations: list[dict[str, Any]] = []
+        for c in chunks:
+            src = c.get("source")
+            if src == "profile":
+                citations.append(
+                    {"source": "profile", "entity_id": c.get("entity_id"), "title": c.get("title") or ""}
+                )
+            elif src == "graph":
+                citations.append(
+                    {"source": "graph", "entity_id": c.get("entity_id"), "title": c.get("title") or ""}
+                )
+            else:
+                citations.append(
+                    {
+                        "chunk_id": c.get("chunk_id"),
+                        "document_id": c.get("document_id"),
+                        "title": c.get("title"),
+                        "content": c.get("content"),
+                    }
+                )
         return {"chunks": chunks, "citations": citations}
 
     async def _execute_chat_history(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:

@@ -263,6 +263,7 @@ async def test_chat_multiturn_history_pairs(migrated: str, app_url: str, monkeyp
 
 # ── kb_scope 限定检索 ─────────────────────────────────────────────────────
 async def test_chat_kb_scope_limits_search(migrated: str, app_url: str, monkeypatch) -> None:
+    """绑定 KB：文档（chunk）层只在该 KB 内检索（2026-08-25 后实体层允许出现）。"""
     engine = create_async_engine(app_url, pool_pre_ping=True)
     tid = "ch-scope"
     await _seed(engine, tid, migrated, monkeypatch)
@@ -272,7 +273,42 @@ async def test_chat_kb_scope_limits_search(migrated: str, app_url: str, monkeypa
     done = [e for e in events if e["type"] == "done"][0]
     assert done["citations"]
     for c in done["citations"]:
-        assert c["kb_id"] == "kb-alarm"  # 只在该 KB 内检索
+        if c.get("kb_id"):  # 有 kb_id 的是 chunk 类引用 → 只在该 KB 内
+            assert c["kb_id"] == "kb-alarm"
+
+
+# ── kb_scope 绑定 + ABox（2026-08-25 设计）────────────────────────────────
+async def test_chat_kb_scope_keeps_abox(migrated: str, app_url: str, monkeypatch) -> None:
+    """绑定 KB 后实体/图谱（ABox）按角色权限照常生效（设计 2026-08-25）。
+
+    绑定只限定文档层（chunk）；L1/L2 实体档案/图谱由角色 data_domain_access 门禁。
+    """
+    from earp_server.ontology import abox_service, tbox_service
+
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "ch-scope-abox"
+    await _seed(engine, tid, migrated, monkeypatch)
+
+    await tbox_service.init_tenant_tbox(engine, tid)
+    sup = await abox_service.upsert_entity(
+        engine, tid, "supplier", "上海某精机", business_code="SUP-SA", data_domain_id="equipment_data"
+    )
+    equip = await abox_service.upsert_entity(
+        engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
+    )
+    await abox_service.add_fact(engine, tid, equip["entity_id"], "manufactured_by", sup["entity_id"])
+    await abox_service.compile_profile(engine, tid, equip["entity_id"])
+
+    app = await _app(engine, tid, kb_scope=["kb-alarm"])
+    events = await _collect(engine, tid, "u1", "r-all", app, "CNC-01 设备报警供应商", llm=FakeLLM())
+    done = [e for e in events if e["type"] == "done"][0]
+    assert done["citations"], "expected citations"
+    sources = {c.get("source") for c in done["citations"]}
+    assert "profile" in sources or "graph" in sources
+    # 文档层仍限绑定 KB：有 kb_id 的 citations 全部在 kb-alarm
+    for c in done["citations"]:
+        if c.get("kb_id"):
+            assert c["kb_id"] == "kb-alarm"
 
 
 # ── 软路由 + 角色权限过滤（无权限 KB 不进候选）─────────────────────────────

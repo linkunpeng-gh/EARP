@@ -128,7 +128,7 @@
       <button class="btn-sm" style="margin-top:0.35rem" onclick="resetPrompt()">↺ 重置默认模板</button>
     </div>
     <div class="cfg-field">
-      <label class="cfg-label">知识库绑定 <span class="cfg-tip">?<span class="tip-pop">限定检索范围。空 = 全租户自动路由（按问题语义路由到最相关的数据域/知识库）；绑定后只在这些知识库内检索。</span></span></label>
+      <label class="cfg-label">知识库绑定 <span class="cfg-tip">?<span class="tip-pop">限定检索范围。空 = 全租户自动路由（按问题语义路由到最相关的数据域/知识库）；绑定后文档只在这些知识库内检索，实体/图谱（知识图谱）按角色权限仍会生效。</span></span></label>
       <div id="bound-kbs" class="bound-kbs"></div>
       <button class="btn-sm" onclick="showKBPicker()" id="kb-add-btn">＋ 添加知识库</button>
     </div>

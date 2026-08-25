@@ -230,23 +230,44 @@ class TestFlowAdapters:
         ]
 
     async def test_knowledge_search(self, app_engine: AsyncEngine, monkeypatch) -> None:
-        from earp_server.knowledge import embedding_service, search_service
+        from earp_server.knowledge import embedding_service
+        from earp_server.ontology import search as ontology_search
 
         async def _fake_embed(query: str) -> list[float]:
             return [0.1, 0.2]
 
-        async def _fake_search(engine, tenant_id, emb, role_id, **kwargs):
-            return [{"chunk_id": "c1", "document_id": "d1", "title": "T", "content": "正文", "chunk_index": 0}]
+        async def _fake_search(engine, tenant_id, query, **kwargs):
+            # 三层检索：profile/graph（ABox）+ chunk
+            return [
+                {"source": "profile", "entity_id": "e1", "title": "CNC-01（实体档案）", "content": "…"},
+                {
+                    "source": "graph",
+                    "entity_id": "e2",
+                    "title": "图谱：manufactured_by → 上海某精机",
+                    "content": "…",
+                },
+                {
+                    "source": "chunk",
+                    "chunk_id": "c1",
+                    "document_id": "d1",
+                    "title": "T",
+                    "content": "正文",
+                    "chunk_index": 0,
+                },
+            ]
 
         monkeypatch.setattr(embedding_service, "embed_query", _fake_embed)
-        monkeypatch.setattr(search_service, "search_chunks", _fake_search)
+        monkeypatch.setattr(ontology_search, "knowledge_search", _fake_search)
         connector = Connector(engine=app_engine)
         out = await connector.execute(
             {"adapter_type": "knowledge.search", "input": {"query": "设备", "top_k": 3}},
             ctx=_ctx(),
         )
-        assert out["chunks"][0]["chunk_id"] == "c1"
-        assert out["citations"][0]["title"] == "T"
+        # 三源 citations：profile/graph 带 source/entity_id；chunk 带 chunk_id
+        assert out["chunks"][0]["source"] == "profile"
+        assert any(c.get("source") == "graph" for c in out["citations"])
+        chunk_cit = next(c for c in out["citations"] if c.get("chunk_id") == "c1")
+        assert chunk_cit["title"] == "T"
 
 
 # ── flow_chat 编排（端到端，服务级）─────────────────────────────────────────

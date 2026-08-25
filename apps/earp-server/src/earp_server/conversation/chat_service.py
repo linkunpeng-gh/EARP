@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.connector import ConnectorError, LLMConnector
 from earp_server.knowledge.embedding_service import embed_query
-from earp_server.knowledge.search_service import search_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +153,8 @@ async def _retrieve(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """返回 (chunks, citations)。
 
-    kb_scope 非空 → 限定 KB（search_chunks，一期不接 planner）。
+    kb_scope 非空 → 三层检索（2026-08-25 设计）：L1/L2 实体档案/图谱（ABox）
+    按角色域权限照常生效，L3 chunk 限定绑定 KB。
     kb_scope 空 → 软路由走 planner（Phase D D1d：理解 → select_plan → 策略 →
     PlanResult → chunks/citations；AGGREGATION 走 capability 执行器）。
     检索保持原 top_k 语义（chunk 级）；引用去重在展示层做（前端按文档聚合）。
@@ -166,18 +166,23 @@ async def _retrieve(
 
     kb_scope = app.get("kb_scope") or []
     if kb_scope:
-        chunks = await search_chunks(
+        # 绑定 KB → 三层检索：L3 chunk 限定绑定 KB，L1/L2 实体/图谱（ABox）按角色域权限照常生效
+        # （2026-08-25 设计：绑定知识库不再禁用实体层）
+        from earp_server.ontology.search import knowledge_search
+
+        chunks = await knowledge_search(
             engine,
             tenant_id,
-            q_emb,
-            role_id,
-            top_k=top_k,
-            eventbus=None,
-            embedding_dim=embedding_dim,
+            query,
+            embedding=q_emb,
+            role_id=role_id,
             knowledge_base_ids=kb_scope,
-            threshold=threshold,
+            top_k=top_k,
+            embedding_dim=embedding_dim,
             query_text=query,
             mode=mode,
+            threshold=threshold,
+            eventbus=None,
         )
     else:
         # Phase D D1d：软路由路径走 planner（理解 → select_plan → 策略 → PlanResult）
