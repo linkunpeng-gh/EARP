@@ -242,4 +242,22 @@ const oldSchema = {
 };
 assert(FlowGraph.validate(oldSchema).length === 0, 'branch: 旧单成功边图仍合法');
 
+// ── answer 回答节点（Dify 式终点）──
+const ansSchema = {
+  nodes: [
+    { id: 'start', type: 'start', data: {} },
+    { id: 'l1', type: 'llm', data: { prompt: 'p' } },
+    { id: 'ans1', type: 'answer', data: { text: '结果：{{#l1.output.text#}}\n多行' } },
+  ],
+  edges: [{ source: 'start', target: 'l1' }, { source: 'l1', target: 'ans1' }],
+};
+assert(FlowGraph.validate(ansSchema).length === 0, 'answer: 无 end、以回答节点收尾的图合法');
+assert(FlowGraph.validate({ nodes: [{ id: 'start', type: 'start', data: {} }, { id: 'l1', type: 'llm', data: { prompt: 'p' } }], edges: [{ source: 'start', target: 'l1' }] }).some(e => /至少一个终点/.test(e)), 'answer: 无 end 且无 answer → 无终点报错');
+const ed10 = mkDrawflow();
+Canvas.loadIntoDrawflow(ed10, ansSchema);
+const round10 = Canvas.toFlowSchema(ed10);
+const ansNode = round10.nodes.find(n => n.id === 'ans1');
+assert(ansNode && ansNode.type === 'answer' && ansNode.data.text === '结果：{{#l1.output.text#}}\n多行', 'answer: text 模板 roundtrip 保留（含换行）');
+assert(FlowGraph.validate(round10).length === 0, 'answer: roundtrip 后仍合法');
+
 console.log('\n' + passed + ' 断言全部通过（chatflow 画布核心冒烟）');

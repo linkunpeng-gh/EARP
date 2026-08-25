@@ -663,11 +663,17 @@ async def flow_chat(
                 }
             )
 
-    # 助手消息：最后 completed 节点输出（text 优先，否则 JSON 摘要）
+    # 助手消息：回答节点优先（Dify 式终点——最后一个完成的 answer 节点文本）；
+    # 无回答节点 → 兜底最后 completed 节点输出（text 优先，否则 JSON 摘要）
     answer = ""
     if completed:
-        last = completed[-1].output or {}
-        answer = str(last.get("text") or json.dumps(last, ensure_ascii=False))
+        answer_nodes = [r for r in completed if r.step_id in plan.answer_steps]
+        if answer_nodes:
+            last_ans = answer_nodes[-1].output or {}
+            answer = str(last_ans.get("text") or "")
+        if not answer:
+            last = completed[-1].output or {}
+            answer = str(last.get("text") or json.dumps(last, ensure_ascii=False))
     msg = await add_message(engine, tenant_id, conversation_id, "assistant", answer, user_id)
 
     citations: list[dict[str, Any]] = []

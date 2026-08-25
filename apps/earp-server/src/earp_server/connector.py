@@ -159,6 +159,8 @@ class Connector:
             return await self._execute_tool_fetch(capability_call.get("input", {}), ctx)
         if adapter_type == "human.approval":
             return await self._execute_human_approval(capability_call.get("input", {}), ctx)
+        if adapter_type == "answer.output":
+            return await self._execute_answer_output(capability_call.get("input", {}), ctx)
         raise ConnectorError(f"unknown adapter: {adapter_type}")
 
     async def _execute_llm_prompt(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
@@ -425,6 +427,12 @@ class Connector:
         params = input_.get("params") if isinstance(input_.get("params"), dict) else {}
         rows = await data_fetch(cfg, params)
         return {"rows": rows, "count": len(rows), "domain_filtered": False}
+
+    async def _execute_answer_output(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """answer.output: 回答节点（Dify 式终点）。输入 text 已由模板引擎解析，
+        直接作为最终回答返回 {"text": ...}（支持多行/Markdown 字符串）。"""
+        text = str(input_.get("text", "") or "")
+        return {"text": text}
 
     async def _execute_human_approval(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
         """human.approval: 挂起信号（D2）——抛 ApprovalPending 由执行器捕获转 waiting_human。

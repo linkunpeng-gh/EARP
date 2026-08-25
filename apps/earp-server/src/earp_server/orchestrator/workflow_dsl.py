@@ -61,7 +61,7 @@ NODE_TYPES: frozenset[str] = frozenset({"start", "end", "step", "condition"})
 # 扩展类型（llm/knowledge/…）F1 可存（结构校验），F2+ 节点适配层各自实现执行。
 FLOW_NODE_TYPES: frozenset[str] = NODE_TYPES | frozenset(
     # capability = step 的声明别名（设计稿 §3 Capability 节点，data.capability_call 同 step 校验）
-    {"capability", "llm", "knowledge", "qu", "chat_history", "human_approval", "tool", "mcp", "note"}
+    {"capability", "llm", "knowledge", "qu", "chat_history", "human_approval", "tool", "mcp", "note", "answer"}
 )
 CONDITION_HANDLES: frozenset[str] = frozenset({"true", "false"})
 BranchSide = Literal["then", "else", "success", "error"]
@@ -114,6 +114,8 @@ class CompiledWorkflow:
     step_index: dict[str, int] = field(default_factory=dict)
     # 应用中心：节点成功/失败双分支——step_id → branch_id（节点存在 sourceHandle='error' 出边）
     result_branches: dict[str, str] = field(default_factory=dict)
+    # 应用中心：回答节点（answer）——flow_chat 优先取最后完成的回答节点文本作为最终答复
+    answer_steps: frozenset[str] = frozenset()
 
 
 # ── 校验 ─────────────────────────────────────────────────────────────────────
@@ -157,13 +159,16 @@ def validate_workflow(
         if n.type not in allowed_types:
             errors.append(f"node {n.id}: unknown type {n.type!r} (allowed: {sorted(allowed_types)})")
 
-    # 恰一 start / 恰一 end
+    # 恰一 start；终点 = end 或 answer（Dify 式：可仅以回答节点收尾，不强制 end）
     starts = [n.id for n in g.nodes if n.type == "start"]
     ends = [n.id for n in g.nodes if n.type == "end"]
+    answers = [n.id for n in g.nodes if n.type == "answer"]
     if len(starts) != 1:
         errors.append(f"expected exactly one start node, got {len(starts)}")
-    if len(ends) != 1:
-        errors.append(f"expected exactly one end node, got {len(ends)}")
+    if len(ends) > 1:
+        errors.append(f"expected at most one end node, got {len(ends)}")
+    if not ends and not answers:
+        errors.append("flow needs at least one terminal node (end 或 answer)")
     start_id = starts[0] if starts else None
     end_id = ends[0] if ends else None
 
@@ -199,6 +204,14 @@ def validate_workflow(
     if end_id is not None:
         if outgoing[end_id]:
             errors.append("end node must have no outgoing edges")
+    # answer（回答）节点 = 终点：无出边；text 模板必填（字符串）
+    for n in g.nodes:
+        if n.type == "answer":
+            if outgoing.get(n.id):
+                errors.append(f"answer {n.id}: 回答节点是终点，不允许出边")
+            text = n.data.get("text")
+            if text is None or not isinstance(text, str) or not text.strip():
+                errors.append(f"answer {n.id}: data.text (回答模板字符串) 必填")
 
     # note（注释）节点：纯标注、不参与执行——不可连线（无入边无出边）
     for n in g.nodes:
@@ -261,14 +274,18 @@ def validate_workflow(
             errors.append("graph contains a cycle (F0: DAG only)")
         else:
             from_start = _reachable(start_id, outgoing)
-            to_end = _reachable_backward(end_id, incoming)
+            # 终点集合 = end ∪ answer（回答节点也是终点）——反向可达性取并集
+            terminals = [nid for nid in node_ids if by_id[nid].type in ("end", "answer")]
+            to_terminal: set[str] = set()
+            for tid in terminals:
+                to_terminal |= _reachable_backward(tid, incoming)
             for nid in node_ids:
                 if by_id[nid].type == "note":
                     continue  # 注释节点不与图相连，豁免可达性
                 if nid not in from_start:
                     errors.append(f"node {nid}: not reachable from start")
-                if nid not in to_end:
-                    errors.append(f"node {nid}: cannot reach end")
+                if nid not in to_terminal:
+                    errors.append(f"node {nid}: cannot reach end/answer")
 
     return errors
 
@@ -478,6 +495,22 @@ def _human_approval_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSi
     )
 
 
+def _answer_exec(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> StepExec:
+    """应用中心：回答节点 → answer.output 适配器（Dify 式终点——输出模板文本）。
+
+    data.text 为模板字符串（{{query}} / {{#node.output#}} / {{#node.error#}} 等），
+    运行时 resolve_templates 解析；flow_chat 取最后完成的回答节点文本为最终答复。
+    """
+    return StepExec(
+        node_id=node.id,
+        step=Step(
+            step_id=node.id,
+            capability_call={"adapter_type": "answer.output", "input": {"text": node.data.get("text", "{{query}}")}},
+        ),
+        gate=gate,
+    )
+
+
 def _flow_node_builder(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide]]) -> ExecItem | None:
     """Chatflow F2/F3: flow_schema 节点 → 执行项（节点映射为适配器 Step）。"""
     if node.type == "step":
@@ -498,6 +531,8 @@ def _flow_node_builder(node: WorkflowNode, gate: frozenset[tuple[str, BranchSide
         return _tool_exec(node, gate)
     if node.type == "human_approval":
         return _human_approval_exec(node, gate)
+    if node.type == "answer":
+        return _answer_exec(node, gate)
     if node.type == "condition":
         return _condition_exec(node, gate)
     if node.type in _UNIMPLEMENTED_NODE_TYPES:
@@ -556,13 +591,16 @@ def _compile_graph(
             merged = merged & other
         gate[nid] = merged
 
-    # 线性执行序（start/end 不产出执行项）+ 结果双分支登记
+    # 线性执行序（start/end 不产出执行项）+ 结果双分支登记 + 回答节点登记
     sequence: list[ExecItem] = []
     result_branches: dict[str, str] = {}
+    answer_steps: set[str] = set()
     for nid in order:
         node = by_id[nid]
         if _is_result_branch_source(nid):
             result_branches[nid] = f"result:{nid}"
+        if node.type == "answer":
+            answer_steps.add(nid)
         item = builder(node, gate[nid])
         if item is not None:
             sequence.append(item)
@@ -575,6 +613,7 @@ def _compile_graph(
         step_ids=step_ids,
         step_index={nid: i for i, nid in enumerate(step_ids)},
         result_branches=result_branches,
+        answer_steps=frozenset(answer_steps),
     )
 
 

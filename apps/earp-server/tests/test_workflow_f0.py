@@ -204,7 +204,10 @@ class TestCompile:
 
 class TestValidate:
     def _errors(self, graph: dict) -> list[str]:
-        return validate_workflow(graph)
+        # 回答节点走 flow_schema 白名单（FLOW_NODE_TYPES 含 answer）
+        from earp_server.orchestrator.workflow_dsl import FLOW_NODE_TYPES
+
+        return validate_workflow(graph, allowed_types=FLOW_NODE_TYPES)
 
     def test_cycle_detected(self) -> None:
         nodes = [
@@ -227,7 +230,7 @@ class TestValidate:
 
     def test_unknown_node_type(self) -> None:
         graph = _seq_graph("a")
-        graph["nodes"].insert(1, {"id": "x1", "type": "llm", "data": {}})
+        graph["nodes"].insert(1, {"id": "x1", "type": "bogus_type", "data": {}})
         graph["edges"].append({"source": "start", "target": "x1"})
         graph["edges"].append({"source": "x1", "target": "n1"})
         assert any("unknown type" in e for e in self._errors(graph))
@@ -238,7 +241,31 @@ class TestValidate:
         assert any("exactly one start" in e for e in self._errors(graph))
         graph = _seq_graph("a")
         graph["nodes"] = [n for n in graph["nodes"] if n["type"] != "end"]
-        assert any("exactly one end" in e for e in self._errors(graph))
+        assert any("terminal" in e for e in self._errors(graph))  # 无 end 且无 answer → 无终点
+
+    def test_answer_node_as_terminal(self) -> None:
+        """answer 节点可替代 end 作为终点（Dify 式）。"""
+        graph = {
+            "nodes": [
+                {"id": "start", "type": "start", "data": {}},
+                _step_node("n1", "x"),
+                {"id": "ans1", "type": "answer", "data": {"text": "结果：{{#n1.output.x#}}"}},
+            ],
+            "edges": [{"source": "start", "target": "n1"}, {"source": "n1", "target": "ans1"}],
+        }
+        assert self._errors(graph) == []
+
+    def test_answer_node_no_outgoing_rejected(self) -> None:
+        graph = _seq_graph("a")
+        graph["nodes"].append({"id": "ans1", "type": "answer", "data": {"text": "hi"}})
+        graph["edges"].append({"source": "ans1", "target": "end"})
+        assert any("终点" in e and "出边" in e for e in self._errors(graph))
+
+    def test_answer_node_requires_text(self) -> None:
+        graph = _seq_graph("a")
+        graph["nodes"].append({"id": "ans1", "type": "answer", "data": {}})
+        graph["edges"].append({"source": "n1", "target": "ans1"})
+        assert any("data.text" in e for e in self._errors(graph))
 
     def test_dangling_edge(self) -> None:
         graph = _seq_graph("a")

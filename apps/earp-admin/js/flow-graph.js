@@ -12,7 +12,7 @@
   'use strict';
 
   var FLOW_TYPES = ['start', 'end', 'step', 'condition', 'capability', 'llm', 'knowledge',
-    'qu', 'chat_history', 'human_approval', 'tool', 'mcp', 'note'];
+    'qu', 'chat_history', 'human_approval', 'tool', 'mcp', 'note', 'answer'];
 
   var NODE_META = {
     start: { color: '#16a34a', label: '开始' },
@@ -58,8 +58,10 @@
     });
     var starts = nodes.filter(function (n) { return n.type === 'start'; });
     var ends = nodes.filter(function (n) { return n.type === 'end'; });
+    var answers = nodes.filter(function (n) { return n.type === 'answer'; });
     if (starts.length !== 1) errors.push('必须有且仅有一个 start 节点（当前 ' + starts.length + ' 个）');
-    if (ends.length !== 1) errors.push('必须有且仅有一个 end 节点（当前 ' + ends.length + ' 个）');
+    if (ends.length > 1) errors.push('end 节点最多一个（当前 ' + ends.length + ' 个）');
+    if (!ends.length && !answers.length) errors.push('流程需要至少一个终点节点（end 或回答）');
 
     var incoming = {};
     var outgoing = {};
@@ -84,6 +86,12 @@
     if (ends[0] && byId[ends[0].id]) {
       if (outgoing[ends[0].id].length) errors.push('end 节点不能有出边');
     }
+    nodes.forEach(function (n) {
+      if (n.type === 'answer') {
+        if ((outgoing[n.id] || []).length) errors.push('answer ' + n.id + ': 回答节点是终点，不允许出边');
+        if (!n.data || !String(n.data.text || '').trim()) errors.push('answer ' + n.id + ': 回答内容（text 模板）必填');
+      }
+    });
     nodes.forEach(function (n) {
       var outs = outgoing[n.id] || [];
       if (n.type === 'condition') {

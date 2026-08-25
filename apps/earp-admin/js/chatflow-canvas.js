@@ -18,6 +18,11 @@
       brief: () => '流程起点' },
     end: { name: '结束', color: '#64748b', inputs: 1, outputs: 0, fields: [],
       brief: () => '流程终点' },
+    answer: { name: '回答', color: '#0d9488', inputs: 1, outputs: 0,
+      fields: [
+        { key: 'text', label: '回答内容（模板，可多行）', type: 'textarea', default: '{{query}}' },
+      ],
+      brief: (d) => '💬 ' + String(d.text || '').replace(/\n/g, ' ').slice(0, 24) },
     llm: { name: 'LLM', color: '#7c3aed', inputs: 1, outputs: 2,
       fields: [
         { key: 'prompt', label: '提示词（User）', type: 'textarea', default: '请回答：{{query}}' },

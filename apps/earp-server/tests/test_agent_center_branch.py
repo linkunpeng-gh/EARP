@@ -241,3 +241,72 @@ async def test_timeout_routes_error_branch(app_engine: AsyncEngine) -> None:
     assert trace["err1"] == "completed"
     # error 分支 LLM 引用 {{#h1.error#}} → 超时错误消息
     assert any("等待超时未确认" in c["prompt"] for c in llm.calls), llm.calls
+
+
+# ── 回答节点（Dify 式终点）────────────────────────────────────────────────────
+def _answer(nid: str, text: str) -> dict:
+    return {"id": nid, "type": "answer", "data": {"text": text}}
+
+
+async def test_answer_node_as_terminal_output(app_engine: AsyncEngine) -> None:
+    """start → cap1(echo) → answer(引用 cap1 输出) —— 无 end 节点，answer 收尾。"""
+    g = {
+        "nodes": [
+            {"id": "start", "type": "start", "data": {}},
+            _echo_step("cap1", "设备状态正常"),
+            _answer("ans1", "查询结果：{{#cap1.output.echo.msg#}}\n\n如有问题请联系运维。"),
+        ],
+        "edges": [
+            {"source": "start", "target": "cap1"},
+            {"source": "cap1", "target": "ans1"},
+        ],
+    }
+    app = await _flow_app(app_engine, g, "br-answer")
+    result = await flow_chat(
+        app_engine,
+        TENANT,
+        "br-u1",
+        "r1",
+        app,
+        "q",
+        None,
+        base_llm=FakeLLM(),
+        settings=_settings(),
+    )
+    assert result["status"] == ExecutionStatus.COMPLETED.value
+    # 回答优先取 answer 节点文本（模板已解析 + 多行保留）
+    assert result["answer"] == "查询结果：设备状态正常\n\n如有问题请联系运维。"
+
+
+async def test_answer_node_without_end_and_multiple_branches(app_engine: AsyncEngine) -> None:
+    """成功/失败分支各挂回答节点（无 end）——走到哪个答哪个。"""
+    bogus = {"id": "cap1", "type": "step", "data": {"capability_call": {"adapter_type": "demo.bogus", "input": {}}}}
+    g = {
+        "nodes": [
+            {"id": "start", "type": "start", "data": {}},
+            bogus,
+            _answer("ok_ans", "✅ 成功：{{#cap1.output#}}"),
+            _answer("err_ans", "❌ 失败：{{#cap1.error#}}"),
+        ],
+        "edges": [
+            {"source": "start", "target": "cap1"},
+            {"source": "cap1", "target": "ok_ans", "sourceHandle": ""},
+            {"source": "cap1", "target": "err_ans", "sourceHandle": "error"},
+        ],
+    }
+    app = await _flow_app(app_engine, g, "br-answer-branch")
+    result = await flow_chat(
+        app_engine,
+        TENANT,
+        "br-u1",
+        "r1",
+        app,
+        "q",
+        None,
+        base_llm=FakeLLM(),
+        settings=_settings(),
+    )
+    assert result["status"] == ExecutionStatus.COMPLETED.value
+    # 失败 → error 分支回答节点：{{#cap1.error#}} 解析为错误消息
+    assert "❌ 失败" in result["answer"]
+    assert "demo.bogus" in result["answer"]
