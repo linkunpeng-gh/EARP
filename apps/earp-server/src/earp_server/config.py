@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""
 
     # ── Embedding ──
-    ollama_base_url: str = "http://10.188.2.230:11434"
+    ollama_base_url: str = "http://localhost:11434"
     ollama_embedding_model: str = "bge-m3:latest"
     embedding_provider: str = "ollama"  # ollama | openai
     # P3 rerank（enterprise-retrieval §8 Phase 2 ⑧）：默认禁用——本地 Ollama 旧版无
@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     rerank_provider: str = "none"  # none | ollama | openai（兼容 /rerank）
     ollama_rerank_model: str = "bge-reranker-v2-m3"
     rerank_top_n: int = 20  # 精排候选数（RRF/向量召回后）
-    ollama_chat_model: str = "qwen3.6:27b"
+    ollama_chat_model: str = "qwen2.5:1.5b"
+    copilot_model: str = "qwen2.5:1.5b"  # Copilot 配置助手专用模型（轻量快速）
     embedding_dim: int = 1024  # bge-m3 dimension; change when switching models
     # Chatflow F4: human_approval 节点等待人工答复超时（秒）——超时 → timeout 终态
     approval_ttl: int = 3600
