@@ -124,3 +124,9 @@
 | 110 | 设备故障的因果分析 | FALLBACK | | | | | CAUSAL 回落 |
 | 111 | 设备清单 | FALLBACK | | | | | LIST 回落 |
 | 112 | 张工负责什么 | FALLBACK | 张工:employee | | | | 开放问回落 |
+| 113 | 它的更换周期呢 | FALLBACK | CNC-01:equipment | | | | ctx:CNC-01:equipment |
+| 114 | 这个设备由谁维护 | RELATION | CNC-01:equipment | maintained_by | | | ctx:CNC-01:equipment |
+| 115 | 它由哪家供应商制造 | RELATION | CNC-01:equipment | manufactured_by | | | ctx:CNC-01:equipment |
+| 116 | 该设备有多少台 | AGGREGATION | CNC-01:equipment | | | | ctx:CNC-01:equipment |
+| 117 | 那台设备的供应商是谁 | RELATION | CNC-01:equipment | | | | ctx:CNC-01:equipment |
+| 118 | 它属于哪条产线 | RELATION | CNC-01:equipment | belongs_to | | | ctx:CNC-01:equipment |

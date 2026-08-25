@@ -135,10 +135,15 @@ class TimeConstraint(BaseModel):
 
 
 class EntityMention(BaseModel):
-    """实体提及（mention → semantic_type，非 entity_id——解析留给 Phase C lookup_entities）。"""
+    """实体提及（mention → semantic_type + entity_id 回填）。
+
+    C 系列（会话上下文）：lookup_entities 命中/指代消解时回填 entity_id——
+    last_entities 存 entity_id 后，下一轮指代可直接映射实体（非仅 mention）。
+    """
 
     mention: str
     semantic_type: str | None = None  # equipment/supplier/...
+    entity_id: str | None = None  # C 系列回填（lookup_entities.entity_id / coref 继承）
     role: Literal["subject", "target", "intermediate", "scope"] | None = None
 
 
@@ -385,11 +390,16 @@ async def _extract_entities(
     *,
     context: dict | None = None,
     top_k: int = 5,
+    references: list[dict] | None = None,
 ) -> list[EntityMention]:
     """实体提及识别：lookup_entities 双向子串（复用 _entity_hits）+ 指代消解（D8）。
 
-    只产 mention/semantic_type，不解析 entity_id（Phase C plan_relation 职责）。
+    entity_id 回填（C 系列 D3）：lookup 命中带 entity_id；指代消解继承 last_entities 的
+    entity_id/semantic_type（直接映射实体，非仅 mention）。references（trace 可溯源）：
+    每次命中/指代记录 {kind: lookup|coref, trigger, mention, entity_id, semantic_type}，
+    供 RuleResult.references 溯源（设计稿 §2.4，非 LLM 盲猜）。
     """
+    refs: list[dict] = [] if references is None else references
     hits = await _entity_hits(engine, tenant_id, query, top_k=top_k)
     mentions: list[EntityMention] = []
     seen: set[str] = set()
@@ -401,22 +411,45 @@ async def _extract_entities(
         mentions.append(
             EntityMention(
                 mention=mention,
+                entity_id=h.get("entity_id"),
                 semantic_type=h.get("entity_type_id"),
                 role=_mention_role(query, mention),
             )
         )
-    # 指代消解（D8）：query 含指代词 + context.last_entities → 映射上文实体
-    if _COREF_RE.search(query) and not mentions:
+        refs.append(
+            {
+                "kind": "lookup",
+                "mention": mention,
+                "entity_id": h.get("entity_id"),
+                "semantic_type": h.get("entity_type_id"),
+            }
+        )
+    # 指代消解（D8）：query 含指代词 + context.last_entities → 映射上文实体（含 entity_id）
+    m = _COREF_RE.search(query)
+    if m and not mentions:
         last = (context or {}).get("last_entities") or []
         if last:
             prev = last[-1]
             if isinstance(prev, dict):
+                mention = prev.get("mention") or ""
+                entity_id = prev.get("entity_id")
+                semantic_type = prev.get("semantic_type")
                 mentions.append(
                     EntityMention(
-                        mention=prev.get("mention") or "",
-                        semantic_type=prev.get("semantic_type"),
+                        mention=mention,
+                        entity_id=entity_id,
+                        semantic_type=semantic_type,
                         role="subject",
                     )
+                )
+                refs.append(
+                    {
+                        "kind": "coref",
+                        "trigger": m.group(0),
+                        "mention": mention,
+                        "entity_id": entity_id,
+                        "semantic_type": semantic_type,
+                    }
                 )
     return mentions
 
@@ -578,6 +611,7 @@ class RuleResult:
     relations: list[RelationMention] = field(default_factory=list)
     operation: Operation = field(default_factory=Operation)
     context: dict = field(default_factory=dict)
+    references: list[dict] = field(default_factory=list)  # C 系列：实体命中/指代映射 trace（溯源）
     field_hits: dict[str, bool] = field(default_factory=dict)
     field_reasons: dict[str, str] = field(default_factory=dict)
     ambiguity_fields: list[str] = field(default_factory=list)  # 多候选字段（penalty）
@@ -612,7 +646,11 @@ async def understand(
     result.relation_candidates = rel_cands
     # 1. 各维度提取
     result.time, result.constraints, time_hit = _extract_time(query)
-    result.entities = await _extract_entities(engine, tenant_id, query, context=context, top_k=top_k)
+    references: list[dict] = []
+    result.entities = await _extract_entities(
+        engine, tenant_id, query, context=context, top_k=top_k, references=references
+    )
+    result.references = references
     result.intent, result.intent_candidates = _classify_intent(query)
     result.relations, _verbs = await _extract_relations(
         engine, tenant_id, query, result.entities, rel_cands, context=context

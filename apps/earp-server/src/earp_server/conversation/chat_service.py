@@ -150,13 +150,16 @@ async def _retrieve(
     embedding_dim: int,
     *,
     settings=None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """返回 (chunks, citations)。
+    conversation_id: str | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Any | None]:
+    """返回 (chunks, citations, result)。
 
     kb_scope 非空 → 三层检索（2026-08-25 设计）：L1/L2 实体档案/图谱（ABox）
-    按角色域权限照常生效，L3 chunk 限定绑定 KB。
+    按角色域权限照常生效，L3 chunk 限定绑定 KB——result=None，不写 context
+    （无结构化 planner 结果，保持理解层单源）。
     kb_scope 空 → 软路由走 planner（Phase D D1d：理解 → select_plan → 策略 →
-    PlanResult → chunks/citations；AGGREGATION 走 capability 执行器）。
+    PlanResult → chunks/citations；AGGREGATION 走 capability 执行器）——result=
+    RuleResult（C 系列：读入会话 context 做指代消解，写回由 chat_sse 负责）。
     检索保持原 top_k 语义（chunk 级）；引用去重在展示层做（前端按文档聚合）。
     """
     retrieval = app.get("retrieval") or {}
@@ -186,18 +189,28 @@ async def _retrieve(
         )
     else:
         # Phase D D1d：软路由路径走 planner（理解 → select_plan → 策略 → PlanResult）
+        from earp_server.conversation.conversation_service import read_conversation_context
         from earp_server.ontology.planning import execute_plan
         from earp_server.ontology.understanding import build_structured_query, understand, upgrade_with_llm
 
-        result = await understand(engine, tenant_id, query)
+        # C 系列（Task 3，补 F6 缺口 #9）：auto 路径读会话 context 做规则层指代消解
+        ctx = {}
+        if conversation_id:
+            try:
+                ctx = await read_conversation_context(engine, tenant_id, conversation_id)
+            except Exception:
+                logger.warning("chat _retrieve: read context failed (cid=%s)", conversation_id, exc_info=True)
+                ctx = {}
+        result = await understand(engine, tenant_id, query, context=ctx)
         # LLM 升级仅在 settings 完整（含 ollama 配置）时触发——测试/简化环境跳过（规则层结果）
         if settings is not None and hasattr(settings, "ollama_chat_model"):
             result = await upgrade_with_llm(engine, tenant_id, query, result, settings=settings)
         sq = build_structured_query(result)
         logger.info(
-            "chat planner: query=%r intent=%s",
+            "chat planner: query=%r intent=%s coref_refs=%d",
             query,
             sq.intent.value,
+            len(result.references),
         )
         _, plan = await execute_plan(
             engine,
@@ -254,7 +267,7 @@ async def _retrieve(
                         "rows": p.get("rows"),
                     }
                 )
-        return chunks, plan.citations
+        return chunks, plan.citations, result
 
     citations = []
     for ch in chunks:
@@ -290,7 +303,7 @@ async def _retrieve(
                     "similarity": ch.get("similarity"),
                 }
             )
-    return chunks, citations
+    return chunks, citations, None
 
 
 def _build_context_block(chunks: list[dict[str, Any]]) -> str:
@@ -369,6 +382,9 @@ async def chat_sse(
             )
             conversation_id = conv["conversation_id"]
 
+        # 上述 if/else 分支必赋值（存在校验或新建）；收紧类型供 pyright 窄化
+        assert conversation_id is not None
+
         # ③ 用户消息先 commit（CP4：SSE 开始前已可见）
         await add_message(engine, tenant_id, conversation_id, "user", query, user_id)
 
@@ -380,9 +396,45 @@ async def chat_sse(
         if embedding_dim is None:
             embedding_dim = getattr(settings, "embedding_dim", 1024)
         q_emb = await embed_query(query)
-        chunks, citations = await _retrieve(
-            engine, tenant_id, role_id, query, q_emb, app, embedding_dim, settings=settings
+        chunks, citations, rule_result = await _retrieve(
+            engine,
+            tenant_id,
+            role_id,
+            query,
+            q_emb,
+            app,
+            embedding_dim,
+            settings=settings,
+            conversation_id=conversation_id,
         )
+
+        # C 系列（Task 2 D2）：execute_plan 路径（kb_scope 空，rule_result 非 None）每轮结束后
+        # upsert conversations.context——只写实体非空轮次（防审批「确认」轮污染）
+        if rule_result is not None:
+            from earp_server.conversation.conversation_service import update_conversation_context
+
+            await update_conversation_context(
+                engine,
+                tenant_id,
+                conversation_id,
+                entities=[
+                    {
+                        "mention": e.mention,
+                        "entity_id": e.entity_id,
+                        "semantic_type": e.semantic_type,
+                    }
+                    for e in rule_result.entities
+                ],
+                intent=rule_result.intent.value if rule_result.intent is not None else None,
+                relations=[
+                    {
+                        "subject": r.subject,
+                        "relation": r.relation,
+                        "object_type": r.object_type,
+                    }
+                    for r in rule_result.relations
+                ],
+            )
 
         # ⑥ 提示词 = app.system_prompt + 结构尾巴；上下文进 user 消息
         system = (app.get("system_prompt") or "").strip() + _SYSTEM_TAIL

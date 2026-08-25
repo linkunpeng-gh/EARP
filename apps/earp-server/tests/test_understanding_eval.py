@@ -93,10 +93,12 @@ async def _run_eval(cases: list[dict], engine: AsyncEngine, tid: str) -> dict:
         "intent_ok": 0, "intent_scored": 0,
         "ent_ok": 0, "ent_total": 0,
         "rel_ok": 0, "rel_scored": 0,
+        "coref_cases": 0, "coref_ok": 0,  # C 系列 Task 4：指代消解命中（ctx 用例）
         "schema_violations": [],
         "intent_misses": [],
         "entity_misses": [],
         "relation_misses": [],
+        "coref_misses": [],
     }
     rel_cands = await fetch_relation_candidates(engine, tid)
     tbox_ids = {c["relation_type_id"] for c in rel_cands}
@@ -142,6 +144,19 @@ async def _run_eval(cases: list[dict], engine: AsyncEngine, tid: str) -> dict:
                 stats["relation_misses"].append(
                     (case["num"], case["query"], case["relations"], sorted(got))
                 )
+        # 指代消解命中（C 系列 Task 4）：ctx 用例标注实体全部被解析即命中（≥80% 门槛）
+        if case["note"].startswith("ctx:"):
+            stats["coref_cases"] += 1
+            if case["entities"] and all(
+                any(
+                    m.mention == ent["mention"] and m.semantic_type == ent["semantic_type"]
+                    for m in r.entities
+                )
+                for ent in case["entities"]
+            ):
+                stats["coref_ok"] += 1
+            else:
+                stats["coref_misses"].append((case["num"], case["query"]))
         # schema 合规（result 侧）
         for rel in r.relations:
             if rel.relation not in tbox_ids:
@@ -162,12 +177,14 @@ async def test_understanding_eval_gates(migrated: str, app_url: str) -> None:
     intent_rate = stats["intent_ok"] / stats["intent_scored"]
     ent_rate = stats["ent_ok"] / stats["ent_total"] if stats["ent_total"] else 1.0
     rel_rate = stats["rel_ok"] / stats["rel_scored"] if stats["rel_scored"] else 1.0
+    coref_rate = stats["coref_ok"] / stats["coref_cases"] if stats["coref_cases"] else 1.0
 
     print(
         f"\n[understanding_eval] n={stats['n']} "
         f"intent={stats['intent_ok']}/{stats['intent_scored']}={intent_rate:.0%} "
         f"entity={stats['ent_ok']}/{stats['ent_total']}={ent_rate:.0%} "
         f"relation={stats['rel_ok']}/{stats['rel_scored']}={rel_rate:.0%} "
+        f"coref={stats['coref_ok']}/{stats['coref_cases']}={coref_rate:.0%} "
         f"schema_violations={len(stats['schema_violations'])}"
     )
     if stats["intent_misses"]:
@@ -176,8 +193,11 @@ async def test_understanding_eval_gates(migrated: str, app_url: str) -> None:
         print("  entity misses:", stats["entity_misses"][:8])
     if stats["relation_misses"]:
         print("  relation misses:", stats["relation_misses"][:8])
+    if stats["coref_misses"]:
+        print("  coref misses:", stats["coref_misses"][:8])
 
     assert stats["schema_violations"] == [], stats["schema_violations"]
     assert intent_rate >= 0.85, f"intent {intent_rate:.0%} < 85%"
     assert ent_rate >= 0.90, f"entity recall {ent_rate:.0%} < 90%"
     assert rel_rate >= 0.80, f"relation {rel_rate:.0%} < 80%"
+    assert coref_rate >= 0.80, f"指代命中率 {coref_rate:.0%} < 80%（C 系列 Task 4 门槛）"

@@ -328,6 +328,28 @@ class Connector:
             context=context,
             top_k=5,
         )
+        # C 系列（Task 2 D2）：flow qu.answer 每轮结束写会话 context（实体非空才覆写
+        # last_entities——审批「确认」轮不污染；写失败不阻断回答，维持现状语义）
+        if getattr(ctx, "session_id", None):
+            try:
+                from earp_server.conversation.conversation_service import update_conversation_context
+
+                await update_conversation_context(
+                    self._engine,
+                    ctx.tenant_id,
+                    ctx.session_id,
+                    entities=[
+                        {"mention": e.mention, "entity_id": e.entity_id, "semantic_type": e.semantic_type}
+                        for e in result.entities
+                    ],
+                    intent=sq.intent.value,
+                    relations=[
+                        {"subject": r.subject, "relation": r.relation, "object_type": r.object_type}
+                        for r in result.relations
+                    ],
+                )
+            except Exception:
+                logger.warning("qu.answer: conversation context write failed", exc_info=True)
         return {
             "selection": {"plan_name": sel.plan_name, "fallback_reason": sel.fallback_reason},
             "evidence": [e.model_dump() for e in plan_result.evidence],
@@ -338,13 +360,22 @@ class Connector:
         }
 
     async def _history_context(self, ctx: Any) -> dict:
-        """F6 D3 最小会话上下文：从消息历史推导 last_entities（上一轮用户消息的规则实体）。
+        """会话上下文读取（C 系列 D4）：优先读 conversations.context 落库值。
 
-        仅在 flow 执行（ctx.session_id 为 conversation）且历史存在时产出；异常/无历史 → {}（现状）。
-        完整方案（conversations.context 落库 + last_intent/last_relations）见 arch 设计稿 C 系列。
+        缺失/无 last_entities → F6 兜底：从消息历史（_recent_pairs）取上一轮用户消息
+        做规则层理解即时推导。仅在 flow 执行（ctx.session_id 为 conversation）时产出；
+        异常/无历史 → {}（现状语义，不阻断 QU）。
         """
         if self._engine is None or not getattr(ctx, "session_id", None):
             return {}
+        try:
+            from earp_server.conversation.conversation_service import read_conversation_context
+
+            ctx_data = await read_conversation_context(self._engine, ctx.tenant_id, ctx.session_id)
+            if ctx_data.get("last_entities"):
+                return {"last_entities": ctx_data["last_entities"]}
+        except Exception:  # noqa: BLE001 — 落库读取失败 → 兜底即时推导
+            pass
         try:
             from earp_server.conversation.chat_service import _recent_pairs
             from earp_server.ontology.understanding import understand
@@ -354,7 +385,10 @@ class Connector:
             if not prev.strip():
                 return {}
             prev_result = await understand(self._engine, ctx.tenant_id, prev, context={})
-            last_entities = [{"mention": e.mention, "semantic_type": e.semantic_type} for e in prev_result.entities]
+            last_entities = [
+                {"mention": e.mention, "entity_id": e.entity_id, "semantic_type": e.semantic_type}
+                for e in prev_result.entities
+            ]
             return {"last_entities": last_entities} if last_entities else {}
         except Exception:  # noqa: BLE001 — 上下文推导失败不阻断 QU（维持现状语义）
             return {}
@@ -613,6 +647,9 @@ class LLMConnector:
             ],
             "format": "json",
             "stream": False,
+            # 推理模型（qwen3.x/deepseek-r1）默认先产 thinking 再产 content——`think:false`
+            # 关闭思考链，保证 content 直接可用；非推理模型（qwen2.5 等）忽略该字段
+            "think": False,
             "options": {"temperature": 0.1},
         }
         try:
@@ -715,6 +752,8 @@ class LLMConnector:
                             "messages": messages,
                             "format": "json",
                             "stream": False,
+                            # 推理模型适配（同 _stream_messages/_call_ollama）
+                            "think": False,
                             "options": {"temperature": temperature},
                         },
                     )
@@ -860,7 +899,14 @@ class LLMConnector:
                 options["top_p"] = top_p
             if max_tokens:
                 options["num_predict"] = max_tokens  # Ollama num_predict = max_tokens
-            payload: dict[str, Any] = {"model": self._model, "messages": messages, "stream": True, "options": options}
+            payload: dict[str, Any] = {
+                "model": self._model,
+                "messages": messages,
+                "stream": True,
+                # 推理模型适配：关闭思考链，token 流直接是回答正文（非推理模型忽略）
+                "think": False,
+                "options": options,
+            }
         else:
             payload = {
                 "model": self._model,
@@ -897,8 +943,14 @@ class LLMConnector:
                             continue
                         if is_ollama:
                             if chunk.get("done"):
+                                logger.debug("Ollama stream done, total tokens yielded: %d", index)
                                 break
                             content = chunk.get("message", {}).get("content", "")
+                            if not content and index == 0:
+                                logger.debug(
+                                    "Ollama first chunk empty content: %s",
+                                    json.dumps(chunk, ensure_ascii=False)[:200],
+                                )
                         else:
                             choices = chunk.get("choices") or []
                             if not choices:

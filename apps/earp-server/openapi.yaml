@@ -2622,7 +2622,9 @@ paths:
     get:
       description: 'Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源；
 
-        应用中心运行页：可选 chat_app_id 过滤 + 按当前用户过滤。'
+        应用中心运行页：可选 chat_app_id 过滤 + 按当前用户过滤。
+
+        C 系列（Task 5）：非管理员按 chat_app 可见性过滤（防缝隙）。'
       operationId: list_conv_conversations_get
       parameters:
       - in: query
@@ -2810,8 +2812,7 @@ paths:
             application/json:
               schema:
                 items:
-                  additionalProperties:
-                    type: string
+                  additionalProperties: true
                   type: object
                 title: Response Copilot Pages Ep Copilot Pages Get
                 type: array

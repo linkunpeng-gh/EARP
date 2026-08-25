@@ -1,9 +1,9 @@
 # 任务清单 — Chatflow C 系列: 会话上下文（会话记忆 + 指代消解 + 元数据/可见范围）
 
-**状态：规划定稿，待开工**
+**状态：核心链（Task 1-4）已交付 + Task 5 已交付（复用 0029 access_mode+app_role_access，见下方偏差记录）；Task 6 无需改动**
 **依据**：`arch/design/2026-08-18-chat-session-context-design.md`（C1-C6 拆分草案）+ F6 评估报告（D3 摸底 + 问题清单 #9/#5）
 **依赖**：QU 角色层（understand 规则层 ✅，F6 `_history_context` 最小实现已落地 qu.answer 路径）
-**日期**：2026-08-24
+**日期**：2026-08-24（规划定稿）→ 2026-08-25（交付）
 
 ## 目标
 
@@ -125,3 +125,37 @@ Task 5（可见范围）独立于 1-4，可与 2 并行；Task 6 依赖 5
 **验收**：① dev 真 API 两轮指代：conversations.context 已写 last_entities；auto 与 flow 双路径均解析「它→CNC-01」② 指代可溯源（references 记录）+ 命中率 ≥80%（understanding_eval）③ 单轮/无 context 零回归 ④ 应用可见范围按角色过滤、对话不可枚举 ⑤ verify_f6.py 仍 80 绿 + 全量 pytest 绿 + ruff/pyright 零新增。
 
 **风险**：审批「确认」轮污染 last_entities（只写实体非空轮次）；只存上一轮 vs 多轮连续指代（留 last-*，Phase F 升级会话记忆）；kb_scope 限定路径不写 context（保持理解层单源）；visible_roles 默认空=全员（勿误隐藏存量应用）；migration 编号从 0032 起（0029_agent_center/0030_copilot/0031_flow_runs_rejected 已占用）。
+
+---
+## 交付记录（2026-08-25）
+
+**已完成（核心链 Task 1-4 + Task 5）**，验收全部达标：
+
+| 验收项 | 结果 |
+|--------|------|
+| ① dev 真 API 两轮指代 + context 落库 | ✅ `conv-ddf960ce848c`（两轮）context 已写 last_entities 含 entity_id；flow 路径（verify_f6 D3）与 auto 路径（单测）双解析「它→CNC-01」 |
+| ② references 可溯源 + 命中率 | ✅ RuleResult.references（kind=lookup/coref + trigger/entity_id）；understanding_eval coref=7/7=100%（≥80%） |
+| ③ 单轮/无 context 零回归 | ✅ 全量 pytest **484 passed / 0 failed**（基线 475 + 新增 9，排除既有 test_openapi_export 3 失败） |
+| ④ 角色可见性 + 对话不可枚举 | ✅ list_conversations/get_messages 走 chat_app 可见性谓词（admin 全员 / 白名单可见 / 不可见不可枚举）；单测覆盖 |
+| ⑤ verify_f6 80 绿 + ruff/pyright | ✅ verify_f6 **80 PASS / 0 FAIL**；ruff 零新增（68 vs 基线 67，+1 为并行 copilot 未提交 debug 行）；pyright 43 < 基线 46（assert 窄化顺带消除既有 conversation_id 告警） |
+
+**交付物**：
+- `migrations/versions/0032_conversation_context.py`：conversations +context/last_active_at/message_count/status（存量表仅加列，RLS/GRANT 不需动，表数不变）
+- `conversation_service.py`：`update_conversation_context`（只写实体非空轮次，防审批「确认」污染）+ `read_conversation_context` + add_message 维护元数据 + list/get_messages 可见性谓词
+- `chat_service.py`：`_retrieve` 读 context（auto 路径，补 F6 缺口 #9）+ 返回 RuleResult；chat_sse 每轮写 context；assert conversation_id 窄化
+- `connector.py`：`_history_context` 优先读落库 context（F6 兜底保留，D4）；`_execute_qu_answer` 每轮写 context
+- `understanding.py`：EntityMention.entity_id 回填 + coref entity_id/semantic_type 继承 + RuleResult.references trace
+- `understanding_eval.md` +113-118（ctx 用例）+ runner coref 门槛 ≥80%
+- `tests/test_session_context.py`：9 个单测（读写往返/防污染/元数据/coref trace/auto 两轮/flow 两轮/可见性缝隙）
+
+**偏差记录（已定决策 D1-D7 范围内）**：
+1. **Task 5 不新建 visible_roles 列**：0029_agent_center 已交付 `access_mode`（open|restricted）+ `app_role_access` 角色矩阵 + `get/set_app_access` API + search_chat_apps 角色过滤——即设计稿「visible_roles（空=全员）」语义的规范化实现。再建并列列会双权威源漂移。Task 5 只补「会话查询走 chat_app 可见性（防缝隙）」缺口。
+2. **Task 6 前端无需改动**：run.js 直接消费 `/conversations`（后端已过滤）；可见角色配置已有治理中心矩阵面板（app-access.js）。
+
+**环境变更（本次会话附带，.env 已 gitignore 不入库）**：
+- `apps/earp-server/.env`：`EARP_OLLAMA_BASE_URL=http://10.188.2.230:11434` + `EARP_OLLAMA_CHAT_MODEL=qwen3.6:27b` + `EARP_COPILOT_MODEL=qwen3.6:27b`（用户指定远程 Ollama；远程无 qwen2.5:1.5b，chat/copilot 切到远程实际存在的 qwen3.6:27b）
+- `connector.py` 三处 Ollama payload 加 `think: false`：qwen3.6:27b 为推理模型，默认先产 thinking 致 content 为空（实测 30 tokens 全耗思考链）；think:false 后 content 直接可用，对非推理模型（qwen2.5:1.5b）无害（实测验证）
+- dev API 已重启拾取 .env；verify_f6 在新 env 下 80/0 全绿
+- **pytest 基线不变**：仍用 `EARP_OLLAMA_BASE_URL=http://127.0.0.1:11434 EARP_OLLAMA_CHAT_MODEL=qwen2.5:1.5b`（env 覆盖 .env；机制层评估不调 LLM）
+
+**遗留（Phase F 方向）**：多轮连续指代（A→B→C 逐轮）留 last-*（设计稿开放问题 1，Phase F 升级会话记忆）；kb_scope 限定路径不写 context（开放问题 2，保持理解层单源）。

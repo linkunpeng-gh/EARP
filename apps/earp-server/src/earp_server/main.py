@@ -1552,7 +1552,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         req: Request = None,  # type: ignore[assignment]
     ) -> list[dict[str, Any]]:
         """Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源；
-        应用中心运行页：可选 chat_app_id 过滤 + 按当前用户过滤。"""
+        应用中心运行页：可选 chat_app_id 过滤 + 按当前用户过滤。
+        C 系列（Task 5）：非管理员按 chat_app 可见性过滤（防缝隙）。"""
+        is_admin = await is_is_admin(req.app.state.engine, req.state.tenant_id, req.state.role_id)
         return await list_conversations(
             req.app.state.engine,
             req.state.tenant_id,
@@ -1560,6 +1562,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             offset,
             chat_app_id=chat_app_id,
             user_id=req.state.user_id,
+            role_id=req.state.role_id,
+            is_admin=is_admin,
         )
 
     @app.post("/conversations/{conv_id}/messages", status_code=201, tags=["conversations"])
@@ -1570,7 +1574,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/conversations/{conv_id}/messages", tags=["conversations"])
     async def list_msgs(conv_id: str, limit: int = 50, offset: int = 0, req: Request = None) -> list[dict[str, Any]]:  # type: ignore[assignment]
-        return await get_messages(req.app.state.engine, req.state.tenant_id, conv_id, limit, offset)
+        is_admin = await is_is_admin(req.app.state.engine, req.state.tenant_id, req.state.role_id)
+        return await get_messages(
+            req.app.state.engine,
+            req.state.tenant_id,
+            conv_id,
+            limit,
+            offset,
+            role_id=req.state.role_id,
+            is_admin=is_admin,
+        )
 
     # ── Copilot (AI 配置助手) ──
     @app.post("/copilot/assist", tags=["copilot"], response_model=None)
