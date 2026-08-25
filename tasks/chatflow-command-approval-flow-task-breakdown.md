@@ -96,3 +96,26 @@ Task 5（兼容回归）→ 最后
 
 ---
 **规划定稿，确认后开工。**
+
+---
+## 开工提示（下个会话用，已核实 2026-08-24）
+
+**定位**：F6 评估明确立项的下一阶段任务（评估报告 §10 D2）——给「会动手的命令能力」上系统级审批闸门 + 把一直未验证的 Saga 补偿补上真实回滚。
+
+**基线与环境**：工作树 clean（或仅并行 copilot 会话文件未提交，勿动）；dev 8000 API（--reload）运行中；mock 8001（`scripts/f6_mock_server.py`）运行中；Ollama 11434（qwen2.5:1.5b / bge-m3）。pytest 需带 `EARP_OLLAMA_BASE_URL=http://127.0.0.1:11434 EARP_OLLAMA_CHAT_MODEL=qwen2.5:1.5b`。全量基线：**431 passed / 3 failed**（3 个失败全是既有 test_openapi_export——copilot 提交引入的本地模型 ForwardRef 问题，与本次无关，勿碰）。`verify_f6.py` 78 断言全绿为回归基线。
+
+**现状锚点（已核实，勿凭猜）**：
+- 补偿：`orchestrator/compensation.py` SagaCompensation（register/rollback LIFO）；`multi_step.py` 两条路径（legacy `execute` 与 `_execute_plan`）都在 `step.compensate_call` 存在时注册 `_compensate` → `Connector.execute(compensate_call)`——但 flow 路径真实 rollback **从未验证**（F6 报告 §10 明记）
+- 审批漏洞：`connector.py _execute_capability_call` 只做 required_permissions 门禁 + 审计，`type=command` 只是声明无强制审批——flow 不手动放 human_approval 就直接执行
+- F4 机制：`human.approval` 适配器抛 `ApprovalPending(node_id, question)` → MultiStepExecutor 捕获 → flow_runs(waiting_human) → flow_chat 恢复路径（同 conversation 下一句即答复）
+- mock：`scripts/f6_mock_server.py` 有 /equipment/status、/maintenance-orders、/notify、/complaints、/_control/*（**需补撤单/撤通知补偿端点**）
+- 审计：`earp.capability.call.{started,completed,failed}` 已落 audit_logs（in-process EventBus → audit handler）；审批决策无专门事件
+- 场景 A（F6）的 create_maintenance_order/notify_owner 是 command 型但走显式 human_approval——审批在 flow 层，本任务补能力层兜底且不双审
+
+**既定决策（D1-D7，勿推翻）**：D1 能力层兜底门禁 + flow 显式 human_approval 兼容（gate 判定避免双审批）；D2 审批决策=用户对话下一句（复用 F4）或独立端点，驳回→终态 rejected（flow_runs 加状态需同步 CHECK/前端/测试）；D3 补偿=execution 声明 compensate_call（mock 补端点，生产=声明切换点），真实 rollback 验证（开单成功→通知失败→断言撤单+rolled_back）；D4 `earp.approval.*` 审计；D5 审批人=命令权限 holder/指定角色；D6 不做多级审批/委托/动态表单；D7 单测+flow 集成+verify_f6 回归。
+
+**建议执行序**：`1（门禁+gate 判定）→ 3（审批决策流）→ 4（审计）→ 2（Saga 补偿+真实回滚）→ 5（回归+指南）`，合计 3-5 天。
+
+**验收**：① command 能力任意入口不可无审批执行；flow 显式 human_approval 不双审 ② 批准/驳回/超时三态影响下游 ③ 真实回滚：开单→通知失败→撤单被调用（mock 日志断言）+ rolled_back ④ `earp.approval.*` 事件齐全 ⑤ verify_f6.py 仍 78 绿 + 全量 pytest 绿 + ruff/pyright 零新增。
+
+**风险**：双审批（gate 判定要稳）；补偿真实性（mock 只验机制，生产需真实 API）；legacy 影响面（capability.call 被 invoke/query 后台复用——只审 command 勿伤 query）；rejected 状态机同步（flow_runs CHECK/前端/F4 测试）。
