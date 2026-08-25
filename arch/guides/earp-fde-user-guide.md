@@ -878,6 +878,13 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
   角色 data_scope 过滤**——涉及实体数据时请让上层 knowledge/QU 节点做域过滤，或接受一期
   `domain_filtered: false` 标注。
 - **human_approval 节点**（F4）：执行到挂起点 → **202 等待确认**（不失败不阻塞）→ 用户在**同一会话**发下一句消息即答复 → 流程自动继续；答复可用 `{{#节点id.output.reply#}}` 引用。多个人工确认节点按顺序逐个等待。等待超时（默认 1 小时，`EARP_APPROVAL_TTL`）→ 流程终态 timeout + 消息「⏰ 等待超时」；恢复时的超时惰性检查 + scheduler 定期扫描双保险。
+- **命令能力审批（命令审批流，Task 1/3/4）**：`type=command` 的能力（建单/通知/归档等会动手的操作）**不可无审批执行**——
+  - **门禁**：任意入口（含 flow 未显式放 human_approval）调用 command 能力 → 能力层（`capability.call`）**强制挂起**：返回 202、`pending_node_id` 指向该能力节点、提示「需人工审批」。query 能力不受影响。
+  - **决策**（用户下一句即答复，复用 F4 恢复语义）：命中明确拒绝词（驳回/拒绝/不同意/不要/取消…）→ 流程终态 **`rejected`**（命令不执行、下游不跑）；否则视为**批准** → 标记 `approval_granted` 后**真实执行命令**。
+  - **不双审**：flow 里显式含 human_approval 节点 → 编译期给该 flow 所有命令能力注入 `already_approved`（能力层跳过，只停一次）——场景 A/B 兼容。
+  - **超时**：`EARP_APPROVAL_TTL`（默认 3600s）无答复 → `timeout` 终态。
+  - **审计**：`earp.approval.requested / approved / rejected / timed_out`（entity_type=capability，detail 含 capability_id/execution_id/user_id/role_id）→ audit_logs。
+- **Saga 补偿（命令审批流 Task 2）**：命令能力可在注册时于 execution 声明 `compensate_call`（反向撤销调用，如撤单/撤通知）——后续步骤失败且无 error 分支时，执行器按 **LIFO** 自动回滚已成功命令 → flow 终态 `rolled_back`（失败步骤本身为 failed）。演示 mock 提供 `/_control/cancel-order`、`/_control/cancel-notify`；生产在能力 execution 声明切换为真实企业 API 即可。
 - **mcp 节点**：F4 仍编译报「未实现（后续）」——flow 图请勿放置。
 
 ### 15.4 变量引用（节点间传值）
@@ -916,7 +923,8 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 #### 15.6.1 30 秒理解模型
 
 - **能力 = adapter 的命名封装**：一个能力 = `capability_id` + 权限清单 + 执行方式声明
-- **execution 声明 = 「这个能力怎么跑」**：`{"adapter": "<白名单 6 选 1>", "params": {…固定参数}}`
+- **execution 声明 = 「这个能力怎么跑」**：`{"adapter": "<白名单 6 选 1>", "params": {…固定参数}}`；
+  command 能力可额外带 `"compensate_call": {…}`（Saga 补偿，见 §15.3）
 - **执行优先级**：execution 声明 → 按 adapter 分派；无声明 → 回退 `domain.name` 猜测（仅 demo.echo
   命中）；猜不中 → 明确报错「无执行 adapter（执行声明缺失或未实现）」
 - **参数优先级**：节点 input > execution.params。**注意**：Chatflow 画布的能力节点一期只有
@@ -938,11 +946,15 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 |:---|:---|:---|
 | 能力 ID | `cap-equipment-fetch`（留空则自动生成 `cap-{domain}-{name}`） | 小写字母/数字/`-`/`_`，≤64 字符 |
 | Domain / Name | `equipment` / `fetch_records` | domain ≤64 字符 |
-| 类型 | query | query 无副作用 / command 走审批 |
+| 类型 | query | query 无副作用 / **command 走人工审批**（命令审批流：调用时强制挂起等批准，见 §15.3） |
 | 所需权限 | `equipment:read` | 逗号分隔多个；**不可为空**——执行时校验「角色 permissions ⊇ 此清单」 |
 | 执行方式 | adapter 选 `tool.fetch` | 「这个能力怎么跑」 |
 | 执行参数 | `{"connector_id": "cn-equipment"}` | 固定走这条连接取数（connector_id 不必每次在图里配） |
 | input/output Schema | 留空即可 | 自动填 `{"type":"object","properties":{}}`（也可自定义，需含 properties） |
+
+> **command 能力可选声明补偿（Saga）**：在「执行参数」里追加 `"compensate_call": {"adapter_type": "capability.call", "capability_id": "…撤单能力…", "input": {…}}`
+> ——该命令执行成功后若后续步骤失败，会自动反向撤销（撤单/撤通知），flow 终态 `rolled_back`。
+> 详见 §15.3；演示 mock 端点：`/_control/cancel-order`、`/_control/cancel-notify`。
 
 2. **搭图**：工作台 → chatflow → 新建应用，画布拖入 `开始 → 能力调用 → LLM → 结束`；
    选中能力节点 → 右侧属性面板「能力 ID」填 `cap-equipment-fetch`；LLM 节点提示词写
@@ -1004,6 +1016,11 @@ ORDER BY created_at DESC;
 SELECT event_type, user_id, detail, created_at FROM audit_logs
 WHERE tenant_id='tenant-demo' AND event_type LIKE 'earp.capability.call.%'
 ORDER BY created_at DESC LIMIT 20;
+-- 命令能力审批（请求/批准/驳回/超时）
+SELECT event_type, detail->>'capability_id' AS cap, detail->>'decision' AS decision,
+       detail->>'user_id' AS user_id, created_at FROM audit_logs
+WHERE tenant_id='tenant-demo' AND event_type LIKE 'earp.approval.%'
+ORDER BY created_at DESC LIMIT 20;
 ```
 
 #### 15.6.9 排障表（按报错原文找）
@@ -1019,6 +1036,8 @@ ORDER BY created_at DESC LIMIT 20;
 | 注册返回 409 | 同名能力已存在 | 换 ID 或去编辑既有能力 |
 | 注册返回 422 | 字段校验失败（长度/字符/ schema/权限空，信息里有原因） | 按提示改字段 |
 | 能力节点输出 `{"echo": {}}` 但预期取数 | 用了 demo 能力/execution 没配对 | 确认画布能力 ID 指向取数能力 |
+| 命令能力执行被挂起 202（`需人工审批：确认执行？`） | 能力层审批门禁（命令审批流）：command 且 flow 无显式人工确认 | 同会话下句输「同意/确认」放行；输「驳回/不同意」则流程终态 rejected；或在图里加 human_approval 节点避免在命令节点上问 |
+| 审批后返回 `status: rejected` | 用户答复命中拒绝词，命令未执行 | 属预期终态（非报错）；重新描述需求开新流程 |
 
 #### 15.6.10 进阶：API 直调（进阶，可选）
 

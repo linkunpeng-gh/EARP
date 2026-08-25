@@ -6,7 +6,7 @@
 > 技术细节（节点数据形状、权限审计边界、实现原理）见 `earp-fde-user-guide.md` §15。
 >
 > **v1.3（2026-08-24）**：补节点输出速查 / 两轮对话指代 / 失败语义 / 实测排障；§7.5-7.6 增加
-> 「照着搭」完整实操（dev 已验证：`scripts/verify_f6.py` 78 项断言全绿）。
+> 「照着搭」完整实操（dev 已验证：`scripts/verify_f6.py` 80 项断言全绿）。
 
 ---
 
@@ -222,7 +222,7 @@ Chatflow 是**独立于 Chat 的一种应用**（工作台抽屉里两个并列�
 
 ## 7.5 照着搭：设备维修单（场景 B）完整实操
 
-> 场景 B 的成品已在 dev 环境跑通（评估脚本 `scripts/verify_f6.py`，78 项断言全绿）。
+> 场景 B 的成品已在 dev 环境跑通（评估脚本 `scripts/verify_f6.py`，80 项断言全绿，含命令审批门禁两项）。
 > 下面是**从零搭一遍**的完整步骤——照着做能复现「查状态→故障→开单→人工确认→通知」全流程。
 
 ### 第 1 步：起一个“外部系统”（演示用 mock，生产接真实系统）
@@ -239,6 +239,8 @@ mock 的**控制端点**（评估/演示时切状态用，不进流程）：
 | 端点 | 作用 |
 |:---|:---|
 | `POST /_control/equipment` body `{"equipment_id":"CNC-01","status":"ok","temperature":42}` | 把设备改成正常/故障，看另一条分支 |
+| `POST /_control/cancel-order` body `{"order_no":"WO-0001"}` | 撤单（Saga 补偿：流程后续步骤失败时自动调用，验证回滚） |
+| `POST /_control/cancel-notify` body `{"notify_id":"NT-0001"}` | 撤回通知（同上，补偿端点） |
 | `POST /_control/reset` | 重置全部设备状态 + 清空调用记录（重跑前调用，保证断言干净） |
 | `GET /_state` | 看当前设备状态、已开单/已通知/已归档记录（验证副作用） |
 
@@ -302,6 +304,11 @@ mock 的**控制端点**（评估/演示时切状态用，不进流程）：
 > 换一个设备状态再跑一遍看另一支：`curl -X POST http://127.0.0.1:8001/_control/equipment -H 'Content-Type: application/json' -d '{"equipment_id":"CNC-01","status":"ok","temperature":42}'`
 > → 走 else 分支，LLM 生成「设备正常」答复。
 
+> 🔒 **关于审批（命令审批流）**：本图显式放了「人工确认」节点（h1）→ 流程里的命令能力
+> （`cap-f6-create-order` 建单 / `cap-f6-notify` 通知）视为**已人工把关**，能力层不再重复
+> 审批——所以运行只会在 h1 停一次。反之，**没有**任何人工确认节点的 flow 若调用命令能力，
+> 会在命令节点上**强制挂起等审批**（详见 §9 / fde-guide §15.3）。
+
 ### 第 6 步：发布 + 对话验证
 
 保存后点「**发布**」（发布评审会再校验一次图）→ 前端/API 调 `POST /chat_apps/{app_id}/chat`
@@ -312,20 +319,28 @@ mock 的**控制端点**（评估/演示时切状态用，不进流程）：
 
 **前置**：建 KB「客户投诉记录」并传两个样例文档（元数据 `{"vip": true, "customer": "张伟"}` /
 `{"vip": false, "customer": "李明"}`，KB 的 metadata_schema 需含这两个字段）；再注册归档能力
-`cap-f6-archive-complaint`（complaint / archive_complaint，command，`complaint.archive`，`tool.fetch` →
+`cap-f6-archive-complaint`（complaint / archive_complaint，**command**，`complaint.archive`，`tool.fetch` →
 `cn-f6-complaint` 连接指向 `POST /complaints`）。
 
 **图**（两分支各自「先归档、再话术」——LLM 节点放最后，答复才是页面展示的答案）：
 
 ```
-开始 → 知识检索(kb_ids=客户投诉记录, 查询={{query}}) → 条件: chunks.0.metadata.vip == true?
-   ├─ ✓是 → 能力:归档(VIP) → LLM: VIP 话术（24 小时内专人跟进） → 结束
-   └─ ✗否 → 能力:归档(普通) → LLM: 标准话术（3 个工作日内反馈） → 结束
+开始 → 人工确认(收到投诉，是否归档并回复？) → 知识检索(kb_ids=客户投诉记录, 查询={{query}})
+     → 条件: chunks.0.metadata.vip == true?
+        ├─ ✓是 → 能力:归档(VIP) → LLM: VIP 话术（24 小时内专人跟进） → 结束
+        └─ ✗否 → 能力:归档(普通) → LLM: 标准话术（3 个工作日内反馈） → 结束
 ```
 
-**跑**：输入 `张伟反映上次设备安装响应太慢，需要处理` → 命中 VIP 分支（归档 `vip:true`，VIP 话术）；
-`李明反映说明书更新不及时` → 普通分支。
+**跑**（两步，中间等人工）：
+1. 输入 `张伟反映上次设备安装响应太慢，需要处理` → 在**人工确认**处停住（⏸ 返回 202）
+2. 同会话输 `确认，请处理` → 命中 VIP 分支（归档 `vip:true`，VIP 话术）完成
 
+`李明反映说明书更新不及时` → 同上两步 → 普通分支。
+
+> 🔒 **为什么这里要放「人工确认」**：`archive_complaint` 是 command 能力，若 flow 里**没有任何**
+> 人工确认节点，它会在归档前被能力层**强制审批挂起**（系统级安全闸门，无法绕过）。显式放一个人工
+> 确认节点 = 这个 flow 已人工把关，只在 h1 停一次，不会重复问。
+>
 > 关键点：条件左值写 `k1.output.chunks.0.metadata.vip`（列表首条元数据，F6 起支持列表下标）；
 > 归档节点的 `customer` 参数用 `{{#k1.chunks.0.metadata.customer#}}` 把检索命中的客户带过去。
 
@@ -341,6 +356,9 @@ mock 的**控制端点**（评估/演示时切状态用，不进流程）：
 | 运行到一半不动 | 遇到人工确认在等人——在结果条输答复提交即可 |
 | 等人太久没答复 | 默认 1 小时后自动判"超时终止"；**超时后**用户再说"确认"不会续上，需要重新描述问题 |
 | 答案变成一坨 JSON | **最后执行的节点**决定了展示的答案——把 LLM 节点放分支最后，让副作用节点（归档/开单）先执行 |
+| 命令能力执行被挂起（`需人工审批：确认执行？`） | 这是**能力层审批门禁**（命令审批流）——command 能力无显式人工确认时强制等审批；下句输「同意/确认」放行，输「驳回/不同意」则流程终止（rejected） |
+| 命令能力审批被驳回 | 流程终态 `rejected`（不会执行命令、下游不跑）；换新会话重新描述需求即可 |
+| 命令能力审批超时 | 默认 1 小时（`EARP_APPROVAL_TTL`）无答复 → 自动终止（timeout），不留僵尸流程 |
 | 条件总走错分支 | 左值路径写错或漏了列表下标——对照 §4.5 检查字段名；调试时点条件节点看实际输入值 |
 | 第二句"它坏了"没指代上 | 上一条消息没有实体（如只回了个"确认"）——把设备名写全 |
 | 两轮对话指代不生效 | 换一个**新会话**再试（指代取同一会话的上文）；同一会话里第二句紧跟第一句 |
@@ -353,9 +371,18 @@ mock 的**控制端点**（评估/演示时切状态用，不进流程）：
 
 ## 9. 权限与安全速记
 
+- **命令能力审批（命令审批流）**：`type=command` 的能力（建单/通知/归档等会动手的操作）
+  **任何入口都不可无审批执行**——flow 里**没放**人工确认节点时，命令节点执行前会被能力层
+  强制挂起（202，提示「需人工审批」）；用户下一句即决策：**批准**（同意/确认/是…）→ 真实执行，
+  **驳回**（驳回/拒绝/不同意…）→ 流程终态 `rejected`（下游不执行），**超时**（`EARP_APPROVAL_TTL`
+  默认 1 小时）→ `timeout`。flow 里**显式放**了人工确认节点 → 该 flow 的命令能力视为已把关，
+  不重复审批（只停一次）。审批全程落审计 `earp.approval.requested/approved/rejected/timed_out`。
 - **能力节点**：每次调用走权限门禁 + 审计（`earp.capability.call.*` 落日志）——审计 SQL：
   `SELECT event_type, entity_id, detail FROM audit_logs WHERE event_type LIKE 'earp.capability.call%' ORDER BY created_at DESC;`
   （detail 里含 execution_id / user_id / role_id / 耗时 / 错误，一次能力调用记 started + completed/failed 两条）
+- **Saga 补偿**：命令能力可在注册时声明 `execution.compensate_call`（如撤单/撤通知）——后续步骤
+  失败时按 LIFO 自动回滚已执行命令（flow 终态 `rolled_back`），演示 mock 已含
+  `/_control/cancel-order`、`/_control/cancel-notify`，生产接真实企业 API
 - **工具取数**：数据在外部系统，**不自动按角色过滤**（标注 `domain_filtered: false`）——敏感数据请确认归属
 - **人工确认**：等待超时自动终止（默认 1 小时，`EARP_APPROVAL_TTL` 可配），不留僵尸流程
 - **失败恢复**：节点失败 → 流程终态 failed（非 500），下游不执行、副作用不重复；挂起超时 → 旧流程终态 timeout，新消息开新流程
