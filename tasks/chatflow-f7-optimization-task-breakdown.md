@@ -1,6 +1,6 @@
 # 任务清单 — Chatflow F7 优化: 评估问题高优 1-3（QU 缓存 / 失败归一 / 指定答案节点）
 
-**状态：规划定稿，待开工**
+**状态：✅ 已完成（2026-08-25，commit 962f827）**
 **依据**：`docs/chatflow-f6-evaluation-report.md` §8 问题清单高优 1-3（F6 评估产出）
 **依赖**：F0-F6 ✅（评估已完成，问题已定位）
 **日期**：2026-08-24
@@ -33,6 +33,11 @@ F6 评估发现的三个**高优先级**问题，修复后消除「评估明确�
 | D7 | 测试策略 | 各问题单元 + 集成 + verify_f6 78 绿回归；不新增评估维度外的功能 |
 
 ## Task 拆解（建议执行序 1 → 2 → 3）
+
+> 全部完成（962f827）。Task 1 改 `connector.json_complete` 缓存 + `upgrade_with_llm` 挂共享
+> LLMCache；Task 2 改 `ConnectorFetchError(ConnectorError)` + `code` 分类 + `StepResult.error_code`
+> 透传 + chat_ep 422 带码；Task 3 改 `WorkflowGraph.answer_from` + flow_chat 答案选择。
+> 验证：全量 pytest **501 passed**；verify_f6 **80/80**；ruff/pyright 零新增（仅基线预存项）。
 
 ### Task 1 — QU 升级路径 LLM 缓存（0.5-1 天）
 **文件**：`src/earp_server/connector.py`（json_complete/upgrade_with_llm 缓存）、`src/earp_server/ontology/understanding.py`、`tests/test_understanding.py`/`tests/test_connector_service.py`
