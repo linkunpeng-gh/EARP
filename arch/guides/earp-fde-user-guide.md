@@ -542,6 +542,11 @@ QU 调试页的「会话上下文」输入框支持多轮指代消解：上文�
 - **只补未命中字段**（省 token，不重做已命中）
 - prompt 给出 TBox 关系候选集，**禁止发明关系**（intent ∈ 10 类枚举、relation ∈ TBox 是硬校验）
 - LLM 不可达/输出非法 → 保持规则结果（schema 合规率 100% 不破）
+- **升级结果两级缓存（F7）**：① 同租户同 query LRU 长驻（负缓存：失败/超时也记，弱模型不白等预算）；
+  ② connector 级缓存（键 = 模型 + 升级 prompt，含 query/missing/relation_candidates/context；
+  TTL = `EARP_LLM_CACHE_TTL` 默认 3600s，Redis + 内存双栈）——**跨租户/跨进程同 prompt 也命中**，
+  同问题重复询问不再重复全量 LLM 调用（冷启动 8s → 二次命中近 0）；失败/超时**不写** connector
+  缓存（瞬时故障不毒化）
 
 ### 10.6 完整链路（例子）
 
@@ -856,12 +861,21 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
 { "id": "nt1", "type": "note", "data": { "text": "此处需人工确认后通知负责人" }, "position": { "x": 620, "y": 30 } }
 ```
 
+**flow_schema 顶层（可选）：`answer_from` 显式指定答案节点（F7）**——
+```jsonc
+// 顶层加 answer_from = 节点 id：flow 的「答复」取该节点输出（output.text 优先，否则 JSON 摘要）
+// ——多分支/副作用节点置后不再覆盖答复（告别「答案 = 最后执行节点」隐性语义）
+{ "answer_from": "l1", "nodes": [ … ], "edges": [ … ] }
+```
+> 规则：指定且该节点完成 → 用它；未指定 / 节点未完成 → 回落「回答节点优先，兜底最后完成节点」（存量兼容，不配即原行为）。
+> 画布编辑器一期未提供该字段输入框——通过 flow_schema JSON/API 配置。
+
 ### 15.2 三个节点做了什么
 
 | 节点 | 执行链路 | 输出 | 备注 |
 |:---|:---|:---|:---|
 | **LLM** | llm.prompt 适配器（`model_config_id` 存在 → 解析节点级模型配置构造独立 LLMConnector；`system` 可选透传） | `{"text": ...}` | 模型：留空=应用/系统默认模型；指定=模型配置中心该配置（provider/base_url/api_key 全量）；配置不存在 → 明确报错不静默回落 |
-| **QU** | understand（规则层，可 LLM 升级 `use_llm`）→ select_plan → execute_plan（plan_fact/relation/aggregation） | `{selection, evidence, citations, chunks, entities}` | 输出 citations 供下游 `{{#q1.output.citations#}}`（或简写 `{{#q1.citations#}}`）引用；**F6 新增 `entities`**（规则层实体提及 `[{mention, semantic_type}]`）——能力节点取设备引用 `{{#q1.entities.0.mention#}}`、条件分支判断实体；`use_llm=false` 纯规则（快，跳过升级）；升级模板由租户在模型配置中心「QU 升级模板」配置（占位符 {query}/{missing}/{relation_candidates}/{context}）；**F6 会话上下文最小接入**：同一会话上一轮用户消息的实体自动作为指代消解上下文（「它」→ 上文实体，规则层非 LLM） |
+| **QU** | understand（规则层，可 LLM 升级 `use_llm`）→ select_plan → execute_plan（plan_fact/relation/aggregation） | `{selection, evidence, citations, chunks, entities}` | 输出 citations 供下游 `{{#q1.output.citations#}}`（或简写 `{{#q1.citations#}}`）引用；**F6 新增 `entities`**（规则层实体提及 `[{mention, semantic_type}]`）——能力节点取设备引用 `{{#q1.entities.0.mention#}}`、条件分支判断实体；`use_llm=false` 纯规则（快，跳过升级）；升级模板由租户在模型配置中心「QU 升级模板」配置（占位符 {query}/{missing}/{relation_candidates}/{context}）；**F6 会话上下文最小接入**：同一会话上一轮用户消息的实体自动作为指代消解上下文（「它」→ 上文实体，规则层非 LLM）；**F7 升级结果两级缓存**：同租户同 query LRU + 跨租户同 prompt connector 缓存（TTL 3600s）——同问题重复询问不再重复等模型（见 §10.5） |
 | **Capability** | business_capabilities 注册表校验（存在 + active）→ required_permissions 门禁 → 执行 | 适配器结果（如 demo.echo → `{"echo": {...}}`） | 无权限：PolicyLayer 403；审计 `earp.capability.call.*`；capability_id 需在注册表声明；**执行分派按能力的 execution 声明**（adapter ∈ 白名单：demo.echo / llm.prompt / knowledge.search / chat.history / qu.answer / tool.fetch，params 为 adapter 固定默认、可被节点 input 覆写）；无声明 → 回退 domain.name 猜测（兼容 demo.echo）；显式未知 adapter / 猜测不中 → 明确报错「无执行 adapter（执行声明缺失或未实现）」；已停用（deprecated）→ 报「已停用」。**能力注册/管理见能力中心页（§15.6）** |
 | **Tool** | decrypt_config（AES 解密）→ data_adapter.fetch（REST/DB） | `{rows, count, domain_filtered: false}` | 取数在外部系统（不经 EARP RLS）——raw rows 一期标注 `domain_filtered: false`，需上层/后续做角色域过滤 |
 | **Human Approval**（F4） | 执行到挂起点 → 抛挂起信号 → flow_runs 持久化 → 202 等人工答复 | 挂起 202 `{status: waiting_human, pending_node_id, question}`；恢复后答复经 `{{#h1.output.reply#}}` 供下游 | 用户下一句消息即答复（复用对话）；等待超时（默认 3600s）→ timeout 终态 |
@@ -886,6 +900,12 @@ POST /v1/ontology/enrichment/run     # 手动触发（Admin），返回分项统
   - **审计**：`earp.approval.requested / approved / rejected / timed_out`（entity_type=capability，detail 含 capability_id/execution_id/user_id/role_id）→ audit_logs。
 - **Saga 补偿（命令审批流 Task 2）**：命令能力可在注册时于 execution 声明 `compensate_call`（反向撤销调用，如撤单/撤通知）——后续步骤失败且无 error 分支时，执行器按 **LIFO** 自动回滚已成功命令 → flow 终态 `rolled_back`（失败步骤本身为 failed）。演示 mock 提供 `/_control/cancel-order`、`/_control/cancel-notify`；生产在能力 execution 声明切换为真实企业 API 即可。
 - **mcp 节点**：F4 仍编译报「未实现（后续）」——flow 图请勿放置。
+- **flow 执行失败分类（F7，前端精确提示用）**：节点失败时返回值 trace 每节点带 `error_code`——
+  `connection`（连接类：tool 取数连接失败/超时/非 2xx、LLM 服务不可达）/ `unknown_capability`
+  （能力不存在/已停用、连接不存在）/ `permission`（能力层缺权限）/ `validation`（参数缺失/声明非法，默认）。
+  flow 整体仍是 **200 + `status=failed`**（前端区分「流程失败」，语义不变）；若错误逃逸到端点层则
+   **422 统一收口且 detail 带 `[code]`**（不再 fallthrough 500）。连接类异常统一为
+   `ConnectorFetchError ⊂ ConnectorError`（同分类、同重试策略：3 次指数退避后终态 failed）。
 
 ### 15.4 变量引用（节点间传值）
 
