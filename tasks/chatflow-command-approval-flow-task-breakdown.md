@@ -1,6 +1,6 @@
 # 任务清单 — 命令审批流（Command Approval Flow）: 命令能力审批治理 + Saga 补偿细化
 
-**状态：Task 1/2/3/4 已实现并全绿（475 pytest + verify_f6 80/0），Task 5（FDE 指南）待补**
+**状态：✅ 已完成（2026-08-25，commit 353c9cf 实现 + fdbfa02 FDE 指南）——Task 1-5 全交付**
 **依据**：F6 评估报告 §10（D2：命令审批流 = 下一阶段立项依据）+ `arch/design/2026-08-18-chatflow-integration-design.md` 开放问题 2 + 能力中心 task（type=command 走审批）
 **依赖**：F4 human_approval ✅（挂起/恢复/超时）+ 能力中心 ✅（execution 声明 + command 类型）+ MultiStep 补偿 ✅（M12 minimal）
 **日期**：2026-08-24
