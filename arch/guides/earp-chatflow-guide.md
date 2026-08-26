@@ -315,6 +315,26 @@ mock 的**控制端点**（评估/演示时切状态用，不进流程）：
 （orchestration=flow）即可对话验证。每次会话第一句挂起返回 202，第二句恢复直到完成；
 能力调用全量落审计（`earp.capability.call.*`）。
 
+### 第 6.5 步：外部系统调用（API 密钥两步）
+
+已发布 flow 可用 **API 密钥**从外部系统调用（应用详情「🔑 API 访问」生成密钥，明文仅显示一次）：
+
+```bash
+KEY="app-<你的密钥>"
+# 第 1 步：发起 → 人工确认节点挂起 202（waiting_human + conversation_id）
+curl -s -X POST http://localhost:8000/api/v1/chat-apps/<app_id>/chat \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"query": "CNC-01 温度异常，请帮我处理"}'
+# 第 2 步：同 conversation_id 续调（你的答复即审批意见）
+curl -s -X POST http://localhost:8000/api/v1/chat-apps/<app_id>/chat \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"query": "同意，请继续", "conversation_id": "<第 1 步返回的 conversation_id>"}'
+# → 200 {"status":"completed","outputs":{...}}
+```
+
+> 与画布调试一致：**命令审批在 API 调用下语义不变**——挂起 202 后由外部系统携带
+> conversation_id 续调恢复；密钥/错误码/审计说明见 `earp-fde-user-guide.md` §15.7。
+
 ## 7.6 照着搭：客户投诉分流（场景 C）
 
 **前置**：建 KB「客户投诉记录」并传两个样例文档（元数据 `{"vip": true, "customer": "张伟"}` /

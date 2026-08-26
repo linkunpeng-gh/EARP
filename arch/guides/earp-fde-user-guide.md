@@ -1073,3 +1073,53 @@ curl -s localhost:8000/capabilities/cap-equipment-fetch -H "Authorization: $T"
 curl -s -X PATCH localhost:8000/capabilities/cap-equipment-fetch -H "Authorization: $T"   -H 'Content-Type: application/json' -d '{"version":"1.1.0"}'
 curl -s -X DELETE localhost:8000/capabilities/cap-equipment-fetch -H "Authorization: $T"
 ```
+
+#### 15.7 对外 API 访问（Dify API Access 对标，应用详情「🔑 API 访问」页签）
+
+**适用**：外部系统（企业微信/钉钉/网页/业务系统）用 **API 密钥**调用已发布应用——`Bearer app-<key>`
+鉴权，非用户 JWT。
+
+**前置**：应用必须**已发布**（草稿无法被密钥调用，返回 404 不暴露存在性）；应用详情页点
+「🔑 API 访问」生成密钥——**明文仅显示一次**，请立即复制保存；生产/测试建议各一把
+（`prod-xxx` / `dev-xxx`），按应用拆分。
+
+**调用地址**：`POST /api/v1/chat-apps/{chat_app_id}/chat`，请求体 `{"query": "...", "conversation_id": null}`。
+
+##### ① auto 应用：SSE 流式
+
+```bash
+KEY="app-<你的密钥>"
+curl -N -X POST http://localhost:8000/api/v1/chat-apps/<app_id>/chat \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"query": "CNC-01 的供应商是谁"}'
+# → data: {"type":"token",...}* → data: {"type":"done","message_id":...}
+```
+
+##### ② flow 应用：挂起 202 两步调用（命令审批语义不变）
+
+```bash
+KEY="app-<你的密钥>"
+# 第 1 步：发起（走到人工确认节点 → 202 挂起）
+curl -s -X POST http://localhost:8000/api/v1/chat-apps/<app_id>/chat \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"query": "CNC-01 温度异常，请帮我处理"}'
+# → 202 {"status":"waiting_human","pending_node_id":"h1","question":"...","conversation_id":"..."}
+# 第 2 步：同 conversation_id 续调（你的答复即审批意见）
+curl -s -X POST http://localhost:8000/api/v1/chat-apps/<app_id>/chat \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"query": "同意，请继续", "conversation_id": "<上一步的 conversation_id>"}'
+# → 200 {"status":"completed","outputs":{...},"conversation_id":"..."}
+```
+
+**错误码速查**：`401` = 密钥缺失/无效/已吊销；`403` = 密钥与应用不匹配（一把密钥只绑一个应用）；
+`404` = 应用不存在/未发布；`422` = flow 执行失败（detail 带错误分类码）。
+
+**审计**：每次调用落 `earp.api.chat.started/completed/failed`（detail 含 api_key_id / app_id /
+耗时 / 状态码，flow 完成带 execution_id）；密钥列表页显示「最后使用」时间（端点完成时更新一次，
+防热路径写放大）。
+
+**生产密钥管理须知**：
+- 明文只在生成时显示一次——丢失即吊销重建；服务端仅存 sha256 哈希，日志/请求体不回显明文
+- 吊销即时生效（status=revoked 后所有调用 401）；按环境隔离、按应用拆分
+- 应用删除会级联吊销其全部密钥（FK ON DELETE CASCADE）
+- 一期不做：SDK 包、webhook/消息平台绑定（企业微信/钉钉等接入层）、密钥轮换/过期策略、按密钥限流（可后接 TokenBucket）

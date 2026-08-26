@@ -13,6 +13,8 @@ import jwt
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from earp_server.gateway.api_keys import verify_api_key
+
 DEV_SECRET = "earp-dev-secret-change-in-production"
 SECRET_ENV = "EARP_JWT_SECRET"
 PUBLIC_KEY_ENV = "EARP_JWT_PUBLIC_KEY"
@@ -54,6 +56,12 @@ class JWTMiddleware(BaseHTTPMiddleware):
 
             return JSONResponse(status_code=401, content={"error": "Missing Authorization header"})
 
+        # tech-debt #18 (D2): Bearer app-<hex> = 对外 API 密钥 → 查表鉴权（非 JWT）。
+        # 密钥行携带租户——租户未知的查表经 SECURITY DEFINER 函数（migration 0033）。
+        # 非 app- 前缀 → 原 JWT 路径，零改动。
+        if token.startswith("app-"):
+            return await self._dispatch_api_key(request, call_next, token)
+
         try:
             payload = self._decode(token)
         except jwt.ExpiredSignatureError:
@@ -73,6 +81,28 @@ class JWTMiddleware(BaseHTTPMiddleware):
         request.state.user_id = payload.get("sub")
         request.state.tenant_id = payload["tenant_id"]
         request.state.role_id = payload["role_id"]
+        return await call_next(request)
+
+    async def _dispatch_api_key(self, request: Request, call_next, token: str):
+        """对外 API 密钥鉴权分支（tech-debt #18 D2）：app-key 命中 → 注入服务身份。
+
+        身份语义（D5）：user_id=service:api:<key_id>、role_id 置空（服务调用无角色——
+        端点侧按应用创建者角色补，见 Task 3）；chat_app_id/api_key_id 供端点做
+        密钥绑定校验与审计（Task 3/4）。
+        """
+        from fastapi.responses import JSONResponse
+
+        engine = getattr(request.app.state, "engine", None)
+        if engine is None:
+            return JSONResponse(status_code=401, content={"error": "Invalid API key"})
+        info = await verify_api_key(engine, token)
+        if info is None:
+            return JSONResponse(status_code=401, content={"error": "Invalid API key"})
+        request.state.user_id = f"service:api:{info['api_key_id']}"
+        request.state.tenant_id = info["tenant_id"]
+        request.state.role_id = ""  # D5: 服务调用无角色（端点侧解析应用创建者角色）
+        request.state.chat_app_id = info["chat_app_id"]
+        request.state.api_key_id = info["api_key_id"]
         return await call_next(request)
 
     @staticmethod

@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import pathlib
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -48,10 +49,11 @@ from earp_server.conversation.conversation_service import (
     get_messages,
     list_conversations,
 )
+from earp_server.gateway.api_keys import create_api_key, list_api_keys, revoke_api_key, touch_api_key
 from earp_server.gateway.auth import JWTMiddleware, create_token
 from earp_server.gateway.input_guard import sanitize_body
 from earp_server.infra.db import build_engine, check_db
-from earp_server.infra.eventbus import EventBus
+from earp_server.infra.eventbus import CloudEvent, EventBus
 from earp_server.infra.ext import init_all
 from earp_server.infra.redis_eventbus import RedisStreamsEventBus
 from earp_server.infra.task_queue import ProcrastinateTaskQueue
@@ -311,6 +313,10 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
 
 
+class ApiKeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
 class LoginRequest(BaseModel):
     tenant_id: str
     user_id: str
@@ -329,6 +335,144 @@ class CopilotAssistRequest(BaseModel):
     query: str = Field(min_length=1)
     form_state: dict[str, Any] = {}
     conversation_id: str | None = None
+
+
+async def _service_role(engine, tenant_id: str, app: dict[str, Any]) -> str:
+    """对外 API 调用（tech-debt #18 D5）：服务调用无用户/角色——role_id 取应用创建者
+    当前角色（tenant_account_joins.current_role_id）；解析不到（created_by 空/用户无角色）→ 空。
+    命令审批（F4 human_approval）与角色无关——API 调用遇挂起照常 202，恢复靠 conversation_id。
+    """
+    created_by = app.get("created_by")
+    if not created_by:
+        return ""
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT current_role_id FROM tenant_account_joins "
+                    "WHERE tenant_id = :t AND user_id = :u"
+                ),
+                {"t": tenant_id, "u": created_by},
+            )
+        ).first()
+    return row[0] if row and row[0] else ""
+
+
+def _api_audit(
+    req: Request,
+    event_type: str,
+    *,
+    status_code: int = 200,
+    elapsed_ms: int | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """对外 API 审计（tech-debt #18 D6）：earp.api.* 事件，fire-and-forget 走 EventBus。
+
+    data 含 app_id/key_id/tenant（服务身份）/http_status/耗时；flow 完成事件额外带
+    execution_id（流程执行关联，audit_logs 可回溯 flow_runs）。
+    """
+    bus = getattr(req.app.state, "eventbus", None)
+    if bus is None:
+        return
+    data: dict[str, Any] = {
+        "entity_type": "chat_app",
+        "entity_id": getattr(req.state, "chat_app_id", ""),
+        "user_id": getattr(req.state, "user_id", ""),
+        "api_key_id": getattr(req.state, "api_key_id", ""),
+        "chat_app_id": getattr(req.state, "chat_app_id", ""),
+        "http_status": status_code,
+        **(extra or {}),
+    }
+    if elapsed_ms is not None:
+        data["elapsed_ms"] = elapsed_ms
+    bus.publish(
+        CloudEvent(
+            type=event_type,
+            source="earp-server/gateway",
+            tenant_id=getattr(req.state, "tenant_id", ""),
+            data=data,
+        )
+    )
+
+
+async def _chat_dispatch(
+    req: Request, chat_app_id: str, req_body: ChatRequest, app: dict[str, Any] | None = None
+):
+    """对话分发（内部 /chat_apps/{id}/chat 与对外 /api/v1/chat-apps/{id}/chat 共用）：
+    auto = SSE 流式；flow = 声明式图执行（Chatflow F2 非流式 JSON；F4 human_approval 挂起 → 202）。
+    调用方负责前置校验（内部端点：无；对外端点：密钥绑定 + 已发布，见 api_chat_ep）。
+    """
+    if app is None:
+        app = await get_chat_app(req.app.state.engine, req.state.tenant_id, chat_app_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="chat app not found")
+
+    if app.get("orchestration") == "flow":
+        from earp_server.connector import ConnectorError
+        from earp_server.orchestrator.workflow_dsl import WorkflowValidationError
+
+        try:
+            result = await flow_chat(
+                req.app.state.engine,
+                req.state.tenant_id,
+                req.state.user_id,
+                req.state.role_id,
+                app,
+                req_body.query,
+                req_body.conversation_id,
+                base_llm=req.app.state.llm,
+                settings=req.app.state.settings,
+                bus=req.app.state.eventbus,
+            )
+            if result.get("status") == "waiting_human":
+                # Chatflow F4: human_approval 挂起 → 202（等待人工答复）
+                return JSONResponse(status_code=202, content=result)
+            return result
+        except HTTPException:
+            raise  # Chatflow F3: PolicyLayer 权限拒绝 403 透传（勿转 500）
+        except (ConnectorError, ChatError, WorkflowValidationError) as e:
+            # F7 (Task 2 D4): 422 统一 + 错误分类码（ConnectorFetchError 已归一进
+            # ConnectorError → 连接类不再 fallthrough 500）
+            code = getattr(e, "code", None)
+            detail = f"flow 执行失败：{e}" if not code else f"flow 执行失败[{code}]：{e}"
+            raise HTTPException(status_code=422, detail=detail) from e
+        except Exception:
+            logger.exception("flow chat failed")
+            raise HTTPException(status_code=500, detail="flow 执行失败，请稍后重试") from None
+
+    async def gen():
+        async for line in chat_sse(
+            req.app.state.engine,
+            req.state.tenant_id,
+            req.state.user_id,
+            req.state.role_id,
+            app,
+            req_body.query,
+            req_body.conversation_id,
+            base_llm=req.app.state.llm,
+            settings=req.app.state.settings,
+            rate_limiter=req.app.state.rate_limiter,
+            embedding_dim=req.app.state.settings.embedding_dim,
+        ):
+            yield line
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            # 防代理/网关缓冲：token 逐条到达，避免「几秒无输出后突然全出」
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((time.monotonic() - started_at) * 1000))
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -432,6 +576,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.eventbus.subscribe("earp.capability.*", audit_handler_factory(app.state.engine))
             # 命令审批流（Task 4）：审批决策/超时审计 earp.approval.*
             app.state.eventbus.subscribe("earp.approval.*", audit_handler_factory(app.state.engine))
+            # tech-debt #18 (D6): 对外 API 调用审计（earp.api.*）
+            app.state.eventbus.subscribe("earp.api.*", audit_handler_factory(app.state.engine))
         if cfg.app_env in ("dev", "test"):
             try:
                 # Seed demo tenant baseline: tenant/user/role/data-domains/capability.
@@ -1369,75 +1515,101 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="chat app not found")
         return {"chat_app_id": chat_app_id, "favorited": False}
 
+    # ── tech-debt #18 Task 5: 应用「API 访问」密钥管理（内部 JWT，前端页签用） ──
+
+    async def _app_exists(chat_app_id: str, req: Request) -> None:
+        if await get_chat_app(req.app.state.engine, req.state.tenant_id, chat_app_id) is None:
+            raise HTTPException(status_code=404, detail="chat app not found")
+
+    @app.get("/chat_apps/{chat_app_id}/api-keys", tags=["chat_apps"])
+    async def list_api_keys_ep(chat_app_id: str, req: Request) -> list[dict[str, Any]]:
+        """密钥列表（name/status/created_at/last_used_at；永不返回 key_hash）。"""
+        await _app_exists(chat_app_id, req)
+        return await list_api_keys(req.app.state.engine, req.state.tenant_id, chat_app_id)
+
+    @app.post("/chat_apps/{chat_app_id}/api-keys", status_code=201, tags=["chat_apps"])
+    async def create_api_key_ep(chat_app_id: str, req_body: ApiKeyCreate, req: Request) -> dict[str, Any]:
+        """生成密钥：明文仅此一次返回（前端一次性展示+复制），落库仅 key_hash。"""
+        await _app_exists(chat_app_id, req)
+        try:
+            plaintext = await create_api_key(req.app.state.engine, req.state.tenant_id, chat_app_id, req_body.name)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        return {"chat_app_id": chat_app_id, "name": req_body.name, "plaintext": plaintext}
+
+    @app.post("/chat_apps/{chat_app_id}/api-keys/{api_key_id}/revoke", tags=["chat_apps"])
+    async def revoke_api_key_ep(chat_app_id: str, api_key_id: str, req: Request) -> dict[str, Any]:
+        """吊销（active → revoked，即时生效）。幂等：已吊销返回 revoked=false。"""
+        await _app_exists(chat_app_id, req)
+        ok = await revoke_api_key(req.app.state.engine, req.state.tenant_id, api_key_id)
+        return {"api_key_id": api_key_id, "revoked": ok}
+
     @app.post("/chat_apps/{chat_app_id}/chat", tags=["chat_apps"], response_model=None)
     async def chat_ep(
         chat_app_id: str, req_body: ChatRequest, req: Request
     ) -> StreamingResponse | dict[str, Any] | JSONResponse:
         """对话入口：auto = SSE 流式（现状）；flow = 声明式图执行（Chatflow F2，非流式 JSON；
-        F4 human_approval 挂起 → 202）。"""
+        F4 human_approval 挂起 → 202）。分发逻辑与对外 /api/v1/chat-apps/{id}/chat 共用。"""
+        return await _chat_dispatch(req, chat_app_id, req_body)
+
+    @app.post("/api/v1/chat-apps/{chat_app_id}/chat", tags=["api"], response_model=None)
+    async def api_chat_ep(
+        chat_app_id: str, req_body: ChatRequest, req: Request
+    ) -> StreamingResponse | dict[str, Any] | JSONResponse:
+        """对外 API（tech-debt #18 D3/D4/D5）：Bearer app-<key> 调用已发布应用。
+
+        - 密钥绑定 == 路径应用，否则 403（密钥即授权，D4）
+        - 仅已发布（status=published）可被调用；未发布/不存在 → 404（不暴露存在性）
+        - role_id 取应用创建者当前角色或空（D5）；响应语义与内部端点一致
+          （auto SSE / flow JSON / human_approval 挂起 202 → conversation_id 续调恢复）
+        """
+        if getattr(req.state, "chat_app_id", None) != chat_app_id:
+            raise HTTPException(status_code=403, detail="API key not bound to this chat app")
         app = await get_chat_app(req.app.state.engine, req.state.tenant_id, chat_app_id)
-        if app is None:
+        if app is None or app.get("status") != "published":
             raise HTTPException(status_code=404, detail="chat app not found")
-
-        if app.get("orchestration") == "flow":
-            from earp_server.connector import ConnectorError
-            from earp_server.orchestrator.workflow_dsl import WorkflowValidationError
-
+        req.state.role_id = await _service_role(req.app.state.engine, req.state.tenant_id, app)
+        # D6: earp.api.* 审计（started → completed/failed，含耗时/状态码；flow 完成带 execution_id）
+        # + last_used_at 端点完成时更新一次（防热路径写放大，D4）。
+        started_at = time.monotonic()
+        _api_audit(req, "earp.api.chat.started")
+        try:
+            response = await _chat_dispatch(req, chat_app_id, req_body, app=app)
+        except HTTPException as e:
+            _api_audit(
+                req,
+                "earp.api.chat.failed",
+                status_code=e.status_code,
+                elapsed_ms=_elapsed_ms(started_at),
+                extra={"error": e.detail},
+            )
+            raise
+        except Exception:
+            _api_audit(req, "earp.api.chat.failed", status_code=500, elapsed_ms=_elapsed_ms(started_at))
+            raise
+        finally:
+            await touch_api_key(req.app.state.engine, req.state.tenant_id, req.state.api_key_id)
+        _status = getattr(response, "status_code", 200)
+        _extra: dict[str, Any] = {}
+        if isinstance(response, dict):
+            if response.get("execution_id"):
+                _extra = {"execution_id": response["execution_id"]}
+        elif getattr(response, "body", None):
+            # flow 挂起 202（JSONResponse）：execution_id 在响应体中
             try:
-                result = await flow_chat(
-                    req.app.state.engine,
-                    req.state.tenant_id,
-                    req.state.user_id,
-                    req.state.role_id,
-                    app,
-                    req_body.query,
-                    req_body.conversation_id,
-                    base_llm=req.app.state.llm,
-                    settings=req.app.state.settings,
-                    bus=req.app.state.eventbus,
-                )
-                if result.get("status") == "waiting_human":
-                    # Chatflow F4: human_approval 挂起 → 202（等待人工答复）
-                    return JSONResponse(status_code=202, content=result)
-                return result
-            except HTTPException:
-                raise  # Chatflow F3: PolicyLayer 权限拒绝 403 透传（勿转 500）
-            except (ConnectorError, ChatError, WorkflowValidationError) as e:
-                # F7 (Task 2 D4): 422 统一 + 错误分类码（ConnectorFetchError 已归一进
-                # ConnectorError → 连接类不再 fallthrough 500）
-                code = getattr(e, "code", None)
-                detail = f"flow 执行失败：{e}" if not code else f"flow 执行失败[{code}]：{e}"
-                raise HTTPException(status_code=422, detail=detail) from e
-            except Exception:
-                logger.exception("flow chat failed")
-                raise HTTPException(status_code=500, detail="flow 执行失败，请稍后重试") from None
-
-        async def gen():
-            async for line in chat_sse(
-                req.app.state.engine,
-                req.state.tenant_id,
-                req.state.user_id,
-                req.state.role_id,
-                app,
-                req_body.query,
-                req_body.conversation_id,
-                base_llm=req.app.state.llm,
-                settings=req.app.state.settings,
-                rate_limiter=req.app.state.rate_limiter,
-                embedding_dim=req.app.state.settings.embedding_dim,
-            ):
-                yield line
-
-        return StreamingResponse(
-            gen(),
-            media_type="text/event-stream",
-            headers={
-                # 防代理/网关缓冲：token 逐条到达，避免「几秒无输出后突然全出」
-                "Cache-Control": "no-cache, no-transform",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
+                body = json.loads(bytes(response.body))
+                if body.get("execution_id"):
+                    _extra = {"execution_id": body["execution_id"]}
+            except (TypeError, ValueError):
+                pass
+        _api_audit(
+            req,
+            "earp.api.chat.completed",
+            status_code=_status,
+            elapsed_ms=_elapsed_ms(started_at),
+            extra=_extra,
         )
+        return response
 
     @app.post("/chat_apps/{chat_app_id}/chat/stream", tags=["chat_apps"], response_model=None)
     async def chat_stream_ep(chat_app_id: str, req_body: ChatRequest, req: Request) -> StreamingResponse:

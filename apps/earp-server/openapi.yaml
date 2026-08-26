@@ -1,5 +1,16 @@
 components:
   schemas:
+    ApiKeyCreate:
+      properties:
+        name:
+          maxLength: 64
+          minLength: 1
+          title: Name
+          type: string
+      required:
+      - name
+      title: ApiKeyCreate
+      type: object
     AppAccessIn:
       properties:
         mode:
@@ -2081,6 +2092,41 @@ paths:
       summary: Set System Settings
       tags:
       - models
+  /api/v1/chat-apps/{chat_app_id}/chat:
+    post:
+      description: "对外 API（tech-debt #18 D3/D4/D5）：Bearer app-<key> 调用已发布应用。\n\n-\
+        \ 密钥绑定 == 路径应用，否则 403（密钥即授权，D4）\n- 仅已发布（status=published）可被调用；未发布/不存在 → 404（不暴露存在性）\n\
+        - role_id 取应用创建者当前角色或空（D5）；响应语义与内部端点一致\n  （auto SSE / flow JSON / human_approval\
+        \ 挂起 202 → conversation_id 续调恢复）"
+      operationId: api_chat_ep_api_v1_chat_apps__chat_app_id__chat_post
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Api Chat Ep
+      tags:
+      - api
   /auth/login:
     post:
       description: 'Dev/test convenience: tenant/user/role -> JWT. Disabled in prod.
@@ -2452,11 +2498,114 @@ paths:
       summary: Update Chat App Ep
       tags:
       - chat_apps
+  /chat_apps/{chat_app_id}/api-keys:
+    get:
+      description: 密钥列表（name/status/created_at/last_used_at；永不返回 key_hash）。
+      operationId: list_api_keys_ep_chat_apps__chat_app_id__api_keys_get
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Api Keys Ep Chat Apps  Chat App Id  Api Keys
+                  Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Api Keys Ep
+      tags:
+      - chat_apps
+    post:
+      description: 生成密钥：明文仅此一次返回（前端一次性展示+复制），落库仅 key_hash。
+      operationId: create_api_key_ep_chat_apps__chat_app_id__api_keys_post
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreate'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Api Key Ep Chat Apps  Chat App Id  Api Keys
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Api Key Ep
+      tags:
+      - chat_apps
+  /chat_apps/{chat_app_id}/api-keys/{api_key_id}/revoke:
+    post:
+      description: 吊销（active → revoked，即时生效）。幂等：已吊销返回 revoked=false。
+      operationId: revoke_api_key_ep_chat_apps__chat_app_id__api_keys__api_key_id__revoke_post
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      - in: path
+        name: api_key_id
+        required: true
+        schema:
+          title: Api Key Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Revoke Api Key Ep Chat Apps  Chat App Id  Api Keys  Api
+                  Key Id  Revoke Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Revoke Api Key Ep
+      tags:
+      - chat_apps
   /chat_apps/{chat_app_id}/chat:
     post:
       description: '对话入口：auto = SSE 流式（现状）；flow = 声明式图执行（Chatflow F2，非流式 JSON；
 
-        F4 human_approval 挂起 → 202）。'
+        F4 human_approval 挂起 → 202）。分发逻辑与对外 /api/v1/chat-apps/{id}/chat 共用。'
       operationId: chat_ep_chat_apps__chat_app_id__chat_post
       parameters:
       - in: path

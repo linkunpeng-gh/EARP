@@ -110,6 +110,7 @@ body { overflow: hidden; }
     <input type="text" id="cf-tags" placeholder="报销, 制度" style="font-size:0.75rem;padding:0.25rem 0.4rem;width:140px;border:1px solid var(--border-standard);border-radius:var(--radius-md);background:var(--bg-panel);color:var(--text-primary);">
   </label>
   <span class="spacer"></span>
+  <button class="btn-sm btn-outline" onclick="EARPApiAccess.open(appId)" title="对外服务 API 密钥（仅已发布应用可被调用）">🔑 API 访问</button>
   <button class="secondary" onclick="saveFlow()">保存</button>
   <button class="primary" onclick="publishFlow()" id="publish-btn">发布</button>
   <button class="ai-trigger-btn" onclick="openCopilot()" title="AI 配置助手">✨ AI 助手</button>
@@ -163,6 +164,7 @@ body { overflow: hidden; }
 <script src="../js/chatflow-canvas.js"></script>
 <script src="../js/copilot.js"></script>
 <script src="../js/nav.js"></script>
+<script src="../js/api-access.js"></script>
 <script>
 // ── Chatflow 画布编排页（Dify 式三栏：节点库 / 画布 / 属性面板）──
 var state = { app: null, selected: null, convId: null };
