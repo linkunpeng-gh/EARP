@@ -39,8 +39,8 @@ async def ensure_copilot_kb(engine: Any, tenant_id: str) -> str | None:
 
     try:
         from earp_server.knowledge.admin_service import create_kb, list_kbs
-        from earp_server.knowledge.document_service import create_document, find_duplicate
         from earp_server.knowledge.chunk_service import create_chunks
+        from earp_server.knowledge.document_service import create_document
         from earp_server.knowledge.embedding_service import embed_chunks
         from earp_server.knowledge.routing import build_routing_index
 

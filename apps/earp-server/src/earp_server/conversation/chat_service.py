@@ -511,6 +511,7 @@ async def flow_chat(
     """
     from earp_server.conversation import flow_runs
     from earp_server.conversation.conversation_service import add_message, create_conversation
+    from earp_server.conversation.flow_runs import trace_from_node_state
     from earp_server.orchestrator.multi_step import ExecutionStatus, MultiStepExecutor
     from earp_server.orchestrator.types import InvokeContext, Step
     from earp_server.orchestrator.workflow_dsl import CondExec, compile_flow_schema, deserialize_pool, serialize_pool
@@ -566,7 +567,14 @@ async def flow_chat(
             await add_message(engine, tenant_id, conversation_id, "assistant", "⏰ 等待超时，按失败分支处理", user_id)
         else:
             # 无失败分支：超时 → timeout 终态 + 消息，本轮按新建处理（维持现状）
-            await flow_runs.finish_run(engine, tenant_id, waiting["execution_id"], status="timeout")
+            # tech-debt #17 D2: 超时 trace 由挂起 node_state 转译（保证超时也有轨迹）
+            await flow_runs.finish_run(
+                engine,
+                tenant_id,
+                waiting["execution_id"],
+                status="timeout",
+                trace=trace_from_node_state(waiting.get("node_state")),
+            )
             await add_message(engine, tenant_id, conversation_id, "assistant", "⏰ 等待超时，流程终止", user_id)
             # Task 4 (D4): 命令能力审批超时 → earp.approval.timed_out 审计
             if pending:
@@ -674,70 +682,75 @@ async def flow_chat(
             "question": question,
         }
 
+    # tech-debt #17：trace 构造闭包——终态（rejected/completed/failed）共用，响应与落库同源。
+    # 按拓扑序输出每节点 status/input/output/branch：分支决策来自 state.chosen（执行器不落
+    # results，outputs/answer 语义不变）；节点实际输入（模板解析后）来自 StepResult.input。
+    def _trace_of() -> list[dict[str, Any]]:
+        results_by_id = {r.step_id: r for r in results}
+        trace: list[dict[str, Any]] = []
+        for item in plan.sequence:
+            if isinstance(item, CondExec):
+                side = state.chosen.get(item.branch_id)
+                if side is None:
+                    trace.append(
+                        {
+                            "node_id": item.node_id,
+                            "status": "skipped",
+                            "branch": None,
+                            "input": None,
+                            "output": None,
+                            "error": None,
+                        }
+                    )
+                else:
+                    trace.append(
+                        {
+                            "node_id": item.node_id,
+                            "status": "completed",
+                            "branch": side,
+                            "input": None,
+                            "output": {"branch": side},
+                            "error": None,
+                        }
+                    )
+            else:
+                r = results_by_id.get(item.node_id)
+                if r is None:
+                    continue  # 防御：resume/重启路径无结果记录的节点不输出
+                trace.append(
+                    {
+                        "node_id": r.step_id,
+                        "status": r.status,
+                        "branch": None,
+                        "input": r.input,
+                        "output": r.output,
+                        "error": r.error,
+                        # F7 (Task 2 D4): 错误分类码透传给前端（connection/unknown_capability/…）
+                        "error_code": r.error_code,
+                        "latency_ms": r.latency_ms,
+                    }
+                )
+        return trace
+
     # 命令能力审批驳回（Task 3，D2）：驳回 → flow 终态 rejected（下游不执行）
     if state.status == ExecutionStatus.REJECTED:
-        await flow_runs.finish_run(engine, tenant_id, exec_id, status=ExecutionStatus.REJECTED.value)
+        trace = _trace_of()
+        await flow_runs.finish_run(engine, tenant_id, exec_id, status=ExecutionStatus.REJECTED.value, trace=trace)
         await add_message(engine, tenant_id, conversation_id, "assistant", "⛔ 审批驳回，流程已终止", user_id)
         await _emit("error", {"message": "审批驳回，流程已终止"})
         return {
             "execution_id": exec_id,
             "conversation_id": conversation_id,
             "status": ExecutionStatus.REJECTED.value,
+            "trace": trace,
         }
 
-    # 完成/失败（F4：终态化 flow_runs）
-    await flow_runs.finish_run(engine, tenant_id, exec_id, status=state.status.value)
+    # 完成/失败（F4：终态化 flow_runs；tech-debt #17 D2：trace 与响应同点落库）
+    trace = _trace_of()
+    await flow_runs.finish_run(engine, tenant_id, exec_id, status=state.status.value, trace=trace)
 
     completed = [r for r in results if r.status == "completed"]
     outputs = {r.step_id: r.output for r in results if r.status == "completed"}
-
-    # Chatflow 调试 trace：按拓扑序输出每节点 status/input/output/branch——
-    # 分支决策来自 state.chosen（执行器不落 results，outputs/answer 语义不变），
-    # 节点实际输入（模板解析后）来自 StepResult.input（flow 执行捕获）。
-    results_by_id = {r.step_id: r for r in results}
-    trace: list[dict[str, Any]] = []
-    for item in plan.sequence:
-        if isinstance(item, CondExec):
-            side = state.chosen.get(item.branch_id)
-            if side is None:
-                trace.append(
-                    {
-                        "node_id": item.node_id,
-                        "status": "skipped",
-                        "branch": None,
-                        "input": None,
-                        "output": None,
-                        "error": None,
-                    }
-                )
-            else:
-                trace.append(
-                    {
-                        "node_id": item.node_id,
-                        "status": "completed",
-                        "branch": side,
-                        "input": None,
-                        "output": {"branch": side},
-                        "error": None,
-                    }
-                )
-        else:
-            r = results_by_id.get(item.node_id)
-            if r is None:
-                continue  # 防御：resume/重启路径无结果记录的节点不输出
-            trace.append(
-                {
-                    "node_id": r.step_id,
-                    "status": r.status,
-                    "branch": None,
-                    "input": r.input,
-                    "output": r.output,
-                    "error": r.error,
-                    # F7 (Task 2 D4): 错误分类码透传给前端（connection/unknown_capability/…）
-                    "error_code": r.error_code,
-                    "latency_ms": r.latency_ms,
-                }
-            )
 
     # 助手消息：answer_from 显式指定答案节点（F7 Task 3 D5——多分支/副作用节点置后不再
     # 覆盖答复，告别「答案=最后执行节点输出」隐性语义）；未指定/节点未完成 → 回落现状：

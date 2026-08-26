@@ -37,6 +37,7 @@ from earp_server.conversation.chat_app_service import (
     delete_chat_app,
     favorite_app,
     get_chat_app,
+    is_app_visible,
     publish_chat_app,
     search_chat_apps,
     unfavorite_app,
@@ -45,10 +46,13 @@ from earp_server.conversation.chat_app_service import (
 from earp_server.conversation.chat_service import ChatError, chat_sse, flow_chat
 from earp_server.conversation.conversation_service import (
     add_message,
+    conversation_exists,
+    conversation_visible,
     create_conversation,
     get_messages,
     list_conversations,
 )
+from earp_server.conversation.flow_runs import get_conversation_runs, list_runs
 from earp_server.gateway.api_keys import create_api_key, list_api_keys, revoke_api_key, touch_api_key
 from earp_server.gateway.auth import JWTMiddleware, create_token
 from earp_server.gateway.input_guard import sanitize_body
@@ -1544,6 +1548,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ok = await revoke_api_key(req.app.state.engine, req.state.tenant_id, api_key_id)
         return {"api_key_id": api_key_id, "revoked": ok}
 
+    @app.get("/chat_apps/{chat_app_id}/runs", tags=["chat_apps"])
+    async def list_runs_ep(
+        chat_app_id: str,
+        limit: int = 20,
+        offset: int = 0,
+        req: Request = None,  # type: ignore[assignment]
+    ) -> list[dict[str, Any]]:
+        """运行历史（tech-debt #17 D4）：应用维度——chatflow 详情/列表页查执行轨迹。
+
+        非 admin 按 chat_app 可见性过滤（与 search_chat_apps 同源语义，防
+        「应用隐藏但轨迹可枚举」缝隙）：不可见/不存在 → 404。
+        """
+        app = await get_chat_app(req.app.state.engine, req.state.tenant_id, chat_app_id)
+        if app is None:
+            raise HTTPException(status_code=404, detail="chat app not found")
+        is_admin = await is_is_admin(req.app.state.engine, req.state.tenant_id, req.state.role_id)
+        if not is_admin and not await is_app_visible(
+            req.app.state.engine, req.state.tenant_id, chat_app_id, req.state.role_id
+        ):
+            raise HTTPException(status_code=404, detail="chat app not found")
+        return await list_runs(
+            req.app.state.engine,
+            req.state.tenant_id,
+            chat_app_id,
+            limit=max(1, min(100, limit)),
+            offset=max(0, offset),
+        )
+
     @app.post("/chat_apps/{chat_app_id}/chat", tags=["chat_apps"], response_model=None)
     async def chat_ep(
         chat_app_id: str, req_body: ChatRequest, req: Request
@@ -1737,6 +1769,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             role_id=req.state.role_id,
             is_admin=is_admin,
         )
+
+    @app.get("/conversations/{conv_id}/runs", tags=["conversations"])
+    async def conversation_runs_ep(conv_id: str, req: Request) -> list[dict[str, Any]]:
+        """运行历史（tech-debt #17 D4）：会话维度——对话日志页按会话展开执行轨迹。
+
+        权限与对话日志一致（C 系列防缝隙）：非 admin 按会话可见性过滤
+        （归属应用不可见/会话不存在 → 404）；admin 全可见但仍 404 不存在会话。
+        """
+        is_admin = await is_is_admin(req.app.state.engine, req.state.tenant_id, req.state.role_id)
+        if is_admin:
+            if not await conversation_exists(req.app.state.engine, req.state.tenant_id, conv_id):
+                raise HTTPException(status_code=404, detail="conversation not found")
+        elif not await conversation_visible(
+            req.app.state.engine, req.state.tenant_id, conv_id, req.state.role_id
+        ):
+            raise HTTPException(status_code=404, detail="conversation not found")
+        return await get_conversation_runs(req.app.state.engine, req.state.tenant_id, conv_id)
 
     @app.post("/conversations/{conv_id}/messages", status_code=201, tags=["conversations"])
     async def add_msg(conv_id: str, req_body: MsgAdd, req: Request) -> dict[str, Any]:

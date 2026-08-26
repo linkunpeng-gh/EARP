@@ -2767,6 +2767,56 @@ paths:
       summary: Publish Chat App Ep
       tags:
       - chat_apps
+  /chat_apps/{chat_app_id}/runs:
+    get:
+      description: '运行历史（tech-debt #17 D4）：应用维度——chatflow 详情/列表页查执行轨迹。
+
+
+        非 admin 按 chat_app 可见性过滤（与 search_chat_apps 同源语义，防
+
+        「应用隐藏但轨迹可枚举」缝隙）：不可见/不存在 → 404。'
+      operationId: list_runs_ep_chat_apps__chat_app_id__runs_get
+      parameters:
+      - in: path
+        name: chat_app_id
+        required: true
+        schema:
+          title: Chat App Id
+          type: string
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 20
+          title: Limit
+          type: integer
+      - in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          title: Offset
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Runs Ep Chat Apps  Chat App Id  Runs Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List Runs Ep
+      tags:
+      - chat_apps
   /conversations:
     get:
       description: 'Conversation list（新增端点 Q1）：对话日志/二期应用形态数据源；
@@ -2919,6 +2969,43 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Add Msg
+      tags:
+      - conversations
+  /conversations/{conv_id}/runs:
+    get:
+      description: '运行历史（tech-debt #17 D4）：会话维度——对话日志页按会话展开执行轨迹。
+
+
+        权限与对话日志一致（C 系列防缝隙）：非 admin 按会话可见性过滤
+
+        （归属应用不可见/会话不存在 → 404）；admin 全可见但仍 404 不存在会话。'
+      operationId: conversation_runs_ep_conversations__conv_id__runs_get
+      parameters:
+      - in: path
+        name: conv_id
+        required: true
+        schema:
+          title: Conv Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response Conversation Runs Ep Conversations  Conv Id  Runs
+                  Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Conversation Runs Ep
       tags:
       - conversations
   /copilot/assist:

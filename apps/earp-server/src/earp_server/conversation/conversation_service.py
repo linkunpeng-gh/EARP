@@ -200,6 +200,24 @@ async def _conversation_visible(engine: AsyncEngine, tenant_id: str, conversatio
         return whitelist is not None
 
 
+async def conversation_visible(engine: AsyncEngine, tenant_id: str, conversation_id: str, role_id: str) -> bool:
+    """公开包装（tech-debt #17 D4）：会话对角色是否可见（404 语义：不存在/不可见都 False）。
+
+    C 系列同源语义：直建会话恒可见；access_mode='open' 全员；restricted → 角色白名单。
+    """
+    return await _conversation_visible(engine, tenant_id, conversation_id, role_id)
+
+
+async def conversation_exists(engine: AsyncEngine, tenant_id: str, conversation_id: str) -> bool:
+    """会话是否存在（admin 路径用——admin 全可见，但仍需 404 不存在的会话）。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = await conn.execute(
+            text("SELECT 1 FROM conversations WHERE conversation_id = :cid"), {"cid": conversation_id}
+        )
+        return row.fetchone() is not None
+
+
 # ── 会话上下文（C 系列 Task 2/3：读写在链路）──────────────────────────────
 
 

@@ -396,6 +396,31 @@ async def unfavorite_app(engine: AsyncEngine, tenant_id: str, user_id: str, chat
     return True
 
 
+async def is_app_visible(engine: AsyncEngine, tenant_id: str, chat_app_id: str, role_id: str) -> bool:
+    """单应用可见性（tech-debt #17 D4，与 search_chat_apps 同源语义）：
+    access_mode='open' → 全员可见；restricted → 角色白名单（app_role_access）。
+    应用不存在 → False（404 不暴露存在性）。"""
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        row = (
+            await conn.execute(
+                text("SELECT access_mode FROM chat_apps WHERE chat_app_id = :id"), {"id": chat_app_id}
+            )
+        ).first()
+        if row is None:
+            return False
+        if row.access_mode == "open":
+            return True
+        hit = await conn.execute(
+            text(
+                "SELECT 1 FROM app_role_access WHERE chat_app_id = :aid "
+                "AND role_id = :rid AND tenant_id = :tid LIMIT 1"
+            ),
+            {"aid": chat_app_id, "rid": role_id or "", "tid": tenant_id},
+        )
+        return hit.fetchone() is not None
+
+
 async def get_chat_app(engine: AsyncEngine, tenant_id: str, chat_app_id: str) -> dict[str, Any] | None:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))

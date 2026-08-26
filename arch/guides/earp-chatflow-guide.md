@@ -335,6 +335,17 @@ curl -s -X POST http://localhost:8000/api/v1/chat-apps/<app_id>/chat \
 > 与画布调试一致：**命令审批在 API 调用下语义不变**——挂起 202 后由外部系统携带
 > conversation_id 续调恢复；密钥/错误码/审计说明见 `earp-fde-user-guide.md` §15.7。
 
+### 第 6.6 步：回看运行历史（失败排查 / 复盘）
+
+每次流程执行（成功/失败/驳回/超时）都会留下**完整执行轨迹**，刷新页面不丢：
+
+- **入口**：chatflow 列表页卡片「📜 运行历史」→ 该应用每次执行列表（时间/状态/attempts/耗时）
+- **展开看细节**：点任意一次执行 → 每个节点轨迹（node/status/branch/input/output/error/error_code/耗时）
+- **排查示例**：上次流程失败 → 打开运行历史 → 找到红色 `err` 节点 → 看它的 input（当时传了什么）
+  和 error/error_code（连接失败/未知能力/权限…），对照 §8 排障表定位
+- 会话维度：同一会话的多轮执行（挂起→恢复）复用同一 execution_id，attempts 递增
+- 权限：与对话日志一致——应用对角色不可见（restricted 白名单外）时运行历史同样不可见（404）
+
 ## 7.6 照着搭：客户投诉分流（场景 C）
 
 **前置**：建 KB「客户投诉记录」并传两个样例文档（元数据 `{"vip": true, "customer": "张伟"}` /

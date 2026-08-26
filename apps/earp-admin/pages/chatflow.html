@@ -54,6 +54,7 @@
 <script src="../js/app.js"></script>
 <script src="../js/flow-graph.js"></script>
 <script src="../js/nav.js"></script>
+<script src="../js/run-history.js"></script>
 <script>
 // ── Chatflow 应用列表（Dify 式：只显示 orchestration=flow）──
 var state = { apps: [] };
@@ -79,11 +80,13 @@ function cardHtml(a) {
   var badge = '<span class="cf-badge"><i>⛓</i>Chatflow</span>';
   var status = a.status === 'published'
     ? '<span class="tag tag-green">已发布</span>' : '<span class="tag tag-accent">草稿</span>';
-  return '<a class="cf-card" href="chatflow-edit.html?app=' + encodeURIComponent(a.chat_app_id) + '">'
+  return '<div class="cf-card" style="cursor:pointer" onclick="location.href=\'chatflow-edit.html?app=' + encodeURIComponent(a.chat_app_id) + '\'">'
     + '<div class="cc-top">' + badge + '<span class="cc-name">' + esc(a.name) + '</span></div>'
     + '<div class="cc-desc">' + esc(a.description || '暂无描述') + '</div>'
-    + '<div class="cc-meta"><span>'+ nodes +' 节点</span><span class="cc-status">' + status + '</span></div>'
-    + '</a>';
+    + '<div class="cc-meta"><span>' + nodes + ' 节点</span><span class="cc-status">' + status + '</span>'
+    + '<button class="btn-sm btn-outline" style="margin-left:auto;font-size:0.68rem;" '
+    +   'onclick="event.stopPropagation();EARPRunHistory.open(\'' + a.chat_app_id + '\',\'' + esc(a.name) + '\')">📜 运行历史</button>'
+    + '</div></div>';
 }
 
 function showCreateModal() { document.getElementById('create-modal').style.display = 'flex'; document.getElementById('new-name').focus(); }

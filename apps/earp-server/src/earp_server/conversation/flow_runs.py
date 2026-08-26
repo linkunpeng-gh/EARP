@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 _COLS = (
     "execution_id, tenant_id, chat_app_id, conversation_id, status, pending_node_id, "
-    "node_state, flow_input, attempts, created_at, updated_at, finished_at"
+    "node_state, flow_input, trace, attempts, created_at, updated_at, finished_at"
 )
 
 
@@ -94,16 +94,90 @@ async def update_waiting(
         )
 
 
-async def finish_run(engine: AsyncEngine, tenant_id: str, execution_id: str, *, status: str) -> None:
-    """终态化（completed/failed/timeout/cancelled）：清 pending_node_id + finished_at。"""
+async def finish_run(
+    engine: AsyncEngine,
+    tenant_id: str,
+    execution_id: str,
+    *,
+    status: str,
+    trace: Any = None,
+) -> None:
+    """终态化（completed/failed/timeout/cancelled）：清 pending_node_id + finished_at。
+
+    tech-debt #17（D1/D2）：终态时同事务写入完整执行轨迹 trace（JSONB）；
+    不传则保持现值（存量调用/超时扫描兜底）。
+    """
     async with tenant_session(engine, tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE flow_runs SET status = :st, pending_node_id = NULL, updated_at = now(), "
-                "finished_at = now() WHERE execution_id = :eid AND tenant_id = :tid"
-            ),
-            {"st": status, "eid": execution_id, "tid": tenant_id},
-        )
+        if trace is None:
+            await session.execute(
+                text(
+                    "UPDATE flow_runs SET status = :st, pending_node_id = NULL, updated_at = now(), "
+                    "finished_at = now() WHERE execution_id = :eid AND tenant_id = :tid"
+                ),
+                {"st": status, "eid": execution_id, "tid": tenant_id},
+            )
+        else:
+            await session.execute(
+                text(
+                    "UPDATE flow_runs SET status = :st, pending_node_id = NULL, trace = :trace, "
+                    "updated_at = now(), finished_at = now() WHERE execution_id = :eid AND tenant_id = :tid"
+                ),
+                {
+                    "st": status,
+                    "trace": json.dumps(trace, ensure_ascii=False),
+                    "eid": execution_id,
+                    "tid": tenant_id,
+                },
+            )
+
+
+async def list_runs(
+    engine: AsyncEngine,
+    tenant_id: str,
+    chat_app_id: str,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """应用维度运行历史（tech-debt #17 D4）：按创建时间倒序，分页。
+
+    只返回列表摘要（不含 node_state/flow_input——历史列表不需要执行中间态），
+    trace 含在结果中（详情页一次取全）。
+    """
+    async with tenant_session(engine, tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT execution_id, chat_app_id, conversation_id, status, trace, "
+                    "attempts, created_at, updated_at, finished_at "
+                    "FROM flow_runs WHERE tenant_id = :tid AND chat_app_id = :app_id "
+                    "ORDER BY created_at DESC LIMIT :lim OFFSET :off"
+                ),
+                {"tid": tenant_id, "app_id": chat_app_id, "lim": limit, "off": offset},
+            )
+        ).mappings().all()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def get_conversation_runs(
+    engine: AsyncEngine, tenant_id: str, conversation_id: str
+) -> list[dict[str, Any]]:
+    """会话维度运行历史（tech-debt #17 D4）：对话日志页按会话展开。
+
+    同会话可有多轮 run（恢复复用同一 execution_id，attempts 递增；新会话重开则新 run）——
+    按创建时间倒序全量返回。
+    """
+    async with tenant_session(engine, tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    f"SELECT {_COLS} FROM flow_runs WHERE tenant_id = :tid "
+                    "AND conversation_id = :cid ORDER BY created_at DESC"
+                ),
+                {"tid": tenant_id, "cid": conversation_id},
+            )
+        ).mappings().all()
+    return [_row_to_dict(r) for r in rows]
 
 
 async def expire_waiting_approvals(engine: AsyncEngine, ttl_seconds: int) -> list[dict[str, Any]]:
@@ -129,12 +203,17 @@ async def expire_waiting_approvals(engine: AsyncEngine, ttl_seconds: int) -> lis
                 )
             ).mappings().all()
             for r in expired:
+                # tech-debt #17 D2: timeout 由挂起 node_state 转译 trace，保证超时也有轨迹
                 await session.execute(
                     text(
                         "UPDATE flow_runs SET status = 'timeout', pending_node_id = NULL, "
-                        "updated_at = now(), finished_at = now() WHERE execution_id = :eid"
+                        "trace = :trace, updated_at = now(), finished_at = now() "
+                        "WHERE execution_id = :eid"
                     ),
-                    {"eid": r["execution_id"]},
+                    {
+                        "eid": r["execution_id"],
+                        "trace": json.dumps(trace_from_node_state(r.get("node_state")), ensure_ascii=False),
+                    },
                 )
                 timed_out.append(_row_to_dict(r))
     if timed_out:
@@ -142,9 +221,35 @@ async def expire_waiting_approvals(engine: AsyncEngine, ttl_seconds: int) -> lis
     return timed_out
 
 
+def trace_from_node_state(node_state: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """挂起时 node_state（serialize_pool：{nid: {status, output, error}}）→ trace 同构列表。
+
+    tech-debt #17 D2：timeout 路径由挂起状态转译，保证超时也有轨迹可查；
+    input/error_code/latency_ms 挂起快照不存（serialize_pool 只保留 status/output/error）→
+    占位 None/0（与 flow_chat 终态 trace 结构一致，前端渲染同构）。
+    """
+    trace: list[dict[str, Any]] = []
+    for nid, entry in (node_state or {}).items():
+        if not isinstance(entry, dict):
+            continue
+        trace.append(
+            {
+                "node_id": str(nid),
+                "status": entry.get("status", "skipped"),
+                "branch": None,
+                "input": None,
+                "output": entry.get("output"),
+                "error": entry.get("error"),
+                "error_code": None,
+                "latency_ms": 0,
+            }
+        )
+    return trace
+
+
 def _row_to_dict(r) -> dict[str, Any]:
     d = dict(r)
-    for k in ("node_state", "flow_input"):
+    for k in ("node_state", "flow_input", "trace"):
         if isinstance(d.get(k), str):
             try:
                 d[k] = json.loads(d[k])
