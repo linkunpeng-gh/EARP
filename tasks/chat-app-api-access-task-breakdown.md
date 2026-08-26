@@ -1,6 +1,6 @@
 # 任务清单 — Chat 应用对外 API 服务（Dify API Access 对标）
 
-**状态：✅ 已完成（2026-08-26，commit e656fd0）——Task 1-5 全交付，526 pytest 全绿 + ruff/pyright 零新增 + 前端冒烟绿；verify_f6 需 dev 环境（8000 API + 8001 mock + Ollama）在 CI/dev 侧跑回归**
+**状态：✅ 已完成（2026-08-26，commit e656fd0）——Task 1-5 全交付，526 pytest 全绿 + ruff/pyright 零新增 + 前端冒烟绿；verify_f6 80/0 已在 dev 环境确认（2026-08-26）**
 **依据**：`arch/tech-debt.md` #18（2026-08-24 评估记录，含最小闭环预案）+ C 系列交付（可见范围前置就绪）+ Dify API Access 功能对照
 **依赖**：C 系列 ✅（access_mode+app_role_access 可见范围已交付，migration 0032）+ 发布状态机 ✅ + audit 管线 ✅ + api_keys/service_accounts 表 ✅（0001 已建未用）
 **日期**：2026-08-25
