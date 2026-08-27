@@ -113,9 +113,7 @@ def init_embedding_provider(
     if provider == "ollama":
         _provider = OllamaEmbeddingProvider(base_url=ollama_base_url, model=ollama_model)
     elif provider == "openai":
-        _provider = OpenAIEmbeddingProvider(
-            api_key=openai_api_key, model=openai_model, base_url=openai_base_url
-        )
+        _provider = OpenAIEmbeddingProvider(api_key=openai_api_key, model=openai_model, base_url=openai_base_url)
     else:
         raise ValueError(f"Unknown embedding provider: {provider}")
     logger.info("init_embedding_provider: %s (dim=%d)", provider, _provider.dim)

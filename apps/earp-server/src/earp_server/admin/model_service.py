@@ -66,8 +66,10 @@ async def create_model_config(
 async def list_model_configs(engine: AsyncEngine, tenant_id: str, model_type: str | None = None) -> list[dict]:
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        sql = ("SELECT config_id, provider, model_type, model_name, enabled, is_default "
-                "FROM model_configs WHERE tenant_id = :tid")
+        sql = (
+            "SELECT config_id, provider, model_type, model_name, enabled, is_default "
+            "FROM model_configs WHERE tenant_id = :tid"
+        )
         params: dict = {"tid": tenant_id}
         if model_type:
             sql += " AND model_type = :mtype"
@@ -254,8 +256,7 @@ async def get_qu_prompt_template(engine: AsyncEngine, tenant_id: str) -> str | N
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         row = await conn.execute(
             text(
-                "SELECT qu_prompt_template FROM system_model_settings "
-                "WHERE tenant_id = :tid AND setting_type = 'llm'"
+                "SELECT qu_prompt_template FROM system_model_settings WHERE tenant_id = :tid AND setting_type = 'llm'"
             ),
             {"tid": tenant_id},
         )

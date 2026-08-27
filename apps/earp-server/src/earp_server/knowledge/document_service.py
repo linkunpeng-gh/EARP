@@ -48,9 +48,7 @@ def normalize_metadata(metadata: dict | None, schema: list[dict]) -> dict:
                 if isinstance(value, bool):
                     raise ValueError
                 if isinstance(value, (int, float)):
-                    result[key] = (
-                        int(value) if isinstance(value, float) and value.is_integer() else value
-                    )
+                    result[key] = int(value) if isinstance(value, float) and value.is_integer() else value
                 else:
                     s = str(value).strip()
                     result[key] = int(s) if s.isdigit() else float(s)
@@ -73,10 +71,7 @@ async def _kb_context(engine: AsyncEngine, tenant_id: str, knowledge_base_id: st
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         row = await conn.execute(
-            text(
-                "SELECT data_domain_id, metadata_schema FROM knowledge_bases "
-                "WHERE knowledge_base_id = :kid"
-            ),
+            text("SELECT data_domain_id, metadata_schema FROM knowledge_bases WHERE knowledge_base_id = :kid"),
             {"kid": knowledge_base_id},
         )
         r = row.fetchone()
@@ -96,9 +91,9 @@ async def create_document(
 ) -> dict:
     """Create a document row. documents.metadata is authoritative (B-5 decision):
 
-      auto fields (stable ids, not overridable): source_kb / data_domain /
-        data_classification — injected from the owning KB + upload context.
-      manual fields: validated + type-normalized against KB metadata_schema.
+    auto fields (stable ids, not overridable): source_kb / data_domain /
+      data_classification — injected from the owning KB + upload context.
+    manual fields: validated + type-normalized against KB metadata_schema.
     """
     document_id = f"doc-{uuid.uuid4().hex[:12]}"
     content_hash = hashlib.md5(content.encode()).hexdigest()

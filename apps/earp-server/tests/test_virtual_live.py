@@ -89,7 +89,10 @@ def test_live_virtual_metric_ok(migrated: str, app_url: str, migration_url: str,
     asyncio.run(_seed(engine, migrated, tid))
     asyncio.run(
         connector_service.create_connector(
-            engine, tid, connector_id="cn-v1", adapter_type="rest",
+            engine,
+            tid,
+            connector_id="cn-v1",
+            adapter_type="rest",
             config={"base_url": "http://mid/api", "token": "t"},
         )
     )
@@ -146,7 +149,10 @@ def test_live_fetch_failure_503(migrated: str, app_url: str, migration_url: str,
     asyncio.run(_seed(engine, migrated, tid))
     asyncio.run(
         connector_service.create_connector(
-            engine, tid, connector_id="cn-v1", adapter_type="rest",
+            engine,
+            tid,
+            connector_id="cn-v1",
+            adapter_type="rest",
             config={"base_url": "http://mid/api"},
         )
     )
@@ -178,13 +184,12 @@ def test_live_missing_connector_ref_400(migrated: str, app_url: str, migration_u
     tid = "cv-t6"
     engine = create_async_engine(app_url, pool_pre_ping=True)
     asyncio.run(_seed(engine, migrated, tid))
+
     # 改 source_ref 为空 → 400
     async def _null_ref() -> None:
         async with engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
-            await conn.execute(
-                text("UPDATE entities SET source_ref = NULL WHERE entity_id = 'ent-v1'")
-            )
+            await conn.execute(text("UPDATE entities SET source_ref = NULL WHERE entity_id = 'ent-v1'"))
             await conn.commit()
 
     asyncio.run(_null_ref())
@@ -204,10 +209,14 @@ def test_live_role_domain_gate(migrated: str, app_url: str, migration_url: str, 
     asyncio.run(_seed(engine, migrated, tid))
     asyncio.run(
         connector_service.create_connector(
-            engine, tid, connector_id="cn-v1", adapter_type="rest",
+            engine,
+            tid,
+            connector_id="cn-v1",
+            adapter_type="rest",
             config={"base_url": "http://mid/api"},
         )
     )
+
     async def fake_fetch(cfg, params=None):
         return [{"equip_code": "CNC-01", "oee": 0.9}]
 

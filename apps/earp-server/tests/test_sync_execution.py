@@ -26,9 +26,7 @@ FM = {
 async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
     eng = create_async_engine(migration_url)
     async with eng.begin() as conn:
-        await conn.execute(
-            text("DELETE FROM import_rules WHERE connector_id LIKE 'cn-s%' OR connector_id = 'cn-sync'")
-        )
+        await conn.execute(text("DELETE FROM import_rules WHERE connector_id LIKE 'cn-s%' OR connector_id = 'cn-sync'"))
         await conn.execute(text("DELETE FROM connector_configs WHERE connector_id LIKE 'cn-s%'"))
         await conn.execute(text("DELETE FROM entities WHERE entity_id LIKE 'ent-sync%'"))
         await conn.execute(text("DELETE FROM roles WHERE role_id = 'r-admin'"))
@@ -78,12 +76,19 @@ async def _make_connector_and_ds(
     engine: AsyncEngine, tid: str, *, cid: str = "cn-s1", adapter_type: str = "rest"
 ) -> dict:
     await connector_service.create_connector(
-        engine, tid, connector_id=cid, adapter_type=adapter_type,
+        engine,
+        tid,
+        connector_id=cid,
+        adapter_type=adapter_type,
         config={"base_url": "http://mid/api", "token": "t"},
     )
     ds = await import_service.register_data_source(
-        engine, tid, connector_id=cid, entity_type_id="equipment",
-        source_mode="synced", field_mapping=FM,
+        engine,
+        tid,
+        connector_id=cid,
+        entity_type_id="equipment",
+        source_mode="synced",
+        field_mapping=FM,
     )
     assert ds is not None
     return ds
@@ -96,18 +101,19 @@ async def _mock_fetch(monkeypatch, rows: list[dict]):
     monkeypatch.setattr(import_service.data_adapter, "fetch", fake_fetch)
 
 
-async def test_sync_creates_entities_and_facts(
-    migrated: str, app_url: str, migration_url: str, monkeypatch
-) -> None:
+async def test_sync_creates_entities_and_facts(migrated: str, app_url: str, migration_url: str, monkeypatch) -> None:
     engine = create_async_engine(app_url, pool_pre_ping=True)
     try:
         tid = "sync-t1"
         await _seed(engine, migration_url, tid)
         ds = await _make_connector_and_ds(engine, tid)
-        await _mock_fetch(monkeypatch, [
-            {"equip_code": "CNC-01", "equip_name": "加工中心", "model": "XK-500", "supplier_code": "SUP-1"},
-            {"equip_code": "CNC-02", "equip_name": "车床", "model": "CK-200", "supplier_code": "SUP-2"},
-        ])
+        await _mock_fetch(
+            monkeypatch,
+            [
+                {"equip_code": "CNC-01", "equip_name": "加工中心", "model": "XK-500", "supplier_code": "SUP-1"},
+                {"equip_code": "CNC-02", "equip_name": "车床", "model": "CK-200", "supplier_code": "SUP-2"},
+            ],
+        )
         events: list[str] = []
         bus = type("Bus", (), {"publish": lambda self, ev: events.append(ev.type)})()
 
@@ -125,9 +131,7 @@ async def test_sync_creates_entities_and_facts(
         await engine.dispose()
 
 
-async def test_sync_idempotent_second_run(
-    migrated: str, app_url: str, migration_url: str, monkeypatch
-) -> None:
+async def test_sync_idempotent_second_run(migrated: str, app_url: str, migration_url: str, monkeypatch) -> None:
     engine = create_async_engine(app_url, pool_pre_ping=True)
     try:
         tid = "sync-t2"
@@ -156,18 +160,19 @@ async def test_sync_idempotent_second_run(
         await engine.dispose()
 
 
-async def test_sync_row_error_collected_not_fatal(
-    migrated: str, app_url: str, migration_url: str, monkeypatch
-) -> None:
+async def test_sync_row_error_collected_not_fatal(migrated: str, app_url: str, migration_url: str, monkeypatch) -> None:
     engine = create_async_engine(app_url, pool_pre_ping=True)
     try:
         tid = "sync-t3"
         await _seed(engine, migration_url, tid)
         ds = await _make_connector_and_ds(engine, tid)
-        await _mock_fetch(monkeypatch, [
-            {"equip_code": "", "equip_name": "缺编码"},  # business_code 为空 → 跳过
-            {"equip_code": "CNC-03", "equip_name": "正常设备"},
-        ])
+        await _mock_fetch(
+            monkeypatch,
+            [
+                {"equip_code": "", "equip_name": "缺编码"},  # business_code 为空 → 跳过
+                {"equip_code": "CNC-03", "equip_name": "正常设备"},
+            ],
+        )
         out = await import_service.sync_from_connector(engine, tid, ds["data_source_id"])
         assert out["created"] == 1
         assert len(out["errors"]) == 1
@@ -193,9 +198,7 @@ async def test_sync_fetch_failure_raises(migrated: str, app_url: str, migration_
         await engine.dispose()
 
 
-async def test_recover_interrupted_sync(
-    migrated: str, app_url: str, migration_url: str, monkeypatch
-) -> None:
+async def test_recover_interrupted_sync(migrated: str, app_url: str, migration_url: str, monkeypatch) -> None:
     engine = create_async_engine(app_url, pool_pre_ping=True)
     try:
         tid = "sync-t5"
@@ -212,12 +215,13 @@ async def test_recover_interrupted_sync(
 
         # 心跳新鲜 → 不恢复（并发 409）
         await import_service.mark_sync_state(
-            engine, tid, ds["data_source_id"],
-            status="running", synced_at=datetime.now(UTC).isoformat(),
+            engine,
+            tid,
+            ds["data_source_id"],
+            status="running",
+            synced_at=datetime.now(UTC).isoformat(),
         )
-        recovered2 = await sync_jobs.recover_interrupted_sync(
-            engine, tid, ds["data_source_id"], ttl_seconds=1800
-        )
+        recovered2 = await sync_jobs.recover_interrupted_sync(engine, tid, ds["data_source_id"], ttl_seconds=1800)
         assert recovered2 is False
         got2 = await import_service.get_data_source(engine, tid, ds["data_source_id"])
         assert got2["last_sync_status"] == "running"
@@ -225,9 +229,7 @@ async def test_recover_interrupted_sync(
         await engine.dispose()
 
 
-async def test_sync_job_status_machine(
-    migrated: str, app_url: str, migration_url: str, monkeypatch
-) -> None:
+async def test_sync_job_status_machine(migrated: str, app_url: str, migration_url: str, monkeypatch) -> None:
     """job 直调：正常 → completed；取数失败 → failed。"""
     engine = create_async_engine(app_url, pool_pre_ping=True)
     try:
@@ -243,6 +245,7 @@ async def test_sync_job_status_machine(
         monkeypatch.setattr(import_service, "sync_from_connector", fake_sync)
         # job 内部 build_engine(Settings()) 连 env 默认库——monkeypatch 指向测试库
         monkeypatch.setattr(sync_jobs, "build_engine", lambda settings: engine)
+
         # 直调 job 函数（FakeQueue 模拟 queue.task 注册）
         class FakeQueue:
             fn = None
@@ -294,9 +297,7 @@ async def test_heartbeat_refreshes_timestamp_no_false_recovery(
             engine, tid, ds["data_source_id"], status="running", synced_at=datetime.now(UTC).isoformat()
         )
         # 超过 TTL 后检查：心跳新鲜（_beat 刚刷新）→ 不误判恢复
-        recovered = await sync_jobs.recover_interrupted_sync(
-            engine, tid, ds["data_source_id"], ttl_seconds=1800
-        )
+        recovered = await sync_jobs.recover_interrupted_sync(engine, tid, ds["data_source_id"], ttl_seconds=1800)
         assert recovered is False  # C 修复：心跳刷新后 last_synced_at 新鲜
         got = await import_service.get_data_source(engine, tid, ds["data_source_id"])
         assert got["last_sync_status"] == "running"  # 未被标 interrupted
@@ -304,9 +305,7 @@ async def test_heartbeat_refreshes_timestamp_no_false_recovery(
         await engine.dispose()
 
 
-async def test_recover_interrupted_sync_all_scans_tenants(
-    migrated: str, app_url: str, migration_url: str
-) -> None:
+async def test_recover_interrupted_sync_all_scans_tenants(migrated: str, app_url: str, migration_url: str) -> None:
     """D 修复（review）：recover_interrupted_sync_all 逐租户扫描——只标心跳旧的数据源，
     心跳新鲜/非 running 不碰。"""
     engine = create_async_engine(app_url, pool_pre_ping=True)

@@ -20,9 +20,7 @@ from sqlalchemy import text
 _DATA_SCOPES = ("self", "department", "org", "all")
 
 
-async def role_domain_access(
-    conn, tenant_id: str, role_id: str, requested: list[str]
-) -> set[str]:
+async def role_domain_access(conn, tenant_id: str, role_id: str, requested: list[str]) -> set[str]:
     """角色可用数据域集合（requested 的子集）。
 
     is_admin → 全部 requested（全权限通用机制）；角色缺失 → 空集（fail-closed）。
@@ -30,10 +28,7 @@ async def role_domain_access(
     if not requested:
         return set()
     row = await conn.execute(
-        text(
-            "SELECT is_admin, data_domain_access FROM roles "
-            "WHERE role_id = :rid AND tenant_id = :tid"
-        ),
+        text("SELECT is_admin, data_domain_access FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
         {"rid": role_id, "tid": tenant_id},
     )
     r = row.fetchone()
@@ -45,9 +40,8 @@ async def role_domain_access(
     allowed = {entry["data_domain_id"] for entry in access_list if "data_domain_id" in entry}
     return {did for did in requested if did in allowed}
 
-async def check_permission(
-    engine, tenant_id: str, role_id: str, permission: str
-) -> bool:
+
+async def check_permission(engine, tenant_id: str, role_id: str, permission: str) -> bool:
     """角色门禁：is_admin 或 permissions 含该权限串（审批人角色门禁等通用检查）。"""
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
@@ -111,10 +105,7 @@ async def _validate_domain_access(engine, tenant_id: str, access: list[dict] | N
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         rows = await conn.execute(
-            text(
-                "SELECT data_domain_id FROM data_domains "
-                "WHERE tenant_id = :tid AND status = 'active'"
-            ),
+            text("SELECT data_domain_id FROM data_domains WHERE tenant_id = :tid AND status = 'active'"),
             {"tid": tenant_id},
         )
         active = {r.data_domain_id for r in rows.fetchall()}
@@ -221,10 +212,7 @@ async def update_role(
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         await conn.execute(
-            text(
-                f"UPDATE roles SET {', '.join(sets)} "
-                "WHERE role_id = :rid AND tenant_id = :tid"
-            ),
+            text(f"UPDATE roles SET {', '.join(sets)} WHERE role_id = :rid AND tenant_id = :tid"),
             params,
         )
         await conn.commit()

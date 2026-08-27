@@ -414,8 +414,13 @@ class MultiStepExecutor:
                             if on_node_end is not None:
                                 await on_node_end(
                                     item.node_id,
-                                    {"status": "rejected", "latency_ms": 0, "output_summary": None,
-                                     "output": None, "error": "审批驳回"},
+                                    {
+                                        "status": "rejected",
+                                        "latency_ms": 0,
+                                        "output_summary": None,
+                                        "output": None,
+                                        "error": "审批驳回",
+                                    },
                                 )
                             results.append(reject_result)
                             pool[item.node_id] = reject_result
@@ -448,10 +453,13 @@ class MultiStepExecutor:
                         if on_node_end is not None:
                             await on_node_end(
                                 item.node_id,
-                                {"status": result.status, "latency_ms": result.latency_ms,
-                                 "output_summary": str(result.output)[:500] if result.output else None,
-                                 "output": result.output if isinstance(result.output, dict) else None,
-                                 "error": result.error},
+                                {
+                                    "status": result.status,
+                                    "latency_ms": result.latency_ms,
+                                    "output_summary": str(result.output)[:500] if result.output else None,
+                                    "output": result.output if isinstance(result.output, dict) else None,
+                                    "error": result.error,
+                                },
                             )
                         results.append(result)
                         pool[item.node_id] = result

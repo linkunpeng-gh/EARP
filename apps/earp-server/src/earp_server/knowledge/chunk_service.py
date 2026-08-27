@@ -131,7 +131,7 @@ def resolve_separators(seg: dict) -> list[str]:
     for s in _FALLBACK_SEPARATORS:
         if s not in seps:
             seps.append(s)
-    return seps[:5 + len(_FALLBACK_SEPARATORS)]
+    return seps[: 5 + len(_FALLBACK_SEPARATORS)]
 
 
 def split_text(
@@ -181,10 +181,7 @@ def build_preview(content: str, rules: dict | None = None) -> list[dict]:
         seg.get("chunk_overlap", 200),
         separators=resolve_separators(seg),
     )
-    return [
-        {"index": i, "content": c, "content_preview": c[:120], "char_count": len(c)}
-        for i, c in enumerate(chunks)
-    ]
+    return [{"index": i, "content": c, "content_preview": c[:120], "char_count": len(c)} for i, c in enumerate(chunks)]
 
 
 async def create_chunks(

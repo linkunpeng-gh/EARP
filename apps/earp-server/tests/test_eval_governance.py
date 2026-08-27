@@ -151,9 +151,7 @@ async def test_export_import_roundtrip(migrated: str, app_url: str) -> None:
             "relations": ["manufactured_by"],
         },
     )
-    await eval_service.add_eval_case(
-        engine, tid_a, sid, query="设备总共有多少台", expected={"intent": "AGGREGATION"}
-    )
+    await eval_service.add_eval_case(engine, tid_a, sid, query="设备总共有多少台", expected={"intent": "AGGREGATION"})
     await eval_service.update_eval_set(engine, tid_a, sid, thresholds={"intent_accuracy": 0.7})
 
     payload = await eval_service.export_eval_set(engine, tid_a, sid)
@@ -165,9 +163,13 @@ async def test_export_import_roundtrip(migrated: str, app_url: str) -> None:
 
     # B 租户导入 → custom 集合（id 自动生成）
     imported = await eval_service.import_eval_set(
-        engine, tid_b,
-        name=payload["name"], kind=payload["kind"], description=payload["description"],
-        thresholds=payload["thresholds"], cases=payload["cases"],
+        engine,
+        tid_b,
+        name=payload["name"],
+        kind=payload["kind"],
+        description=payload["description"],
+        thresholds=payload["thresholds"],
+        cases=payload["cases"],
     )
     assert imported["source"] == "custom"
     assert imported["case_count"] == 2
@@ -199,7 +201,10 @@ async def test_import_validation(migrated: str, app_url: str) -> None:
         pass
     try:
         await eval_service.import_eval_set(
-            engine, tid, name="x", kind="routing",
+            engine,
+            tid,
+            name="x",
+            kind="routing",
             cases=[{"query": "q", "expected": {"no_domain": True}}],
         )
         raise AssertionError("routing 缺 data_domain_id 应拒绝")

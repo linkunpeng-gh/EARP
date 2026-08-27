@@ -403,9 +403,7 @@ async def is_app_visible(engine: AsyncEngine, tenant_id: str, chat_app_id: str, 
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         row = (
-            await conn.execute(
-                text("SELECT access_mode FROM chat_apps WHERE chat_app_id = :id"), {"id": chat_app_id}
-            )
+            await conn.execute(text("SELECT access_mode FROM chat_apps WHERE chat_app_id = :id"), {"id": chat_app_id})
         ).first()
         if row is None:
             return False
@@ -413,8 +411,7 @@ async def is_app_visible(engine: AsyncEngine, tenant_id: str, chat_app_id: str, 
             return True
         hit = await conn.execute(
             text(
-                "SELECT 1 FROM app_role_access WHERE chat_app_id = :aid "
-                "AND role_id = :rid AND tenant_id = :tid LIMIT 1"
+                "SELECT 1 FROM app_role_access WHERE chat_app_id = :aid AND role_id = :rid AND tenant_id = :tid LIMIT 1"
             ),
             {"aid": chat_app_id, "rid": role_id or "", "tid": tenant_id},
         )

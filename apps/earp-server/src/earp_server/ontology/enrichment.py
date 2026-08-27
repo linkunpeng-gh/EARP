@@ -70,10 +70,7 @@ async def _add_timeline_once(
     """写 timeline（去重：同 entity+source_ref+event_type 跳过；实体不存在 FK 兜底跳过）。"""
     async with tenant_session(engine, tenant_id) as session:
         dup = await session.execute(
-            text(
-                "SELECT 1 FROM entity_timeline WHERE entity_id = :e AND source_ref = :r "
-                "AND event_type = :t"
-            ),
+            text("SELECT 1 FROM entity_timeline WHERE entity_id = :e AND source_ref = :r AND event_type = :t"),
             {"e": entity_id, "r": source_ref, "t": event_type},
         )
         if dup.first():
@@ -125,14 +122,18 @@ async def enrichment_run(
     # ③ 失效事实清理（G4：完整 revoke 流程，只处理 active，limit 分批幂等）
     async with tenant_session(engine, tenant_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    "SELECT fact_id FROM facts WHERE tenant_id = :t AND status = 'active' "
-                    "AND valid_to < now() LIMIT :lim"
-                ),
-                {"t": tenant_id, "lim": limit},
+            (
+                await session.execute(
+                    text(
+                        "SELECT fact_id FROM facts WHERE tenant_id = :t AND status = 'active' "
+                        "AND valid_to < now() LIMIT :lim"
+                    ),
+                    {"t": tenant_id, "lim": limit},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     for r in rows:
         fid = r["fact_id"]
         try:
@@ -145,22 +146,24 @@ async def enrichment_run(
     # executions.result 无生产写入方，已移除）
     async with tenant_session(engine, tenant_id) as session:
         msg_rows = (
-            await session.execute(
-                text(
-                    "SELECT message_id, created_at, citations FROM messages "
-                    "WHERE tenant_id = :t AND citations IS NOT NULL "
-                    "AND created_at > now() - make_interval(days => :win) LIMIT :lim"
-                ),
-                {"t": tenant_id, "win": window_days, "lim": limit},
+            (
+                await session.execute(
+                    text(
+                        "SELECT message_id, created_at, citations FROM messages "
+                        "WHERE tenant_id = :t AND citations IS NOT NULL "
+                        "AND created_at > now() - make_interval(days => :win) LIMIT :lim"
+                    ),
+                    {"t": tenant_id, "win": window_days, "lim": limit},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     hot: Counter[str] = Counter()
     for m in msg_rows:
         for eid, event_type in _extract_entity_refs(m["citations"]):
             hot[eid] += 1
-            inserted = await _add_timeline_once(
-                engine, tenant_id, eid, event_type, m["message_id"], m["created_at"]
-            )
+            inserted = await _add_timeline_once(engine, tenant_id, eid, event_type, m["message_id"], m["created_at"])
             if inserted:
                 timeline_added += 1
 

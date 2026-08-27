@@ -103,7 +103,7 @@ def _seed_c(app_engine: AsyncEngine) -> None:
                 text(
                     "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
                     "VALUES ('c-r1', :t, 'all', '{}', 'all', "
-                    "'[{\"data_domain_id\": \"equipment_data\"}]') ON CONFLICT DO NOTHING"
+                    '\'[{"data_domain_id": "equipment_data"}]\') ON CONFLICT DO NOTHING'
                 ),
                 {"t": TENANT},
             )
@@ -144,9 +144,7 @@ async def test_context_write_read_roundtrip(app_engine: AsyncEngine) -> None:
         relations=[{"subject": "CNC-01", "relation": "manufactured_by"}],
     )
     ctx = await read_conversation_context(app_engine, TENANT, cid)
-    assert ctx["last_entities"] == [
-        {"mention": "CNC-01", "entity_id": "ent-cnc01", "semantic_type": "equipment"}
-    ]
+    assert ctx["last_entities"] == [{"mention": "CNC-01", "entity_id": "ent-cnc01", "semantic_type": "equipment"}]
     assert ctx["last_intent"] == "RELATION"
     assert ctx["last_relations"] == [{"subject": "CNC-01", "relation": "manufactured_by"}]
     assert ctx.get("updated_at"), "context 应带 updated_at"
@@ -179,10 +177,7 @@ async def test_add_message_maintains_metadata(app_engine: AsyncEngine) -> None:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
         row = (
             await conn.execute(
-                text(
-                    "SELECT message_count, last_active_at FROM conversations "
-                    "WHERE conversation_id = :cid"
-                ),
+                text("SELECT message_count, last_active_at FROM conversations WHERE conversation_id = :cid"),
                 {"cid": cid},
             )
         ).first()
@@ -199,11 +194,7 @@ async def test_understand_coref_entity_id_and_trace(app_engine: AsyncEngine) -> 
         app_engine,
         TENANT,
         "它的更换周期呢",
-        context={
-            "last_entities": [
-                {"mention": "CNC-01", "entity_id": "ent-cnc01", "semantic_type": "equipment"}
-            ]
-        },
+        context={"last_entities": [{"mention": "CNC-01", "entity_id": "ent-cnc01", "semantic_type": "equipment"}]},
     )
     assert r.entities, "指代应解析出实体"
     e = r.entities[0]
@@ -257,7 +248,7 @@ async def test_chat_sse_two_turn_writes_context(migrated: str, app_url: str, mon
             settings=settings,
         ):
             assert line.startswith("data: ")
-            events.append(json.loads(line[len("data: "):]))
+            events.append(json.loads(line[len("data: ") :]))
         return events
 
     # 第一轮：CNC-01 温度异常 → context 已写 last_entities（含 entity_id）
@@ -338,9 +329,7 @@ async def test_conversation_visibility_gap_closed(app_engine: AsyncEngine) -> No
     # restricted 应用：仅 c-r1 白名单可见
     app = await create_chat_app(app_engine, TENANT, "c-u1", "C系列受限应用")
     await set_app_access(app_engine, TENANT, "c-u1", app["chat_app_id"], mode="restricted", roles=["c-r1"])
-    conv = await create_conversation(
-        app_engine, TENANT, "c-u1", "受限会话", chat_app_id=app["chat_app_id"]
-    )
+    conv = await create_conversation(app_engine, TENANT, "c-u1", "受限会话", chat_app_id=app["chat_app_id"])
     cid = conv["conversation_id"]
     await add_message(app_engine, TENANT, cid, "user", "hi", "c-u1")
 
@@ -361,9 +350,7 @@ async def test_conversation_visibility_gap_closed(app_engine: AsyncEngine) -> No
 
     # open 应用 → 任意角色可见
     app_open = await create_chat_app(app_engine, TENANT, "c-u1", "C系列开放应用")
-    conv_open = await create_conversation(
-        app_engine, TENANT, "c-u1", "开放会话", chat_app_id=app_open["chat_app_id"]
-    )
+    conv_open = await create_conversation(app_engine, TENANT, "c-u1", "开放会话", chat_app_id=app_open["chat_app_id"])
     lst_open = await list_conversations(app_engine, TENANT, user_id="c-u1", role_id="c-r2", is_admin=False)
     assert any(c["conversation_id"] == conv_open["conversation_id"] for c in lst_open)
 

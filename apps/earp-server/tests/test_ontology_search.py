@@ -67,7 +67,7 @@ async def _seed_entity_graph(engine: AsyncEngine, migration_url: str, tid: str) 
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
                 "data_domain_access, is_admin) VALUES "
                 "('r-any', :t, 'tester', '{}', 'all', "
-                "'[{\"data_domain_id\": \"equipment_data\"}]', FALSE) ON CONFLICT DO NOTHING"
+                '\'[{"data_domain_id": "equipment_data"}]\', FALSE) ON CONFLICT DO NOTHING'
             ),
             {"t": tid},
         )
@@ -78,9 +78,7 @@ async def _seed_entity_graph(engine: AsyncEngine, migration_url: str, tid: str) 
     equip = await abox_service.upsert_entity(
         engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
     )
-    alarm = await abox_service.upsert_entity(
-        engine, tid, "alarm", "高温报警", data_domain_id="equipment_data"
-    )
+    alarm = await abox_service.upsert_entity(engine, tid, "alarm", "高温报警", data_domain_id="equipment_data")
     await abox_service.add_fact(engine, tid, equip["entity_id"], "manufactured_by", sup["entity_id"])
     await abox_service.add_fact(engine, tid, alarm["entity_id"], "caused_by", equip["entity_id"])
     await abox_service.compile_profile(engine, tid, equip["entity_id"])
@@ -190,7 +188,7 @@ async def _seed_p2_routing_scene(engine: AsyncEngine, tid: str, suffix: str = ""
             text(
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
                 "VALUES (:rid, :tid, 'eq-only', '{}', 'all', "
-                "'[{\"data_domain_id\": \"equipment_data\"}]') ON CONFLICT DO NOTHING"
+                '\'[{"data_domain_id": "equipment_data"}]\') ON CONFLICT DO NOTHING'
             ),
             {"rid": role_eq, "tid": tid},
         )
@@ -198,8 +196,8 @@ async def _seed_p2_routing_scene(engine: AsyncEngine, tid: str, suffix: str = ""
             text(
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
                 "VALUES (:rid, :tid, 'all', '{}', 'all', "
-                "'[{\"data_domain_id\": \"equipment_data\"}, "
-                "{\"data_domain_id\": \"finance_data\"}]') ON CONFLICT DO NOTHING"
+                '\'[{"data_domain_id": "equipment_data"}, '
+                '{"data_domain_id": "finance_data"}]\') ON CONFLICT DO NOTHING'
             ),
             {"rid": role_all, "tid": tid},
         )
@@ -236,15 +234,18 @@ async def _seed_p2_routing_scene(engine: AsyncEngine, tid: str, suffix: str = ""
         engine, tid, "employee", "财务系统", business_code="FIN-SYS", data_domain_id="finance_data"
     )
     return {
-        "equip": equip["entity_id"], "sup": sup["entity_id"], "fin": fin["entity_id"],
-        "kb_maint": kb_maint, "kb_alarm": kb_alarm, "kb_fin": kb_fin,
-        "role_eq": role_eq, "role_all": role_all,
+        "equip": equip["entity_id"],
+        "sup": sup["entity_id"],
+        "fin": fin["entity_id"],
+        "kb_maint": kb_maint,
+        "kb_alarm": kb_alarm,
+        "kb_fin": kb_fin,
+        "role_eq": role_eq,
+        "role_all": role_all,
     }
 
 
-async def test_knowledge_search_pure_chunk_regression(
-    migrated: str, app_url: str, monkeypatch
-) -> None:
+async def test_knowledge_search_pure_chunk_regression(migrated: str, app_url: str, monkeypatch) -> None:
     """无实体命中 → 全 chunk（原行为回归）；chunk item 保留 kb_id/kb_name/title/metadata/similarity。"""
     provider = _install_stub(monkeypatch)
     engine = create_async_engine(app_url, pool_pre_ping=True)
@@ -253,8 +254,14 @@ async def test_knowledge_search_pure_chunk_regression(
 
     emb = (await provider.embed(["报销标准"]))[0]
     hits = await search.knowledge_search(
-        engine, tid, "报销标准", embedding=emb, role_id=scene["role_all"], top_k=5,
-        data_domain_ids=["finance_data"], embedding_dim=DIM,
+        engine,
+        tid,
+        "报销标准",
+        embedding=emb,
+        role_id=scene["role_all"],
+        top_k=5,
+        data_domain_ids=["finance_data"],
+        embedding_dim=DIM,
     )
     assert hits, "must return chunk hits"
     assert all(h["source"] == "chunk" for h in hits)
@@ -265,9 +272,7 @@ async def test_knowledge_search_pure_chunk_regression(
     assert "similarity" in first
 
 
-async def test_knowledge_search_kb_limit_layer3(
-    migrated: str, app_url: str, monkeypatch
-) -> None:
+async def test_knowledge_search_kb_limit_layer3(migrated: str, app_url: str, monkeypatch) -> None:
     """knowledge_base_ids 透传：L3 chunk 限定到指定 KB；L1/L2 实体层不受 KB 限制。"""
     provider = _install_stub(monkeypatch)
     engine = create_async_engine(app_url, pool_pre_ping=True)
@@ -276,7 +281,12 @@ async def test_knowledge_search_kb_limit_layer3(
 
     emb = (await provider.embed(["CNC-01 设备维护"]))[0]
     hits = await search.knowledge_search(
-        engine, tid, "CNC-01 设备维护", embedding=emb, role_id=scene["role_eq"], top_k=10,
+        engine,
+        tid,
+        "CNC-01 设备维护",
+        embedding=emb,
+        role_id=scene["role_eq"],
+        top_k=10,
         data_domain_ids=["equipment_data"],
         knowledge_base_ids=[scene["kb_maint"]],
         embedding_dim=DIM,
@@ -288,9 +298,7 @@ async def test_knowledge_search_kb_limit_layer3(
             assert h["kb_id"] == scene["kb_maint"]  # L3 限定
 
 
-async def test_knowledge_search_dd_permission_scope(
-    migrated: str, app_url: str, monkeypatch
-) -> None:
+async def test_knowledge_search_dd_permission_scope(migrated: str, app_url: str, monkeypatch) -> None:
     """候选 DD（已权限过滤）限定实体层：无权限 DD 的实体不进 profile 结果（决策 D1）。"""
     provider = _install_stub(monkeypatch)
     engine = create_async_engine(app_url, pool_pre_ping=True)
@@ -299,7 +307,12 @@ async def test_knowledge_search_dd_permission_scope(
 
     emb = (await provider.embed(["CNC-01 财务系统"]))[0]
     hits = await search.knowledge_search(
-        engine, tid, "CNC-01 财务系统", embedding=emb, role_id=scene["role_eq"], top_k=10,
+        engine,
+        tid,
+        "CNC-01 财务系统",
+        embedding=emb,
+        role_id=scene["role_eq"],
+        top_k=10,
         data_domain_ids=["equipment_data"],  # 模拟 route_query 权限过滤后的候选 DD
         embedding_dim=DIM,
     )
@@ -310,7 +323,9 @@ async def test_knowledge_search_dd_permission_scope(
 
 
 def test_knowledge_search_endpoint_soft_route_three_layer(
-    migrated: str, app_url: str, monkeypatch,
+    migrated: str,
+    app_url: str,
+    monkeypatch,
 ) -> None:
     """/knowledge/search 无 scope：keyword 命中 equipment_data → 三层检索，profile/graph 参与。"""
     import asyncio
@@ -345,9 +360,7 @@ def test_knowledge_search_endpoint_soft_route_three_layer(
         assert "profile" in sources or "graph" in sources
 
 
-async def test_entity_lane_scoped_by_role_domains_not_routing(
-    migrated: str, app_url: str, monkeypatch
-) -> None:
+async def test_entity_lane_scoped_by_role_domains_not_routing(migrated: str, app_url: str, monkeypatch) -> None:
     """2026-08-18 FDE 修复：实体层按角色允许域（非路由候选 DD）限定。
 
     路由候选错选 finance_data（文档层信号），但实体 CNC-01 在 equipment_data
@@ -361,8 +374,14 @@ async def test_entity_lane_scoped_by_role_domains_not_routing(
 
     emb = (await provider.embed(["CNC-01 设备"]))[0]
     hits = await search.knowledge_search(
-        engine, tid, "CNC-01", embedding=emb, role_id=scene["role_eq"], top_k=5,
-        data_domain_ids=["finance_data"], embedding_dim=DIM,
+        engine,
+        tid,
+        "CNC-01",
+        embedding=emb,
+        role_id=scene["role_eq"],
+        top_k=5,
+        data_domain_ids=["finance_data"],
+        embedding_dim=DIM,
     )
     assert hits, "must return hits"
     assert any(h["source"] == "profile" for h in hits), "实体层应脱离路由候选生效"
@@ -370,7 +389,12 @@ async def test_entity_lane_scoped_by_role_domains_not_routing(
     # 跨域实体 fail-closed：role_eq 无 finance 权限 → 财务系统不可出现在实体层
     emb2 = (await provider.embed(["财务系统"]))[0]
     hits2 = await search.knowledge_search(
-        engine, tid, "财务系统", embedding=emb2, role_id=scene["role_eq"], top_k=5,
+        engine,
+        tid,
+        "财务系统",
+        embedding=emb2,
+        role_id=scene["role_eq"],
+        top_k=5,
         embedding_dim=DIM,
     )
     assert not any(h["source"] in ("profile", "graph") for h in hits2), "跨域实体应被角色域过滤"

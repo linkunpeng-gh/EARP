@@ -18,9 +18,7 @@ async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
     # role_id 单列主键（debt #7 模式）：固定语义 id 跨测试租户冲突 → migration 角色全局 purge
     eng = create_async_engine(migration_url)
     async with eng.begin() as conn:
-        await conn.execute(
-            text("DELETE FROM roles WHERE role_id = ANY(ARRAY['r-admin','r-ops','r-view'])")
-        )
+        await conn.execute(text("DELETE FROM roles WHERE role_id = ANY(ARRAY['r-admin','r-ops','r-view'])"))
     await eng.dispose()
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
@@ -40,7 +38,7 @@ async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
                 "data_domain_access, is_admin) VALUES "
                 "('r-admin', :t, 'Admin', ARRAY['tbox.approve'], 'all', '[]', TRUE), "
                 "('r-ops', :t, '运营', ARRAY['tbox.approve'], 'all', "
-                "'[{\"data_domain_id\": \"dd-a\"}]', FALSE), "
+                '\'[{"data_domain_id": "dd-a"}]\', FALSE), '
                 "('r-view', :t, '只读', '{}', 'self', '[]', FALSE) ON CONFLICT DO NOTHING"
             ),
             {"t": tid},
@@ -100,7 +98,11 @@ async def test_create_role_and_validation(migrated: str, app_url: str) -> None:
     await _seed(engine, migrated, tid)
 
     r = await roles_service.create_role(
-        engine, tid, name="新角色", role_id="r-new", data_scope="org",
+        engine,
+        tid,
+        name="新角色",
+        role_id="r-new",
+        data_scope="org",
         data_domain_access=[{"data_domain_id": "dd-b"}],
     )
     assert r["role_id"] == "r-new" and r["is_admin"] is False
@@ -111,14 +113,10 @@ async def test_create_role_and_validation(migrated: str, app_url: str) -> None:
     with pytest.raises(ValueError, match="data_scope"):
         await roles_service.create_role(engine, tid, name="x", data_scope="super")
     with pytest.raises(ValueError, match="数据域"):
-        await roles_service.create_role(
-            engine, tid, name="幽灵域", data_domain_access=[{"data_domain_id": "dd-ghost"}]
-        )
+        await roles_service.create_role(engine, tid, name="幽灵域", data_domain_access=[{"data_domain_id": "dd-ghost"}])
     # deprecated 域不可授权（fail-closed 安全校验）
     with pytest.raises(ValueError, match="数据域"):
-        await roles_service.create_role(
-            engine, tid, name="停用域", data_domain_access=[{"data_domain_id": "dd-dead"}]
-        )
+        await roles_service.create_role(engine, tid, name="停用域", data_domain_access=[{"data_domain_id": "dd-dead"}])
 
 
 async def test_update_role(migrated: str, app_url: str) -> None:
@@ -127,7 +125,12 @@ async def test_update_role(migrated: str, app_url: str) -> None:
     await _seed(engine, migrated, tid)
 
     r = await roles_service.update_role(
-        engine, tid, "r-view", name="运营助理", permissions=["query.alarms"], data_scope="org",
+        engine,
+        tid,
+        "r-view",
+        name="运营助理",
+        permissions=["query.alarms"],
+        data_scope="org",
         data_domain_access=[{"data_domain_id": "dd-a"}, {"data_domain_id": "dd-b"}],
     )
     assert r["name"] == "运营助理" and r["permissions"] == ["query.alarms"]

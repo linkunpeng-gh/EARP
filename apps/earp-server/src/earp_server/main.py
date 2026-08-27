@@ -355,10 +355,7 @@ async def _service_role(engine, tenant_id: str, app: dict[str, Any]) -> str:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         row = (
             await conn.execute(
-                text(
-                    "SELECT current_role_id FROM tenant_account_joins "
-                    "WHERE tenant_id = :t AND user_id = :u"
-                ),
+                text("SELECT current_role_id FROM tenant_account_joins WHERE tenant_id = :t AND user_id = :u"),
                 {"t": tenant_id, "u": created_by},
             )
         ).first()
@@ -402,9 +399,7 @@ def _api_audit(
     )
 
 
-async def _chat_dispatch(
-    req: Request, chat_app_id: str, req_body: ChatRequest, app: dict[str, Any] | None = None
-):
+async def _chat_dispatch(req: Request, chat_app_id: str, req_body: ChatRequest, app: dict[str, Any] | None = None):
     """对话分发（内部 /chat_apps/{id}/chat 与对外 /api/v1/chat-apps/{id}/chat 共用）：
     auto = SSE 流式；flow = 声明式图执行（Chatflow F2 非流式 JSON；F4 human_approval 挂起 → 202）。
     调用方负责前置校验（内部端点：无；对外端点：密钥绑定 + 已发布，见 api_chat_ep）。
@@ -1781,9 +1776,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if is_admin:
             if not await conversation_exists(req.app.state.engine, req.state.tenant_id, conv_id):
                 raise HTTPException(status_code=404, detail="conversation not found")
-        elif not await conversation_visible(
-            req.app.state.engine, req.state.tenant_id, conv_id, req.state.role_id
-        ):
+        elif not await conversation_visible(req.app.state.engine, req.state.tenant_id, conv_id, req.state.role_id):
             raise HTTPException(status_code=404, detail="conversation not found")
         return await get_conversation_runs(req.app.state.engine, req.state.tenant_id, conv_id)
 

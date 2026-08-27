@@ -53,9 +53,7 @@ async def _seed(
     publish: bool = True,
 ) -> str:
     """建应用（+发布）→ 返回 chat_app_id。"""
-    app = await create_chat_app(
-        engine, TENANT, "u-seed", name, orchestration=orchestration, flow_schema=flow_schema
-    )
+    app = await create_chat_app(engine, TENANT, "u-seed", name, orchestration=orchestration, flow_schema=flow_schema)
     app_id = app["chat_app_id"]
     if publish:
         await publish_chat_app(engine, TENANT, "u-seed", app_id, category="财务")

@@ -73,7 +73,7 @@ async def test_knowledge_pipeline_full_cycle(migrated: str, app_url: str, monkey
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
                 "data_domain_access, is_admin) VALUES "
                 "('kbpipe-any', :tid, 'pipeline-tester', '{}', 'all', "
-                "'[{\"data_domain_id\": \"equipment_data\"}]', FALSE) ON CONFLICT DO NOTHING"
+                '\'[{"data_domain_id": "equipment_data"}]\', FALSE) ON CONFLICT DO NOTHING'
             ),
             {"tid": tid},
         )

@@ -46,10 +46,26 @@ async def _seed_app(app_engine: AsyncEngine) -> None:
 
 def _trace() -> list[dict]:
     return [
-        {"node_id": "start", "status": "completed", "branch": None, "input": None, "output": {}, "error": None,
-         "error_code": None, "latency_ms": 1},
-        {"node_id": "l1", "status": "completed", "branch": None, "input": {"q": "hi"}, "output": {"text": "ok"},
-         "error": None, "error_code": None, "latency_ms": 12},
+        {
+            "node_id": "start",
+            "status": "completed",
+            "branch": None,
+            "input": None,
+            "output": {},
+            "error": None,
+            "error_code": None,
+            "latency_ms": 1,
+        },
+        {
+            "node_id": "l1",
+            "status": "completed",
+            "branch": None,
+            "input": {"q": "hi"},
+            "output": {"text": "ok"},
+            "error": None,
+            "error_code": None,
+            "latency_ms": 12,
+        },
     ]
 
 
@@ -104,8 +120,12 @@ async def test_list_runs_pagination_and_order(app_engine: AsyncEngine) -> None:
         )
     for i in range(3):
         await flow_runs.create_run(
-            app_engine, TENANT, execution_id=f"r-list-{i}", chat_app_id=page_app,
-            conversation_id=f"conv-p-{i}", flow_input={"query": "q"},
+            app_engine,
+            TENANT,
+            execution_id=f"r-list-{i}",
+            chat_app_id=page_app,
+            conversation_id=f"conv-p-{i}",
+            flow_input={"query": "q"},
         )
         await flow_runs.finish_run(app_engine, TENANT, f"r-list-{i}", status="completed", trace=_trace())
 
@@ -145,18 +165,32 @@ async def test_flow_chat_persists_trace_on_completed(app_engine: AsyncEngine) ->
 
     await _seed_flow_user(app_engine)
     app = await create_chat_app(
-        app_engine, TENANT, "u-flow", "历史-完成", orchestration="flow",
+        app_engine,
+        TENANT,
+        "u-flow",
+        "历史-完成",
+        orchestration="flow",
         flow_schema=_approval_flow(extra_llm_after=False),
     )
-    first = await flow_chat(app_engine, TENANT, "u-flow", "r-flow", app, "报销审批", None,
-                            base_llm=FakeLLM(), settings=_settings())
+    first = await flow_chat(
+        app_engine, TENANT, "u-flow", "r-flow", app, "报销审批", None, base_llm=FakeLLM(), settings=_settings()
+    )
     assert first["status"] == "waiting_human"
     # 挂起期间：run 在 flow_runs 且 trace 为空（D2：挂起不写 trace）
     waiting = await flow_runs.get_waiting_run(app_engine, TENANT, first["conversation_id"])
     assert waiting is not None and waiting["trace"] == {}
 
-    second = await flow_chat(app_engine, TENANT, "u-flow", "r-flow", app, "同意", first["conversation_id"],
-                             base_llm=FakeLLM(), settings=_settings())
+    second = await flow_chat(
+        app_engine,
+        TENANT,
+        "u-flow",
+        "r-flow",
+        app,
+        "同意",
+        first["conversation_id"],
+        base_llm=FakeLLM(),
+        settings=_settings(),
+    )
     assert second["status"] == "completed"
     runs = await flow_runs.get_conversation_runs(app_engine, TENANT, first["conversation_id"])
     assert len(runs) == 1  # 恢复复用同一 execution_id
@@ -179,14 +213,28 @@ async def test_flow_chat_persists_trace_on_failed(app_engine: AsyncEngine) -> No
             raise ConnectorError("连接失败")
 
     app = await create_chat_app(
-        app_engine, TENANT, "u-flow", "历史-失败", orchestration="flow",
+        app_engine,
+        TENANT,
+        "u-flow",
+        "历史-失败",
+        orchestration="flow",
         flow_schema=_approval_flow(extra_llm_after=True),  # h1 后接 l1(llm)
     )
-    first = await flow_chat(app_engine, TENANT, "u-flow", "r-flow", app, "q", None,
-                            base_llm=_FailLLM(), settings=_settings())
+    first = await flow_chat(
+        app_engine, TENANT, "u-flow", "r-flow", app, "q", None, base_llm=_FailLLM(), settings=_settings()
+    )
     assert first["status"] == "waiting_human"
-    second = await flow_chat(app_engine, TENANT, "u-flow", "r-flow", app, "同意", first["conversation_id"],
-                             base_llm=_FailLLM(), settings=_settings())
+    second = await flow_chat(
+        app_engine,
+        TENANT,
+        "u-flow",
+        "r-flow",
+        app,
+        "同意",
+        first["conversation_id"],
+        base_llm=_FailLLM(),
+        settings=_settings(),
+    )
     assert second["status"] == "failed"
     runs = await flow_runs.get_conversation_runs(app_engine, TENANT, first["conversation_id"])
     run = runs[0]
@@ -213,11 +261,17 @@ async def test_timeout_translates_node_state_to_trace(app_engine: AsyncEngine) -
             {"t": TENANT, "a": APP},
         )
     await flow_runs.create_run(
-        app_engine, TENANT, execution_id="run-timeout-1", chat_app_id=APP,
-        conversation_id="conv-timeout", flow_input={"query": "q"},
+        app_engine,
+        TENANT,
+        execution_id="run-timeout-1",
+        chat_app_id=APP,
+        conversation_id="conv-timeout",
+        flow_input={"query": "q"},
     )
     await flow_runs.update_waiting(
-        app_engine, TENANT, "run-timeout-1",
+        app_engine,
+        TENANT,
+        "run-timeout-1",
         pending_node_id="h1",
         node_state={
             "start": {"status": "completed", "output": {}},

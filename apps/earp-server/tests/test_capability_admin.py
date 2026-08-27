@@ -74,8 +74,11 @@ def app_engine(migrated: str, app_url: str) -> AsyncEngine:
 async def test_create_and_get_capability(app_engine: AsyncEngine) -> None:
     await _seed_tenant(app_engine, TENANT_A)
     cap = await cap_service.create_capability(
-        app_engine, TENANT_A,
-        domain="equipment", name="query_alarm", type="query",
+        app_engine,
+        TENANT_A,
+        domain="equipment",
+        name="query_alarm",
+        type="query",
         required_permissions=["alarm:read"],
         execution={"adapter": "tool.fetch", "params": {"connector_id": "cn-1"}},
         capability_id="cap-query-alarm",
@@ -93,24 +96,39 @@ async def test_create_and_get_capability(app_engine: AsyncEngine) -> None:
 async def test_create_requires_permissions(app_engine: AsyncEngine) -> None:
     with pytest.raises(ValueError, match="required_permissions"):
         await cap_service.create_capability(
-            app_engine, TENANT_A, domain="x", name="y", type="query",
-            required_permissions=[], capability_id="cap-noperm",
+            app_engine,
+            TENANT_A,
+            domain="x",
+            name="y",
+            type="query",
+            required_permissions=[],
+            capability_id="cap-noperm",
         )
 
 
 async def test_create_invalid_type(app_engine: AsyncEngine) -> None:
     with pytest.raises(ValueError, match="type"):
         await cap_service.create_capability(
-            app_engine, TENANT_A, domain="x", name="y", type="magic",
-            required_permissions=["p"], capability_id="cap-badtype",
+            app_engine,
+            TENANT_A,
+            domain="x",
+            name="y",
+            type="magic",
+            required_permissions=["p"],
+            capability_id="cap-badtype",
         )
 
 
 async def test_create_invalid_schema(app_engine: AsyncEngine) -> None:
     with pytest.raises(ValueError, match="properties"):
         await cap_service.create_capability(
-            app_engine, TENANT_A, domain="x", name="y", type="query",
-            required_permissions=["p"], input_schema={"type": "object"},
+            app_engine,
+            TENANT_A,
+            domain="x",
+            name="y",
+            type="query",
+            required_permissions=["p"],
+            input_schema={"type": "object"},
             capability_id="cap-badschema",
         )
 
@@ -118,8 +136,13 @@ async def test_create_invalid_schema(app_engine: AsyncEngine) -> None:
 async def test_create_unknown_adapter_warns_but_allows(app_engine: AsyncEngine) -> None:
     """执行器任务书 D6：未知 adapter 仅 warning 不阻断（执行时再严判）。"""
     cap = await cap_service.create_capability(
-        app_engine, TENANT_A, domain="x", name="y", type="query",
-        required_permissions=["p"], execution={"adapter": "ghost.adapter"},
+        app_engine,
+        TENANT_A,
+        domain="x",
+        name="y",
+        type="query",
+        required_permissions=["p"],
+        execution={"adapter": "ghost.adapter"},
         capability_id="cap-ghost",
     )
     assert cap["execution"] == {"adapter": "ghost.adapter"}
@@ -130,8 +153,13 @@ async def test_cross_tenant_same_capability_id(app_engine: AsyncEngine) -> None:
     await _seed_tenant(app_engine, TENANT_B)
     for tid in (TENANT_A, TENANT_B):
         cap = await cap_service.create_capability(
-            app_engine, tid, domain="shared", name="echo", type="query",
-            required_permissions=["p"], capability_id="cap-shared",
+            app_engine,
+            tid,
+            domain="shared",
+            name="echo",
+            type="query",
+            required_permissions=["p"],
+            capability_id="cap-shared",
         )
         assert cap is not None
     # 租户 A 的能力在 B 不可见
@@ -142,11 +170,21 @@ async def test_cross_tenant_same_capability_id(app_engine: AsyncEngine) -> None:
 
 async def test_update_and_deprecate(app_engine: AsyncEngine) -> None:
     await cap_service.create_capability(
-        app_engine, TENANT_A, domain="d", name="n", type="query",
-        required_permissions=["p"], capability_id="cap-upd", version="1.0.0",
+        app_engine,
+        TENANT_A,
+        domain="d",
+        name="n",
+        type="query",
+        required_permissions=["p"],
+        capability_id="cap-upd",
+        version="1.0.0",
     )
     updated = await cap_service.update_capability(
-        app_engine, TENANT_A, "cap-upd", version="2.0.0", execution={"adapter": "demo.echo"},
+        app_engine,
+        TENANT_A,
+        "cap-upd",
+        version="2.0.0",
+        execution={"adapter": "demo.echo"},
     )
     assert updated["version"] == "2.0.0"
     assert updated["execution"] == {"adapter": "demo.echo"}
@@ -165,8 +203,15 @@ async def test_audit_events_on_capability_lifecycle(app_engine: AsyncEngine) -> 
     bus = EventBus()
     bus.subscribe("earp.capability.*", audit_handler_factory(app_engine))
     await cap_service.create_capability(
-        app_engine, TENANT_A, domain="d", name="n", type="query",
-        required_permissions=["p"], capability_id="cap-audit", bus=bus, user_id="u1",
+        app_engine,
+        TENANT_A,
+        domain="d",
+        name="n",
+        type="query",
+        required_permissions=["p"],
+        capability_id="cap-audit",
+        bus=bus,
+        user_id="u1",
     )
     await cap_service.update_capability(app_engine, TENANT_A, "cap-audit", version="2.0.0", bus=bus, user_id="u1")
     await cap_service.deprecate_capability(app_engine, TENANT_A, "cap-audit", bus=bus, user_id="u1")
@@ -201,8 +246,11 @@ def test_capability_create_requires_admin(migrated: str, app_url: str) -> None:
     asyncio.run(_seed_tenant(engine, "capapi-t1"))
     app = _make_app(app_url)
     body = {
-        "domain": "equipment", "name": "query_alarm", "type": "query",
-        "required_permissions": ["alarm:read"], "capability_id": "cap-api-1",
+        "domain": "equipment",
+        "name": "query_alarm",
+        "type": "query",
+        "required_permissions": ["alarm:read"],
+        "capability_id": "cap-api-1",
         "execution": {"adapter": "tool.fetch", "params": {"connector_id": "cn-1"}},
     }
     with TestClient(app) as c:
@@ -282,32 +330,58 @@ async def test_create_field_length_and_charset_validated(app_engine: AsyncEngine
     # capability_id 超长
     with pytest.raises(ValueError, match="长度"):
         await cap_service.create_capability(
-            app_engine, TENANT_A, domain="d", name="n", type="query",
-            required_permissions=["p"], capability_id="c" * 100,
+            app_engine,
+            TENANT_A,
+            domain="d",
+            name="n",
+            type="query",
+            required_permissions=["p"],
+            capability_id="c" * 100,
         )
     # capability_id 字符白名单（XSS/SQL 注入面根治）
     with pytest.raises(ValueError, match="小写字母"):
         await cap_service.create_capability(
-            app_engine, TENANT_A, domain="d", name="n", type="query",
-            required_permissions=["p"], capability_id="x');alert(1);//",
+            app_engine,
+            TENANT_A,
+            domain="d",
+            name="n",
+            type="query",
+            required_permissions=["p"],
+            capability_id="x');alert(1);//",
         )
     # version 超长（DDL VARCHAR(16)）
     with pytest.raises(ValueError, match="长度"):
         await cap_service.create_capability(
-            app_engine, TENANT_A, domain="d", name="n", type="query",
-            required_permissions=["p"], version="9" * 30, capability_id="cap-vlen",
+            app_engine,
+            TENANT_A,
+            domain="d",
+            name="n",
+            type="query",
+            required_permissions=["p"],
+            version="9" * 30,
+            capability_id="cap-vlen",
         )
     # domain 超长（DDL VARCHAR(64)）
     with pytest.raises(ValueError, match="长度"):
         await cap_service.create_capability(
-            app_engine, TENANT_A, domain="d" * 100, name="n", type="query",
-            required_permissions=["p"], capability_id="cap-dlen",
+            app_engine,
+            TENANT_A,
+            domain="d" * 100,
+            name="n",
+            type="query",
+            required_permissions=["p"],
+            capability_id="cap-dlen",
         )
     # 空域名
     with pytest.raises(ValueError, match="不能为空"):
         await cap_service.create_capability(
-            app_engine, TENANT_A, domain="  ", name="n", type="query",
-            required_permissions=["p"], capability_id="cap-empty",
+            app_engine,
+            TENANT_A,
+            domain="  ",
+            name="n",
+            type="query",
+            required_permissions=["p"],
+            capability_id="cap-empty",
         )
 
 
@@ -316,20 +390,34 @@ async def test_create_duplicate_raises_conflict(app_engine: AsyncEngine) -> None
     from earp_server.capability.service import CapabilityConflictError
 
     await cap_service.create_capability(
-        app_engine, TENANT_A, domain="d", name="n", type="query",
-        required_permissions=["p"], capability_id="cap-dup",
+        app_engine,
+        TENANT_A,
+        domain="d",
+        name="n",
+        type="query",
+        required_permissions=["p"],
+        capability_id="cap-dup",
     )
     with pytest.raises(CapabilityConflictError, match="已存在"):
         await cap_service.create_capability(
-            app_engine, TENANT_A, domain="d", name="n", type="query",
-            required_permissions=["p"], capability_id="cap-dup",
+            app_engine,
+            TENANT_A,
+            domain="d",
+            name="n",
+            type="query",
+            required_permissions=["p"],
+            capability_id="cap-dup",
         )
 
 
 async def test_auto_generated_id_never_exceeds_limit(app_engine: AsyncEngine) -> None:
     """自动生成 id 截断到安全长度（超长 name/domain 不再 500）。"""
     cap = await cap_service.create_capability(
-        app_engine, TENANT_A, domain="d", name="很长的能力名称" * 30, type="query",
+        app_engine,
+        TENANT_A,
+        domain="d",
+        name="很长的能力名称" * 30,
+        type="query",
         required_permissions=["p"],
     )
     assert len(cap["capability_id"]) <= 64
@@ -343,8 +431,11 @@ def test_capability_crud_http_semantics(migrated: str, app_url: str) -> None:
     with TestClient(app) as c:
         h_admin = {"Authorization": f"Bearer {_token('capapi-t4', 'capapi-t4-admin')}"}
         body = {
-            "domain": "equipment", "name": "q", "type": "query",
-            "required_permissions": ["alarm:read"], "capability_id": "cap-t4",
+            "domain": "equipment",
+            "name": "q",
+            "type": "query",
+            "required_permissions": ["alarm:read"],
+            "capability_id": "cap-t4",
         }
         assert c.post("/capabilities", json=body, headers=h_admin).status_code == 201
         # 重复创建 → 409（非 422/500）
@@ -382,8 +473,11 @@ def test_capability_detail_role_visibility(migrated: str, app_url: str) -> None:
         r = c.post(
             "/capabilities",
             json={
-                "domain": "equipment", "name": "q", "type": "query",
-                "required_permissions": ["alarm:read"], "capability_id": "cap-t5",
+                "domain": "equipment",
+                "name": "q",
+                "type": "query",
+                "required_permissions": ["alarm:read"],
+                "capability_id": "cap-t5",
             },
             headers=h_admin,
         )

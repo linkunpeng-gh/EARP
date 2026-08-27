@@ -90,10 +90,14 @@ async def _run_eval(cases: list[dict], engine: AsyncEngine, tid: str) -> dict:
     """逐条跑规则层，返回统计。"""
     stats: dict[str, Any] = {
         "n": len(cases),
-        "intent_ok": 0, "intent_scored": 0,
-        "ent_ok": 0, "ent_total": 0,
-        "rel_ok": 0, "rel_scored": 0,
-        "coref_cases": 0, "coref_ok": 0,  # C 系列 Task 4：指代消解命中（ctx 用例）
+        "intent_ok": 0,
+        "intent_scored": 0,
+        "ent_ok": 0,
+        "ent_total": 0,
+        "rel_ok": 0,
+        "rel_scored": 0,
+        "coref_cases": 0,
+        "coref_ok": 0,  # C 系列 Task 4：指代消解命中（ctx 用例）
         "schema_violations": [],
         "intent_misses": [],
         "entity_misses": [],
@@ -126,10 +130,7 @@ async def _run_eval(cases: list[dict], engine: AsyncEngine, tid: str) -> dict:
         # 实体提及召回（标注实体对被 result 命中的比例）
         for ent in case["entities"]:
             stats["ent_total"] += 1
-            hit = any(
-                m.mention == ent["mention"] and m.semantic_type == ent["semantic_type"]
-                for m in r.entities
-            )
+            hit = any(m.mention == ent["mention"] and m.semantic_type == ent["semantic_type"] for m in r.entities)
             if hit:
                 stats["ent_ok"] += 1
             else:
@@ -141,17 +142,12 @@ async def _run_eval(cases: list[dict], engine: AsyncEngine, tid: str) -> dict:
             if all(rel in got for rel in case["relations"]):
                 stats["rel_ok"] += 1
             else:
-                stats["relation_misses"].append(
-                    (case["num"], case["query"], case["relations"], sorted(got))
-                )
+                stats["relation_misses"].append((case["num"], case["query"], case["relations"], sorted(got)))
         # 指代消解命中（C 系列 Task 4）：ctx 用例标注实体全部被解析即命中（≥80% 门槛）
         if case["note"].startswith("ctx:"):
             stats["coref_cases"] += 1
             if case["entities"] and all(
-                any(
-                    m.mention == ent["mention"] and m.semantic_type == ent["semantic_type"]
-                    for m in r.entities
-                )
+                any(m.mention == ent["mention"] and m.semantic_type == ent["semantic_type"] for m in r.entities)
                 for ent in case["entities"]
             ):
                 stats["coref_ok"] += 1

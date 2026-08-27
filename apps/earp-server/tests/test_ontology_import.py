@@ -48,10 +48,7 @@ async def test_import_dry_run_valid_no_write(migrated: str, app_url: str) -> Non
     await tbox_service.init_tenant_tbox(engine, tid)
     await _seed_dd(engine, tid)
 
-    ents = (
-        "equipment,CNC-01,CNC-01,equipment_data,\n"
-        "supplier,上海某精机,SUP-001,equipment_data,"
-    )
+    ents = "equipment,CNC-01,CNC-01,equipment_data,\nsupplier,上海某精机,SUP-001,equipment_data,"
     facts = "CNC-01,manufactured_by,SUP-001,1.0"
     res = await import_service.import_abox(engine, tid, ents, facts, dry_run=True)
 
@@ -74,19 +71,19 @@ async def test_import_dry_run_collects_errors(migrated: str, app_url: str) -> No
     await _seed_dd(engine, tid)
 
     ents = (
-        "equipment,CNC-01,CNC-01,equipment_data,\n"           # 行1 OK
-        "supplier,上海某精机,SUP-001,equipment_data,\n"         # 行2 OK
-        "no_such_type,X,X,equipment_data,\n"                    # 行3 类型不存在
-        "equipment,A,A,no_such_dd,\n"                           # 行4 域不存在
-        "equipment,B,B,equipment_data,{bad json\n"              # 行5 JSON 非法
-        "equipment,CNC-01b,CNC-01,equipment_data,\n"            # 行6 同类型 code 重复
+        "equipment,CNC-01,CNC-01,equipment_data,\n"  # 行1 OK
+        "supplier,上海某精机,SUP-001,equipment_data,\n"  # 行2 OK
+        "no_such_type,X,X,equipment_data,\n"  # 行3 类型不存在
+        "equipment,A,A,no_such_dd,\n"  # 行4 域不存在
+        "equipment,B,B,equipment_data,{bad json\n"  # 行5 JSON 非法
+        "equipment,CNC-01b,CNC-01,equipment_data,\n"  # 行6 同类型 code 重复
     )
     facts = (
-        "CNC-01,no_such_rel,SUP-001,1.0\n"                     # 行1 关系不存在
-        "CNC-01,caused_by,SUP-001,1.0\n"                       # 行2 方向错（caused_by source=alarm）
-        "CNC-01,manufactured_by,MISSING,1.0\n"          # 行3 目标不存在
-        "CNC-01,manufactured_by,SUP-001,1.5\n"                 # 行4 confidence 越界
-        "CNC-01,manufactured_by,CNC-01,1.0\n"    # 行5 目标类型错（equipment 不在 target=supplier）
+        "CNC-01,no_such_rel,SUP-001,1.0\n"  # 行1 关系不存在
+        "CNC-01,caused_by,SUP-001,1.0\n"  # 行2 方向错（caused_by source=alarm）
+        "CNC-01,manufactured_by,MISSING,1.0\n"  # 行3 目标不存在
+        "CNC-01,manufactured_by,SUP-001,1.5\n"  # 行4 confidence 越界
+        "CNC-01,manufactured_by,CNC-01,1.0\n"  # 行5 目标类型错（equipment 不在 target=supplier）
     )
     res = await import_service.import_abox(engine, tid, ents, facts, dry_run=True)
 
@@ -113,10 +110,7 @@ async def test_import_execute_writes_and_recompiles_profile(migrated: str, app_u
     await tbox_service.init_tenant_tbox(engine, tid)
     await _seed_dd(engine, tid)
 
-    ents = (
-        "equipment,CNC-01,CNC-01,equipment_data,\n"
-        "supplier,上海某精机,SUP-001,equipment_data,"
-    )
+    ents = "equipment,CNC-01,CNC-01,equipment_data,\nsupplier,上海某精机,SUP-001,equipment_data,"
     facts = "CNC-01,manufactured_by,SUP-001,1.0"
     res = await import_service.import_abox(engine, tid, ents, facts, dry_run=False)
 
@@ -163,8 +157,8 @@ async def test_component_supply_belong_relations(migrated: str, app_url: str) ->
         "supplier,上海某精机,SUP-001,equipment_data,"
     )
     facts = (
-        "CPN-1,supplied_by,SUP-001,1.0\n"     # 部件由供应商供应（新增）
-        "CPN-1,belongs_to,CNC-01,1.0\n"        # 部件属于设备（新增）
+        "CPN-1,supplied_by,SUP-001,1.0\n"  # 部件由供应商供应（新增）
+        "CPN-1,belongs_to,CNC-01,1.0\n"  # 部件属于设备（新增）
     )
     res = await import_service.import_abox(engine, tid, ents, facts, dry_run=True)
     assert res["entities"]["errors"] == []

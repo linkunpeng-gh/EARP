@@ -100,8 +100,8 @@ async def _seed_tenant(engine, migration_url: str, tid: str) -> None:
             text(
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
                 "VALUES ('r-all', :tid, 'eval-tester', '{}', 'all', "
-                "'[{\"data_domain_id\": \"finance_data\"}, {\"data_domain_id\": \"equipment_data\"}, "
-                "{\"data_domain_id\": \"hr_data\"}]') ON CONFLICT DO NOTHING"
+                '\'[{"data_domain_id": "finance_data"}, {"data_domain_id": "equipment_data"}, '
+                '{"data_domain_id": "hr_data"}]\') ON CONFLICT DO NOTHING'
             ),
             {"tid": tid},
         )
@@ -381,9 +381,7 @@ async def test_run_failure_fallback(migrated: str, app_url: str) -> None:
     sid2 = await _set_id(tid, "planning")
     run2 = await eval_service.start_run(engine, tid, "u1", sid2, mode="rules")
     async with tenant_session(engine, tid) as session:
-        await session.execute(
-            text("UPDATE eval_cases SET enabled = FALSE WHERE eval_set_id = :sid"), {"sid": sid2}
-        )
+        await session.execute(text("UPDATE eval_cases SET enabled = FALSE WHERE eval_set_id = :sid"), {"sid": sid2})
     await eval_service.run_eval_task(engine, tid, run2["run_id"], role_id="r-all")
     got2 = await eval_service.get_run(engine, tid, run2["run_id"])
     assert got2["status"] == "failed"

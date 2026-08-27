@@ -17,9 +17,7 @@ async def _purge_roles(migration_url: str) -> None:
     """固定语义 role_id 单列主键（debt #7 模式）：migration 角色（BYPASSRLS）全局清理。"""
     eng = create_async_engine(migration_url)
     async with eng.begin() as conn:
-        await conn.execute(
-            text("DELETE FROM roles WHERE role_id = ANY(ARRAY['r-approver','r-nogate','r-admin'])")
-        )
+        await conn.execute(text("DELETE FROM roles WHERE role_id = ANY(ARRAY['r-approver','r-nogate','r-admin'])"))
     await eng.dispose()
 
 

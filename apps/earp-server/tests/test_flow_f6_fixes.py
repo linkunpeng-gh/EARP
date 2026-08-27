@@ -42,6 +42,7 @@ def app_engine(migrated: str, app_url: str) -> AsyncEngine:
 @pytest.fixture(scope="module", autouse=True)
 def _seed_f6(app_engine: AsyncEngine) -> None:
     """f6-fix-t1 基线：user + CNC-01 设备实体（qu 实体识别 / 指代消解素材）。"""
+
     async def _seed() -> None:
         async with app_engine.begin() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
@@ -120,18 +121,12 @@ class TestListIndexPaths:
 
     def test_condition_list_index(self) -> None:
         """场景 A 分支：c1.output.rows.0.status == 'faulty'。"""
-        assert evaluate_condition(
-            {"left": "c1.output.rows.0.status", "op": "==", "right": "faulty"}, self.POOL
-        )
-        assert not evaluate_condition(
-            {"left": "c1.output.rows.0.status", "op": "==", "right": "ok"}, self.POOL
-        )
+        assert evaluate_condition({"left": "c1.output.rows.0.status", "op": "==", "right": "faulty"}, self.POOL)
+        assert not evaluate_condition({"left": "c1.output.rows.0.status", "op": "==", "right": "ok"}, self.POOL)
 
     def test_condition_list_index_nested_metadata(self) -> None:
         """场景 B 分支：k1.output.chunks.0.metadata.vip == true。"""
-        assert evaluate_condition(
-            {"left": "k1.output.chunks.0.metadata.vip", "op": "==", "right": True}, self.POOL
-        )
+        assert evaluate_condition({"left": "k1.output.chunks.0.metadata.vip", "op": "==", "right": True}, self.POOL)
 
     def test_condition_list_index_out_of_range_returns_none(self) -> None:
         """越界索引 → 路径解析 None → ConditionEvaluationError（不 crash）。"""
@@ -181,9 +176,7 @@ class TestQuAnswerF6:
         monkeypatch.setattr(planning_mod, "execute_plan", _fake_execute_plan)
 
         connector = Connector(engine=app_engine)
-        out = await connector.execute(
-            {"adapter_type": "qu.answer", "input": {"query": "CNC-01 温度异常"}}, ctx=_ctx()
-        )
+        out = await connector.execute({"adapter_type": "qu.answer", "input": {"query": "CNC-01 温度异常"}}, ctx=_ctx())
         assert out["entities"] == [{"mention": "CNC-01 数控机床", "semantic_type": "equipment"}]
 
     async def test_qu_answer_history_context_anaphora(self, app_engine: AsyncEngine) -> None:
@@ -207,9 +200,7 @@ class TestQuAnswerF6:
         assert any("CNC-01" in e["mention"] for e in context["last_entities"])
 
         # 端到端：本轮「它刚才还报警了」→ 指代解析到 CNC-01（真实 understand 规则层）
-        out = await connector.execute(
-            {"adapter_type": "qu.answer", "input": {"query": "它刚才还报警了"}}, ctx=ctx
-        )
+        out = await connector.execute({"adapter_type": "qu.answer", "input": {"query": "它刚才还报警了"}}, ctx=ctx)
         mentions = [e["mention"] for e in out["entities"]]
         assert any("CNC-01" in m for m in mentions), f"指代未解析：{mentions}"
 
@@ -228,12 +219,21 @@ class TestCheckpointResumeIdempotent:
         return {
             "nodes": [
                 {"id": "start", "type": "start", "data": {}},
-                {"id": "s1", "type": "step",
-                 "data": {"capability_call": {"adapter_type": "demo.echo", "input": {"msg": "ok"}}}},
-                {"id": "cond1", "type": "condition",
-                 "data": {"condition": {"left": "s1.output.echo.msg", "op": "==", "right": "ok"}}},
-                {"id": "c2", "type": "step",
-                 "data": {"capability_call": {"adapter_type": "demo.echo", "input": {"msg": "pre"}}}},
+                {
+                    "id": "s1",
+                    "type": "step",
+                    "data": {"capability_call": {"adapter_type": "demo.echo", "input": {"msg": "ok"}}},
+                },
+                {
+                    "id": "cond1",
+                    "type": "condition",
+                    "data": {"condition": {"left": "s1.output.echo.msg", "op": "==", "right": "ok"}},
+                },
+                {
+                    "id": "c2",
+                    "type": "step",
+                    "data": {"capability_call": {"adapter_type": "demo.echo", "input": {"msg": "pre"}}},
+                },
                 {"id": "h1", "type": "human_approval", "data": {"question": "确认？"}},
                 {"id": "l1", "type": "llm", "data": {"prompt": "答复：{{#h1.output.reply#}}"}},
                 {"id": "l2", "type": "llm", "data": {"prompt": "未命中分支：{{#s1.output.echo.msg#}}"}},

@@ -383,8 +383,13 @@ class TestF3Adapters:
         本用例只有声明分派路径能过（review 修复 #12：用默认 demo/echo 的话删掉声明代码也照绿，零区分度）。
         """
         await _register_cap_exec(
-            app_engine, TENANT, "cap-exec-echo",
-            execution={"adapter": "demo.echo"}, permissions=[], domain="custom", name="echo",
+            app_engine,
+            TENANT,
+            "cap-exec-echo",
+            execution={"adapter": "demo.echo"},
+            permissions=[],
+            domain="custom",
+            name="echo",
         )
         connector = Connector(engine=app_engine)
         out = await connector.execute(
@@ -403,11 +408,16 @@ class TestF3Adapters:
         from earp_server.ontology import connector_service, data_adapter
 
         await connector_service.create_connector(
-            app_engine, TENANT, connector_id="cn-exec-rest", adapter_type="rest",
+            app_engine,
+            TENANT,
+            connector_id="cn-exec-rest",
+            adapter_type="rest",
             config={"base_url": "http://x.example", "path": "/api", "method": "GET"},
         )
         await _register_cap_exec(
-            app_engine, TENANT, "cap-exec-tool",
+            app_engine,
+            TENANT,
+            "cap-exec-tool",
             execution={
                 "adapter": "tool.fetch",
                 "params": {"connector_id": "cn-exec-rest", "params": {"region": "默认值"}},
@@ -449,7 +459,7 @@ class TestF3Adapters:
                     "VALUES ('cap-exec-bad', :t, 'demo', 'echo', 'query', '{}', '{}', '{}', '1.0.0', :exec) "
                     "ON CONFLICT (capability_id, tenant_id) DO NOTHING"
                 ),
-                {"t": TENANT, "exec": '\"not-a-dict\"'},
+                {"t": TENANT, "exec": '"not-a-dict"'},
             )
             await conn.commit()
         connector = Connector(engine=app_engine)
@@ -591,8 +601,15 @@ async def test_flow_tool_fetch_connection_error_classified(app_engine: AsyncEngi
     )
     app = await _flow_app(app_engine, g, "f7-tool-conn")
     result = await flow_chat(
-        app_engine, TENANT, "f3-u1", "f3-r1", app, "q", None,
-        base_llm=FakeLLM(), settings=_settings(),
+        app_engine,
+        TENANT,
+        "f3-u1",
+        "f3-r1",
+        app,
+        "q",
+        None,
+        base_llm=FakeLLM(),
+        settings=_settings(),
     )
     assert result["status"] == ExecutionStatus.FAILED.value  # 200+failed 语义保持
     t1 = next(t for t in result["trace"] if t["node_id"] == "t1")
@@ -617,8 +634,15 @@ async def test_flow_capability_unknown_classified(app_engine: AsyncEngine) -> No
     )
     app = await _flow_app(app_engine, g, "f7-cap-unknown")
     result = await flow_chat(
-        app_engine, TENANT, "f3-u1", "f3-r1", app, "q", None,
-        base_llm=FakeLLM(), settings=_settings(),
+        app_engine,
+        TENANT,
+        "f3-u1",
+        "f3-r1",
+        app,
+        "q",
+        None,
+        base_llm=FakeLLM(),
+        settings=_settings(),
     )
     assert result["status"] == ExecutionStatus.FAILED.value
     c1 = next(t for t in result["trace"] if t["node_id"] == "c1")
@@ -672,8 +696,15 @@ class TestFlowChatF3:
         app = await _flow_app(app_engine, g, "f3-qu-chain")
         llm = FakeLLM(text="已引用")
         result = await flow_chat(
-            app_engine, TENANT, "f3-u1", "f3-r1", app, "CNC-01 是什么设备", None,
-            base_llm=llm, settings=_settings(),
+            app_engine,
+            TENANT,
+            "f3-u1",
+            "f3-r1",
+            app,
+            "CNC-01 是什么设备",
+            None,
+            base_llm=llm,
+            settings=_settings(),
         )
         assert result["status"] == ExecutionStatus.COMPLETED.value
         assert result["outputs"]["q1"]["selection"]["plan_name"] == "plan_fact"
@@ -697,8 +728,16 @@ class TestFlowChatF3:
         bus = EventBus()
         bus.subscribe("earp.capability.*", audit_handler_factory(app_engine))
         result = await flow_chat(
-            app_engine, TENANT, "f3-u1", "f3-r1", app, "q", None,
-            base_llm=FakeLLM(), settings=_settings(), bus=bus,
+            app_engine,
+            TENANT,
+            "f3-u1",
+            "f3-r1",
+            app,
+            "q",
+            None,
+            base_llm=FakeLLM(),
+            settings=_settings(),
+            bus=bus,
         )
         assert result["status"] == ExecutionStatus.COMPLETED.value
         assert result["outputs"]["c1"] == {"echo": {"msg": "hello"}}
@@ -724,8 +763,16 @@ class TestFlowChatF3:
         bus.subscribe("earp.capability.*", audit_handler_factory(app_engine))
         with pytest.raises(HTTPException) as exc_info:
             await flow_chat(
-                app_engine, TENANT, "f3-u1", "f3-r2", app, "q", None,
-                base_llm=FakeLLM(), settings=_settings(), bus=bus,
+                app_engine,
+                TENANT,
+                "f3-u1",
+                "f3-r2",
+                app,
+                "q",
+                None,
+                base_llm=FakeLLM(),
+                settings=_settings(),
+                bus=bus,
             )
         assert exc_info.value.status_code == 403
 
@@ -753,8 +800,15 @@ class TestFlowChatF3:
         )
         app = await _flow_app(app_engine, g, "f3-tool-fetch")
         result = await flow_chat(
-            app_engine, TENANT, "f3-u1", "f3-r1", app, "华东", None,
-            base_llm=FakeLLM(), settings=_settings(),
+            app_engine,
+            TENANT,
+            "f3-u1",
+            "f3-r1",
+            app,
+            "华东",
+            None,
+            base_llm=FakeLLM(),
+            settings=_settings(),
         )
         assert result["status"] == ExecutionStatus.COMPLETED.value
         assert result["outputs"]["t1"]["rows"] == [{"id": 1, "name": "item-华东"}]  # {{query}} 已替换
@@ -769,7 +823,8 @@ class TestLlmNodeModelSelect:
         g = _flow_graph(
             {"id": "start", "type": "start", "data": {}},
             {
-                "id": "l1", "type": "llm",
+                "id": "l1",
+                "type": "llm",
                 "data": {"prompt": "p", "system": "你是设备助手", "model_config_id": "mc-node"},
             },
             {"id": "end", "type": "end", "data": {}},
@@ -787,7 +842,12 @@ class TestLlmNodeModelSelect:
         from earp_server.conversation.chat_service import resolve_model_override
 
         mc = await create_model_config(
-            app_engine, TENANT, "ollama", "llm", "qwen-node", {"api_key": "k-123", "base_url": "http://internal.example"}
+            app_engine,
+            TENANT,
+            "ollama",
+            "llm",
+            "qwen-node",
+            {"api_key": "k-123", "base_url": "http://internal.example"},
         )
         ov = await resolve_model_override(app_engine, TENANT, mc["config_id"])
         assert ov is not None
@@ -800,7 +860,12 @@ class TestLlmNodeModelSelect:
         from earp_server.admin.model_service import create_model_config
 
         mc = await create_model_config(
-            app_engine, TENANT, "ollama", "llm", "qwen-node-select", {"api_key": "k-123", "base_url": "http://internal.example"}
+            app_engine,
+            TENANT,
+            "ollama",
+            "llm",
+            "qwen-node-select",
+            {"api_key": "k-123", "base_url": "http://internal.example"},
         )
         created_overrides: list[dict] = []
 

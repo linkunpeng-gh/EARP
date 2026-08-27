@@ -84,7 +84,10 @@ async def test_create_and_get_connector_masked(migrated: str, app_url: str) -> N
     try:
         tid = "cn-t1"
         out = await connector_service.create_connector(
-            engine, tid, connector_id="cn-t1", adapter_type="rest",
+            engine,
+            tid,
+            connector_id="cn-t1",
+            adapter_type="rest",
             config={"base_url": "http://mid-platform/api", "token": "secret-abc"},
         )
         assert out is not None
@@ -103,12 +106,8 @@ async def test_connector_duplicate_returns_none(migrated: str, app_url: str) -> 
     engine = _engine(app_url)
     try:
         tid = "cn-t2"
-        await connector_service.create_connector(
-            engine, tid, connector_id="cn-t2", adapter_type="rest", config={}
-        )
-        dup = await connector_service.create_connector(
-            engine, tid, connector_id="cn-t2", adapter_type="db", config={}
-        )
+        await connector_service.create_connector(engine, tid, connector_id="cn-t2", adapter_type="rest", config={})
+        dup = await connector_service.create_connector(engine, tid, connector_id="cn-t2", adapter_type="db", config={})
         assert dup is None
     finally:
         await engine.dispose()
@@ -131,12 +130,8 @@ async def test_list_connectors_masked(migrated: str, app_url: str) -> None:
     engine = _engine(app_url)
     try:
         tid = "cn-t4"
-        await connector_service.create_connector(
-            engine, tid, adapter_type="rest", config={"base_url": "http://a"}
-        )
-        await connector_service.create_connector(
-            engine, tid, adapter_type="db", config={"conn_url": "postgresql://x"}
-        )
+        await connector_service.create_connector(engine, tid, adapter_type="rest", config={"base_url": "http://a"})
+        await connector_service.create_connector(engine, tid, adapter_type="db", config={"conn_url": "postgresql://x"})
         rows = await connector_service.list_connectors(engine, tid)
         assert len(rows) == 2
         assert all(r["config"] == {"credential_masked": True} for r in rows)
@@ -149,7 +144,10 @@ async def test_update_connector_reencrypt(migrated: str, app_url: str) -> None:
     try:
         tid = "cn-t5"
         await connector_service.create_connector(
-            engine, tid, connector_id="cn-t5", adapter_type="rest",
+            engine,
+            tid,
+            connector_id="cn-t5",
+            adapter_type="rest",
             config={"base_url": "http://old"},
         )
         upd = await connector_service.update_connector(
@@ -169,7 +167,10 @@ async def test_decrypt_config_roundtrip_and_missing(migrated: str, app_url: str)
     try:
         tid = "cn-t6"
         await connector_service.create_connector(
-            engine, tid, connector_id="cn-t6", adapter_type="rest",
+            engine,
+            tid,
+            connector_id="cn-t6",
+            adapter_type="rest",
             config={"username": "u", "password": "p@ss"},
         )
         cfg = await connector_service.decrypt_config(engine, tid, "cn-t6")
@@ -185,9 +186,7 @@ async def test_delete_connector_with_import_rule_ref_blocked(migrated: str, app_
     try:
         tid = "cn-t7"
         await _seed(engine, migration_url, tid)
-        await connector_service.create_connector(
-            engine, tid, connector_id="cn-t7", adapter_type="rest", config={}
-        )
+        await connector_service.create_connector(engine, tid, connector_id="cn-t7", adapter_type="rest", config={})
         await _add_import_rule(engine, tid, "cn-t7")
         ok = await connector_service.delete_connector(engine, tid, "cn-t7")
         assert ok is False  # 被引用 → 拒绝
@@ -200,9 +199,7 @@ async def test_delete_connector_ok(migrated: str, app_url: str) -> None:
     engine = _engine(app_url)
     try:
         tid = "cn-t8"
-        await connector_service.create_connector(
-            engine, tid, connector_id="cn-t8", adapter_type="rest", config={}
-        )
+        await connector_service.create_connector(engine, tid, connector_id="cn-t8", adapter_type="rest", config={})
         ok = await connector_service.delete_connector(engine, tid, "cn-t8")
         assert ok is True
         assert await connector_service.get_connector(engine, tid, "cn-t8") is None
@@ -214,9 +211,7 @@ async def test_connector_tenant_isolation(migrated: str, app_url: str) -> None:
     engine = _engine(app_url)
     try:
         tid_a, tid_b = "cn-ta", "cn-tb"
-        await connector_service.create_connector(
-            engine, tid_a, connector_id="cn-ta", adapter_type="rest", config={}
-        )
+        await connector_service.create_connector(engine, tid_a, connector_id="cn-ta", adapter_type="rest", config={})
         assert await connector_service.list_connectors(engine, tid_b) == []  # RLS：跨租户不可见
         assert await connector_service.get_connector(engine, tid_b, "cn-ta") is None
     finally:

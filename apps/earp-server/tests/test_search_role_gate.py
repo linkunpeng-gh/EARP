@@ -112,15 +112,29 @@ async def test_unscoped_search_gated_by_role_domains(migrated: str, app_url: str
     q_emb = await embed_query("报销制度")
 
     hits_one = await search_chunks(
-        engine, tid, q_emb, "r-sg-one", top_k=10, embedding_dim=DIM,
-        query_text="报销制度", mode="hybrid", rerank=False,
+        engine,
+        tid,
+        q_emb,
+        "r-sg-one",
+        top_k=10,
+        embedding_dim=DIM,
+        query_text="报销制度",
+        mode="hybrid",
+        rerank=False,
     )
     assert hits_one, "单域角色应至少召回本域结果"
     assert all(h["kb_id"] == "kb-equip" for h in hits_one), [h["kb_id"] for h in hits_one]
 
     hits_admin = await search_chunks(
-        engine, tid, q_emb, "r-sg-admin", top_k=10, embedding_dim=DIM,
-        query_text="报销制度", mode="hybrid", rerank=False,
+        engine,
+        tid,
+        q_emb,
+        "r-sg-admin",
+        top_k=10,
+        embedding_dim=DIM,
+        query_text="报销制度",
+        mode="hybrid",
+        rerank=False,
     )
     assert any(h["kb_id"] == "kb-fin" for h in hits_admin), "admin 全权限应可见财务 KB"
 
@@ -133,8 +147,16 @@ async def test_explicit_dd_scope_cannot_bypass_role_gate(migrated: str, app_url:
     q_emb = await embed_query("报销制度")
 
     hits = await search_chunks(
-        engine, tid, q_emb, "r-sg-one", top_k=10, embedding_dim=DIM,
-        data_domain_ids=["dd-fin"], query_text="报销制度", mode="hybrid", rerank=False,
+        engine,
+        tid,
+        q_emb,
+        "r-sg-one",
+        top_k=10,
+        embedding_dim=DIM,
+        data_domain_ids=["dd-fin"],
+        query_text="报销制度",
+        mode="hybrid",
+        rerank=False,
     )
     assert all(h["kb_id"] != "kb-fin" for h in hits), "单域角色不得通过显式 scope 召回其他域"
 
@@ -147,8 +169,16 @@ async def test_explicit_kb_scope_cannot_bypass_role_gate(migrated: str, app_url:
     q_emb = await embed_query("报销制度")
 
     hits = await search_chunks(
-        engine, tid, q_emb, "r-sg-one", top_k=10, embedding_dim=DIM,
-        knowledge_base_ids=["kb-fin"], query_text="报销制度", mode="hybrid", rerank=False,
+        engine,
+        tid,
+        q_emb,
+        "r-sg-one",
+        top_k=10,
+        embedding_dim=DIM,
+        knowledge_base_ids=["kb-fin"],
+        query_text="报销制度",
+        mode="hybrid",
+        rerank=False,
     )
     assert hits == [], "单域角色不得通过显式 KB scope 召回其他域 KB"
 
@@ -161,8 +191,15 @@ async def test_no_domain_access_fail_closed(migrated: str, app_url: str, monkeyp
     q_emb = await embed_query("报销制度")
 
     hits = await search_chunks(
-        engine, tid, q_emb, "r-sg-none", top_k=10, embedding_dim=DIM,
-        query_text="报销制度", mode="hybrid", rerank=False,
+        engine,
+        tid,
+        q_emb,
+        "r-sg-none",
+        top_k=10,
+        embedding_dim=DIM,
+        query_text="报销制度",
+        mode="hybrid",
+        rerank=False,
     )
     assert hits == [], "无域角色必须 fail-closed"
 

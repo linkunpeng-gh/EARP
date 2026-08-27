@@ -90,10 +90,7 @@ async def update_kb(
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         kb_row = await conn.execute(
-            text(
-                "SELECT knowledge_base_id, data_domain_id FROM knowledge_bases "
-                "WHERE knowledge_base_id = :kid"
-            ),
+            text("SELECT knowledge_base_id, data_domain_id FROM knowledge_bases WHERE knowledge_base_id = :kid"),
             {"kid": kb_id},
         )
         kb = kb_row.fetchone()
@@ -359,10 +356,7 @@ async def update_document_status(
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         result = await conn.execute(
-            text(
-                "UPDATE documents SET status = :st "
-                "WHERE document_id = :did RETURNING document_id, status"
-            ),
+            text("UPDATE documents SET status = :st WHERE document_id = :did RETURNING document_id, status"),
             {"st": status, "did": document_id},
         )
         await conn.commit()
@@ -402,10 +396,7 @@ async def save_document_process_rule(
         e = existing.fetchone()
         if e and e.process_rule_id:
             await conn.execute(
-                text(
-                    "UPDATE dataset_process_rules SET rules = :rules, mode = 'custom' "
-                    "WHERE process_rule_id = :rid"
-                ),
+                text("UPDATE dataset_process_rules SET rules = :rules, mode = 'custom' WHERE process_rule_id = :rid"),
                 {"rules": json.dumps(rules), "rid": e.process_rule_id},
             )
             rule_id = e.process_rule_id
@@ -487,9 +478,7 @@ async def reindex_document(engine: AsyncEngine, tenant_id: str, document_id: str
         elif r.retrieval_model and r.retrieval_model.get("segmentation"):
             rules = {"segmentation": r.retrieval_model["segmentation"]}
         # old chunk ids
-        old = await conn.execute(
-            text("SELECT chunk_id FROM chunks WHERE document_id = :did"), {"did": document_id}
-        )
+        old = await conn.execute(text("SELECT chunk_id FROM chunks WHERE document_id = :did"), {"did": document_id})
         old_ids = [x.chunk_id for x in old.fetchall()]
 
     new_ids = await create_chunks(engine, tenant_id, document_id, content, rules=rules)
@@ -697,9 +686,7 @@ async def delete_data_domain(engine: AsyncEngine, tenant_id: str, data_domain_id
             {"dd": data_domain_id},
         )
         if kb.fetchone() is not None:
-            raise DataDomainInUseError(
-                f"Data domain '{data_domain_id}' has knowledge bases — delete them first"
-            )
+            raise DataDomainInUseError(f"Data domain '{data_domain_id}' has knowledge bases — delete them first")
         # remove map rows + the domain itself in one transaction
         await conn.execute(
             text("DELETE FROM business_domain_data_domain_map WHERE data_domain_id = :dd"),

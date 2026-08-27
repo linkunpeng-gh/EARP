@@ -25,10 +25,26 @@ TENANT = "runhist-ep-t1"
 ROLE_ADMIN = "r-runhist-admin"
 ROLE_VIEW = "r-runhist-view"
 TRACE = [
-    {"node_id": "start", "status": "completed", "branch": None, "input": None, "output": {}, "error": None,
-     "error_code": None, "latency_ms": 1},
-    {"node_id": "l1", "status": "completed", "branch": None, "input": {"q": "hi"}, "output": {"text": "ok"},
-     "error": None, "error_code": None, "latency_ms": 12},
+    {
+        "node_id": "start",
+        "status": "completed",
+        "branch": None,
+        "input": None,
+        "output": {},
+        "error": None,
+        "error_code": None,
+        "latency_ms": 1,
+    },
+    {
+        "node_id": "l1",
+        "status": "completed",
+        "branch": None,
+        "input": {"q": "hi"},
+        "output": {"text": "ok"},
+        "error": None,
+        "error_code": None,
+        "latency_ms": 12,
+    },
 ]
 
 
@@ -84,7 +100,11 @@ async def _seed(engine: AsyncEngine, *, restricted: bool = False) -> tuple[str, 
         )
     run_id = f"run-{uuid.uuid4().hex[:10]}"
     await flow_runs.create_run(
-        engine, TENANT, execution_id=run_id, chat_app_id=app_id, conversation_id=conv_id,
+        engine,
+        TENANT,
+        execution_id=run_id,
+        chat_app_id=app_id,
+        conversation_id=conv_id,
         flow_input={"query": "q"},
     )
     await flow_runs.finish_run(engine, TENANT, run_id, status="completed", trace=TRACE)
@@ -115,7 +135,8 @@ def test_app_dimension_runs_pagination_and_visibility(migrated: str, app_url: st
         # 白名单外角色（伪造非 admin 角色）→ 404（应用不可见，不暴露存在性）
         outsider = jwt.encode(
             {"sub": "u-x", "tenant_id": TENANT, "role_id": "r-none", "exp": 9999999999},
-            SECRET, algorithm="HS256",
+            SECRET,
+            algorithm="HS256",
         )
         assert c.get(url, headers={"Authorization": f"Bearer {outsider}"}).status_code == 404
         # admin → 200
@@ -145,7 +166,8 @@ def test_conversation_dimension_runs(migrated: str, app_url: str) -> None:
         # 白名单外角色 → 404（会话归属应用不可见）
         outsider = jwt.encode(
             {"sub": "u-x", "tenant_id": TENANT, "role_id": "r-none", "exp": 9999999999},
-            SECRET, algorithm="HS256",
+            SECRET,
+            algorithm="HS256",
         )
         assert c.get(url, headers={"Authorization": f"Bearer {outsider}"}).status_code == 404
         # 不存在会话 → 404
@@ -166,7 +188,8 @@ def test_open_app_runs_visible_to_all(migrated: str, app_url: str) -> None:
     with TestClient(app) as c:
         outsider = jwt.encode(
             {"sub": "u-x", "tenant_id": TENANT, "role_id": "r-anyone", "exp": 9999999999},
-            SECRET, algorithm="HS256",
+            SECRET,
+            algorithm="HS256",
         )
         resp = c.get(f"/chat_apps/{app_id}/runs", headers={"Authorization": f"Bearer {outsider}"})
         assert resp.status_code == 200, resp.text

@@ -580,8 +580,9 @@ async def flow_chat(
             if pending:
                 ps = _pending_step(plan, str(pending))
                 if ps is not None and ps.capability_call.get("adapter_type") == "capability.call":
-                    _publish_approval_event(bus, "timed_out", tenant_id, user_id, role_id,
-                                            waiting["execution_id"], conversation_id, ps)
+                    _publish_approval_event(
+                        bus, "timed_out", tenant_id, user_id, role_id, waiting["execution_id"], conversation_id, ps
+                    )
             waiting = None
 
     flow_input = {"query": query, "conversation_id": conversation_id}
@@ -857,8 +858,9 @@ def _pending_step(plan, node_id: str):
     return None
 
 
-def _publish_approval_event(bus, kind: str, tenant_id: str, user_id: str, role_id: str,
-                            execution_id: str, session_id: str, step) -> None:
+def _publish_approval_event(
+    bus, kind: str, tenant_id: str, user_id: str, role_id: str, execution_id: str, session_id: str, step
+) -> None:
     """Task 4: 命令能力审批审计事件（timed_out 等 flow_chat 侧决策）。step=None 时 silent。"""
     if bus is None or step is None:
         return

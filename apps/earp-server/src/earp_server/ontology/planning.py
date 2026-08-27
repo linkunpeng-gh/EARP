@@ -417,9 +417,7 @@ async def plan_fact(query: StructuredQuery, *, ctx: QueryContext) -> PlanResult:
                     role_id=ctx.role_id,
                     knowledge_base_ids=cand_kbs or None,
                     top_k=top_k,
-                    embedding_dim=(
-                        getattr(ctx.settings, "embedding_dim", 1024) if ctx.settings else 1024
-                    ),
+                    embedding_dim=(getattr(ctx.settings, "embedding_dim", 1024) if ctx.settings else 1024),
                     query_text=qtext,
                     mode="hybrid",
                     threshold=0.0,

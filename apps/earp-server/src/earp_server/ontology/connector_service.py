@@ -67,8 +67,13 @@ async def create_connector(
                 f"config_payload, status) VALUES (:cid, :tid, :atype, :payload, :status) "
                 f"RETURNING {_COLS}"
             ),
-            {"cid": cid, "tid": tenant_id, "atype": adapter_type,
-             "payload": __import__("json").dumps(payload), "status": status},
+            {
+                "cid": cid,
+                "tid": tenant_id,
+                "atype": adapter_type,
+                "payload": __import__("json").dumps(payload),
+                "status": status,
+            },
         )
         return _public(row.mappings().first())
 
@@ -134,10 +139,7 @@ async def delete_connector(engine: AsyncEngine, tenant_id: str, connector_id: st
         if ref.first():
             return False
         res = await session.execute(
-            text(
-                "DELETE FROM connector_configs WHERE connector_id = :cid AND tenant_id = :tid "
-                "RETURNING connector_id"
-            ),
+            text("DELETE FROM connector_configs WHERE connector_id = :cid AND tenant_id = :tid RETURNING connector_id"),
             {"cid": connector_id, "tid": tenant_id},
         )
         return res.mappings().first() is not None

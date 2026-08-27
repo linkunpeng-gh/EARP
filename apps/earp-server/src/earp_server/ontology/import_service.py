@@ -75,8 +75,7 @@ async def _load_tbox(engine: AsyncEngine, tenant_id: str) -> tuple[dict, dict, s
             {"tid": tenant_id},
         )
         relation_types = {
-            r.relation_type_id: {"source": r.source_type.split(","), "target": r.target_type.split(",")}
-            for r in rt
+            r.relation_type_id: {"source": r.source_type.split(","), "target": r.target_type.split(",")} for r in rt
         }
         dd = await conn.execute(
             text("SELECT data_domain_id FROM data_domains WHERE tenant_id = :tid"), {"tid": tenant_id}
@@ -89,9 +88,7 @@ async def _load_tbox(engine: AsyncEngine, tenant_id: str) -> tuple[dict, dict, s
             ),
             {"tid": tenant_id},
         )
-        existing = {
-            r.business_code: {"entity_id": r.entity_id, "entity_type_id": r.entity_type_id} for r in ec
-        }
+        existing = {r.business_code: {"entity_id": r.entity_id, "entity_type_id": r.entity_type_id} for r in ec}
         return entity_types, relation_types, dd_ids, existing
 
 
@@ -226,8 +223,13 @@ async def import_abox(
             for _, cells, attrs in valid_ents:
                 et, name, code, dd = cells[0], cells[1], cells[2], cells[3]
                 ent = await abox_service.upsert_entity(
-                    engine, tenant_id, et, name,
-                    business_code=code, attributes=attrs, data_domain_id=dd,
+                    engine,
+                    tenant_id,
+                    et,
+                    name,
+                    business_code=code,
+                    attributes=attrs,
+                    data_domain_id=dd,
                 )
                 entity_map[code] = {"entity_id": ent["entity_id"], "entity_type_id": et}
 
@@ -379,19 +381,15 @@ async def mark_sync_state(
             )
         else:
             await session.execute(
-                text(
-                    "UPDATE import_rules SET last_sync_status = :st "
-                    "WHERE data_source_id = :id AND tenant_id = :tid"
-                ),
+                text("UPDATE import_rules SET last_sync_status = :st WHERE data_source_id = :id AND tenant_id = :tid"),
                 {"st": status, "id": data_source_id, "tid": tenant_id},
             )
 
 
 # ── M3 中台对接：同步执行（B3）───────────────────────────────────────────────
 
-async def _find_by_code(
-    engine: AsyncEngine, tenant_id: str, entity_type_id: str, code: str
-) -> dict | None:
+
+async def _find_by_code(engine: AsyncEngine, tenant_id: str, entity_type_id: str, code: str) -> dict | None:
     """按 (entity_type, business_code) 精确查活跃实体（facts 目标反查用）。"""
     async with tenant_session(engine, tenant_id) as session:
         row = await session.execute(
@@ -405,9 +403,7 @@ async def _find_by_code(
         return {"entity_id": r["entity_id"]} if r else None
 
 
-async def _fact_exists(
-    engine: AsyncEngine, tenant_id: str, src: str, rel: str, tgt: str
-) -> bool:
+async def _fact_exists(engine: AsyncEngine, tenant_id: str, src: str, rel: str, tgt: str) -> bool:
     """活跃事实去重（同源/同关系/同目标且未失效）——二次同步不重复建 facts。"""
     async with tenant_session(engine, tenant_id) as session:
         row = await session.execute(
@@ -470,15 +466,17 @@ async def sync_from_connector(
                 errors.append({"row": i, "reason": "business_code 为空"})
                 continue
             name = row.get(fm.get("name_field")) or code
-            attrs = {
-                k: row.get(v)
-                for k, v in (fm.get("attr_fields") or {}).items()
-                if row.get(v) is not None
-            }
+            attrs = {k: row.get(v) for k, v in (fm.get("attr_fields") or {}).items() if row.get(v) is not None}
             ent = await abox_service.upsert_entity(
-                engine, tenant_id, ds["entity_type_id"], str(name),
-                business_code=str(code), attributes=attrs,
-                source_mode="synced", source_ref=data_source_id, data_domain_id=dd_id,
+                engine,
+                tenant_id,
+                ds["entity_type_id"],
+                str(name),
+                business_code=str(code),
+                attributes=attrs,
+                source_mode="synced",
+                source_ref=data_source_id,
+                data_domain_id=dd_id,
             )
             if ent["merged"]:
                 merged += 1
@@ -492,23 +490,31 @@ async def sync_from_connector(
                     continue
                 rtype = rels.get(rel.get("relation_type"))
                 if rtype is None:
-                    errors.append(
-                        {"row": i, "reason": f"relation_type 不存在: {rel.get('relation_type')}"}
-                    )
+                    errors.append({"row": i, "reason": f"relation_type 不存在: {rel.get('relation_type')}"})
                     continue
                 target = await _find_by_code(engine, tenant_id, rtype["target_type"], str(target_code))
                 if target is None:
                     tgt = await abox_service.upsert_entity(
-                        engine, tenant_id, rtype["target_type"], str(target_code),
-                        business_code=str(target_code), source_mode="synced",
-                        source_ref=data_source_id, data_domain_id=dd_id,
+                        engine,
+                        tenant_id,
+                        rtype["target_type"],
+                        str(target_code),
+                        business_code=str(target_code),
+                        source_mode="synced",
+                        source_ref=data_source_id,
+                        data_domain_id=dd_id,
                     )
                     target = tgt
                 if await _fact_exists(engine, tenant_id, ent["entity_id"], rel["relation_type"], target["entity_id"]):
                     continue  # 活跃事实已存在 → 幂等跳过
                 await abox_service.add_fact(
-                    engine, tenant_id, ent["entity_id"], rel["relation_type"],
-                    target["entity_id"], confidence=1.0, source_ref=data_source_id,
+                    engine,
+                    tenant_id,
+                    ent["entity_id"],
+                    rel["relation_type"],
+                    target["entity_id"],
+                    confidence=1.0,
+                    source_ref=data_source_id,
                 )
                 facts_added += 1
         except Exception as e:  # noqa: BLE001 — 单行失败不中断整批

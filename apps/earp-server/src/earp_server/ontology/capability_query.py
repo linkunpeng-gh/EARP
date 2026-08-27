@@ -32,10 +32,7 @@ async def _allowed_domain_ids(engine: AsyncEngine, tenant_id: str, role_id: str 
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         row = await conn.execute(
-            text(
-                "SELECT is_admin, data_domain_access FROM roles "
-                "WHERE role_id = :rid AND tenant_id = :tid"
-            ),
+            text("SELECT is_admin, data_domain_access FROM roles WHERE role_id = :rid AND tenant_id = :tid"),
             {"rid": role_id, "tid": tenant_id},
         )
         r = row.fetchone()
@@ -46,9 +43,7 @@ async def _allowed_domain_ids(engine: AsyncEngine, tenant_id: str, role_id: str 
         if not r.data_domain_access:
             return []
         return [
-            str(d["data_domain_id"])
-            for d in r.data_domain_access
-            if isinstance(d, dict) and d.get("data_domain_id")
+            str(d["data_domain_id"]) for d in r.data_domain_access if isinstance(d, dict) and d.get("data_domain_id")
         ]
 
 

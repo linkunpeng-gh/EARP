@@ -108,7 +108,7 @@ async def test_search_chunks_rerank_integration(migrated: str, app_url: str, mon
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
                 "data_domain_access, is_admin) VALUES "
                 "('rr-any', :t, 'rr-tester', '{}', 'all', "
-                "'[{\"data_domain_id\": \"rr_dd\"}]', FALSE) ON CONFLICT DO NOTHING"
+                '\'[{"data_domain_id": "rr_dd"}]\', FALSE) ON CONFLICT DO NOTHING'
             ),
             {"t": tid},
         )
@@ -122,8 +122,16 @@ async def test_search_chunks_rerank_integration(migrated: str, app_url: str, mon
     monkeypatch.setattr(ext_reranker, "_reranker", None)
     monkeypatch.setattr(ext_reranker, "_RERANKER_INIT", True)
     no_rr = await search_chunks(
-        engine, tid, emb, "rr-any", top_k=5, knowledge_base_ids=["rr-kb"],
-        query_text="报销", mode="hybrid", embedding_dim=DIM, rerank=True,
+        engine,
+        tid,
+        emb,
+        "rr-any",
+        top_k=5,
+        knowledge_base_ids=["rr-kb"],
+        query_text="报销",
+        mode="hybrid",
+        embedding_dim=DIM,
+        rerank=True,
     )
     assert no_rr and "rerank_score" not in (no_rr[0] if no_rr else {})
 
@@ -131,8 +139,16 @@ async def test_search_chunks_rerank_integration(migrated: str, app_url: str, mon
     rk = _OrderedReranker()
     monkeypatch.setattr(ext_reranker, "_reranker", rk)
     with_rr = await search_chunks(
-        engine, tid, emb, "rr-any", top_k=5, knowledge_base_ids=["rr-kb"],
-        query_text="报销", mode="hybrid", embedding_dim=DIM, rerank=True,
+        engine,
+        tid,
+        emb,
+        "rr-any",
+        top_k=5,
+        knowledge_base_ids=["rr-kb"],
+        query_text="报销",
+        mode="hybrid",
+        embedding_dim=DIM,
+        rerank=True,
     )
     assert with_rr
     assert "rerank_score" in with_rr[0]

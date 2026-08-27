@@ -283,8 +283,7 @@ async def update_conversation_context(
             if payload:
                 await conn.execute(
                     text(
-                        "UPDATE conversations SET context = context || CAST(:ctx AS jsonb) "
-                        "WHERE conversation_id = :cid"
+                        "UPDATE conversations SET context = context || CAST(:ctx AS jsonb) WHERE conversation_id = :cid"
                     ),
                     {"ctx": json.dumps(payload, ensure_ascii=False), "cid": conversation_id},
                 )

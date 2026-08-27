@@ -32,8 +32,8 @@ class CapabilityConflictError(Exception):
 # capability_id 字符白名单：小写字母/数字/横杠/下划线，小写字母数字开头
 # （存量的 XSS 注入面根治：id 会进前端 onclick 内联 JS 与 f-string SQL 上下文）
 _CAP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-_CAP_ID_MAX = 64   # DDL VARCHAR(64)
-_DOMAIN_MAX = 64   # DDL VARCHAR(64)
+_CAP_ID_MAX = 64  # DDL VARCHAR(64)
+_DOMAIN_MAX = 64  # DDL VARCHAR(64)
 _VERSION_MAX = 16  # DDL VARCHAR(16)
 
 _VALID_TYPES = ("query", "command")
@@ -149,9 +149,7 @@ async def get_capability(engine: AsyncEngine, tenant_id: str, capability_id: str
         return _row_to_dict(r) if r else None
 
 
-async def capability_visible_to_role(
-    engine: AsyncEngine, tenant_id: str, capability_id: str, role_id: str
-) -> bool:
+async def capability_visible_to_role(engine: AsyncEngine, tenant_id: str, capability_id: str, role_id: str) -> bool:
     """详情端点角色可见性（2026-08-21 review 修复 #4）：与 discover 列表过滤同构
     （required_permissions ⊆ role.permissions）+ is_admin 豁免 —— 列表看不见的能力，
     知道 id 也不能拿全量声明（含 execution.params 内部基础设施标识）。
@@ -268,15 +266,9 @@ async def update_capability(
     type = (type if type is not None else existing["type"]).strip()
     if type not in _VALID_TYPES:
         raise ValueError(f"type 必须是 {_VALID_TYPES} 之一")
-    domain = _validate_text_field(
-        domain if domain is not None else existing["domain"], "domain", _DOMAIN_MAX
-    )
-    name = _validate_text_field(
-        name if name is not None else existing["name"], "name", 512
-    )
-    version = _validate_text_field(
-        version if version is not None else existing["version"], "version", _VERSION_MAX
-    )
+    domain = _validate_text_field(domain if domain is not None else existing["domain"], "domain", _DOMAIN_MAX)
+    name = _validate_text_field(name if name is not None else existing["name"], "name", 512)
+    version = _validate_text_field(version if version is not None else existing["version"], "version", _VERSION_MAX)
     _validate_json_schema(input_schema if input_schema is not None else existing["input_schema"], "input_schema")
     _validate_json_schema(output_schema if output_schema is not None else existing["output_schema"], "output_schema")
     perms = list(required_permissions) if required_permissions is not None else existing["required_permissions"]
@@ -332,10 +324,7 @@ async def deprecate_capability(
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         await conn.execute(
-            text(
-                "UPDATE business_capabilities SET status = :status "
-                "WHERE capability_id = :cid AND tenant_id = :tid"
-            ),
+            text("UPDATE business_capabilities SET status = :status WHERE capability_id = :cid AND tenant_id = :tid"),
             {"status": _STATUS_DEPRECATED, "cid": capability_id, "tid": tenant_id},
         )
         await conn.commit()

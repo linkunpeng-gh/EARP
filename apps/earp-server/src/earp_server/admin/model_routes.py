@@ -110,9 +110,7 @@ async def test_model_config(config_id: str, req: Request) -> dict:
 @router.get("/system-model-settings")
 async def get_system_settings(req: Request) -> dict:
     out = await model_service.get_system_model_settings(req.app.state.engine, req.state.tenant_id)
-    out["qu_prompt_template"] = await model_service.get_qu_prompt_template(
-        req.app.state.engine, req.state.tenant_id
-    )
+    out["qu_prompt_template"] = await model_service.get_qu_prompt_template(req.app.state.engine, req.state.tenant_id)
     # 内置默认模板文本（前端「载入默认」以此为准，占位符与租户模板一致）
     from earp_server.ontology.understanding import DEFAULT_UPGRADE_PROMPT_TEMPLATE
 

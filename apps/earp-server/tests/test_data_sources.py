@@ -27,9 +27,7 @@ async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
     eng = create_async_engine(migration_url)
     async with eng.begin() as conn:
         # data_source_id 随机生成（ds-xxx）——按 connector_id 前缀清引用
-        await conn.execute(
-            text("DELETE FROM import_rules WHERE connector_id LIKE 'cn-t%' OR connector_id = 'cn-api'")
-        )
+        await conn.execute(text("DELETE FROM import_rules WHERE connector_id LIKE 'cn-t%' OR connector_id = 'cn-api'"))
         await conn.execute(text("DELETE FROM connector_configs WHERE connector_id LIKE 'cn-t%'"))
         await conn.execute(text("DELETE FROM roles WHERE role_id IN ('r-admin','r-ops')"))
     await eng.dispose()
@@ -83,8 +81,12 @@ async def test_register_synced_data_source(migrated: str, app_url: str, migratio
         await _seed(engine, migration_url, tid)
         await _make_connector(engine, tid, "cn-t1")
         out = await import_service.register_data_source(
-            engine, tid, connector_id="cn-t1", entity_type_id="equipment",
-            source_mode="synced", field_mapping=_fm(),
+            engine,
+            tid,
+            connector_id="cn-t1",
+            entity_type_id="equipment",
+            source_mode="synced",
+            field_mapping=_fm(),
         )
         assert out is not None
         assert out["source_mode"] == "synced"
@@ -105,8 +107,12 @@ async def test_register_virtual_requires_metric(migrated: str, app_url: str, mig
         await _make_connector(engine, tid, "cn-t2")
         try:
             await import_service.register_data_source(
-                engine, tid, connector_id="cn-t2", entity_type_id="equipment",
-                source_mode="virtual", field_mapping=_fm(),
+                engine,
+                tid,
+                connector_id="cn-t2",
+                entity_type_id="equipment",
+                source_mode="virtual",
+                field_mapping=_fm(),
             )
             raise AssertionError("object 类型 virtual 应被拒绝（G1）")
         except ValueError as e:
@@ -122,8 +128,12 @@ async def test_register_virtual_metric_ok(migrated: str, app_url: str, migration
         await _seed(engine, migration_url, tid)
         await _make_connector(engine, tid, "cn-t3")
         out = await import_service.register_data_source(
-            engine, tid, connector_id="cn-t3", entity_type_id="oee",
-            source_mode="virtual", field_mapping=_fm(),
+            engine,
+            tid,
+            connector_id="cn-t3",
+            entity_type_id="oee",
+            source_mode="virtual",
+            field_mapping=_fm(),
         )
         assert out is not None and out["source_mode"] == "virtual"
     finally:
@@ -137,8 +147,12 @@ async def test_register_missing_connector(migrated: str, app_url: str, migration
         await _seed(engine, migration_url, tid)
         try:
             await import_service.register_data_source(
-                engine, tid, connector_id="cn-nope", entity_type_id="equipment",
-                source_mode="synced", field_mapping=_fm(),
+                engine,
+                tid,
+                connector_id="cn-nope",
+                entity_type_id="equipment",
+                source_mode="synced",
+                field_mapping=_fm(),
             )
             raise AssertionError("connector 不存在应报错")
         except ValueError as e:
@@ -155,8 +169,12 @@ async def test_register_missing_field_mapping(migrated: str, app_url: str, migra
         await _make_connector(engine, tid, "cn-t5")
         try:
             await import_service.register_data_source(
-                engine, tid, connector_id="cn-t5", entity_type_id="equipment",
-                source_mode="synced", field_mapping={"name_field": "x"},
+                engine,
+                tid,
+                connector_id="cn-t5",
+                entity_type_id="equipment",
+                source_mode="synced",
+                field_mapping={"name_field": "x"},
             )
             raise AssertionError("缺 business_code_field 应报错")
         except ValueError as e:
@@ -172,12 +190,20 @@ async def test_register_duplicate_returns_none(migrated: str, app_url: str, migr
         await _seed(engine, migration_url, tid)
         await _make_connector(engine, tid, "cn-t6")
         await import_service.register_data_source(
-            engine, tid, connector_id="cn-t6", entity_type_id="equipment",
-            source_mode="synced", field_mapping=_fm(),
+            engine,
+            tid,
+            connector_id="cn-t6",
+            entity_type_id="equipment",
+            source_mode="synced",
+            field_mapping=_fm(),
         )
         dup = await import_service.register_data_source(
-            engine, tid, connector_id="cn-t6", entity_type_id="equipment",
-            source_mode="synced", field_mapping=_fm(),
+            engine,
+            tid,
+            connector_id="cn-t6",
+            entity_type_id="equipment",
+            source_mode="synced",
+            field_mapping=_fm(),
         )
         assert dup is None
     finally:
@@ -191,12 +217,20 @@ async def test_list_data_sources(migrated: str, app_url: str, migration_url: str
         await _seed(engine, migration_url, tid)
         await _make_connector(engine, tid, "cn-t7")
         await import_service.register_data_source(
-            engine, tid, connector_id="cn-t7", entity_type_id="equipment",
-            source_mode="synced", field_mapping=_fm(),
+            engine,
+            tid,
+            connector_id="cn-t7",
+            entity_type_id="equipment",
+            source_mode="synced",
+            field_mapping=_fm(),
         )
         await import_service.register_data_source(
-            engine, tid, connector_id="cn-t7", entity_type_id="oee",
-            source_mode="virtual", field_mapping=_fm(),
+            engine,
+            tid,
+            connector_id="cn-t7",
+            entity_type_id="oee",
+            source_mode="virtual",
+            field_mapping=_fm(),
         )
         rows = await import_service.list_data_sources(engine, tid)
         assert len(rows) == 2

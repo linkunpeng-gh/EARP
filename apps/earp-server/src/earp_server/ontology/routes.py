@@ -332,9 +332,7 @@ async def import_abox_endpoint(
 
 async def _require_admin(req: Request) -> None:
     """管理端门禁（2026-08-18 越权修复先例）：connector 配置含连接凭据，写操作仅 Admin。"""
-    if not await roles_service.is_admin_role(
-        req.app.state.engine, req.state.tenant_id, req.state.role_id
-    ):
+    if not await roles_service.is_admin_role(req.app.state.engine, req.state.tenant_id, req.state.role_id):
         raise HTTPException(status_code=403, detail="仅 Admin 角色可管理 connector 配置")
 
 
@@ -403,14 +401,10 @@ async def update_connector_endpoint(connector_id: str, body: ConnectorUpdate, re
 @router.delete("/connectors/{connector_id}", dependencies=[Depends(_require_admin)])
 async def delete_connector_endpoint(connector_id: str, req: Request) -> dict:
     """删除 connector。被数据源（import_rules）引用 → 409。"""
-    ok = await connector_service.delete_connector(
-        req.app.state.engine, req.state.tenant_id, connector_id
-    )
+    ok = await connector_service.delete_connector(req.app.state.engine, req.state.tenant_id, connector_id)
     if not ok:
         # 区分 404 与 409：再查一次存在性
-        existing = await connector_service.get_connector(
-            req.app.state.engine, req.state.tenant_id, connector_id
-        )
+        existing = await connector_service.get_connector(req.app.state.engine, req.state.tenant_id, connector_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="connector 不存在")
         raise HTTPException(status_code=409, detail="connector 被数据源引用，无法删除（可停用）")
@@ -472,9 +466,7 @@ async def list_data_sources_endpoint(req: Request) -> dict:
 
 @router.get("/data-sources/{data_source_id}")
 async def get_data_source_endpoint(data_source_id: str, req: Request) -> dict:
-    out = await import_service.get_data_source(
-        req.app.state.engine, req.state.tenant_id, data_source_id
-    )
+    out = await import_service.get_data_source(req.app.state.engine, req.state.tenant_id, data_source_id)
     if out is None:
         raise HTTPException(status_code=404, detail="数据源不存在")
     return out

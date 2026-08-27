@@ -134,9 +134,7 @@ async def test_json_complete_cache_hit_skips_llm_call() -> None:
 
     def _counting_handler(request: httpx.Request) -> httpx.Response:
         calls.append(1)
-        return httpx.Response(
-            200, json={"message": {"content": '{"intent": "FACT"}'}}
-        )
+        return httpx.Response(200, json={"message": {"content": '{"intent": "FACT"}'}})
 
     conn = LLMConnector(Settings(), transport=httpx.MockTransport(_counting_handler))
     conn.cache = _FakeCache()

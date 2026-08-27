@@ -187,15 +187,27 @@ class TestApprovalExecutor:
         pool = {r.step_id: r for r in results if r.status == "completed"}
 
         results, state = await executor.execute(
-            plan.steps, ctx, layers=[], plan=plan, flow_input={"query": "q"},
-            resume_pool=pool, resume_pending_node="h1", resume_reply="第一轮",
+            plan.steps,
+            ctx,
+            layers=[],
+            plan=plan,
+            flow_input={"query": "q"},
+            resume_pool=pool,
+            resume_pending_node="h1",
+            resume_reply="第一轮",
         )
         assert state.status == ExecutionStatus.WAITING_HUMAN and state.pending_node_id == "h2"
         pool = {r.step_id: r for r in results if r.status == "completed"}
 
         results, state = await executor.execute(
-            plan.steps, ctx, layers=[], plan=plan, flow_input={"query": "q"},
-            resume_pool=pool, resume_pending_node="h2", resume_reply="第二轮",
+            plan.steps,
+            ctx,
+            layers=[],
+            plan=plan,
+            flow_input={"query": "q"},
+            resume_pool=pool,
+            resume_pending_node="h2",
+            resume_reply="第二轮",
         )
         assert state.status == ExecutionStatus.COMPLETED
         assert "a=第一轮 b=第二轮" in llm.calls[0]["prompt"]
@@ -216,10 +228,7 @@ async def _run_statuses(engine: AsyncEngine, conversation_id: str) -> list[str]:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
         rows = (
             await conn.execute(
-                text(
-                    "SELECT status FROM flow_runs WHERE tenant_id = :t AND conversation_id = :c "
-                    "ORDER BY created_at"
-                ),
+                text("SELECT status FROM flow_runs WHERE tenant_id = :t AND conversation_id = :c ORDER BY created_at"),
                 {"t": TENANT, "c": conversation_id},
             )
         ).fetchall()
@@ -233,8 +242,15 @@ class TestFlowChatApproval:
         llm = FakeLLM(text="已处理")
 
         first = await flow_chat(
-            app_engine, TENANT, "f4-u1", "r-f4", app, "CNC-01 温度异常", None,
-            base_llm=llm, settings=_settings(),
+            app_engine,
+            TENANT,
+            "f4-u1",
+            "r-f4",
+            app,
+            "CNC-01 温度异常",
+            None,
+            base_llm=llm,
+            settings=_settings(),
         )
         assert first["status"] == ExecutionStatus.WAITING_HUMAN.value
         assert first["pending_node_id"] == "h1"
@@ -246,8 +262,15 @@ class TestFlowChatApproval:
         assert await _run_statuses(app_engine, conv_id) == ["waiting_human"]
 
         second = await flow_chat(
-            app_engine, TENANT, "f4-u1", "r-f4", app, "同意", conv_id,
-            base_llm=llm, settings=_settings(),
+            app_engine,
+            TENANT,
+            "f4-u1",
+            "r-f4",
+            app,
+            "同意",
+            conv_id,
+            base_llm=llm,
+            settings=_settings(),
         )
         assert second["status"] == ExecutionStatus.COMPLETED.value
         assert second["execution_id"] == exec_id  # 复用同一 run（D6 唯一性）
@@ -260,8 +283,15 @@ class TestFlowChatApproval:
         """挂起时 assistant 消息「⏸ 等待确认：…」落库。"""
         app = await _flow_app(app_engine, _approval_flow(question="人工把关"))
         first = await flow_chat(
-            app_engine, TENANT, "f4-u1", "r-f4", app, "q", None,
-            base_llm=FakeLLM(), settings=_settings(),
+            app_engine,
+            TENANT,
+            "f4-u1",
+            "r-f4",
+            app,
+            "q",
+            None,
+            base_llm=FakeLLM(),
+            settings=_settings(),
         )
         async with app_engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
@@ -278,24 +308,35 @@ class TestFlowChatApproval:
         """D4 惰性检查：waiting_human 超时 → timeout 终态 + 消息；本轮按新建 run 处理。"""
         app = await _flow_app(app_engine, _approval_flow())
         first = await flow_chat(
-            app_engine, TENANT, "f4-u1", "r-f4", app, "q1", None,
-            base_llm=FakeLLM(), settings=_settings(),
+            app_engine,
+            TENANT,
+            "f4-u1",
+            "r-f4",
+            app,
+            "q1",
+            None,
+            base_llm=FakeLLM(),
+            settings=_settings(),
         )
         conv_id = first["conversation_id"]
         # 人为把 run 的 updated_at 改到超时阈值之前
         async with app_engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
             await conn.execute(
-                text(
-                    "UPDATE flow_runs SET updated_at = :old "
-                    "WHERE execution_id = :eid AND tenant_id = :t"
-                ),
+                text("UPDATE flow_runs SET updated_at = :old WHERE execution_id = :eid AND tenant_id = :t"),
                 {"old": datetime.now(UTC) - timedelta(hours=2), "eid": first["execution_id"], "t": TENANT},
             )
             await conn.commit()
         second = await flow_chat(
-            app_engine, TENANT, "f4-u1", "r-f4", app, "新问题", conv_id,
-            base_llm=FakeLLM(), settings=_settings(),
+            app_engine,
+            TENANT,
+            "f4-u1",
+            "r-f4",
+            app,
+            "新问题",
+            conv_id,
+            base_llm=FakeLLM(),
+            settings=_settings(),
         )
         # 超时 run 已终态化，新 run 执行同一张图（含 human_approval）→ 再次挂起
         assert second["status"] == ExecutionStatus.WAITING_HUMAN.value
@@ -323,8 +364,15 @@ class TestFlowChatApproval:
         app = await _flow_app(app_engine, g, "f4-plain")
         llm = FakeLLM(text="plain")
         result = await flow_chat(
-            app_engine, TENANT, "f4-u1", "r-f4", app, "hello", None,
-            base_llm=llm, settings=_settings(),
+            app_engine,
+            TENANT,
+            "f4-u1",
+            "r-f4",
+            app,
+            "hello",
+            None,
+            base_llm=llm,
+            settings=_settings(),
         )
         assert result["status"] == ExecutionStatus.COMPLETED.value
         assert result["outputs"]["l1"] == {"text": "plain"}

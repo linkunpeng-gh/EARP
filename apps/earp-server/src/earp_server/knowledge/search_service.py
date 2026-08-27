@@ -21,9 +21,7 @@ logger = logging.getLogger(__name__)
 RRF_K = 60
 
 
-async def _role_scope_domains(
-    engine: AsyncEngine, tenant_id: str, role_id: str
-) -> set[str] | None:
+async def _role_scope_domains(engine: AsyncEngine, tenant_id: str, role_id: str) -> set[str] | None:
     """角色 data_domain_access 域门禁（tech-debt #9 漏洞修复 2026-08-18）。
 
     返回 None = admin/全权限（不附加过滤）；set = 角色允许域（空集 = fail-closed
@@ -93,9 +91,7 @@ def _build_conditions(
         conditions.append("(kb.data_domain_id = ANY(:ddids) OR kb.data_domain_id IS NULL)")
         params["ddids"] = data_domain_ids
 
-    conditions.append(
-        "(kb.accessible_roles IS NULL OR kb.accessible_roles = '{}' OR :rid = ANY(kb.accessible_roles))"
-    )
+    conditions.append("(kb.accessible_roles IS NULL OR kb.accessible_roles = '{}' OR :rid = ANY(kb.accessible_roles))")
 
     if role_domain_ids is not None:
         conditions.append("kb.data_domain_id = ANY(:rdds)")
@@ -122,9 +118,7 @@ async def _vector_lane(
     if threshold is not None:
         params["qemb3"] = embedding_str
         params["thr"] = threshold
-        threshold_sql = (
-            f" AND 1 - (c.embedding <=> CAST(:qemb3 AS vector({embedding_dim}))) >= :thr"
-        )
+        threshold_sql = f" AND 1 - (c.embedding <=> CAST(:qemb3 AS vector({embedding_dim}))) >= :thr"
     sql = (
         f"SELECT {_SELECT_COLS}, "
         f"1 - (c.embedding <=> CAST(:qemb AS vector({embedding_dim}))) AS similarity, 0 AS text_score "
@@ -203,7 +197,10 @@ def _rrf_merge(ranked_lists: list[list[dict]], top_k: int) -> list[dict]:
 
 
 async def _rerank_results(
-    results: list[dict], query: str, top_k: int, rerank_top_n: int,
+    results: list[dict],
+    query: str,
+    top_k: int,
+    rerank_top_n: int,
 ) -> list[dict]:
     """Cross-encoder re-rank the recalled candidates (P3).
 
@@ -300,9 +297,7 @@ async def search_chunks(
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
             if mode == "hybrid":
                 lanes = [
-                    await _vector_lane(
-                        conn, params, where_clause, embedding_dim, embedding_str, threshold=threshold
-                    ),
+                    await _vector_lane(conn, params, where_clause, embedding_dim, embedding_str, threshold=threshold),
                 ]
                 if query_text.strip():
                     lanes.append(await _text_lane(conn, params, where_clause, query_text))

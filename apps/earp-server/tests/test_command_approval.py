@@ -32,9 +32,9 @@ from earp_server.orchestrator.workflow_dsl import StepExec, compile_flow_schema
 
 TENANT = "approval-t1"
 
-CAP_CMD = "cap-approval-cmd"      # type=command，demo.echo 执行（批准后真实执行可观测）
-CAP_Q = "cap-approval-q"          # type=query，回归：不受门禁影响
-CAP_FAIL = "cap-approval-fail"    # type=query，执行声明指向缺失 connector → 必失败（Saga 触发）
+CAP_CMD = "cap-approval-cmd"  # type=command，demo.echo 执行（批准后真实执行可观测）
+CAP_Q = "cap-approval-q"  # type=query，回归：不受门禁影响
+CAP_FAIL = "cap-approval-fail"  # type=query，执行声明指向缺失 connector → 必失败（Saga 触发）
 
 
 @pytest.fixture(scope="module")
@@ -66,13 +66,17 @@ def _seed_approval(app_engine: AsyncEngine) -> None:
                 {"t": TENANT, "perms": ["approval.act"]},
             )
             caps = [
-                (CAP_CMD, "approval", "create_something", "command",
-                 {"adapter": "demo.echo"}, ["approval.act"]),
-                (CAP_Q, "approval", "query_something", "query",
-                 {"adapter": "demo.echo"}, []),
+                (CAP_CMD, "approval", "create_something", "command", {"adapter": "demo.echo"}, ["approval.act"]),
+                (CAP_Q, "approval", "query_something", "query", {"adapter": "demo.echo"}, []),
                 # 执行声明指向缺失 connector → ConnectorError（Saga 触发用的失败点）
-                (CAP_FAIL, "approval", "fail_something", "query",
-                 {"adapter": "tool.fetch", "params": {"connector_id": "cn-missing"}}, []),
+                (
+                    CAP_FAIL,
+                    "approval",
+                    "fail_something",
+                    "query",
+                    {"adapter": "tool.fetch", "params": {"connector_id": "cn-missing"}},
+                    [],
+                ),
             ]
             for cid, dom, name, ctype, execution, perms in caps:
                 await conn.execute(
@@ -82,8 +86,13 @@ def _seed_approval(app_engine: AsyncEngine) -> None:
                         "ON CONFLICT (capability_id, tenant_id) DO UPDATE SET execution = :exec"
                     ),
                     {
-                        "cid": cid, "t": TENANT, "dom": dom, "name": name,
-                        "ctype": ctype, "exec": json.dumps(execution), "perms": perms,
+                        "cid": cid,
+                        "t": TENANT,
+                        "dom": dom,
+                        "name": name,
+                        "ctype": ctype,
+                        "exec": json.dumps(execution),
+                        "perms": perms,
                     },
                 )
 
@@ -114,8 +123,11 @@ def _cmd_flow(extra_after: str | None = None) -> dict:
     """start → c1(命令能力，无 human_approval) → [l1] → end。无显式审批 → 能力层门禁生效。"""
     nodes: list[dict[str, Any]] = [
         {"id": "start", "type": "start", "data": {}},
-        {"id": "c1", "type": "capability",
-         "data": {"capability_call": {"capability_id": CAP_CMD, "input": {"message": "do-it"}}}},
+        {
+            "id": "c1",
+            "type": "capability",
+            "data": {"capability_call": {"capability_id": CAP_CMD, "input": {"message": "do-it"}}},
+        },
     ]
     edges: list[dict[str, str]] = [{"source": "start", "target": "c1"}]
     if extra_after:
@@ -149,12 +161,17 @@ class TestCommandGate:
         g = _flow_graph(
             {"id": "start", "type": "start", "data": {}},
             {"id": "h1", "type": "human_approval", "data": {}},
-            {"id": "c1", "type": "capability",
-             "data": {"capability_call": {"capability_id": CAP_CMD, "input": {"message": "do-it"}}}},
+            {
+                "id": "c1",
+                "type": "capability",
+                "data": {"capability_call": {"capability_id": CAP_CMD, "input": {"message": "do-it"}}},
+            },
             {"id": "end", "type": "end", "data": {}},
-            edges=[{"source": "start", "target": "h1"},
-                   {"source": "h1", "target": "c1"},
-                   {"source": "c1", "target": "end"}],
+            edges=[
+                {"source": "start", "target": "h1"},
+                {"source": "h1", "target": "c1"},
+                {"source": "c1", "target": "end"},
+            ],
         )
         plan = compile_flow_schema(g)
         c1 = next(i for i in plan.sequence if i.node_id == "c1")
@@ -165,8 +182,11 @@ class TestCommandGate:
         """query 能力不受门禁影响：无审批直接完成（零回归）。"""
         g = _flow_graph(
             {"id": "start", "type": "start", "data": {}},
-            {"id": "q1", "type": "capability",
-             "data": {"capability_call": {"capability_id": CAP_Q, "input": {"message": "hi"}}}},
+            {
+                "id": "q1",
+                "type": "capability",
+                "data": {"capability_call": {"capability_id": CAP_Q, "input": {"message": "hi"}}},
+            },
             {"id": "end", "type": "end", "data": {}},
             edges=[{"source": "start", "target": "q1"}, {"source": "q1", "target": "end"}],
         )
@@ -195,8 +215,14 @@ class TestApprovalDecision:
         ctx = _ctx()
         plan, pool, pending = await self._suspend(executor, ctx)
         results2, state2 = await executor.execute(
-            plan.steps, ctx, layers=[], plan=plan, flow_input={"query": "q"},
-            resume_pool=pool, resume_pending_node=pending, resume_reply="同意，执行",
+            plan.steps,
+            ctx,
+            layers=[],
+            plan=plan,
+            flow_input={"query": "q"},
+            resume_pool=pool,
+            resume_pending_node=pending,
+            resume_reply="同意，执行",
         )
         assert state2.status == ExecutionStatus.COMPLETED
         c1 = next(r for r in results2 if r.step_id == "c1")
@@ -212,8 +238,14 @@ class TestApprovalDecision:
         assert state.status == ExecutionStatus.WAITING_HUMAN
         pool = {r.step_id: r for r in results if r.status == "completed"}
         results2, state2 = await executor.execute(
-            plan.steps, ctx, layers=[], plan=plan, flow_input={"query": "q"},
-            resume_pool=pool, resume_pending_node=state.pending_node_id, resume_reply="驳回，不执行",
+            plan.steps,
+            ctx,
+            layers=[],
+            plan=plan,
+            flow_input={"query": "q"},
+            resume_pool=pool,
+            resume_pending_node=state.pending_node_id,
+            resume_reply="驳回，不执行",
         )
         assert state2.status == ExecutionStatus.REJECTED
         assert "l1" not in {r.step_id for r in results2}
@@ -222,8 +254,12 @@ class TestApprovalDecision:
         """直接带 approval_granted 的 command 调用 → 不挂起直接执行（恢复链路内部标记）。"""
         connector = Connector(engine=app_engine)
         out = await connector.execute(
-            {"adapter_type": "capability.call", "capability_id": CAP_CMD,
-             "input": {"message": "x"}, "approval_granted": True},
+            {
+                "adapter_type": "capability.call",
+                "capability_id": CAP_CMD,
+                "input": {"message": "x"},
+                "approval_granted": True,
+            },
             ctx=_ctx(),
         )
         assert out == {"echo": {"message": "x"}}
@@ -253,15 +289,28 @@ class TestFlowPathRollback:
 
         g = _flow_graph(
             {"id": "start", "type": "start", "data": {}},
-            {"id": "c1", "type": "capability",
-             "data": {"capability_call": {"capability_id": CAP_Q, "input": {"message": "s1"}}}},
-            {"id": "c2", "type": "capability",
-             "data": {"capability_call": {"capability_id": CAP_Q, "input": {"message": "s2"}}}},
-            {"id": "c3", "type": "capability",
-             "data": {"capability_call": {"capability_id": CAP_FAIL, "input": {"message": "boom"}}}},
+            {
+                "id": "c1",
+                "type": "capability",
+                "data": {"capability_call": {"capability_id": CAP_Q, "input": {"message": "s1"}}},
+            },
+            {
+                "id": "c2",
+                "type": "capability",
+                "data": {"capability_call": {"capability_id": CAP_Q, "input": {"message": "s2"}}},
+            },
+            {
+                "id": "c3",
+                "type": "capability",
+                "data": {"capability_call": {"capability_id": CAP_FAIL, "input": {"message": "boom"}}},
+            },
             {"id": "end", "type": "end", "data": {}},
-            edges=[{"source": "start", "target": "c1"}, {"source": "c1", "target": "c2"},
-                   {"source": "c2", "target": "c3"}, {"source": "c3", "target": "end"}],
+            edges=[
+                {"source": "start", "target": "c1"},
+                {"source": "c1", "target": "c2"},
+                {"source": "c2", "target": "c3"},
+                {"source": "c3", "target": "end"},
+            ],
         )
         plan = compile_flow_schema(g)
         # 注入 compensate_call（flow 节点数据当前不支持；Task 2 补偿语义由能力 execution 声明承载，
@@ -296,8 +345,10 @@ async def _audit_events(engine: AsyncEngine, execution_id: str) -> list[dict]:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{TENANT}'"))
         rows = (
             await conn.execute(
-                text("SELECT event_type, detail FROM audit_logs "
-                     "WHERE tenant_id = :t AND detail->>'execution_id' = :eid ORDER BY created_at"),
+                text(
+                    "SELECT event_type, detail FROM audit_logs "
+                    "WHERE tenant_id = :t AND detail->>'execution_id' = :eid ORDER BY created_at"
+                ),
                 {"t": TENANT, "eid": execution_id},
             )
         ).fetchall()
@@ -316,8 +367,14 @@ class TestApprovalAudit:
         ctx = _ctx()
         plan, pool, pending = await TestApprovalDecision()._suspend(executor, ctx)
         _, state2 = await executor.execute(
-            plan.steps, ctx, layers=[], plan=plan, flow_input={"query": "q"},
-            resume_pool=pool, resume_pending_node=pending, resume_reply="同意",
+            plan.steps,
+            ctx,
+            layers=[],
+            plan=plan,
+            flow_input={"query": "q"},
+            resume_pool=pool,
+            resume_pending_node=pending,
+            resume_reply="同意",
         )
         assert state2.status == ExecutionStatus.COMPLETED
         # in-process bus 是 fire-and-forget（create_task）→ 给消费任务一点时间
@@ -338,8 +395,14 @@ class TestApprovalAudit:
         results, state = await executor.execute(plan.steps, ctx, layers=[], plan=plan, flow_input={"query": "q"})
         pool = {r.step_id: r for r in results if r.status == "completed"}
         _, state2 = await executor.execute(
-            plan.steps, ctx, layers=[], plan=plan, flow_input={"query": "q"},
-            resume_pool=pool, resume_pending_node=state.pending_node_id, resume_reply="驳回",
+            plan.steps,
+            ctx,
+            layers=[],
+            plan=plan,
+            flow_input={"query": "q"},
+            resume_pool=pool,
+            resume_pending_node=state.pending_node_id,
+            resume_reply="驳回",
         )
         assert state2.status == ExecutionStatus.REJECTED
         await asyncio.sleep(0.05)

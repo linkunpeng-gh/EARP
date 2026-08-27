@@ -58,8 +58,16 @@ def _engine(app_url: str) -> AsyncEngine:
 
 def test_intent_enum_has_10_values() -> None:
     assert {i.value for i in Intent} == {
-        "FACT", "ATTRIBUTE", "RELATION", "MULTI_HOP", "LIST",
-        "AGGREGATION", "COMPARISON", "TREND", "CAUSAL", "MIXED",
+        "FACT",
+        "ATTRIBUTE",
+        "RELATION",
+        "MULTI_HOP",
+        "LIST",
+        "AGGREGATION",
+        "COMPARISON",
+        "TREND",
+        "CAUSAL",
+        "MIXED",
     }
 
 
@@ -307,9 +315,7 @@ async def test_understand_confidence_ambiguity_penalty(migrated: str, app_url: s
 # ── Task 7: LLM 低置信度升级（D4 方案 A）──────────────────────────────────────
 
 
-async def test_upgrade_with_llm_high_confidence_no_llm_call(
-    migrated: str, app_url: str, monkeypatch
-) -> None:
+async def test_upgrade_with_llm_high_confidence_no_llm_call(migrated: str, app_url: str, monkeypatch) -> None:
     """高置信度（≥0.7）→ 零 LLM 调用（§6.1 规则优先）。"""
     engine = _engine(app_url)
     tid = "qu-t7"
@@ -330,9 +336,7 @@ async def test_upgrade_with_llm_high_confidence_no_llm_call(
     assert out.llm_upgraded is False
 
 
-async def test_upgrade_with_llm_low_confidence_fills_missing(
-    migrated: str, app_url: str, monkeypatch
-) -> None:
+async def test_upgrade_with_llm_low_confidence_fills_missing(migrated: str, app_url: str, monkeypatch) -> None:
     """低置信度 → LLM 只补未命中字段（intent）；relation ∈ TBox 过滤（发明关系拒绝）。"""
     engine = _engine(app_url)
     tid = "qu-t8"
@@ -362,15 +366,14 @@ async def test_upgrade_with_llm_low_confidence_fills_missing(
     assert "invented_rel" not in rel_ids  # schema 合规 100%
 
 
-async def test_upgrade_with_llm_llm_failure_falls_back(
-    migrated: str, app_url: str, monkeypatch
-) -> None:
+async def test_upgrade_with_llm_llm_failure_falls_back(migrated: str, app_url: str, monkeypatch) -> None:
     """LLM 不可达（None）→ 保持规则结果（回落），不抛异常。"""
     engine = _engine(app_url)
     tid = "qu-t9"
     await _seed_entity_graph(engine, tid)
 
     r = await understand(engine, tid, "主轴轴承最近为什么故障增加")
+
     async def _no_llm(self, system, prompt, **kw):
         return None
 
@@ -603,7 +606,10 @@ def test_upgrade_template_render() -> None:
 
     out = _render_upgrade_template(
         "你是{角色}。查：{query}｜缺：{missing}｜候选：{relation_candidates}｜ctx：{context}",
-        query="Q", missing="entities", rel_desc="has_part(A→B)", context="{}",
+        query="Q",
+        missing="entities",
+        rel_desc="has_part(A→B)",
+        context="{}",
     )
     assert out == "你是{角色}。查：Q｜缺：entities｜候选：has_part(A→B)｜ctx：{}"
     # 未知占位符原样保留（便于排查自定义模板笔误）
@@ -613,7 +619,7 @@ def test_default_upgrade_prompt_keeps_json_braces() -> None:
     from earp_server.ontology.understanding import _default_upgrade_prompt
 
     p = _default_upgrade_prompt(missing="entities", rel_desc="has_part(A→B)", query="Q", context="{}")
-    assert "\"mention\"" in p and "1. intent 枚举之一" in p and "查询：Q" in p
+    assert '"mention"' in p and "1. intent 枚举之一" in p and "查询：Q" in p
 
 
 async def test_qu_prompt_template_get_set_roundtrip(migrated: str, app_url: str) -> None:
@@ -675,8 +681,6 @@ def test_default_template_equals_tenant_template_rendering() -> None:
     )
 
     kwargs = dict(missing="entities", rel_desc="has_part(A→B)", query="Q", context="{}")
-    assert _default_upgrade_prompt(**kwargs) == _render_upgrade_template(
-        DEFAULT_UPGRADE_PROMPT_TEMPLATE, **kwargs
-    )
+    assert _default_upgrade_prompt(**kwargs) == _render_upgrade_template(DEFAULT_UPGRADE_PROMPT_TEMPLATE, **kwargs)
     assert "{relation_candidates}" in DEFAULT_UPGRADE_PROMPT_TEMPLATE  # 与租户模板同占位符
     assert "{rel_desc}" not in DEFAULT_UPGRADE_PROMPT_TEMPLATE

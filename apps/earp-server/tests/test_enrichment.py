@@ -36,19 +36,13 @@ async def _seed(engine: AsyncEngine, migration_url: str, tid: str) -> None:
     async with eng.begin() as conn:
         # 按租户派生 id 清理（单列主键跨租户共享，全局前缀清会误删他租户——按具体 id）
         for eid in (e1, e2):
-            await conn.execute(
-                text("DELETE FROM entity_timeline WHERE entity_id = :e"), {"e": eid}
-            )
-            await conn.execute(
-                text("DELETE FROM entity_profiles WHERE entity_id = :e"), {"e": eid}
-            )
+            await conn.execute(text("DELETE FROM entity_timeline WHERE entity_id = :e"), {"e": eid})
+            await conn.execute(text("DELETE FROM entity_profiles WHERE entity_id = :e"), {"e": eid})
         await conn.execute(text("DELETE FROM messages WHERE message_id = :m"), {"m": mid})
         await conn.execute(text("DELETE FROM conversations WHERE conversation_id = :c"), {"c": cid})
         await conn.execute(text("DELETE FROM users WHERE user_id = :u"), {"u": uid})
         await conn.execute(text("DELETE FROM facts WHERE fact_id = :f"), {"f": fid})
-        await conn.execute(
-            text("DELETE FROM entities WHERE entity_id IN (:a, :b)"), {"a": e1, "b": e2}
-        )
+        await conn.execute(text("DELETE FROM entities WHERE entity_id IN (:a, :b)"), {"a": e1, "b": e2})
         await conn.execute(text("DELETE FROM roles WHERE role_id = 'r-admin'"))
     await eng.dispose()
     async with engine.connect() as conn:
@@ -140,9 +134,7 @@ async def test_enrichment_full_flow(migrated: str, app_url: str, migration_url: 
         async with engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
             r = await conn.execute(
-                text(
-                    "SELECT status FROM facts WHERE fact_id = :f AND tenant_id = :t"
-                ),
+                text("SELECT status FROM facts WHERE fact_id = :f AND tenant_id = :t"),
                 {"f": f"fact-{tid}", "t": tid},
             )
             assert r.mappings().first()["status"] == "revoked"
@@ -152,14 +144,15 @@ async def test_enrichment_full_flow(migrated: str, app_url: str, migration_url: 
         async with engine.connect() as conn:
             await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
             rows = (
-                await conn.execute(
-                    text(
-                        "SELECT entity_id, event_type, source_ref FROM entity_timeline "
-                        "WHERE tenant_id = :t"
-                    ),
-                    {"t": tid},
+                (
+                    await conn.execute(
+                        text("SELECT entity_id, event_type, source_ref FROM entity_timeline WHERE tenant_id = :t"),
+                        {"t": tid},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             ev = {(r["entity_id"], r["event_type"]) for r in rows if r["source_ref"] == f"msg-{tid}"}
             assert (e1, "query.entity") in ev  # G2 映射：profile → query.entity
             assert (e2, "graph.entity") in ev  # graph → graph.entity

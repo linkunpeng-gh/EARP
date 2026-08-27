@@ -60,9 +60,7 @@ async def recover_interrupted_sync_all(engine, ttl_seconds: int) -> int:
                 continue
             last = datetime.fromisoformat(ds["last_synced_at"])
             if (datetime.now(UTC) - last).total_seconds() > ttl_seconds:
-                await import_service.mark_sync_state(
-                    engine, tid, ds["data_source_id"], status="interrupted"
-                )
+                await import_service.mark_sync_state(engine, tid, ds["data_source_id"], status="interrupted")
                 n += 1
     return n
 
@@ -78,26 +76,18 @@ def register(queue: ProcrastinateTaskQueue) -> None:
         async def _beat() -> None:
             # C 修复（review）：心跳同时刷新 last_synced_at——长同步 > TTL 时
             # recover 判定仍新鲜，避免误判「并发恢复」导致双同步竞态
-            await import_service.mark_sync_state(
-                engine, tenant_id, data_source_id, status="running", synced_at=_now()
-            )
+            await import_service.mark_sync_state(engine, tenant_id, data_source_id, status="running", synced_at=_now())
 
         try:
-            await import_service.mark_sync_state(
-                engine, tenant_id, data_source_id, status="running", synced_at=_now()
-            )
-            await import_service.sync_from_connector(
-                engine, tenant_id, data_source_id, heartbeat=_beat
-            )
+            await import_service.mark_sync_state(engine, tenant_id, data_source_id, status="running", synced_at=_now())
+            await import_service.sync_from_connector(engine, tenant_id, data_source_id, heartbeat=_beat)
             await import_service.mark_sync_state(
                 engine, tenant_id, data_source_id, status="completed", synced_at=_now()
             )
         except Exception:  # noqa: BLE001 — 取数失败/异常 → 状态 failed，不重试风暴
             logger.exception("sync %s failed", data_source_id)
             try:
-                await import_service.mark_sync_state(
-                    engine, tenant_id, data_source_id, status="failed"
-                )
+                await import_service.mark_sync_state(engine, tenant_id, data_source_id, status="failed")
             except Exception:  # noqa: BLE001
                 logger.exception("mark sync failed state failed")
         finally:

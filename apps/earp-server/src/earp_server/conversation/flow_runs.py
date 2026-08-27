@@ -56,14 +56,18 @@ async def get_waiting_run(engine: AsyncEngine, tenant_id: str, conversation_id: 
     """同 conversation 的最新 waiting_human run（D6：有则视为恢复输入，唯一性）。"""
     async with tenant_session(engine, tenant_id) as session:
         row = (
-            await session.execute(
-                text(
-                    f"SELECT {_COLS} FROM flow_runs WHERE tenant_id = :tid AND conversation_id = :cid "
-                    "AND status = 'waiting_human' ORDER BY updated_at DESC LIMIT 1"
-                ),
-                {"tid": tenant_id, "cid": conversation_id},
+            (
+                await session.execute(
+                    text(
+                        f"SELECT {_COLS} FROM flow_runs WHERE tenant_id = :tid AND conversation_id = :cid "
+                        "AND status = 'waiting_human' ORDER BY updated_at DESC LIMIT 1"
+                    ),
+                    {"tid": tenant_id, "cid": conversation_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
     return _row_to_dict(row) if row else None
 
 
@@ -146,22 +150,24 @@ async def list_runs(
     """
     async with tenant_session(engine, tenant_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    "SELECT execution_id, chat_app_id, conversation_id, status, trace, "
-                    "attempts, created_at, updated_at, finished_at "
-                    "FROM flow_runs WHERE tenant_id = :tid AND chat_app_id = :app_id "
-                    "ORDER BY created_at DESC LIMIT :lim OFFSET :off"
-                ),
-                {"tid": tenant_id, "app_id": chat_app_id, "lim": limit, "off": offset},
+            (
+                await session.execute(
+                    text(
+                        "SELECT execution_id, chat_app_id, conversation_id, status, trace, "
+                        "attempts, created_at, updated_at, finished_at "
+                        "FROM flow_runs WHERE tenant_id = :tid AND chat_app_id = :app_id "
+                        "ORDER BY created_at DESC LIMIT :lim OFFSET :off"
+                    ),
+                    {"tid": tenant_id, "app_id": chat_app_id, "lim": limit, "off": offset},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     return [_row_to_dict(r) for r in rows]
 
 
-async def get_conversation_runs(
-    engine: AsyncEngine, tenant_id: str, conversation_id: str
-) -> list[dict[str, Any]]:
+async def get_conversation_runs(engine: AsyncEngine, tenant_id: str, conversation_id: str) -> list[dict[str, Any]]:
     """会话维度运行历史（tech-debt #17 D4）：对话日志页按会话展开。
 
     同会话可有多轮 run（恢复复用同一 execution_id，attempts 递增；新会话重开则新 run）——
@@ -169,14 +175,18 @@ async def get_conversation_runs(
     """
     async with tenant_session(engine, tenant_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    f"SELECT {_COLS} FROM flow_runs WHERE tenant_id = :tid "
-                    "AND conversation_id = :cid ORDER BY created_at DESC"
-                ),
-                {"tid": tenant_id, "cid": conversation_id},
+            (
+                await session.execute(
+                    text(
+                        f"SELECT {_COLS} FROM flow_runs WHERE tenant_id = :tid "
+                        "AND conversation_id = :cid ORDER BY created_at DESC"
+                    ),
+                    {"tid": tenant_id, "cid": conversation_id},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     return [_row_to_dict(r) for r in rows]
 
 
@@ -194,14 +204,18 @@ async def expire_waiting_approvals(engine: AsyncEngine, ttl_seconds: int) -> lis
         tid = t.tenant_id
         async with tenant_session(engine, tid) as session:
             expired = (
-                await session.execute(
-                    text(
-                        f"SELECT {_COLS} FROM flow_runs WHERE tenant_id = :tid "
-                        "AND status = 'waiting_human' AND updated_at < :cutoff"
-                    ),
-                    {"tid": tid, "cutoff": cutoff},
+                (
+                    await session.execute(
+                        text(
+                            f"SELECT {_COLS} FROM flow_runs WHERE tenant_id = :tid "
+                            "AND status = 'waiting_human' AND updated_at < :cutoff"
+                        ),
+                        {"tid": tid, "cutoff": cutoff},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             for r in expired:
                 # tech-debt #17 D2: timeout 由挂起 node_state 转译 trace，保证超时也有轨迹
                 await session.execute(

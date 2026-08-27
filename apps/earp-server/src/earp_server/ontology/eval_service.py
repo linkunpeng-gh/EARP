@@ -36,7 +36,6 @@ VALID_KINDS = ("routing", "understanding", "planning")
 VALID_MODES = ("rules", "llm")
 
 
-
 class EvalError(Exception):
     """评估集业务错误（404/409/400 语义由路由层映射）。"""
 
@@ -133,9 +132,7 @@ async def get_eval_set(engine: AsyncEngine, tenant_id: str, eval_set_id: str) ->
         s = dict(row._mapping)
         cases = (
             await session.execute(
-                text(
-                    "SELECT * FROM eval_cases WHERE eval_set_id = :sid ORDER BY sort_order, created_at"
-                ),
+                text("SELECT * FROM eval_cases WHERE eval_set_id = :sid ORDER BY sort_order, created_at"),
                 {"sid": eval_set_id},
             )
         ).fetchall()
@@ -315,9 +312,7 @@ async def start_run(
     async with tenant_session(engine, tenant_id) as session:
         busy = (
             await session.execute(
-                text(
-                    "SELECT run_id FROM eval_runs WHERE eval_set_id = :sid AND status = 'running' LIMIT 1"
-                ),
+                text("SELECT run_id FROM eval_runs WHERE eval_set_id = :sid AND status = 'running' LIMIT 1"),
                 {"sid": eval_set_id},
             )
         ).fetchone()
@@ -463,9 +458,7 @@ async def _eval_routing_case(engine: AsyncEngine, tenant_id: str, role_id: str, 
     }
 
 
-async def _eval_understanding_case(
-    engine: AsyncEngine, tenant_id: str, case: dict, mode: str, settings: Any
-) -> dict:
+async def _eval_understanding_case(engine: AsyncEngine, tenant_id: str, case: dict, mode: str, settings: Any) -> dict:
     from earp_server.ontology.understanding import (
         build_structured_query,
         understand,
@@ -711,8 +704,7 @@ async def run_eval_task(
             cases = (
                 await session.execute(
                     text(
-                        "SELECT * FROM eval_cases WHERE eval_set_id = :sid AND enabled "
-                        "ORDER BY sort_order, created_at"
+                        "SELECT * FROM eval_cases WHERE eval_set_id = :sid AND enabled ORDER BY sort_order, created_at"
                     ),
                     {"sid": run["eval_set_id"]},
                 )
@@ -872,10 +864,7 @@ async def update_eval_set(
             new_thr = _validate_thresholds(cur["kind"], thresholds)
         new_en = enabled if enabled is not None else cur["enabled"]
         await session.execute(
-            text(
-                "UPDATE eval_sets SET thresholds = :thr, enabled = :en, updated_at = now() "
-                "WHERE eval_set_id = :sid"
-            ),
+            text("UPDATE eval_sets SET thresholds = :thr, enabled = :en, updated_at = now() WHERE eval_set_id = :sid"),
             {"thr": json.dumps(new_thr), "en": new_en, "sid": set_id},
         )
     return {"eval_set_id": set_id, "kind": cur["kind"], "thresholds": new_thr, "enabled": new_en}
@@ -926,9 +915,7 @@ async def sync_builtin_set(engine: AsyncEngine, tenant_id: str, set_id: str) -> 
             {"ver": SEED_VERSION, "sid": set_id},
         )
         cnt = (
-            await session.execute(
-                text("SELECT count(*) FROM eval_cases WHERE eval_set_id = :sid"), {"sid": set_id}
-            )
+            await session.execute(text("SELECT count(*) FROM eval_cases WHERE eval_set_id = :sid"), {"sid": set_id})
         ).scalar_one()
     return {"eval_set_id": set_id, "source": "builtin", "seed_version": SEED_VERSION, "case_count": int(cnt)}
 
@@ -944,10 +931,7 @@ async def export_eval_set(engine: AsyncEngine, tenant_id: str, set_id: str) -> d
         "description": s.get("description") or "",
         "source": s["source"],
         "thresholds": s["thresholds"] or {},
-        "cases": [
-            {"query": c["query"], "expected": c["expected"], "note": c.get("note") or ""}
-            for c in s["cases"]
-        ],
+        "cases": [{"query": c["query"], "expected": c["expected"], "note": c.get("note") or ""} for c in s["cases"]],
     }
 
 
