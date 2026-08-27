@@ -1,6 +1,6 @@
 # 任务清单 — Chatflow 运行历史持久化（finished run trace，tech-debt #17）
 
-**状态：✅ Task 1-5 代码交付（2026-08-27，commit 2fe4b92）——新增 10 项测试全绿 + ruff/pyright 零新增；全量回归与 verify_f6 待 VPN 恢复补跑（.env EARP_OLLAMA_BASE_URL=10.188.2.230 需 VPN）**
+**状态：✅ 已完成（2026-08-27）——commit 2fe4b92 实现 + 全量 pytest 536 绿 + verify_f6 80/0（dev 库已应用 0034）+ ruff/pyright 零新增 + 前端冒烟绿**
 **依据**：`arch/tech-debt.md` #17（P3，2026-08-21 记入待办）+ FDE 排查需求（回看失败/历史对话执行轨迹）
 **依赖**：F4 flow_runs ✅（0026 挂起/恢复载体 + 0031 rejected 终态）+ 对话日志 ✅（conversations + chat_app_id 归属 + C 系列可见性过滤）+ 前端运行抽屉 ✅（trace 展示/画布着色现成）
 **日期**：2026-08-26
