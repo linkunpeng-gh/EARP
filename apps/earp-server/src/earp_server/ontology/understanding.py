@@ -17,7 +17,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -793,10 +793,10 @@ async def upgrade_with_llm(
         return result
 
     # 全局默认 LLM（D4：与 suggest 一致，DB 优先 env 兜底）
+    from earp_server.admin import model_service as _ms
+
     llm_cfg: dict = {}
     try:
-        from earp_server.admin import model_service as _ms
-
         llm_cfg = (await _ms.load_runtime_models(engine, tenant_id)).get("llm") or {}
     except Exception:
         logger.warning("upgrade_with_llm: load_runtime_models failed — env defaults", exc_info=True)
@@ -846,7 +846,9 @@ async def upgrade_with_llm(
     # 升级结果 LRU 缓存（键 = tenant+query，含负缓存：超时/失败也记 None——弱模型同问题
     # 重复询问不再白等预算，直接规则回落）。规则层对同 query 输出确定 → 缓存安全。
     key = (tenant_id, query)
-    data = _UPGRADE_CACHE.get(key, _CACHE_MISS)
+    # sentinel 兜底：_UPGRADE_CACHE dict|None 与 _CACHE_MISS(object) 合并推断为 object——
+    # cast 回 dict|None（运行时 sentinel 比较不受影响），清偿 pyright index/get 类错误
+    data = cast("dict | None", _UPGRADE_CACHE.get(key, _CACHE_MISS))
     if data is _CACHE_MISS:
         data = await conn.json_complete(system, prompt, timeout=budget)
         _UPGRADE_CACHE[key] = data  # 成功 dict 或失败 None 均缓存

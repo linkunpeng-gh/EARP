@@ -178,7 +178,7 @@ async def _text_lane(
 def _rrf_merge(ranked_lists: list[list[dict]], top_k: int) -> list[dict]:
     """Reciprocal Rank Fusion over lane results. Keeps lane scores for display:
     similarity from the vector lane, text_score (keyword hits) from the text lane."""
-    fused: dict[str, dict] = {}
+    fused: dict[str, dict[str, Any]] = {}
     for lane in ranked_lists:
         for rank, item in enumerate(lane):
             cid = item["chunk_id"]
@@ -193,7 +193,7 @@ def _rrf_merge(ranked_lists: list[list[dict]], top_k: int) -> list[dict]:
                 if item.get("similarity", 0) > fused[cid].get("similarity", 0):
                     fused[cid]["similarity"] = item["similarity"]
             fused[cid]["rrf_score"] += 1.0 / (RRF_K + rank + 1)
-    return sorted(fused.values(), key=lambda x: -x["rrf_score"])[:top_k]
+    return sorted(fused.values(), key=lambda x: -float(x["rrf_score"]))[:top_k]
 
 
 async def _rerank_results(
@@ -214,11 +214,11 @@ async def _rerank_results(
         reranker = get_reranker()
         if reranker is None:
             return results
-        cands = results[:rerank_top_n]
+        cands: list[dict[str, Any]] = results[:rerank_top_n]
         scores = await reranker.rerank(query, [c["content"] for c in cands])
         for c, s in zip(cands, scores, strict=True):
             c["rerank_score"] = s
-        cands.sort(key=lambda x: -(x.get("rerank_score") or 0.0))
+        cands.sort(key=lambda x: -float(x.get("rerank_score") or 0.0))
         logger.info("rerank: %d/%d candidates scored → top %d", len(cands), len(results), top_k)
         return cands[:top_k]
     except Exception:

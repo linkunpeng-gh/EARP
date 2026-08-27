@@ -394,7 +394,7 @@ async def chat_sse(
 
         # ⑤ 检索
         if embedding_dim is None:
-            embedding_dim = getattr(settings, "embedding_dim", 1024)
+            embedding_dim = int(getattr(settings, "embedding_dim", 1024))
         q_emb = await embed_query(query)
         chunks, citations, rule_result = await _retrieve(
             engine,

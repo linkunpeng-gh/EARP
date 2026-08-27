@@ -554,6 +554,7 @@ class MultiStepExecutor:
 
             step_ctx = replace(ctx, step=item.step)
             step = item.step
+            resolved_call: Any = None
             if flow_input is not None:
                 # F2: 节点输入模板替换（{{query}} / {{#node.output.path#}}）
                 resolved_call = resolve_templates(step.capability_call, pool, flow_input)
@@ -601,7 +602,7 @@ class MultiStepExecutor:
                     },
                 )
             # Chatflow 调试：捕获节点实际输入（模板解析后的 input）供 trace
-            if flow_input is not None and result is not None and isinstance(resolved_call, dict):
+            if flow_input is not None and isinstance(resolved_call, dict):
                 result.input = resolved_call.get("input")
             results.append(result)
             pool[item.node_id] = result

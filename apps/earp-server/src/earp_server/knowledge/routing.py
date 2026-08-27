@@ -534,6 +534,7 @@ async def route_debug(
     result = await route_query(engine, tenant_id, query, query_embedding, role_id, top_n, top_k)
     # KB summary text preview (observability: what text backs the summary vector)
     kb_summaries: list[dict] = []
+    t_kbs0 = time.monotonic()  # 默认 0 点；有候选 KB 时在下方 if 内重定为真起点
     if result["candidate_kbs"]:
         t_kbs0 = time.monotonic()
         async with engine.connect() as conn:

@@ -889,8 +889,7 @@ class LLMConnector:
 
         if is_ollama:
             options: dict[str, Any] = {"temperature": temperature}
-            if top_p is not None:
-                options["top_p"] = top_p
+            options["top_p"] = top_p  # top_p: float（非 Optional）——恒真 None 检查移除
             if max_tokens:
                 options["num_predict"] = max_tokens  # Ollama num_predict = max_tokens
             payload: dict[str, Any] = {

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 logger = logging.getLogger(__name__)
 
 # ── TBox seeds (ontology-layer-design §3.1/§3.2) ──────────────────────────────
-SEED_ENTITY_TYPES: list[dict] = [
+SEED_ENTITY_TYPES: list[tuple[str, str, str, str, str]] = [
     # entity_type_id, name, kind, data_domain_id, description
     ("equipment", "设备", "object", "equipment_data", "生产设备/机床"),
     ("component", "部件", "object", "equipment_data", "设备关键部件（主轴/轴承/电机），一级结构不建层级"),
@@ -33,7 +33,7 @@ SEED_ENTITY_TYPES: list[dict] = [
     ("department", "部门", "object", "hr_data", "组织部门"),
 ]
 
-SEED_RELATION_TYPES: list[dict] = [
+SEED_RELATION_TYPES: list[tuple[str, str, str, str, str]] = [
     # relation_type_id, name, source_type(s), target_type(s), cardinality
     # 2026-08-15 决策（TBox 部件级关系缺口，方案 A）：belongs_to/supplied_by 源集合
     # 扩 component——部件属于设备（component→equipment）、部件由供应商供应

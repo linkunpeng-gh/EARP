@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ── 6.1: Copilot knowledge base constants ─────────────────────────────────────
 COPILOT_KB_NAME = "EARP 配置助手知识库"
 COPILOT_KB_DESC = "EARP 管理后台配置指南，供 AI 配置助手（Copilot）RAG 检索使用"
-_COPILOT_KB_ID: str | None = None  # cached after first creation
+_copilot_kb_id: str | None = None  # cached after first creation
 
 
 # ── 6.1: Ensure copilot KB exists and upload config guide ─────────────────────
@@ -33,9 +33,9 @@ async def ensure_copilot_kb(engine: Any, tenant_id: str) -> str | None:
 
     Returns the knowledge_base_id, or None on failure.
     """
-    global _COPILOT_KB_ID
-    if _COPILOT_KB_ID:
-        return _COPILOT_KB_ID
+    global _copilot_kb_id
+    if _copilot_kb_id:
+        return _copilot_kb_id
 
     try:
         from earp_server.knowledge.admin_service import create_kb, list_kbs
@@ -48,9 +48,9 @@ async def ensure_copilot_kb(engine: Any, tenant_id: str) -> str | None:
         kbs = await list_kbs(engine, tenant_id)
         existing = [k for k in kbs if k["name"] == COPILOT_KB_NAME]
         if existing:
-            _COPILOT_KB_ID = existing[0]["knowledge_base_id"]
-            logger.info("ensure_copilot_kb: found existing KB %s", _COPILOT_KB_ID)
-            return _COPILOT_KB_ID
+            _copilot_kb_id = existing[0]["knowledge_base_id"]
+            logger.info("ensure_copilot_kb: found existing KB %s", _copilot_kb_id)
+            return _copilot_kb_id
 
         # Create the copilot KB
         kb = await create_kb(
@@ -65,16 +65,18 @@ async def ensure_copilot_kb(engine: Any, tenant_id: str) -> str | None:
                 "score_threshold": 0.3,
             },
         )
-        _COPILOT_KB_ID = kb["knowledge_base_id"]
-        logger.info("ensure_copilot_kb: created KB %s", _COPILOT_KB_ID)
+        _copilot_kb_id = kb["knowledge_base_id"]
+        logger.info("ensure_copilot_kb: created KB %s", _copilot_kb_id)
 
         # Upload the config guide document
         guide_content = _load_config_guide()
         if guide_content:
+            # 走到此处 _copilot_kb_id 必已赋值（前面分支 return 或创建）——断言收窄 global 可变类型
+            assert _copilot_kb_id is not None
             doc = await create_document(
                 engine,
                 tenant_id,
-                _COPILOT_KB_ID,
+                _copilot_kb_id,
                 content=guide_content,
                 title="EARP 平台配置指南",
                 data_classification="internal",
@@ -82,10 +84,10 @@ async def ensure_copilot_kb(engine: Any, tenant_id: str) -> str | None:
             chunk_ids = await create_chunks(engine, tenant_id, doc["document_id"], guide_content)
             if chunk_ids:
                 await embed_chunks(engine, tenant_id, chunk_ids)
-            await build_routing_index(engine, tenant_id, kb_ids=[_COPILOT_KB_ID])
+            await build_routing_index(engine, tenant_id, kb_ids=[_copilot_kb_id])
             logger.info("ensure_copilot_kb: uploaded config guide, %d chunks", len(chunk_ids))
 
-        return _COPILOT_KB_ID
+        return _copilot_kb_id
 
     except Exception:
         logger.exception("ensure_copilot_kb: failed to create/setup copilot KB")
@@ -366,6 +368,7 @@ async def copilot_assist(
             ):
                 full_response += ev.token
 
+            plan: dict = {}
             if intent == "autofill":
                 suggestions = _parse_autofill_response(full_response)
                 yield _sse({"type": "suggestions", "items": suggestions})

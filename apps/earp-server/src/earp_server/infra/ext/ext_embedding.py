@@ -22,7 +22,7 @@ class EmbeddingProvider(abc.ABC):
     """Abstract embedding provider. Subclass must implement _embed()."""
 
     name: ClassVar[str] = ""  # provider key, e.g. "ollama"
-    dim: ClassVar[int] = 1024  # output dimension
+    dim: int = 1024  # output dimension（实例配置，模型相关——子类 __init__ 可覆盖）
 
     @abc.abstractmethod
     async def _embed(self, texts: list[str]) -> list[list[float]]:
@@ -39,7 +39,6 @@ class EmbeddingProvider(abc.ABC):
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
     name = "ollama"
-    dim = 1024  # bge-m3
 
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "bge-m3:latest"):
         self._url = f"{base_url}/api/embed"
@@ -92,7 +91,7 @@ def init_app(settings: Settings) -> None:
         provider=settings.embedding_provider,
         ollama_base_url=settings.ollama_base_url,
         ollama_model=settings.ollama_embedding_model,
-        openai_api_key=settings.openai_api_key if hasattr(settings, "openai_api_key") else "",
+        openai_api_key=getattr(settings, "openai_api_key", ""),
     )
 
 

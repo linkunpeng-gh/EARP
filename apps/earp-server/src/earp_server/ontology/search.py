@@ -11,6 +11,7 @@ capability resolution for Planner candidate narrowing (planner-spec §5.1.5).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -251,7 +252,7 @@ async def knowledge_search(
 
 def _rrf_merge(ranked_lists: list[list[dict]], top_k: int) -> list[dict]:
     """Reciprocal Rank Fusion: score = Σ 1/(k + rank), k=60 (per-lane ranking)."""
-    fused: dict[str, dict] = {}
+    fused: dict[str, dict[str, Any]] = {}
     for lane in ranked_lists:
         for rank, item in enumerate(lane):
             key = item["key"]
@@ -260,7 +261,7 @@ def _rrf_merge(ranked_lists: list[list[dict]], top_k: int) -> list[dict]:
                 merged["rrf_score"] = 0.0
                 fused[key] = merged
             fused[key]["rrf_score"] += 1.0 / (RRF_K + rank + 1)
-    return sorted(fused.values(), key=lambda x: -x["rrf_score"])[:top_k]
+    return sorted(fused.values(), key=lambda x: -float(x["rrf_score"]))[:top_k]
 
 
 async def resolve_with_entities(

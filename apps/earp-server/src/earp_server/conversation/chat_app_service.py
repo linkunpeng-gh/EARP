@@ -484,7 +484,7 @@ async def update_chat_app(
             params["flow_schema"] = json.dumps(val)
         elif key == "context_turns":
             sets.append("context_turns = :context_turns")
-            params["context_turns"] = max(1, min(20, int(val)))
+            params["context_turns"] = max(1, min(20, int(val or 0)))
         elif key == "name":
             val = (val or "").strip()
             if not val:

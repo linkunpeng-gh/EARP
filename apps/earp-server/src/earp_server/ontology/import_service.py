@@ -126,9 +126,10 @@ def _validate_entities(
         attrs_raw = cells[4] if len(cells) > 4 else ""
         if attrs_raw.strip():
             try:
-                attrs = json.loads(attrs_raw)
-                if not isinstance(attrs, dict):
+                parsed = json.loads(attrs_raw)  # Any——run-time 防御性 isinstance 检查
+                if not isinstance(parsed, dict):
                     raise ValueError("not a JSON object")
+                attrs = parsed
             except Exception:
                 errors.append({"row": row_no, "reason": f"attributes 不是合法 JSON 对象: {attrs_raw}"})
                 continue
@@ -145,7 +146,7 @@ def _validate_facts(
     rows: list[tuple[int, list[str]]],
     relation_types: dict,
     entity_map: dict,
-) -> list[tuple[int, list[str], float]]:
+) -> tuple[list[tuple[int, list[str], float]], list[dict]]:
     """entity_map: business_code → {entity_id, entity_type_id}（本次解析 + 已存在实体）。"""
     valid: list[tuple[int, list[str], float]] = []
     errors: list[dict] = []

@@ -86,7 +86,7 @@ class OpenAICompatReranker(RerankerProvider):
 # ---------------------------------------------------------------------------
 # Factory — module-level singleton (mirrors ext_embedding pattern)
 _reranker: RerankerProvider | None = None
-_RERANKER_INIT = False
+_reranker_init = False
 
 
 def init_reranker_provider(
@@ -98,7 +98,7 @@ def init_reranker_provider(
     openai_base_url: str = "https://api.cohere.com/v1",
 ) -> None:
     """Initialize the reranker from settings. provider='none' disables (default)."""
-    global _reranker, _RERANKER_INIT
+    global _reranker, _reranker_init
     p = (provider or "none").lower()
     if p in ("none", "", "disabled"):
         _reranker = None
@@ -109,13 +109,13 @@ def init_reranker_provider(
     else:
         logger.warning("unknown rerank provider %r — disabled", provider)
         _reranker = None
-    _RERANKER_INIT = True
+    _reranker_init = True
 
 
 def get_reranker() -> RerankerProvider | None:
     """Return the configured reranker, or None when disabled. Raises RuntimeError
     when not initialized (startup contract)."""
-    if not _RERANKER_INIT:
+    if not _reranker_init:
         raise RuntimeError("reranker not initialized — call init_reranker_provider()")
     return _reranker
 
