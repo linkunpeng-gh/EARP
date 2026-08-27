@@ -16,7 +16,7 @@ import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -54,6 +54,7 @@ def _shared_llm_cache(settings) -> Any:
         _upgrade_llm_cache = LLMCache(ttl=ttl)
     return _upgrade_llm_cache
 
+
 # 内置压缩默认升级 prompt —— 同一套占位符 {query}/{missing}/{relation_candidates}/{context}（= 租户模板约定，
 # 「载入默认」可直接当模板编辑；保存等同默认的文本 = 默认行为，零漂移）。JSON 大括号原样保留。
 DEFAULT_UPGRADE_PROMPT_TEMPLATE = (
@@ -62,11 +63,11 @@ DEFAULT_UPGRADE_PROMPT_TEMPLATE = (
     "1. intent 枚举之一：FACT|ATTRIBUTE|RELATION|MULTI_HOP|LIST|AGGREGATION|"
     "COMPARISON|TREND|CAUSAL|MIXED\n"
     "2. relations 只能从候选选，禁止发明：{relation_candidates}\n"
-    "3. entities=[{\"mention\":\"实体名\",\"semantic_type\":\"类型\"}]\n"
-    "4. constraints 为元数据过滤（department/year/doc_type），time={\"kind\":"
-    "\"relative|absolute|none\",\"expression\":\"...\"}\n"
+    '3. entities=[{"mention":"实体名","semantic_type":"类型"}]\n'
+    '4. constraints 为元数据过滤（department/year/doc_type），time={"kind":'
+    '"relative|absolute|none","expression":"..."}\n'
     "5. 输出尽可能短：只输出未命中字段对应键，其它键省略；无结果输出 {}\n"
-    "示例：{\"intent\":\"RELATION\"}\n"
+    '示例：{"intent":"RELATION"}\n'
     "查询：{query}\n"
     "上下文：{context}"
 )
@@ -103,7 +104,7 @@ def _default_upgrade_prompt(*, missing: str, rel_desc: str, query: str, context:
 # ── §6.2 冻结 schema ─────────────────────────────────────────────────────────
 
 
-class Intent(str, Enum):
+class Intent(StrEnum):
     """问题类型（10 类枚举，知识检索维度，与 capability intent 正交并存）。
 
     一期可靠分类子集 = {FACT, RELATION, AGGREGATION}（§5.4）；其余 7 类规则层
@@ -362,8 +363,19 @@ _COREF_RE = re.compile(r"(它|这个|该设备|该机器|这台|那台)")
 # TBox seed 实体类型中文名（与 tbox_service.SEED_ENTITY_TYPES 对齐；Phase 可换动态
 # 拉取）。仅作「实体维度相关」判定提示词，不产出 mention（防泛词误判，Task 3）。
 _ENTITY_HINT_WORDS: tuple[str, ...] = (
-    "设备", "部件", "产线", "工厂", "传感器", "报警", "工单",
-    "物料", "产品", "供应商", "客户", "员工", "部门",
+    "设备",
+    "部件",
+    "产线",
+    "工厂",
+    "传感器",
+    "报警",
+    "工单",
+    "物料",
+    "产品",
+    "供应商",
+    "客户",
+    "员工",
+    "部门",
 )
 
 
@@ -663,9 +675,7 @@ async def understand(
         relevant.add("time")
     if _verb_hit(query):
         relevant.add("relations")
-    if op_hit or any(
-        kw in query for kw in ("有多少", "数量", "统计", "最多", "最少", "平均", "总计", "合计", "几次")
-    ):
+    if op_hit or any(kw in query for kw in ("有多少", "数量", "统计", "最多", "最少", "平均", "总计", "合计", "几次")):
         relevant.add("operation")
     if result.constraints:
         relevant.add("constraints")
@@ -726,9 +736,7 @@ def build_structured_query(result: RuleResult) -> StructuredQuery:
 
 
 # ── Task 8: derive_needs() 纯函数（§7，单一来源 = §8.2 通道角色表）─────────────
-_DOCUMENT_MAIN_INTENTS: frozenset[Intent] = frozenset(
-    {Intent.AGGREGATION, Intent.COMPARISON, Intent.TREND}
-)
+_DOCUMENT_MAIN_INTENTS: frozenset[Intent] = frozenset({Intent.AGGREGATION, Intent.COMPARISON, Intent.TREND})
 _STRUCTURED_INTENTS: frozenset[Intent] = frozenset(
     {Intent.AGGREGATION, Intent.COMPARISON, Intent.TREND, Intent.CAUSAL, Intent.MIXED}
 )
@@ -856,9 +864,7 @@ async def upgrade_with_llm(
                 result.intent = Intent[iv]
                 result.field_hits["intent"] = True
             else:
-                result.field_reasons["intent"] = (
-                    result.field_reasons.get("intent", "") + "；LLM 非法 intent 已拒"
-                )
+                result.field_reasons["intent"] = result.field_reasons.get("intent", "") + "；LLM 非法 intent 已拒"
         if "entities" in missing and data.get("entities"):
             parsed = [EntityMention(**e) for e in data["entities"]]
             if parsed:
@@ -877,9 +883,7 @@ async def upgrade_with_llm(
                 result.relations = valid
                 result.field_hits["relations"] = True
             if len(valid) != len(parsed):
-                result.field_reasons["relations"] = (
-                    result.field_reasons.get("relations", "") + "；LLM 发明关系已过滤"
-                )
+                result.field_reasons["relations"] = result.field_reasons.get("relations", "") + "；LLM 发明关系已过滤"
         if data.get("entities") and not result.entities:
             try:
                 parsed = [EntityMention(**e) for e in data["entities"]]
@@ -905,7 +909,5 @@ async def upgrade_with_llm(
     # 重算置信度（补命中后；LLM 补丁不计歧义 penalty 变化）
     n_relevant = max(1, len(result.relevant_fields))
     n_hit = sum(1 for f in result.relevant_fields if result.field_hits.get(f))
-    result.confidence = round(
-        max(0.0, min(1.0, n_hit / n_relevant - 0.2 * len(result.ambiguity_fields))), 3
-    )
+    result.confidence = round(max(0.0, min(1.0, n_hit / n_relevant - 0.2 * len(result.ambiguity_fields))), 3)
     return result

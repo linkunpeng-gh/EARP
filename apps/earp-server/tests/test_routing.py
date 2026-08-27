@@ -99,9 +99,7 @@ async def _purge(migration_url: str, ids: list[str]) -> None:
         )
         await conn.execute(text("DELETE FROM knowledge_bases WHERE data_domain_id = ANY(:dds)"), {"dds": ids})
         await conn.execute(text("DELETE FROM data_domains WHERE data_domain_id = ANY(:dds)"), {"dds": ids})
-        await conn.execute(
-            text("DELETE FROM roles WHERE role_id = ANY(:rids)"), {"rids": ["r-all", "r-nofin"]}
-        )
+        await conn.execute(text("DELETE FROM roles WHERE role_id = ANY(:rids)"), {"rids": ["r-all", "r-nofin"]})
     await eng.dispose()
 
 
@@ -124,9 +122,9 @@ async def _seed_tenant(engine, migration_url: str, tid: str) -> None:
             text(
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
                 "VALUES (:rid, :tid, 'routing-tester', '{}', 'all', "
-                "'[{\"data_domain_id\": \"finance_data\"}, "
-                "{\"data_domain_id\": \"equipment_data\"}, "
-                "{\"data_domain_id\": \"hr_data\"}]') "
+                '\'[{"data_domain_id": "finance_data"}, '
+                '{"data_domain_id": "equipment_data"}, '
+                '{"data_domain_id": "hr_data"}]\') '
                 "ON CONFLICT DO NOTHING"
             ),
             {"rid": "r-all", "tid": tid},
@@ -140,10 +138,10 @@ async def _seed_tenant(engine, migration_url: str, tid: str) -> None:
             {"rid": "r-nofin", "tid": tid},
         )
         kbs = [
-            ("kb-fin", "费用报销流程手册", "finance_data", "报销标准与流程说明", '[]'),
-            ("kb-alarm", "报警阈值配置", "equipment_data", "设备报警阈值设定", '[]'),
-            ("kb-manual", "设备手册", "equipment_data", "设备结构、主轴轴承更换周期", '[]'),
-            ("kb-policy", "公司政策", "hr_data", "员工休假政策", '[]'),
+            ("kb-fin", "费用报销流程手册", "finance_data", "报销标准与流程说明", "[]"),
+            ("kb-alarm", "报警阈值配置", "equipment_data", "设备报警阈值设定", "[]"),
+            ("kb-manual", "设备手册", "equipment_data", "设备结构、主轴轴承更换周期", "[]"),
+            ("kb-policy", "公司政策", "hr_data", "员工休假政策", "[]"),
         ]
         for kid, name, dd, desc, schema in kbs:
             await session.execute(
@@ -186,16 +184,12 @@ async def test_build_index_idempotent_and_locality(migrated: str, app_url: str, 
 
     # locality: uploading a doc must not change DD embeddings (title-free DDs)
     async with tenant_session(engine, tid) as session:
-        row = await session.execute(
-            text("SELECT routing_hash FROM data_domains WHERE data_domain_id = 'finance_data'")
-        )
+        row = await session.execute(text("SELECT routing_hash FROM data_domains WHERE data_domain_id = 'finance_data'"))
         dd_hash_before = row.scalar()
     await create_document(engine, tid, "kb-fin", "新增文档内容：费用报销补充规定。", title="报销补充规定")
     await build_routing_index(engine, tid, kb_ids=["kb-fin"])
     async with tenant_session(engine, tid) as session:
-        row = await session.execute(
-            text("SELECT routing_hash FROM data_domains WHERE data_domain_id = 'finance_data'")
-        )
+        row = await session.execute(text("SELECT routing_hash FROM data_domains WHERE data_domain_id = 'finance_data'"))
         assert row.scalar() == dd_hash_before  # DD untouched by doc ops
 
 
@@ -208,9 +202,7 @@ async def test_kb_rename_triggers_dd_rebuild(migrated: str, app_url: str, monkey
 
     async with tenant_session(engine, tid) as session:
         before = (
-            await session.execute(
-                text("SELECT routing_hash FROM data_domains WHERE data_domain_id = 'finance_data'")
-            )
+            await session.execute(text("SELECT routing_hash FROM data_domains WHERE data_domain_id = 'finance_data'"))
         ).scalar()
     # KB rename → DD aggregate text changes → DD hash changes (C-7 locality scoped)
     async with tenant_session(engine, tid) as session:
@@ -221,9 +213,7 @@ async def test_kb_rename_triggers_dd_rebuild(migrated: str, app_url: str, monkey
     await build_routing_index(engine, tid, dd_ids=["finance_data"], kb_ids=["kb-fin"])
     async with tenant_session(engine, tid) as session:
         after = (
-            await session.execute(
-                text("SELECT routing_hash FROM data_domains WHERE data_domain_id = 'finance_data'")
-            )
+            await session.execute(text("SELECT routing_hash FROM data_domains WHERE data_domain_id = 'finance_data'"))
         ).scalar()
     assert before != after
 
@@ -314,7 +304,11 @@ async def test_metadata_filtering_and_editing(migrated: str, app_url: str, monke
         await session.commit()
 
     doc = await create_document(
-        engine, tid, "kb-fin", "2024年报销标准：住宿每天500元。", title="2024报销标准",
+        engine,
+        tid,
+        "kb-fin",
+        "2024年报销标准：住宿每天500元。",
+        title="2024报销标准",
         metadata={"year": "2024", "department": "财务部"},
     )
     cids = await create_chunks(engine, tid, doc["document_id"], "2024年报销标准：住宿每天500元。")
@@ -326,10 +320,7 @@ async def test_metadata_filtering_and_editing(migrated: str, app_url: str, monke
     # T4 回归：embedding 必须真实写入（此前传 document_id 导致 NULL 向量假命中）
     async with tenant_session(engine, tid) as session:
         rows = await session.execute(
-            text(
-                "SELECT chunk_id, embedding IS NOT NULL AS has_vec FROM chunks "
-                "WHERE chunk_id = ANY(:cids)"
-            ),
+            text("SELECT chunk_id, embedding IS NOT NULL AS has_vec FROM chunks WHERE chunk_id = ANY(:cids)"),
             {"cids": cids + cids2},
         )
         assert all(r.has_vec for r in rows.fetchall()), "chunk embeddings must be written"
@@ -353,22 +344,39 @@ async def test_metadata_filtering_and_editing(migrated: str, app_url: str, monke
 
     # 假命中防护：向量车道命中必须带真实相似度（NULL embedding 已不可能入选）
     hits_raw = await search_chunks(
-        engine, tid, q_emb, "r-all", top_k=10, knowledge_base_ids=["kb-fin"],
+        engine,
+        tid,
+        q_emb,
+        "r-all",
+        top_k=10,
+        knowledge_base_ids=["kb-fin"],
         embedding_dim=DIM,
     )
     assert len(hits_raw) == 2
     assert all(h["similarity"] is not None for h in hits_raw), "similarity must be non-NULL"
 
     hits = await search_chunks(
-        engine, tid, q_emb, "r-all", top_k=10, knowledge_base_ids=["kb-fin"],
-        metadata_filters={"year": 2024}, embedding_dim=DIM,
+        engine,
+        tid,
+        q_emb,
+        "r-all",
+        top_k=10,
+        knowledge_base_ids=["kb-fin"],
+        metadata_filters={"year": 2024},
+        embedding_dim=DIM,
     )
     assert len(hits) == 1 and hits[0]["document_id"] == doc["document_id"]
 
     # type-sensitive: string filter does NOT match stored number (A-2 decision)
     hits_str = await search_chunks(
-        engine, tid, q_emb, "r-all", top_k=10, knowledge_base_ids=["kb-fin"],
-        metadata_filters={"year": "2024"}, embedding_dim=DIM,
+        engine,
+        tid,
+        q_emb,
+        "r-all",
+        top_k=10,
+        knowledge_base_ids=["kb-fin"],
+        metadata_filters={"year": "2024"},
+        embedding_dim=DIM,
     )
     assert hits_str == []
 
@@ -471,8 +479,12 @@ async def test_route_debug_ontology_layers(migrated: str, app_url: str, monkeypa
     await build_routing_index(engine, tid)
     # 补实体图谱：CNC-01 —manufactured_by→ 上海某精机（equipment_data 域）
     await tbox_service.init_tenant_tbox(engine, tid)
-    sup = await abox_service.upsert_entity(engine, tid, "supplier", "上海某精机", business_code="SUP-D", data_domain_id="equipment_data")
-    equip = await abox_service.upsert_entity(engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data")
+    sup = await abox_service.upsert_entity(
+        engine, tid, "supplier", "上海某精机", business_code="SUP-D", data_domain_id="equipment_data"
+    )
+    equip = await abox_service.upsert_entity(
+        engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
+    )
     await abox_service.add_fact(engine, tid, equip["entity_id"], "manufactured_by", sup["entity_id"])
     await abox_service.compile_profile(engine, tid, equip["entity_id"])
 

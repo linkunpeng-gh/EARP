@@ -287,17 +287,17 @@ PAGE_SCHEMAS: dict[str, dict[str, Any]] = {
             "separators": {
                 "type": "text",
                 "label": "分段标识符",
-                "description": "多个用逗号分隔，按优先级排列，最多5个。如 \\n\\n, \\n, 。 → 先按段落切，切不动降级按行/句号。常见标识符：\\n\\n（段落）、\\n（行）、。（句号）、；（分号）、. （英文句号）。",
+                "description": "多个用逗号分隔，按优先级排列，最多5个。如 \\n\\n, \\n, 。 → 先按段落切，切不动降级按行/句号。常见标识符：\\n\\n（段落）、\\n（行）、。（句号）、；（分号）、. （英文句号）。",  # noqa: E501 — 长中文说明
             },
             "max_tokens": {
                 "type": "number",
                 "label": "分段最大长度（tokens）",
-                "description": "每个文本块的最大 token 数。中文约1字符=1token。过小丢失上下文，过大降低检索精度。推荐 500-1500，技术文档可适当增大。",
+                "description": "每个文本块的最大 token 数。中文约1字符=1token。过小丢失上下文，过大降低检索精度。推荐 500-1500，技术文档可适当增大。",  # noqa: E501 — 长中文说明
             },
             "chunk_overlap": {
                 "type": "number",
                 "label": "分段重叠长度（tokens）",
-                "description": "相邻块的重叠 token 数，防止语义断裂。建议为分段最大长度的 10%-20%。如 max_tokens=1000 时推荐 overlap=100~200。",
+                "description": "相邻块的重叠 token 数，防止语义断裂。建议为分段最大长度的 10%-20%。如 max_tokens=1000 时推荐 overlap=100~200。",  # noqa: E501 — 长中文说明
             },
             "remove_extra_spaces": {
                 "type": "checkbox",
@@ -314,7 +314,7 @@ PAGE_SCHEMAS: dict[str, dict[str, Any]] = {
         ],
     },
     "chatflow-edit": {
-        "description": "Chatflow 流程编排页面。使用画布式拖拽编排 LLM、知识检索、条件分支、能力调用等节点，构建对话型工作流。",
+        "description": "Chatflow 流程编排页面。使用画布式拖拽编排 LLM、知识检索、条件分支、能力调用等节点，构建对话型工作流。",  # noqa: E501 — 长中文说明
         "fields": {
             "app_name": {
                 "type": "text",
@@ -330,12 +330,12 @@ PAGE_SCHEMAS: dict[str, dict[str, Any]] = {
             "flow_nodes": {
                 "type": "text",
                 "label": "流程节点",
-                "description": "画布中已添加的节点列表。节点类型：开始、LLM 生成、知识检索、QU 理解、能力调用、工具取数、对话历史、条件分支、人工确认、回答、结束。",
+                "description": "画布中已添加的节点列表。节点类型：开始、LLM 生成、知识检索、QU 理解、能力调用、工具取数、对话历史、条件分支、人工确认、回答、结束。",  # noqa: E501 — 长中文说明
             },
             "system_prompt": {
                 "type": "textarea",
                 "label": "系统提示词（LLM 节点）",
-                "description": "LLM 节点的系统提示词，定义 AI 角色和行为。可用变量：{{query}}、{{knowledge}}、{{history}} 等。",
+                "description": "LLM 节点的系统提示词，定义 AI 角色和行为。可用变量：{{query}}、{{knowledge}}、{{history}} 等。",  # noqa: E501 — 长中文说明
             },
             "knowledge_scope": {
                 "type": "multi-select",

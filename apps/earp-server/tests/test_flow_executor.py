@@ -18,7 +18,6 @@ from earp_server.conversation.conversation_service import add_message, create_co
 from earp_server.orchestrator.multi_step import ExecutionStatus
 from earp_server.orchestrator.types import InvokeContext, Step, StepResult
 from earp_server.orchestrator.workflow_dsl import (
-    CondExec,
     StepExec,
     WorkflowValidationError,
     compile_flow_schema,

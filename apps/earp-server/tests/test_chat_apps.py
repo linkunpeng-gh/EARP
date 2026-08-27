@@ -99,7 +99,10 @@ async def test_update_validation(app_engine: AsyncEngine) -> None:
 
     # generation 参数：超范围 clamp（temperature 0-2 / top_p 0-1 / max_tokens 128-8192）
     upd2 = await svc.update_chat_app(
-        app_engine, tid, "u1", aid,
+        app_engine,
+        tid,
+        "u1",
+        aid,
         {"generation": {"temperature": 5, "top_p": -1, "max_tokens": 10}},
     )
     assert upd2 is not None
@@ -128,7 +131,12 @@ async def test_delete_preserves_conversations_set_null(app_engine: AsyncEngine) 
 
     async with app_engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
-        row = (await conn.execute(text("SELECT chat_app_id FROM conversations WHERE conversation_id = :cid"), {"cid": cid})).first()
+        row = (
+            await conn.execute(
+                text("SELECT chat_app_id FROM conversations WHERE conversation_id = :cid"),
+                {"cid": cid},
+            )
+        ).first()
         assert row is not None and row.chat_app_id is None
 
 
@@ -142,7 +150,10 @@ async def test_list_order_and_update_fields(app_engine: AsyncEngine) -> None:
 
     app = lst[-1]
     upd = await svc.update_chat_app(
-        app_engine, tid, "u1", app["chat_app_id"],
+        app_engine,
+        tid,
+        "u1",
+        app["chat_app_id"],
         {"kb_scope": ["kb-x", "kb-y"], "retrieval": {"mode": "vector", "top_k": 3}, "context_turns": 10},
     )
     assert upd is not None

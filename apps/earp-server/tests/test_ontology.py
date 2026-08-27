@@ -145,9 +145,7 @@ async def test_graph_query_backward(app_engine: AsyncEngine) -> None:
     assert fwd == []
 
     # backward：华东一厂 → 位于该厂的设备
-    bw = await abox_service.graph_query(
-        app_engine, "ont-t2", plant["entity_id"], max_hops=1, direction="backward"
-    )
+    bw = await abox_service.graph_query(app_engine, "ont-t2", plant["entity_id"], max_hops=1, direction="backward")
     names = {h["target_name"] for h in bw}
     assert {"CNC-01", "CNC-02"} == names
     assert all(h["relation_type_id"] == "located_in" for h in bw)
@@ -220,7 +218,9 @@ async def test_lookup_entities_reverse_substring(app_engine: AsyncEngine) -> Non
 async def test_deprecate_relation_type(app_engine: AsyncEngine) -> None:
     """M4 补充：关系类型软停用（对称 deprecate_entity_type）。"""
     await tbox_service.init_tenant_tbox(app_engine, "ont-t6")
-    await tbox_service.create_relation_type(app_engine, "ont-t6", "connected_to", "连接至", "equipment", "equipment", "N:M")
+    await tbox_service.create_relation_type(
+        app_engine, "ont-t6", "connected_to", "连接至", "equipment", "equipment", "N:M"
+    )
     rel = await tbox_service.deprecate_relation_type(app_engine, "ont-t6", "connected_to")
     assert rel is not None and rel["status"] == "deprecated"
     # 幂等：已停用 → 返回 None
@@ -249,7 +249,9 @@ async def test_tbox_create_duplicate_and_deprecate_idempotent(app_engine: AsyncE
         await tbox_service.create_entity_type(app_engine, "ont-t7", "inverter", "逆变器2")
     # 关系类型同语义
     with pytest.raises(ValueError, match="已存在"):
-        await tbox_service.create_relation_type(app_engine, "ont-t7", "manufactured_by", "制造", "equipment", "supplier", "N:1")
+        await tbox_service.create_relation_type(
+            app_engine, "ont-t7", "manufactured_by", "制造", "equipment", "supplier", "N:1"
+        )
 
 
 async def test_list_entities_status_all(app_engine: AsyncEngine) -> None:

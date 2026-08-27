@@ -108,9 +108,7 @@ def _load_config_guide() -> str:
 
 
 # ── 6.2: Conversation persistence helpers ──────────────────────────────────────
-async def _get_or_create_conversation(
-    engine: Any, tenant_id: str, user_id: str, conversation_id: str | None
-) -> str:
+async def _get_or_create_conversation(engine: Any, tenant_id: str, user_id: str, conversation_id: str | None) -> str:
     """Return conversation_id (existing or newly created)."""
     from earp_server.conversation.conversation_service import create_conversation
 
@@ -133,9 +131,7 @@ async def _save_message(
         logger.warning("_save_message: failed to save %s message", role, exc_info=True)
 
 
-async def _load_history(
-    engine: Any, tenant_id: str, conversation_id: str, limit: int = 6
-) -> list[dict[str, str]]:
+async def _load_history(engine: Any, tenant_id: str, conversation_id: str, limit: int = 6) -> list[dict[str, str]]:
     """Load recent conversation history as [{"role": ..., "content": ...}, ...]."""
     try:
         from earp_server.conversation.conversation_service import get_messages
@@ -352,7 +348,12 @@ async def copilot_assist(
             yield _sse({"type": "sources", "items": sources})
 
         # 4. Handle autofill/apply intent — collect full response and parse JSON
-        logger.info("copilot_assist: intent=%s page_id=%s calling LLM (model=%s)...", intent, page_id, getattr(llm, '_model', 'unknown'))
+        logger.info(
+            "copilot_assist: intent=%s page_id=%s calling LLM (model=%s)...",
+            intent,
+            page_id,
+            getattr(llm, "_model", "unknown"),
+        )
         if intent in ("autofill", "apply"):
             full_response = ""
             async for ev in llm.chat_stream(
@@ -398,9 +399,7 @@ async def copilot_assist(
         yield _sse({"type": "done", "conversation_id": conv_id})
 
         # 6.3: Emit audit event
-        await _emit_copilot_audit(
-            engine, tenant_id, user_id, page_id, intent, query, conv_id, token_count
-        )
+        await _emit_copilot_audit(engine, tenant_id, user_id, page_id, intent, query, conv_id, token_count)
 
     except Exception as exc:
         logger.exception("copilot_assist: error")

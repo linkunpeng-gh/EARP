@@ -16,7 +16,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.connector import ConnectorError
-from earp_server.conversation import chat_service as svc
 from earp_server.conversation.chat_app_service import create_chat_app, update_chat_app
 from earp_server.conversation.chat_service import chat_sse, resolve_llm_override
 from earp_server.infra.db import tenant_session
@@ -48,8 +47,8 @@ class _BigramStubProvider:
 
 
 def _install_stub(monkeypatch) -> None:
-    import earp_server.knowledge.routing as routing
     import earp_server.knowledge.embedding_service as embedding_service
+    import earp_server.knowledge.routing as routing
 
     provider = _BigramStubProvider()
     monkeypatch.setattr(routing, "get_embedding_provider", lambda: provider)
@@ -97,7 +96,9 @@ async def _purge(migration_url: str, tid: str) -> None:
                 "WHERE data_domain_id IN ('finance_data', 'equipment_data'))"
             )
         )
-        await conn.execute(text("DELETE FROM knowledge_bases WHERE data_domain_id IN ('finance_data', 'equipment_data')"))
+        await conn.execute(
+            text("DELETE FROM knowledge_bases WHERE data_domain_id IN ('finance_data', 'equipment_data')")
+        )
         await conn.execute(text("DELETE FROM data_domains WHERE data_domain_id IN ('finance_data', 'equipment_data')"))
         # role_id / user_id 全局唯一（debt #7 模式）——跨租户共享，全局清理
         await conn.execute(text("DELETE FROM roles WHERE role_id IN ('r-all', 'r-nofin')"))
@@ -130,7 +131,7 @@ async def _seed(engine: AsyncEngine, tid: str, migration_url: str, monkeypatch) 
             text(
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
                 "VALUES (:rid, :tid, 'all', '{}', 'all', "
-                "'[{\"data_domain_id\": \"finance_data\"}, {\"data_domain_id\": \"equipment_data\"}]') "
+                '\'[{"data_domain_id": "finance_data"}, {"data_domain_id": "equipment_data"}]\') '
                 "ON CONFLICT DO NOTHING"
             ),
             {"rid": "r-all", "tid": tid},
@@ -177,11 +178,18 @@ async def _collect(engine, tid, uid, role, app, query, conv_id=None, llm=None):
     events = []
     settings = SimpleNamespace(embedding_dim=DIM)
     async for line in chat_sse(
-        engine, tid, uid, role, app, query, conv_id,
-        base_llm=llm or FakeLLM(), settings=settings,
+        engine,
+        tid,
+        uid,
+        role,
+        app,
+        query,
+        conv_id,
+        base_llm=llm or FakeLLM(),
+        settings=settings,
     ):
         assert line.startswith("data: ")
-        events.append(json.loads(line[len("data: "):]))
+        events.append(json.loads(line[len("data: ") :]))
     return events
 
 
@@ -223,16 +231,20 @@ async def test_chat_full_flow_with_citations(migrated: str, app_url: str, monkey
     # 会话归属 + 标题截断 + 消息落库（含 citations）
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
-        conv = (await conn.execute(
-            text("SELECT title, chat_app_id FROM conversations WHERE conversation_id = :cid"),
-            {"cid": d["conversation_id"]},
-        )).first()
+        conv = (
+            await conn.execute(
+                text("SELECT title, chat_app_id FROM conversations WHERE conversation_id = :cid"),
+                {"cid": d["conversation_id"]},
+            )
+        ).first()
         assert conv is not None and conv.chat_app_id == app["chat_app_id"]
         assert conv.title == "报销标准是什么"[:30]
-        rows = (await conn.execute(
-            text("SELECT role, content, citations FROM messages WHERE conversation_id = :cid ORDER BY seq"),
-            {"cid": d["conversation_id"]},
-        )).fetchall()
+        rows = (
+            await conn.execute(
+                text("SELECT role, content, citations FROM messages WHERE conversation_id = :cid ORDER BY seq"),
+                {"cid": d["conversation_id"]},
+            )
+        ).fetchall()
         assert [r.role for r in rows] == ["user", "assistant"]
         assert rows[1].citations and rows[1].citations[0]["kb_id"] == "kb-fin"
 
@@ -331,7 +343,9 @@ async def test_chat_soft_route_respects_role_permission(migrated: str, app_url: 
 
 # ── P2: chat 软路由路径三层检索（Task 6）──────────────────────────────────
 async def test_chat_soft_route_three_layer_citations(
-    migrated: str, app_url: str, monkeypatch,
+    migrated: str,
+    app_url: str,
+    monkeypatch,
 ) -> None:
     """chat 软路由 + 实体命中 → citations 含 profile/graph 来源（决策 D3）。
 
@@ -476,11 +490,7 @@ async def test_chat_stream_ollama_provider_keeps_ndjson() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         captured["url"] = str(request.url)
         captured["payload"] = request.read().decode()
-        body = (
-            '{"message":{"content":"好"}}\n'
-            '{"message":{"content":"的"}}\n'
-            '{"done":true}\n'
-        )
+        body = '{"message":{"content":"好"}}\n{"message":{"content":"的"}}\n{"done":true}\n'
         return httpx.Response(200, text=body, headers={"content-type": "application/x-ndjson"})
 
     llm = LLMConnector(

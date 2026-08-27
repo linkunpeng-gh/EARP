@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.infra.db import build_session_factory, tenant_session
 
-TENANT_TABLE_COUNT = 47  # +0029 agent 3 表（app_categories/app_role_access/user_app_favorites，RLS 三件套）  # 0018 tbox_changes + 0019 eval 4 表 + 0025 import_rules + 0026 flow_runs（RLS 三件套）  # baseline(24) + 0005(2) + 0006(1) + 0008(7 ontology) + 0009(2 model) + 0014(1 chat_apps)
+TENANT_TABLE_COUNT = 47  # +0029 agent 3 表
+# (app_categories/app_role_access/user_app_favorites，RLS 三件套)  # 0018 tbox_changes + 0019
 
 
 @pytest.fixture(scope="module")

@@ -27,13 +27,8 @@ EXECUTION_ADAPTERS: frozenset[str] = frozenset(
 )
 
 # discover 列清单（2026-08-21 review 修复 #6：六个分支统一，含权限/执行声明/状态）
-_DISCOVER_COLS = (
-    "capability_id, domain, name, type, version, required_permissions, execution, status"
-)
-_DISCOVER_COLS_C = (
-    "c.capability_id, c.domain, c.name, c.type, c.version, "
-    "c.required_permissions, c.execution, c.status"
-)
+_DISCOVER_COLS = "capability_id, domain, name, type, version, required_permissions, execution, status"
+_DISCOVER_COLS_C = "c.capability_id, c.domain, c.name, c.type, c.version, c.required_permissions, c.execution, c.status"
 
 _DEMO_CAPABILITY = {
     "capability_id": "cap-demo-echo",
@@ -130,7 +125,7 @@ async def seed_demo_tenant(engine: AsyncEngine, tenant_id: str) -> None:
                 "scope": _DEMO_ROLE["data_scope"],
             },
         )
-        for dd_id, dd_name in _STANDARD_DATA_DOMAINS:
+        for _ in _STANDARD_DATA_DOMAINS:
             # NOTE: standard data domains are NOT auto-seeded anymore — they were
             # dev scaffolding that polluted real tenants. Tenants create their own
             # data domains via the UI. Kept as a no-op loop for backwards clarity.
@@ -249,10 +244,7 @@ async def discover(
             )
         else:
             rows = await conn.execute(
-                text(
-                    f"SELECT {_DISCOVER_COLS} "
-                    "FROM business_capabilities WHERE tenant_id = :tid"
-                ),
+                text(f"SELECT {_DISCOVER_COLS} FROM business_capabilities WHERE tenant_id = :tid"),
                 {"tid": tenant_id},
             )
         return [dict(r._mapping) for r in rows]

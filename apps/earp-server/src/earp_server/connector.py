@@ -257,13 +257,9 @@ class Connector:
         for c in chunks:
             src = c.get("source")
             if src == "profile":
-                citations.append(
-                    {"source": "profile", "entity_id": c.get("entity_id"), "title": c.get("title") or ""}
-                )
+                citations.append({"source": "profile", "entity_id": c.get("entity_id"), "title": c.get("title") or ""})
             elif src == "graph":
-                citations.append(
-                    {"source": "graph", "entity_id": c.get("entity_id"), "title": c.get("title") or ""}
-                )
+                citations.append({"source": "graph", "entity_id": c.get("entity_id"), "title": c.get("title") or ""})
             else:
                 citations.append(
                     {
@@ -442,9 +438,7 @@ class Connector:
             capability_call.get("already_approved") or capability_call.get("approval_granted")
         ):
             if ctx is None or ctx.step is None or not getattr(ctx.step, "step_id", None):
-                raise ConnectorError(
-                    f"capability.call: 命令能力 {capability_id!r} 需人工审批（请通过 flow 执行）"
-                )
+                raise ConnectorError(f"capability.call: 命令能力 {capability_id!r} 需人工审批（请通过 flow 执行）")
             raise ApprovalPending(
                 ctx.step.step_id,
                 f"命令能力 {capability_id!r}（{cap.domain}.{cap.name}）需人工审批：确认执行？",
@@ -697,7 +691,7 @@ class LLMConnector:
         *,
         model_override: dict | None = None,
         temperature: float = 0.3,
-        timeout: float = 30,
+        timeout: float = 30,  # noqa: ASYNC109 — 传给 httpx 调用级超时，非 asyncio.timeout 场景
     ) -> dict | None:
         """JSON 结构化单发（ollama /api/chat + openai /chat/completions）。
 
