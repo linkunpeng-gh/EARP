@@ -1,6 +1,6 @@
 # 任务清单 — Chatflow F4: Human Approval 节点（挂起/恢复/超时）
 
-**状态：规划定稿，待开工**
+**状态：✅ 已完成（2026-08-20，flow_runs + ApprovalPending 挂起/恢复/超时交付，F6/命令审批流依赖已验证）
 **依据**：`arch/design/2026-08-18-chatflow-integration-design.md` §3（Human Approval 节点「人工把关，企业场景关键」）/ §7（F4）/ 开放问题 2（恢复语义：SSE 长连接 vs 轮询）
 **依赖**：F0/F1/F2 ✅ + F3 ✅（qu/capability/tool 节点——human_approval 常在 capability 之后「开单→人工确认」）
 **日期**：2026-08-20

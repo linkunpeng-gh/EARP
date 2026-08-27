@@ -1,6 +1,6 @@
 # 任务清单 — Chatflow F3: QU 节点 + Capability/Tool 节点
 
-**状态：规划定稿，待开工**
+**状态：✅ 已完成（2026-08-20，connector 适配器 qu.answer/capability.call/tool.fetch 交付，F6 依赖已验证）
 **依据**：`arch/design/2026-08-18-chatflow-integration-design.md` §3（节点类型表）/ §7（F3：QU/Plan 节点化 + Capability 节点）
 **依赖**：F0 ✅（compile/gate/_execute_plan）/ F1 ✅（flow_schema 落库）/ F2 ✅（flow 执行器最小集 LLM/Knowledge/Chat History/Condition）
 **日期**：2026-08-20

@@ -1,6 +1,6 @@
 # 任务清单 — Chatflow F5a: 前端最小可用（JSON 编辑 + SVG 渲染 + 节点调试）
 
-**状态：规划定稿，待开工**
+**状态：✅ 已完成（2026-08-21，JSON 编辑器 + SVG 只读渲染 + 节点调试交付；F5b 画布编辑器在决策门前已实现）
 **依据**：`arch/design/2026-08-18-chatflow-integration-design.md` §7（F5a：flow_schema JSON 编辑 textarea + 校验 + SVG 只读渲染 + 节点步进调试；决策门前不引 React）
 **依赖**：F0-F4 ✅（引擎 + 8 节点类型 + flow 执行 + human_approval 挂起/恢复/超时）
 **日期**：2026-08-21
