@@ -1,10 +1,11 @@
-# EARP Business Model Center（业务模型中心）架构设计
+# EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.11 — 架构修订：Ontology 归属更名为 Enterprise Semantic Layer（企业语义层），KB/BMC 共建（见 §18）
-- 定位: L2 前置设计——本文拍板 BMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（business-model-center-specification.md）依本文改版清单另行落盘
+- 状态: v0.12 — 架构修订：模块更名为 Enterprise Cognitive Model Center（企业认知模型中心，ECMC）（见 §19）
+- 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
-- 术语: BMC = Business Model Center；KB = Knowledge Center；FDE = Field Domain Engineer（现场领域工程师）
+- 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
+  KB = Knowledge Center；FDE = Field Domain Engineer（现场领域工程师）
 
 ---
 
@@ -31,7 +32,7 @@
 
 ### 1.3 设计由来（本草案 v0.1 → 本稿的关键决策）
 
-本设计源自 BMC L2 草案 v0.1（2026-08-28 评审），评审中拍板六个结构性决策，详见 §2.4 决策记录。
+本设计源自 ECMC L2 草案 v0.1（2026-08-28 评审），评审中拍板六个结构性决策，详见 §2.4 决策记录。
 
 ---
 
@@ -39,11 +40,11 @@
 
 ### 2.1 定位
 
-> **BMC 是 EARP 的一级知识资产模块，负责将企业业务规律——因果关系、决策逻辑、场景组装方式——结构化为可治理、可版本化的模型资产，供 Planner、Decision Engine、Workflow 编排与 Agent 消费。BMC 是纯知识层，不执行任何动作。**
+> **ECMC 是 EARP 的一级知识资产模块，负责将企业业务规律——因果关系、决策逻辑、场景组装方式——结构化为可治理、可版本化的模型资产，供 Planner、Decision Engine、Workflow 编排与 Agent 消费。ECMC 是纯知识层，不执行任何动作。**
 
 一句话分界：
 
-> KB 描述**世界是什么样的**（事实与状态）；BMC 描述**世界为什么这样运行**（规律与对策）。
+> KB 描述**世界是什么样的**（事实与状态）；ECMC 描述**世界为什么这样运行**（规律与对策）。
 
 ### 2.2 边界
 
@@ -59,12 +60,12 @@
 **不负责：**
 
 - ❌ 执行（Runtime / Orchestrator / Workflow 负责）
-- ❌ 规划（Planner 负责，BMC 是其知识源之一）
-- ❌ 执行时分支决策（Decision Engine 负责，BMC 供其规则）
+- ❌ 规划（Planner 负责，ECMC 是其知识源之一）
+- ❌ 执行时分支决策（Decision Engine 负责，ECMC 供其规则）
 - ❌ 权限与审批（Policy Center 负责）
 - ❌ 审计（Audit Spec 负责）
 - ❌ 结构性事实存储（KB 的 ABox 负责）
-- ❌ 指标计算（数据中台负责，BMC/TBox 只定义指标语义——2026-08-07 分工决策）
+- ❌ 指标计算（数据中台负责，ECMC/TBox 只定义指标语义——2026-08-07 分工决策）
 
 ### 2.3 总体架构位置
 
@@ -76,12 +77,12 @@
                      Planner ──────────────┐
                          │                 │ 知识注入（模型匹配/规则注入/场景匹配）
  ┌────────────────┬──────┴───────┬─────────┴────────┐
- │  KB（是什么）   │  BMC（为什么/怎么办/怎么用）      │
+ │  KB（是什么）   │  ECMC（为什么/怎么办/怎么用）      │
  │  RAG / 词典    │  Causal / Decision / Scenario   │
  │  ABox 事实     │        │                        │
  └────────────────┴────────┬───────────────────────┘
              Enterprise Semantic Layer（企业语义层）
-             TBox 词汇 · 公共语义基础设施 · KB/BMC 共建
+             TBox 词汇 · 公共语义基础设施 · KB/ECMC 共建
              （物理在 ontology 域，双方消费、无人拥有）
  ┌──────────────────────────────────────────────────┐
  │  Capability Center / 企业业务系统与数据（ERP/MES/IoT） │
@@ -92,12 +93,12 @@
 
 | # | 决策 | 结论 |
 |---|---|---|
-| D1 | Ontology 层归属 | **Enterprise Semantic Layer（企业语义层）由 KB/BMC 共建，双方消费、无人拥有**（v0.11 修正，原“逻辑域归属 BMC”易误解）：Ontology 不是业务模型，而是企业世界的语言体系（设备/工作面/产线/订单/客户…），同时服务 RAG、数据理解、因果分析、Planner——是 EARP 的公共语义基础设施。代码 `ontology/` 域不迁移（conversation/planner/connector 三处消费方零改动）。语义层内部：结构性关系（ABox 事实用）与因果性关系（BMC 模型用）分属两个命名空间，同表登记。KB·ABox 管**结构性事实**（世界状态：实例级、时效性、confidence=可信度）；BMC 管**规律性知识**（世界规律：类型级、可版本化、可回测），两者都是语义层的消费方 |
+| D1 | Ontology 层归属 | **Enterprise Semantic Layer（企业语义层）由 KB/ECMC 共建，双方消费、无人拥有**（v0.11 修正，原“逻辑域归属 ECMC”易误解）：Ontology 不是业务模型，而是企业世界的语言体系（设备/工作面/产线/订单/客户…），同时服务 RAG、数据理解、因果分析、Planner——是 EARP 的公共语义基础设施。代码 `ontology/` 域不迁移（conversation/planner/connector 三处消费方零改动）。语义层内部：结构性关系（ABox 事实用）与因果性关系（ECMC 模型用）分属两个命名空间，同表登记。KB·ABox 管**结构性事实**（世界状态：实例级、时效性、confidence=可信度）；ECMC 管**规律性知识**（世界规律：类型级、可版本化、可回测），两者都是语义层的消费方 |
 | D2 | 因果模型建模形态 | **因果图是一等模型对象**，与 ABox 事实图完全分离。节点引用 TBox **实体类型**（类型级，非实例），推理时才绑定具体实例 |
-| D3 | Decision Model 是否独立 | **独立存在，但作为知识资产而非引擎**：BMC 存决策知识（目标/约束/规则/优化模型绑定），版本化治理；执行归现有 Planner（规划时）+ Decision Engine（执行时），优化模型经 Capability 绑定调用 |
-| D4 | Process Model 去留 | **砍独立子模块**：事件-任务映射规则（"给 Workflow 编排提供依据"）并入决策知识；流程执行复用 Workflow + Scheduler，BMC 不碰执行 |
+| D3 | Decision Model 是否独立 | **独立存在，但作为知识资产而非引擎**：ECMC 存决策知识（目标/约束/规则/优化模型绑定），版本化治理；执行归现有 Planner（规划时）+ Decision Engine（执行时），优化模型经 Capability 绑定调用 |
+| D4 | Process Model 去留 | **砍独立子模块**：事件-任务映射规则（"给 Workflow 编排提供依据"）并入决策知识；流程执行复用 Workflow + Scheduler，ECMC 不碰执行 |
 | D5 | Scenario 定位 | **知识资产（模板/蓝图），非运行时对象**：场景 = 模型绑定 + Capability 集合 + 输入输出契约的声明式配置；实例化编译为 Workflow / Chat App 由既有执行域运行。**Phase 3+ 落地**（纯知识沉淀，价值依赖消费链路，等 Planner 场景匹配能力就绪） |
-| D6 | Model Governance | **不自建治理中心**：模型对象生命周期状态机由 BMC 规范定义；权限/审批复用 Policy Center，变更记录复用 Audit Spec（与 TBox 治理 P6 原则同构） |
+| D6 | Model Governance | **不自建治理中心**：模型对象生命周期状态机由 ECMC 规范定义；权限/审批复用 Policy Center，变更记录复用 Audit Spec（与 TBox 治理 P6 原则同构） |
 
 ### 2.5 通用性原则（跨行业）
 
@@ -108,7 +109,7 @@ P-G（通用性原则）:
 1. CausalModel / DecisionKnowledge / Scenario 的结构不含行业硬编码，
    煤矿只是第一个租户的实例化内容
 2. TBox 扩展走既有审批流（实体/关系类型是数据行不是代码），
-   禁止任何行业语义硬编码进 BMC 结构
+   禁止任何行业语义硬编码进 ECMC 结构
 3. 行业落地优先使用 Industry Pack 导入 + 租户内定制，不从零开始
 ```
 
@@ -130,15 +131,15 @@ SHOULD: 包内对象声明行业标签，与 applicability 字段联动
 
 ## 3. 子模块设计
 
-BMC 四个子模块 + 一份生命周期契约，建立在 Enterprise Semantic Layer 之上：
+ECMC 四个子模块 + 一份生命周期契约，建立在 Enterprise Semantic Layer 之上：
 
 ```
 Enterprise Semantic Layer（企业语义层 · 公共语义基础设施）
-  TBox 词汇（实体类型/关系类型）· KB 与 BMC 共建 · 双方消费、无人拥有
+  TBox 词汇（实体类型/关系类型）· KB 与 ECMC 共建 · 双方消费、无人拥有
         ▲            ▲
         │            │
    ┌────┴────┐  ┌────┴────────────┐
-   │  KB     │  │  BMC            │
+   │  KB     │  │  ECMC            │
    │ ABox 事实│  │  ├── Causal Model（"为什么"）
    │ RAG/词典 │  │  ├── Decision Knowledge（"怎么办"）
    └─────────┘  │  └── Scenario Template（"怎么用"，Phase 3+）
@@ -460,7 +461,7 @@ MUST: output_mapping 声明输出字段映射，保证 Planner 生成的 Step �
 若直接新增 `influences/causes`，QU 校验、Ontology 导入、`understanding.py`
 动态关系候选会把因果关系当作可落 ABox 事实的类型。
 
-因此 causal 侧登记需 schema 扩展，**在 L3/BMC 落地前完成**：
+因此 causal 侧登记需 schema 扩展，**在 L3/ECMC 落地前完成**：
 
 ```
 MUST: relation_types 新增 namespace 列（'structural' | 'causal'，
@@ -468,7 +469,7 @@ MUST: relation_types 新增 namespace 列（'structural' | 'causal'，
 MUST: namespace='causal' 的关系类型仅允许出现在 CausalModel.edges.relation_type_ref，
       ABox facts / QU 关系候选 / 导入映射必须排除 causal namespace
 MUST: 现有 caused_by 保持 structural 语义不变（事件归因事实），
-      BMC 因果影响边使用新增 causal 类型（如 influences），不复用 caused_by
+      ECMC 因果影响边使用新增 causal 类型（如 influences），不复用 caused_by
 MUST: relation_types.status 扩展 draft 态（与 entity_types 对齐，
       支持 Industry Pack 导入 draft——见 §2.5）
 SHOULD: capability_entity_map.status 同步扩展 draft 态（Phase 2+ Industry Pack 时）
@@ -566,7 +567,7 @@ MUST: 规则条件中的指标/实体引用 TBox 类型
 MUST: action 为 workflow_trigger / EventTaskMapping.workflow_ref 引用的
       Workflow 必须存在且已发布（发布时校验，被引用 Workflow 下线时
       阻断并通知 owner）
-MUST: 与 Policy Center 分工——BMC 规则是业务性"怎么办"，
+MUST: 与 Policy Center 分工——ECMC 规则是业务性"怎么办"，
       Policy 是治理性"允不允许"，两者叠加生效、互不替代
 MUST: 跨 Data Domain 引用时权限取最高 data_classification（同 §3.1.2）
 MUST: DecisionKnowledge 四类对象独立标识、独立版本；规则间引用
@@ -613,7 +614,7 @@ SHOULD: 规则支持组合（AND / OR / NOT，与 Decision Engine §3.1 一致�
 |---|---|
 | Planner | DecisionObjective + ConstraintSet 注入规划上下文，用于 Goal 分解与 Plan 生成；scope=planner 规则的 capability_call 条件生成为前置 Step |
 | Decision Engine | 执行时分支选择从已发布 DecisionRule（scope 含 execution）读取（规则资产化，替代散落代码/配置）；condition.source 仅 metric_ref / context |
-| Scheduler / Workflow | BMC 将 EventTaskMapping 生命周期发布为事件：`earp.bmc.mapping.published`（创建/更新 trigger）、`earp.bmc.mapping.deprecated`（停用 trigger）、`earp.bmc.mapping.rolled_back`（指向回滚目标版本快照，Scheduler 据此更新 trigger）；事件携带 `mapping_id + mapping_version`；Scheduler 按版本号比较后应用（乱序到达不生效旧版本），并以定时对账任务（对比 BMC 侧已发布版本 vs Scheduler 侧 trigger 版本）兜底不一致（修订 P1-4 乱序）；BMC 不主动注册 trigger（修订 P2-13），执行走 Workflow。Scheduler 侧幂等：事件重复消费不重复建 trigger |
+| Scheduler / Workflow | ECMC 将 EventTaskMapping 生命周期发布为事件：`earp.bmc.mapping.published`（创建/更新 trigger）、`earp.bmc.mapping.deprecated`（停用 trigger）、`earp.bmc.mapping.rolled_back`（指向回滚目标版本快照，Scheduler 据此更新 trigger）；事件携带 `mapping_id + mapping_version`；Scheduler 按版本号比较后应用（乱序到达不生效旧版本），并以定时对账任务（对比 ECMC 侧已发布版本 vs Scheduler 侧 trigger 版本）兜底不一致（修订 P1-4 乱序）；ECMC 不主动注册 trigger（修订 P2-13），执行走 Workflow。Scheduler 侧幂等：事件重复消费不重复建 trigger |
 
 ### 3.3 ScenarioTemplate（场景模板，Phase 3+）
 
@@ -686,7 +687,7 @@ MUST: 变更记录（含版本 diff）走 Audit Spec
 approval 是 Execution 等待语义——**不支持模型资产内容审批**。因此：
 
 ```
-MUST: BMC 发布审批为独立审批流（Publish Approval），
+MUST: ECMC 发布审批为独立审批流（Publish Approval），
       Policy Center 需新增策略目标类型 "model_asset"（改动项见 §5），
       审批对象 = 模型资产版本快照 + 变更 diff
 MUST: 审批通过才进入 published；审批记录走 Audit Spec
@@ -697,7 +698,7 @@ SHOULD: 支持「发布者 ≠ 审批者」分离（专家编辑 / 管理者审�
 
 ## 4. 消费方集成契约
 
-### 4.1 Planner ← BMC（最重集成点）
+### 4.1 Planner ← ECMC（最重集成点）
 
 ```
 触发: Goal Generation / Domain Routing 阶段
@@ -719,12 +720,12 @@ MUST: 只检索 published 状态
 MUST: 返回模型版本号（Planner 在 Execution Trace 中记录，保证可复现）
 ```
 
-### 4.2 Decision Engine ← BMC
+### 4.2 Decision Engine ← ECMC
 
 ```
 触发: 执行时分支 Step
 调用: 按 data_domain + entity_type 检索已发布 DecisionRule（scope 含 execution）
-行为: Rule → LLM → ML 优先级不变，BMC 是规则的新来源之一；
+行为: Rule → LLM → ML 优先级不变，ECMC 是规则的新来源之一；
       condition.source 仅 metric_ref / context（capability_call 由
       Planner 前置 Step 化，见 §3.2）——Rule-based ≤ 100ms 契约不变
 ```
@@ -732,14 +733,14 @@ MUST: 返回模型版本号（Planner 在 Execution Trace 中记录，保证可�
 ### 4.3 与 KB 的双向关系（D1 落地）
 
 ```
-Enterprise Semantic Layer（共建）: ontology 域物理不动，KB 与 BMC
-  都是消费方（KB 提供 ABox 结构性事实，BMC 提供因果侧关系类型
+Enterprise Semantic Layer（共建）: ontology 域物理不动，KB 与 ECMC
+  都是消费方（KB 提供 ABox 结构性事实，ECMC 提供因果侧关系类型
   登记）；causal 侧关系类型登记入 TBox 词汇表（namespace 扩展见
   §3.1.5）
 
-KB → BMC: 实例化时提供实体实例（ABox 沿 belongs_to / located_in 展开）
+KB → ECMC: 实例化时提供实体实例（ABox 沿 belongs_to / located_in 展开）
 
-BMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
+ECMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
       v0.3 修正表结构——不复制 facts 三元组）:
   因果推理产生的"假设性断言"（如"3 号矿产量下降疑似因主轴承老化"）
   写入独立候选表 hypothesis_facts。**hypothesis 不是三元组事实**：
@@ -790,15 +791,15 @@ BMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
 
 | # | 文档 | 改动 | 优先级 |
 |---|---|---|---|
-| 1 | 新建 `arch/L2/02-reasoning/business-model-center-specification.md` | BMC 主规范（本文设计的契约化落盘） | P0 |
-| 2 | `knowledge-center-specification.md` v1.2 → v1.3 | 第四章 Ontology 标注"Enterprise Semantic Layer（企业语义层），KB/BMC 共建"；ABox 增补 hypothesis_facts 候选表契约（BMC 假设回写通道，方案 b） | P0 |
-| 3 | `planner-specification.md` | 新增"BMC 知识源"章节：模型检索、因果遍历、决策知识注入、capability_call 前置 Step 化 | P0 |
-| 4 | `decision-engine-specification.md` v1.0 → v1.1 | §3.1 增补"BMC DecisionRule 为规则来源之一（scope=execution）"；条件源约束（metric_ref/context） | P1 |
+| 1 | 新建 `arch/L2/02-reasoning/enterprise-cognitive-model-center-specification.md` | ECMC 主规范（本文设计的契约化落盘） | P0 |
+| 2 | `knowledge-center-specification.md` v1.2 → v1.3 | 第四章 Ontology 标注"Enterprise Semantic Layer（企业语义层），KB/ECMC 共建"；ABox 增补 hypothesis_facts 候选表契约（ECMC 假设回写通道，方案 b） | P0 |
+| 3 | `planner-specification.md` | 新增"ECMC 知识源"章节：模型检索、因果遍历、决策知识注入、capability_call 前置 Step 化 | P0 |
+| 4 | `decision-engine-specification.md` v1.0 → v1.1 | §3.1 增补"ECMC DecisionRule 为规则来源之一（scope=execution）"；条件源约束（metric_ref/context） | P1 |
 | 5 | `concept-model-v2.x` | 新增 CausalModel / DecisionKnowledge / ScenarioTemplate 概念对象 | P1 |
 | 6 | `scheduler-specification.md` | 新增"订阅 earp.bmc.mapping.published 创建/更新 trigger"说明；EventTaskMapping 触发语义（边沿/电平、评估频率）对齐 | P1 |
 | 7 | `workflow-specification.md` | task_template / ScenarioTemplate 实例化的编排依据说明 | P2 |
 | 8 | `eventbus-specification.md` v1.1 → v1.2 | 新增业务事件类型注册表；`earp.bmc.mapping.published / deprecated / rolled_back` 事件类型 | P1 |
-| 9 | `policy-center-specification.md` | 新增策略目标类型 model_asset（BMC 发布审批） | P1 |
+| 9 | `policy-center-specification.md` | 新增策略目标类型 model_asset（ECMC 发布审批） | P1 |
 | 10 | migration（代码侧，L3 前瞻） | relation_types 加 namespace 列 + status 扩展 draft；hypothesis_facts 表；既有 QU 校验/导入/understanding 排除 causal namespace | P0 |
 
 代码侧（L3 前瞻，不入本文）：新增 `earp_server/bmc/` 域；import-linter 新增契约；`ontology/` 域不迁移。
@@ -813,17 +814,17 @@ Phase 1  CausalModel + 决策知识核心（DecisionRule / EventTaskMapping）
          + 前置基础设施（relation_types namespace 扩展、事件类型注册表、
            model_asset 策略目标）——最小闭环："为什么产量下降"端到端跑通
 Phase 2  DecisionObjective / ConstraintSet 注入 Planner；
-         BMC → KB hypothesis_facts 回写闭环；Industry Pack 工具化
+         ECMC → KB hypothesis_facts 回写闭环；Industry Pack 工具化
 Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 ```
 
-排序依据：因果归因是 BMC 净增值最高、可独立验证的链路，先跑通；决策知识先落规则与事件映射（对 Workflow 编排的依据价值立即兑现）；场景模板价值依赖消费链路，最后落地。
+排序依据：因果归因是 ECMC 净增值最高、可独立验证的链路，先跑通；决策知识先落规则与事件映射（对 Workflow 编排的依据价值立即兑现）；场景模板价值依赖消费链路，最后落地。
 
 ---
 
 ## 7. 后续 L3 设计方向
 
-1. **模型元数据物理模型**：BMC 各对象的表结构（PG 承载，沿用"基础设施最小化"原则，图数据库留待多跳推理需要时评估）
+1. **模型元数据物理模型**：ECMC 各对象的表结构（PG 承载，沿用"基础设施最小化"原则，图数据库留待多跳推理需要时评估）
 2. **因果图引擎**：图存储（递归 CTE vs 图数据库）、图查询、因果遍历算法、实例化展开规则
 3. **Planner 集成实现**：entry_point 语义匹配（复用 Semantic Index）、模型选择、因果遍历 → Plan 生成的映射
 4. **FDE 建模工具**：拖拽编辑器、节点配置、发布流程（对接 Policy 审批）
@@ -1001,3 +1002,28 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 **影响范围**：
 - §2.2 负责清单、§2.3 架构图、§3 模块树、§4.3 集成、§5 改版清单已同步
 - 文档内术语统一为 Enterprise Semantic Layer；"共治 TBox / 双方共治 / 逻辑域归属 BMC"表述已清除
+
+
+---
+
+## 19. 架构修订：模块更名（v0.11 → v0.12）
+
+**背景**："Business Model Center（业务模型中心）"名称易误解——"Business Model" 容易被理解为业务流程模型 / 业务对象模型，而本模块实际承载的是**业务认知**（企业运行规律：因果、决策、场景）。
+
+**决策**：
+
+```
+原： Business Model Center（BMC · 业务模型中心）
+改： Enterprise Cognitive Model Center（ECMC · 企业认知模型中心）
+```
+
+- 与 Enterprise Semantic Layer（企业语义层）成对：**语义层 = 企业语言体系（是什么的词汇）**，**认知层 = 企业运行规律（为什么/怎么办/怎么用）**
+- 模块内容不变：Causal Model / Decision Knowledge / Scenario Template / 生命周期治理
+
+**影响范围**：
+- 文档正文（§1-§8）全部更名：BMC → ECMC
+- §5 改版清单：主规范文件名改为 `enterprise-cognitive-model-center-specification.md`
+- 历史评审记录（§9-§17）与 §18 保留 BMC 原名（追溯性，当时评审用名）
+
+**保留不变的契约（API 稳定性）**：
+- `earp.bmc.mapping.published / deprecated / rolled_back` 事件类型名**不随模块更名改变**——Scheduler 已按此订阅，事件命名是稳定平台契约；若未来确需改名，走 EventBus 事件类型注册表的版本化流程，禁止直接改名破坏订阅
