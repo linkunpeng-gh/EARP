@@ -1,7 +1,7 @@
 # EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.17 — 架构修订：新增 §4.4 ECMC Cognitive Service Contract（认知服务契约：Model Discovery / Reasoning / Capability Dependency / Feedback）（见 §24）
+- 状态: v0.18 — 架构修订：新增 §3.1.0 Causal Model 元模型统一视图（六要素：Node/Relation/Evidence/Rule/Data Binding/Capability Binding）（见 §25）
 - 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
@@ -152,6 +152,74 @@ Enterprise Semantic Layer（企业语义层 · 公共语义基础设施）
 ```
 
 ### 3.1 CausalModel（因果模型）
+
+#### 3.1.0 元模型统一视图（v0.18 新增，FDE 编辑器与 Runtime 的数据结构地基）
+
+> 因果模型的元模型由**六个要素**组成。本节给出统一视图（建模时声明
+> 五要素 + 运行时产物一要素）；各要素的完整契约分散在 §3.1.1-
+> §3.1.5，本节是它们的整合视图，不重新定义。
+
+```
+CausalModel 元模型（六要素）
+
+① Node（节点）—— 业务量
+   一个节点 = 一个业务量（entity_type 或 metric 引用，类型级）
+   ├── node_id / entity_type_ref（object | metric）
+   ├── entry_point（可选，MUST ≥1 模型级）：direction + description
+   ├── aggregation（object 节点）：mode / operator / predicate / weight_ref
+   ├── observation_window：当前观测窗口
+   └── role: 传导节点（中间）| 入口节点 | 叶子原因（由边拓扑决定，
+       不显式声明——节点本身不分型）
+
+② Relation（关系）—— 有向影响边
+   一条关系 = 一个因果影响（引用 TBox causal 关系类型）
+   ├── source_node_id / target_node_id
+   ├── relation_type_ref：TBox causal namespace（§3.1.5）
+   ├── effect: +| -（源↑对目标的方向影响）
+   ├── strength / lag / confidence（作者置信度）
+   └── 图约束：DAG 无环（编译期校验）
+
+③ Evidence（证据）—— 运行时产物（非建模声明）
+   推理时由观测生成，随 Cause Ranking 返回（§4.4.3）
+   ├── observation：direction / value / source / time_window
+   ├── evidence_chain：路径上每步的观测证据与数据来源
+   ├── data_requirements_met：该步数据是否满足
+   └── 存储：随 reasoning_trace 归档（§4.4.5），不写入模型对象
+
+④ Rule（规则）—— 模型内条件逻辑（可选）
+   节点上的条件/阈值声明（驱动聚合谓词、方向判定）
+   ├── predicate：count/ratio 实例级谓词（引用 TBox attribute/metric）
+   ├── threshold：方向判定阈值（绝对/相对，§3.1.2 口径）
+   ├── direction_rule：离散状态目标集 / 数值比较规则
+   └── 与 Decision Knowledge 的边界：模型内 Rule 管"观测怎么判定"，
+      决策知识管"判定后怎么办"（§3.2）
+
+⑤ Data Binding（数据绑定）—— 取数契约
+   节点怎么取到观测值（§3.1.4）
+   ├── data_requirement：source_kind / source_ref / metric_binding /
+   │     time_window / aggregation / output_mapping
+   ├── instance_data_binding（object 节点）：instance_source /
+   │     data_source / instance_key_field / instance_observation /
+   │     baseline_window_ref
+   └── instance_binding 受限表达式（链式 ≤2 跳）
+
+⑥ Capability Binding（能力绑定）—— 分析/取数能力
+   节点需要什么能力支撑（§3.1.1 + §4.4.4）
+   ├── capability_bindings[]：节点 ↔ Capability（capability_entity_map）
+   ├── 与 data_requirement 的一致性（capability 源：同 id；
+   │     connector 源：禁填）
+   └── 对外暴露为 capability_requirements（§4.4.4，Planner 编排用）
+```
+
+**六要素与生命周期/运行时的关系：**
+
+```
+建模时声明（FDE 编辑，五要素）：① Node + ② Relation + ④ Rule
+  + ⑤ Data Binding + ⑥ Capability Binding
+运行时产物（推理产生，一要素）：③ Evidence
+治理附着（§3.4）：模型对象（version/status/change_log）承载五要素，
+  Evidence 随推理 trace 归档
+```
 
 #### 3.1.1 对象结构
 
@@ -1503,3 +1571,26 @@ ECMC（一级模块）
 **§4.4 结构**：4.4.1 交互定位（Model Discovery + Reasoning Service 两类认知能力）/ 4.4.2 Model Discovery Contract / 4.4.3 Reasoning Contract / 4.4.4 Capability Dependency Contract / 4.4.5 Feedback Contract（为 §3.5 模型演进闭环预留反馈通道）
 
 **闭环链路**：User → Agent Runtime → Planner → ECMC（Discovery → Reasoning → Capability Requirements）→ Capability Center → Enterprise Systems → Observation Feedback → ECMC Model Improvement
+
+
+---
+
+## 25. 架构修订：Causal Model 元模型统一视图（v0.17 → v0.18）
+
+**背景**：ECMC 进入"可开发设计"需要统一的数据结构定义——FDE 编辑器与 Runtime 的地基。Causal Model 元模型此前分散在 §3.1.1（Node/Relation）、§3.1.4（Data Binding）、§3.1.2（Rule 口径）、§4.4.3（Evidence）各处。
+
+**新增 §3.1.0 元模型统一视图（六要素）**：
+
+| 要素 | 建模时/运行时 | 内容要点 |
+|---|---|---|
+| ① Node | 建模声明 | 业务量（entity_type/metric 引用）、entry_point、aggregation、observation_window；节点不分型（角色由边拓扑决定） |
+| ② Relation | 建模声明 | 有向影响边：effect/strength/lag/confidence，引用 TBox causal 关系类型，DAG 约束 |
+| ③ Evidence | **运行时产物** | 观测证据 + 证据链（§4.4.3 返回），随推理 trace 归档，不写入模型对象 |
+| ④ Rule | 建模声明 | 模型内条件逻辑：predicate/threshold/direction_rule——管"观测怎么判定"；与决策知识（管"判定后怎么办"）边界明确 |
+| ⑤ Data Binding | 建模声明 | data_requirement + instance_data_binding + instance_binding 受限表达式（取数契约） |
+| ⑥ Capability Binding | 建模声明 | 节点↔Capability 绑定，对外暴露为 capability_requirements（§4.4.4） |
+
+**关键原则**：
+- 六要素整合为一张数据结构图，各要素完整契约仍指向 §3.1.1-§3.1.5（不重复定义）
+- 建模时声明五要素，Evidence 为运行时产物——模型对象不携带证据
+- 六要素与治理（§3.4 版本/快照）和运行时（§4.4 服务契约）的关系明确
