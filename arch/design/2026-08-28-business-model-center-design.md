@@ -1,7 +1,7 @@
 # EARP Business Model Center（业务模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.9 — 第八轮对抗性评审修订（3 条：P1×1、P2×2，处置记录见 §16）
+- 状态: v0.10 — 第九轮对抗性评审修订（4 条：P1×2、P2×2，处置记录见 §17）
 - 定位: L2 前置设计——本文拍板 BMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（business-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: BMC = Business Model Center；KB = Knowledge Center；FDE = Field Domain Engineer（现场领域工程师）
@@ -162,6 +162,9 @@ CausalModel
 │     │     │                               区分"为什么产量下降"与"为什么产量上升"
 │     │     └── description                 — 入口语义描述（供 Planner 匹配）
 │     ├── data_requirement          — 数据需求声明（结构见 §3.1.4）
+│     ├── observation_window        — object 节点当前观测窗口（必填，
+│     │    §3.1.2 口径 1/2/3 的当前窗口；离散状态取窗口首尾状态，
+│     │    聚合计数取窗口聚合值）
 │     ├── instance_data_binding     — object 节点实例取数输入契约
 │     │    （object 节点必填，§3.1.4：instance_source / data_source /
 │     │     instance_key_field / instance_observation /
@@ -223,11 +226,13 @@ MUST: 归因排序分值（Phase 1 契约，可评审可替换；v0.8 修正 obs
       两者方向相反是正确语义，obs_match 必须用各自的 e(i)，
       不能复用整条路径的 d'(p)
 
-      obs_match(path) = 节点观测匹配度的几何均值
-        = (∏ m(i))^(1/n)，n = 路径节点数
-      ——几何均值对路径长度不变（0.5^n 衰减消除），
-      同时保留反向一票否决（任一 m(i) = -1 → obs_match = 0，
-      路径降权垫底）；obs_match ∈ [-1, 1]
+      obs_match(path) 定义（v0.10 显式分派，修正 -1 的几何均值
+      实数域无定义问题）：
+        若存在任一 m(i) = -1 → obs_match = 0（反向一票否决，
+        路径降权垫底）
+        否则 → obs_match = (∏ m(i))^(1/n)，n = 路径节点数
+        （此时 m(i) ∈ {0.5, 1}，obs_match ∈ [0.5, 1]，实数域恒有定义；
+        几何均值消除 0.5^n 长路径衰减）
       节点观测匹配度 m(i)，定义：
         观测方向与 e(i) 一致 → m(i) = +1
         相反                  → m(i) = -1（一票否决）
@@ -240,7 +245,7 @@ MUST: 归因排序分值（Phase 1 契约，可评审可替换；v0.8 修正 obs
 
       效果：
         - 数据全部支持 → obs_match=1 → score = 纯先验分
-        - 数据反向     → obs_match=0 → 该路径降权/垫底（反向证据）
+        - 数据反向（任一 -1） → obs_match=0 → 该路径降权/垫底
         - 无数据/unknown → m(i)=1 → 纯先验排序，不丢候选
         - 不变(unchanged) → 0.5 弱支持，路径长度不再主导（v0.9）
       obs_match 由节点观测值经 §3.1.4 的 instance_data_binding /
@@ -248,28 +253,31 @@ MUST: 归因排序分值（Phase 1 契约，可评审可替换；v0.8 修正 obs
       节点聚合取其全部入径的最高分路径；同一原因节点正负路径
       并存时，分别列出两条解释并标注"方向冲突待数据裁决"
 
-MUST: 观测方向推导口径（P2-3，Phase 1 契约，v0.9 补离散/计数两套）：
-      按节点观测类型分三套口径：
+MUST: 观测方向推导口径（P2-3，Phase 1 契约，v0.10 补当前窗口）：
+      按节点观测类型分三套口径，object 节点统一声明
+      observation_window（当前窗口，见 §3.1.4）：
       1. 数值时间序列（metric 节点 / 数值观测）：data_requirement
-         时间窗首尾点比较——首尾差 > 阈值 → up；< -阈值 → down；
-         |差| ≤ 阈值 → unchanged；取数失败/无值 → unknown。
-         阈值在模型发布时声明：必须显式声明绝对阈值或相对阈值
-         （相对阈值=窗口均值百分比），默认值仅允许正值指标；
-         零均值/负均值指标禁用相对阈值默认值（v0.9 修订，
-         故障计数等 0 均值指标用绝对阈值）
-      2. 离散状态（per_instance 观测 status 类）：方向按状态跃迁
-         判定——从非目标态 → 目标态（如 status: running → failed）
-         为 up（指向目标状态的跃迁）；目标态 → 非目标态为 down；
-         无跃迁为 unchanged。目标状态集合在发布时声明
-      3. 聚合计数/比率（aggregate count/ratio）：当前窗口 vs
-         前一等长窗口比较（同口径 1 的阈值规则），基线窗口在
-         aggregation 中声明（baseline_window，缺省 = 当前窗口
+         observation_window 首尾点比较——首尾差 > 阈值 → up；
+         < -阈值 → down；|差| ≤ 阈值 → unchanged；取数失败/无值
+         → unknown。阈值在模型发布时声明：必须显式声明绝对阈值
+         或相对阈值（相对阈值=窗口均值百分比），默认值仅允许
+         正值指标；零均值/负均值指标禁用相对阈值默认值
+         （v0.9 修订，故障计数等 0 均值指标用绝对阈值）
+      2. 离散状态（per_instance 观测 status 类）：按 observation_window
+         首尾状态判定跃迁——非目标态 → 目标态（如 status:
+         running → failed）为 up（指向目标状态的跃迁）；目标态 →
+         非目标态为 down；首尾同态为 unchanged。目标状态集合在
+         发布时声明
+      3. 聚合计数/比率（aggregate count/ratio）：observation_window
+         聚合值 vs 前一等长基线窗口比较（同口径 1 的阈值规则），
+         基线窗口 = aggregation.baseline_window（缺省 = 当前窗口
          前一等长窗口）
       以上口径均保证 Phase 1 可复现；L3 可扩展趋势拟合/显著性
-MUST: obs_match 连乘不等权（P2-5）：反向证据一票否决是有意设计——
-      单节点反向数据足以推翻该路径解释；若需缓解长路径单节点
-      主导，L3 提供按节点 confidence 加权的变体（obs_match_w =
-      Σ m(i)·conf(i) / Σ conf(i)），Phase 1 保持连乘
+MUST: obs_match 语义（P2-5）：几何均值 + 反向一票否决——任一节点
+      反向数据足以推翻该路径解释（obs_match=0）；其余情况几何
+      均值消除长路径衰减。若需进一步缓解长路径单节点主导，L3
+      提供按节点 confidence 加权的变体（obs_match_w = Σ m(i)·conf(i)
+      / Σ conf(i)），Phase 1 保持几何均值 + 一票否决
 MUST: 发布时强制补齐边字段——每条边必须声明 strength 与 confidence
       （默认值：strength=0.5、confidence=0.5，显式声明者优先），
       保证排序公式对 published 模型恒有定义
@@ -367,8 +375,10 @@ object 节点实例化与聚合契约（修订 P1-1，Phase 1 可执行）：
   │                引用 TBox attribute / metric_ref，非自由文本）
   ├── weight_ref — mode=aggregate 时可选权重来源（实体属性 / metric，
   │               如设备对产出的重要度得分；缺省 = 等权）
-  ├── baseline_window — 方向判定的基线窗口（aggregate 模式，
-  │               当前窗口 vs 前一等长窗口，见 §3.1.2 口径 3）
+  ├── baseline_window — 方向判定的基线窗口（唯一权威字段，
+  │               aggregate 模式：当前窗口 vs 前一等长窗口，
+  │               见 §3.1.2 口径 3；instance_data_binding 中
+  │               不再重复声明，仅引用本字段）
   └── per_instance 模式：每个实例单独成径参与归因，
        各实例路径独立计算 score，输出时按实例展示归因结果；
        回答入口级问题时按 score 上卷（top_k 实例 + 汇总）
@@ -399,9 +409,11 @@ object 节点实例化与聚合契约（修订 P1-1，Phase 1 可执行）：
   ├── instance_key_field     — 传给数据源的实例标识字段
   │                            （如 entity_id / business_code）
   ├── instance_observation   — 实例观测字段（如 status / health_score）
-  ├── baseline_window        — 聚合计数/比率比较的基线窗口
-  │                            （aggregate 模式，缺省 = 当前窗口
-  │                            前一等长窗口；离散状态无需）
+  ├── observation_window_ref — 当前观测窗口 = 节点 observation_window
+  │                            （引用 §3.1.1 节点字段，非独立声明）
+  ├── baseline_window_ref    — 基线窗口 = aggregation.baseline_window
+  │                            （引用，唯一权威在 aggregation，
+  │                            不在本处重复声明——修订 P2-3）
   └── aggregation_input      — 聚合输入（count/ratio 用 predicate
                                 判定后的布尔序列；max/min/avg 用观测
                                 数值序列）
@@ -941,3 +953,15 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 | P1-1 | 观测方向推导只覆盖数值时间序列，离散状态/计数场景无口径 | §3.1.2：三套口径——①数值序列首尾比较（显式绝对/相对阈值，零/负均值禁用相对默认）；②离散状态按状态跃迁判定（目标状态集发布时声明）；③聚合计数/比率用当前窗口 vs 前一等长窗口（aggregation/instance_data_binding 增加 baseline_window 字段） |
 | P2-2 | 默认阈值"时间窗均值 5%"对零均值/负均值/离散值失效 | §3.1.2：发布时强制声明绝对阈值或相对阈值；相对阈值默认仅允许正值指标 |
 | P2-3 | unchanged=0.5 连乘让长路径不成比例衰减（0.5^n） | §3.1.2：obs_match 改为节点匹配度几何均值 (∏m)^(1/n)——路径长度不变性，同时保留反向一票否决（任一 -1 → obs_match=0） |
+
+
+---
+
+## 17. 第九轮对抗性评审处置记录（v0.9 → v0.10）
+
+| # | 评审意见 | 处置 |
+|---|---|---|
+| P1-1 | 几何均值公式未实现"任一 -1 → obs_match=0"（(-1)^(1/偶数) 实数域无定义 → NaN；偶数个 -1 → +1 矛盾） | §3.1.2：显式分派——存在任一 m(i)=-1 → obs_match=0；否则几何均值 (∏m)^(1/n)（此时 m∈{0.5,1}，结果∈[0.5,1] 实数域恒有定义） |
+| P1-2 | 离散状态/聚合计数的"当前窗口"未定义（只定义了基线窗口） | §3.1.1/§3.1.4：object 节点统一新增 observation_window（当前窗口）；口径 2 离散状态按窗口首尾状态判定跃迁；口径 3 聚合计数按窗口聚合值对比基线 |
+| P2-3 | baseline_window 在 aggregation 与 instance_data_binding 各出现一次，无一致性规则 | §3.1.4：aggregation.baseline_window 为唯一权威；instance_data_binding 改为 baseline_window_ref 引用，不重复声明 |
+| P2-4 | v0.9 改几何均值后仍写"连乘不等权"，表述不一致 | §3.1.2：统一为"几何均值 + 反向一票否决"；L3 加权变体 obs_match_w 保留 |
