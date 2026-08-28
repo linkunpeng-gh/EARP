@@ -1,7 +1,7 @@
 # EARP Business Model Center（业务模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.10 — 第九轮对抗性评审修订（4 条：P1×2、P2×2，处置记录见 §17）
+- 状态: v0.11 — 架构修订：Ontology 归属更名为 Enterprise Semantic Layer（企业语义层），KB/BMC 共建（见 §18）
 - 定位: L2 前置设计——本文拍板 BMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（business-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: BMC = Business Model Center；KB = Knowledge Center；FDE = Field Domain Engineer（现场领域工程师）
@@ -18,7 +18,7 @@
 
 | 问题 | 现有覆盖 | 缺口 |
 |---|---|---|
-| 是什么（事实与状态） | KB：RAG / 词典 / Ontology ABox | ✅ 已覆盖 |
+| 是什么（事实与状态） | KB：RAG / 词典 / ABox 事实（Enterprise Semantic Layer 的 KB 侧） | ✅ 已覆盖 |
 | 为什么（因果规律） | ❌ | **本设计核心缺口** |
 | 怎么办（决策知识） | Decision Engine 有执行时分支，但规则散落代码/配置，非资产 | **本设计核心缺口** |
 | 怎么用（场景组装） | Chat App / Workflow 可组合，但无"专家预组装"的知识表达 | 次要缺口 |
@@ -53,7 +53,7 @@
 - 决策知识：决策目标、业务约束、决策规则（含事件-任务映射规则）
 - 场景模板：业务模型 × Capability 的组装声明（Phase 3+）
 - 模型对象生命周期状态机（draft / testing / published / deprecated）
-- 共用 TBox 因果侧关系类型的登记
+- Enterprise Semantic Layer 因果侧关系类型的登记（共建，非拥有）
 - 行业模板包（Industry Pack）的导入/导出契约（Phase 2+ 落地工具）
 
 **不负责：**
@@ -79,20 +79,20 @@
  │  KB（是什么）   │  BMC（为什么/怎么办/怎么用）      │
  │  RAG / 词典    │  Causal / Decision / Scenario   │
  │  ABox 事实     │        │                        │
- │   ↕ 共治       │        ↓ 绑定                   │
- │  TBox（词汇 · ontology 域，双方共治）             │
  └────────────────┴────────┬───────────────────────┘
-                            │
-                     Capability Center
-                            │
-                企业业务系统与数据（ERP/MES/IoT/数据中台）
+             Enterprise Semantic Layer（企业语义层）
+             TBox 词汇 · 公共语义基础设施 · KB/BMC 共建
+             （物理在 ontology 域，双方消费、无人拥有）
+ ┌──────────────────────────────────────────────────┐
+ │  Capability Center / 企业业务系统与数据（ERP/MES/IoT） │
+ └──────────────────────────────────────────────────┘
 ```
 
 ### 2.4 决策记录（评审拍板，六个结构性决策）
 
 | # | 决策 | 结论 |
 |---|---|---|
-| D1 | Ontology 层归属 | **逻辑域归属 BMC、物理域不动**：架构上宣布 TBox/ABox 中"实体关系"认知归 BMC 名下；代码 `ontology/` 域不迁移（conversation/planner/connector 三处消费方零改动）。TBox 为 KB 与 BMC **共用语义基础**：结构性关系（ABox 事实用）与因果性关系（BMC 模型用）分属两个命名空间，同表登记。KB·ABox 管**结构性事实**（世界状态：实例级、时效性、confidence=可信度）；BMC 管**规律性知识**（世界规律：类型级、可版本化、可回测） |
+| D1 | Ontology 层归属 | **Enterprise Semantic Layer（企业语义层）由 KB/BMC 共建，双方消费、无人拥有**（v0.11 修正，原“逻辑域归属 BMC”易误解）：Ontology 不是业务模型，而是企业世界的语言体系（设备/工作面/产线/订单/客户…），同时服务 RAG、数据理解、因果分析、Planner——是 EARP 的公共语义基础设施。代码 `ontology/` 域不迁移（conversation/planner/connector 三处消费方零改动）。语义层内部：结构性关系（ABox 事实用）与因果性关系（BMC 模型用）分属两个命名空间，同表登记。KB·ABox 管**结构性事实**（世界状态：实例级、时效性、confidence=可信度）；BMC 管**规律性知识**（世界规律：类型级、可版本化、可回测），两者都是语义层的消费方 |
 | D2 | 因果模型建模形态 | **因果图是一等模型对象**，与 ABox 事实图完全分离。节点引用 TBox **实体类型**（类型级，非实例），推理时才绑定具体实例 |
 | D3 | Decision Model 是否独立 | **独立存在，但作为知识资产而非引擎**：BMC 存决策知识（目标/约束/规则/优化模型绑定），版本化治理；执行归现有 Planner（规划时）+ Decision Engine（执行时），优化模型经 Capability 绑定调用 |
 | D4 | Process Model 去留 | **砍独立子模块**：事件-任务映射规则（"给 Workflow 编排提供依据"）并入决策知识；流程执行复用 Workflow + Scheduler，BMC 不碰执行 |
@@ -130,14 +130,19 @@ SHOULD: 包内对象声明行业标签，与 applicability 字段联动
 
 ## 3. 子模块设计
 
-BMC 四个子模块 + 一份生命周期契约：
+BMC 四个子模块 + 一份生命周期契约，建立在 Enterprise Semantic Layer 之上：
 
 ```
-BMC（一级模块 · 纯知识资产层，不执行）
-├── 共用 TBox（物理留在 ontology 域，双方共治）
-├── Causal Model        —— 因果模型对象（"为什么"）
-├── Decision Knowledge  —— 目标/约束/规则/事件映射（"怎么办"）
-└── Scenario Template   —— 场景模板（"怎么用"，Phase 3+）
+Enterprise Semantic Layer（企业语义层 · 公共语义基础设施）
+  TBox 词汇（实体类型/关系类型）· KB 与 BMC 共建 · 双方消费、无人拥有
+        ▲            ▲
+        │            │
+   ┌────┴────┐  ┌────┴────────────┐
+   │  KB     │  │  BMC            │
+   │ ABox 事实│  │  ├── Causal Model（"为什么"）
+   │ RAG/词典 │  │  ├── Decision Knowledge（"怎么办"）
+   └─────────┘  │  └── Scenario Template（"怎么用"，Phase 3+）
+               └─────────────────┘
 治理：生命周期状态机 + 复用 Policy / Audit
 ```
 
@@ -727,8 +732,10 @@ MUST: 返回模型版本号（Planner 在 Execution Trace 中记录，保证可�
 ### 4.3 与 KB 的双向关系（D1 落地）
 
 ```
-共治 TBox: ontology 域物理不动，KB 与 BMC 都是消费方；
-          causal 侧关系类型登记入 TBox 词汇表（namespace 扩展见 §3.1.5）
+Enterprise Semantic Layer（共建）: ontology 域物理不动，KB 与 BMC
+  都是消费方（KB 提供 ABox 结构性事实，BMC 提供因果侧关系类型
+  登记）；causal 侧关系类型登记入 TBox 词汇表（namespace 扩展见
+  §3.1.5）
 
 KB → BMC: 实例化时提供实体实例（ABox 沿 belongs_to / located_in 展开）
 
@@ -784,7 +791,7 @@ BMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
 | # | 文档 | 改动 | 优先级 |
 |---|---|---|---|
 | 1 | 新建 `arch/L2/02-reasoning/business-model-center-specification.md` | BMC 主规范（本文设计的契约化落盘） | P0 |
-| 2 | `knowledge-center-specification.md` v1.2 → v1.3 | 第四章 Ontology 标注"TBox 与 BMC 共治"；ABox 增补 hypothesis_facts 候选表契约（BMC 假设回写通道，方案 b） | P0 |
+| 2 | `knowledge-center-specification.md` v1.2 → v1.3 | 第四章 Ontology 标注"Enterprise Semantic Layer（企业语义层），KB/BMC 共建"；ABox 增补 hypothesis_facts 候选表契约（BMC 假设回写通道，方案 b） | P0 |
 | 3 | `planner-specification.md` | 新增"BMC 知识源"章节：模型检索、因果遍历、决策知识注入、capability_call 前置 Step 化 | P0 |
 | 4 | `decision-engine-specification.md` v1.0 → v1.1 | §3.1 增补"BMC DecisionRule 为规则来源之一（scope=execution）"；条件源约束（metric_ref/context） | P1 |
 | 5 | `concept-model-v2.x` | 新增 CausalModel / DecisionKnowledge / ScenarioTemplate 概念对象 | P1 |
@@ -965,3 +972,32 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 | P1-2 | 离散状态/聚合计数的"当前窗口"未定义（只定义了基线窗口） | §3.1.1/§3.1.4：object 节点统一新增 observation_window（当前窗口）；口径 2 离散状态按窗口首尾状态判定跃迁；口径 3 聚合计数按窗口聚合值对比基线 |
 | P2-3 | baseline_window 在 aggregation 与 instance_data_binding 各出现一次，无一致性规则 | §3.1.4：aggregation.baseline_window 为唯一权威；instance_data_binding 改为 baseline_window_ref 引用，不重复声明 |
 | P2-4 | v0.9 改几何均值后仍写"连乘不等权"，表述不一致 | §3.1.2：统一为"几何均值 + 反向一票否决"；L3 加权变体 obs_match_w 保留 |
+
+
+---
+
+## 18. 架构修订：Ontology 归属更名（v0.10 → v0.11）
+
+**背景**：原 D1 决策"Ontology 逻辑归属 BMC"名称易误解——Ontology 本质不是业务模型，而是企业世界的语言体系（设备/工作面/产线/订单/客户…），同时服务 RAG、数据理解、因果分析、Planner，是 EARP 的公共语义基础设施。
+
+**决策**：
+
+```
+原： BMC
+      |
+      Ontology（BMC 拥有）
+
+改： Enterprise Semantic Layer（企业语义层）
+      |
+      ----------------
+      |              |
+     KB             BMC
+```
+- Ontology/TBox 更名定位为 **Enterprise Semantic Layer（企业语义层）**：EARP 的公共语义基础设施
+- 由 **KB/BMC 共建**：KB 提供 ABox 结构性事实，BMC 提供因果侧关系类型登记
+- **双方消费、无人拥有**：BMC 使用它，不拥有它
+- 物理实现不变：`ontology/` 域不迁移，conversation/planner/connector 消费方零改动
+
+**影响范围**：
+- §2.2 负责清单、§2.3 架构图、§3 模块树、§4.3 集成、§5 改版清单已同步
+- 文档内术语统一为 Enterprise Semantic Layer；"共治 TBox / 双方共治 / 逻辑域归属 BMC"表述已清除
