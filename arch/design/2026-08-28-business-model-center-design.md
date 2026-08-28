@@ -1,7 +1,7 @@
 # EARP Business Model Center（业务模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.5 — 第四轮对抗性评审修订（6 条：P1×2、P2×4，处置记录见 §12）
+- 状态: v0.6 — 第五轮对抗性评审修订（6 条：P1×3、P2×3，处置记录见 §13）
 - 定位: L2 前置设计——本文拍板 BMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（business-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: BMC = Business Model Center；KB = Knowledge Center；FDE = Field Domain Engineer（现场领域工程师）
@@ -259,17 +259,6 @@ data_requirement
                               （Capability 返回 schema 中哪个字段作为节点观测值）
 ```
 
-```data_requirement
-├── source_kind: "connector" | "capability"
-├── source_ref              — connector_id 或 capability_id（MUST 已注册且 active）
-├── metric_binding          — metric 节点必填
-│     ├── metric_ref        — TBox metric 类型
-│     ├── instance_binding  — 绑定到哪个实体实例（受限表达式，见下）
-│     ├── time_window       — 时间窗（如 P30D）与粒度（如 daily）
-│     └── aggregation / unit — 聚合方式（sum/avg/max…）与单位
-└── output_mapping          — 输出字段 → 节点取值的映射
-                              （Capability 返回 schema 中哪个字段作为节点观测值）
-```
 
 ```
 instance_binding 受限表达式（L2 契约，语法固定，禁止任意代码）：
@@ -280,14 +269,16 @@ instance_binding 受限表达式（L2 契约，语法固定，禁止任意代码
                                               — 展开后按实体类型过滤
   双跳（链式追加第二个跳段，MUST 显式写全方向与类型）：
     $target_entity.<r1>.<dir1>.<t1>.<r2>.<dir2>.<t2>
-    例：$target_entity.located_in.in.equipment.belongs_to.out.plant
-        （矿 → 矿内设备 → 设备所属工厂）
+    例：$target_entity.located_in.in.equipment.belongs_to.out.production_line
+        （矿 → 矿内设备 → 设备所属产线；belongs_to 的 target 为
+        production_line/equipment，非 plant——示例与 TBox 事实对齐）
   （说明：默认方向 = 出边 .out；entity_type 过滤的是展开结果中
     非目标一侧的实体类型。例：从"3 号矿"取设备 =
     $target_entity.located_in.in.equipment（矿是 located_in 目标）
-    单跳为种子解析，深度 > 2 跳的展开由 Planner 实例化时沿
-    结构关系继续遍历（见下聚合契约）——instance_binding 负责
-    圈定种子集，不承载无限下钻）
+    单跳为种子解析；多跳展开一律在模型内显式声明为链式表达式
+    （最多 2 跳），禁止依赖引擎"自动继续遍历"——未声明为
+    链式的深巷（>2 跳）在发布时如果模型存在隐藏依赖则编译期
+    报错，Planner 不自由展开（修订 P1-3，收敛未定义行为）
 
     约束：
     MUST: relation 仅允许 TBox structural namespace 中已注册关系
@@ -297,25 +288,60 @@ instance_binding 受限表达式（L2 契约，语法固定，禁止任意代码
 
 object 节点实例化与聚合契约（修订 P1-1，Phase 1 可执行）：
   结构关系（belongs_to / located_in…）多为 N:1 / N:M，展开结果
-  是实例集合。节点必须显式声明用量（node.aggregation）：
+  是实例集合。节点必须显式声明用量（node.aggregation），且
+  必须有**实例数据输入契约**（object 节点级 instance_data_binding，
+  见下）——聚合契约解决输出侧归并，instance_data_binding 解决
+  输入侧取数：
 
   aggregation
   ├── mode: "per_instance" | "aggregate"
   ├── operator  — mode=aggregate 时：count | ratio | max | min | avg
   │               （如"设备故障节点"= 故障设备计数 count；
   │                "设备健康度" = 最差值 min）
+  ├── predicate — operator ∈ {count, ratio} 时的实例级谓词
+  │               （如 status == 'failed'；阈值判断 metric >= 90——
+  │                引用 TBox attribute / metric_ref，非自由文本）
   ├── weight_ref — mode=aggregate 时可选权重来源（实体属性 / metric，
   │               如设备对产出的重要度得分；缺省 = 等权）
   └── per_instance 模式：每个实例单独成径参与归因，
-       各实例路径独立计算 score，输出时按实例展示归因结果
+       各实例路径独立计算 score，输出时按实例展示归因结果；
+       回答入口级问题时按 score 上卷（top_k 实例 + 汇总）
 
   MUST: 每个 object 节点发布时声明 aggregation.mode（缺省 per_instance）
-  MUST: mode=aggregate 时 operator 必填；weight_ref 缺省 = 等权
-  MUST: per_instance 模式下节点不做集合聚合，避免不同设备的
-        故障被混成一个预测值
+  MUST: mode=aggregate 时 operator 必填；predicate 在 count/ratio 时必填
+  MUST: predicate 只能引用展开实例的 TBox attribute 或 metric_ref
+        （禁自由文本条件）
+  MUST: weight_ref 存在时须带加权公式（weighted_count / weighted_avg），
+        缺省等权；聚合公式如 count(X) = Σ predicate(instance_i)，
+        ratio = count / |实例集|
+  MUST: per_instance 模式下节点不做集合聚合；入口级归因上卷规则：
+        按各实例 score 降序取 top_k（k 由模型声明，缺省 5）输出
+        实例级原因 + 汇总统计，避免把不同设备的故障混成一个预测值
   MUST: 聚合不得改变边 effect 语义（聚合值上升/下降的解读与单实例一致）
   SHOULD: mode=aggregate 且展开结果 > 100 实例时，模型作者须显式
-    声明聚合策略（operator + weight_ref）
+    声明聚合策略（operator + predicate + weight_ref）
+
+**instance_data_binding（object 节点输入契约，修订 P1-1）：**
+  Planner 展开出实例集合后，取数需要实例级输入契约：
+
+  instance_data_binding
+  ├── instance_source        — 实例集（来自 instance_binding 展开结果）
+  ├── data_source            — per-instance 取数：
+  │     ├── connector_id     — 按实例查询（如设备台账/实时状态 API）
+  │     └── capability_id    — 按实例调用（仅 capability_call 源）
+  ├── instance_key_field     — 传给数据源的实例标识字段
+  │                            （如 entity_id / business_code）
+  ├── instance_observation   — 实例观测字段（如 status / health_score）
+  └── aggregation_input      — 聚合输入（count/ratio 用 predicate
+                                判定后的布尔序列；max/min/avg 用观测
+                                数值序列）
+
+  MUST: object 节点且 mode=aggregate 时必须声明
+        instance_data_binding（count/ratio 无谓词则编译期错误）
+  MUST: data_source 与节点 data_requirement 的 source_ref / 能力绑定
+        一致（同 §3.1.4 双通道一致性规则）；connector 源禁 capability
+  MUST: instance_observation 只能引用 TBox 已注册 attribute 或
+        metric_ref
 
 双数据通道优先级与一致性（修订 P2-4，按 source_kind 区分）：
   MUST: 节点同时声明 capability_bindings[] 与 data_requirement 时，
@@ -471,17 +497,20 @@ MUST: DecisionRule.confidence 语义 = 作者对规则依据的证据置信度�
 MUST: 发布时强制：execution 消费的规则（scope 含 execution）若
       引用 capability_call 则编译期拒绝（见 §3.2 组合约束）
 
-**action × scope 合法组合表（修订 P2-6）：**
+**action × scope 合法组合表（修订 P2-6，v0.6 补 both 列）：**
 
-| action \ scope | planner | execution |
-|---|---|---|
-| advice | ✅ 生成建议进规划上下文 | ✅ 选择分支时输出建议 |
-| task_generation | ✅ 生成任务模板供 Planner 排入 Plan（不立即执行） | ✅ 生成任务 Step |
-| workflow_trigger | ❌ 禁止——规划期不触发执行，避免旁路 | ✅ 唯一合法域：触发 Workflow 分支 |
+| action \ scope | planner | execution | both |
+|---|---|---|---|
+| advice | ✅ 生成建议进规划上下文 | ✅ 选择分支时输出建议 | ✅ 两域均输出建议 |
+| task_generation | ✅ 生成任务模板供 Planner 排入 Plan（不立即执行） | ✅ 生成任务 Step | ✅ 两域各按自身语义 |
+| workflow_trigger | ❌ 禁止——规划期不触发执行，避免旁路 | ✅ 唯一合法域：触发 Workflow 分支 | ❌ 禁止——workflow_trigger 时 scope 只能是 execution（编译期校验） |
 
 说明：
-- scope=planner 的 workflow_trigger 为编译期错误（规划期无执行语义），
-  与 EventTaskMapping 职责边界：EventTaskMapping 是事件/条件 →
+- scope=planner 的 workflow_trigger 为编译期错误（规划期无执行语义）
+- **scope=both 的 action 裁决（修订 P1-2）**：both 域合法条件 =
+  action ≠ workflow_trigger；action=workflow_trigger 时编译期
+  强制 scope 只能是 execution（both 组合报错）
+- 与 EventTaskMapping 职责边界：EventTaskMapping 是事件/条件 →
   Workflow 的**外部触发映射**（Scheduler 消费，见 §3.2.2）；
   DecisionRule.workflow_trigger 是**执行内分支**触发（Decision Engine
   在 Step 分支处触发已发布 Workflow）——两者触发源不同，互不重叠
@@ -635,7 +664,9 @@ BMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
   ├── assertion_schema            — 结构化断言（修订 P2-5，最小骨架，
   │     │                         推理时自动生成，自由文本仅作展示）：
   │     ├── subject               — 断言主体（同 subject）
-  │     ├── property / state      — 属性/状态（如 bearing_wear）
+  │     ├── property / state      — 属性/状态（引用 TBox attribute 或
+  │     │                          metric_ref，注册词表内，禁自由文本，
+  │     │                          如 bearing_wear 需先注册）
   │     ├── direction             — up / down / unchanged / unknown
   │     ├── time_window           — 断言适用时间窗（如 P30D）
   │     └── confidence_interval   — SHOULD，区间下界（供审核排序）
@@ -786,3 +817,17 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 | P2-4 | 双数据通道一致性规则对 connector 源不成立（无 capability 可比对、列表 vs 单引用歧义） | §3.1.4：按 source_kind 区分——capability 源要求列表单元素且与 source_ref 同一 id；connector 源 capability_bindings 应为空（填写则告警、不参与路由） |
 | P2-5 | hypothesis 断言自由文本，无法结构化审核 | §4.3：新增 assertion_schema（subject/property-state/direction/time_window/confidence_interval），相似命中以 schema 字段匹配为主；自由文本仅展示 |
 | P2-6 | action × scope 矩阵未定义，workflow_trigger 与 EventTaskMapping 职责重叠 | §3.2.1：新增合法组合表——advice/task_generation 两域合法，workflow_trigger 仅 execution（planner 域编译期错误）；职责边界：EventTaskMapping=外部触发映射（Scheduler），DecisionRule.workflow_trigger=执行内分支触发（Decision Engine） |
+
+
+---
+
+## 13. 第五轮对抗性评审处置记录（v0.5 → v0.6）
+
+| # | 评审意见 | 处置 |
+|---|---|---|
+| P1-1 | object 节点缺取数输入契约（聚合只解决输出侧）；count/ratio 缺实例级谓词 | §3.1.4：新增 instance_data_binding（instance_source/data_source/instance_key_field/instance_observation/aggregation_input）；object 节点 mode=aggregate 必须声明；count/ratio 谓词引用 TBox attribute/metric_ref，禁自由文本 |
+| P1-2 | action×scope 表缺 both 列，workflow_trigger×both 无裁决 | §3.2.1：补 both 列——advice/task_generation 合法、workflow_trigger 编译期强制 scope=execution（both 组合报错） |
+| P1-3 | 双跳示例与 TBox 事实冲突（belongs_to target 非 plant）；"Planner 继续遍历"未收敛 | §3.1.4：示例修正为 production_line（对齐 TBox）；多跳一律模型内显式链式声明（≤2 跳），禁止依赖引擎自由展开，未声明深巷编译期报错 |
+| P2-4 | 聚合算子语义不完整（count/ratio 无谓词、weight_ref 无公式、per_instance 无上卷规则） | §3.1.4：补 predicate、加权公式（weighted_count/weighted_avg）、聚合公式显式化、per_instance 上卷规则（按 score 降序 top_k，k 缺省 5） |
+| P2-5 | data_requirement 代码块重复 | §3.1.4：删除重复块，保留单份 |
+| P2-6 | assertion_schema.property/state 自由字符串 | §4.3：约束为引用 TBox attribute/metric_ref 注册词表，禁自由文本 |
