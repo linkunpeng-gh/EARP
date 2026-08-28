@@ -1,13 +1,14 @@
 # Planning Blueprint — L3 实现设计
 
 **文档编号：DESIGN-ECMC-BLUEPRINT-L3**
-**版本：v0.2（draft）**
+**版本：v0.3（基线）**
 **日期：2026-08-28**
 
 > 上游：`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§3.6 Cognitive Model Compiler / §4.4 Cognitive Service Contract）、`arch/L2/02-reasoning/planner-specification.md`（v1.1）
 > 定位：ECMC → Planner 的执行规划表示（一等资产）。本文定义 Planning Blueprint 的元模型（表结构）、Compiler 编译管线、Planner 消费流程。
 > 技术栈：FastAPI + SQLAlchemy 2 async + PostgreSQL 16 + pgvector，复用 `tenant_session()` / RLS `SET LOCAL` 模式。
 > v0.2 变更（评审采纳）：① Blueprint≠Workflow 边界；② 新增 Compile Record；③ 多模型引用 source_models[]；④ Step Type 扩展机制；⑤ 新增 Blueprint Runtime Semantics 章节；⑥ Blueprint 与 Agent Trace 关联。
+> v0.3 变更（评审采纳，定稿基线）：⑦ 规划约束 blueprint_constraints；⑧ 生命周期 draft/reviewing/approved；⑨ Step 多引用 blueprint_step_sources（L3.1 细化）
 
 ---
 
@@ -70,7 +71,9 @@ apps/earp-server/src/earp_server/
 | `blueprint_step_deps` | 步骤依赖（DAG 边） |
 | `step_type_registry` | Step Type 扩展注册表（v0.2 新增） |
 | `blueprint_capability_reqs` | 能力需求（编译自 §4.4.4） |
+| `blueprint_constraints` | 规划约束（v0.3 新增：priority/mandatory_capability/minimum_evidence） |
 | `blueprint_output_contracts` | 输出契约（输出结构声明） |
+| `blueprint_step_sources` | Step 多引用（L3.1 细化，v0.3 定契约） |
 
 ## 3.2 planning_blueprints（主表）
 
@@ -80,14 +83,32 @@ tenant_id           VARCHAR(64) NOT NULL
 primary_model_type  VARCHAR(16) NOT NULL CHECK IN ('causal','decision','scenario')
 primary_model_id    VARCHAR(64) NOT NULL         -- 主源模型（归属用）
 version             VARCHAR(32) NOT NULL            -- Blueprint 自身版本（随主源）
-status              VARCHAR(16) NOT NULL CHECK IN ('compiled','superseded','withdrawn')
-compiled_at         TIMESTAMPTZ NOT NULL DEFAULT now()
-compiled_by         VARCHAR(64) NOT NULL            -- 触发者（发布/手工）
-compiler_version    VARCHAR(16) NOT NULL            -- Compiler 实现版本（可复现）
+status              VARCHAR(16) NOT NULL CHECK IN
+                    ('draft','reviewing','approved','compiled','superseded','withdrawn')
+                    -- v0.3：前三个为治理生命周期（与 ECMC Governance 对齐），
+                    -- 后三个为编译产物状态
+compiled_at         TIMESTAMPTZ                    -- 编译时间（approved → compile 后置位）
+compiled_by         VARCHAR(64)                    -- 触发者（发布/手工）
+compiler_version    VARCHAR(16)                    -- Compiler 实现版本（可复现）
 intent_signature    JSONB NOT NULL                  -- 编译时快照（entry_point/business_objective/domain）
 validation_contract JSONB NOT NULL DEFAULT '{}'     -- 输入要求/缺失数据容忍度
 output_contract     JSONB                           -- 冗余快照（与 3.7 表对应，便于 Planner 单表读取）
 UNIQUE (tenant_id, primary_model_id, version)
+```
+
+**生命周期（v0.3，评审采纳）：**
+
+```
+FDE 创建 Draft → Review（评审）→ Approved（审批通过）→
+Compile（编译，产出 compiled 产物）→ Published 供 Planner 消费
+  → Superseded（源模型更新，新版本编译）→ Withdrawn（下线）
+
+与 ECMC Governance（§3.4）对齐：
+- draft/reviewing/approved 对应模型治理的编辑/审批语义（专家编辑、
+  管理者审核）
+- compiled/superseded/withdrawn 是编译产物状态（蓝图自身）
+- MUST: approved 之前不可编译（防未审蓝图上生产）
+- MUST: 审批记录走 Audit Spec（同模型资产审批）
 ```
 
 **引用而非复制原则（P2）**：源模型通过 `blueprint_source_models` 关联表引用（见 3.3）；Blueprint 内不存业务规则文本，只存指向源模型元素的引用（见 3.5）。任何业务逻辑变更 → 源模型改 → 重新编译。
@@ -171,6 +192,22 @@ output_field        VARCHAR(128)                   -- 本步输出字段（供�
 
 **防双维护落地**：`step_type` 必须注册于 `step_type_registry`（扩展点，见 3.8）——内置五类（knowledge_query / data_fetch / capability_call / decision_branch / output）为起点，**没有**"自定义业务规则"类型；`source_ref_path` 强制指向源模型元素——编译器校验该引用在源模型中真实存在（P5 完整性校验）。
 
+**Step 多引用（v0.3，问题 3）**：一个 Step 可引用多个 Node（如"综合分析步骤"引用设备/地质/调度三个节点）——
+主表保留单引用（主引用 source_ref_*），多引用拆表：
+
+```
+blueprint_step_sources（L3.1 细化，v0.3 定契约）
+├── step_source_id   VARCHAR(64) PK
+├── step_id          VARCHAR(64) NOT NULL FK
+├── source_type      VARCHAR(16) NOT NULL  -- node | relation | rule | data_requirement
+├── source_id        VARCHAR(64) NOT NULL
+├── source_path      TEXT NOT NULL
+└── role             VARCHAR(16) NOT NULL CHECK IN ('primary','supporting','optional')
+```
+
+MUST: 步骤的"主引用"（source_ref_*）与 step_sources 中 role=primary 的条目一致
+MUST: 多引用时每个引用仍必须指向源模型真实元素（防双维护 P2）
+
 ## 3.7 blueprint_step_deps（步骤依赖）
 
 ```
@@ -226,7 +263,44 @@ output_usage        JSONB NOT NULL DEFAULT '{}'
 
 **来源**：编译自 ECMC 模型节点 Capability Binding（§3.1.0 ⑥ + §4.4.4）；**不新增**能力需求（防双维护——Planner 按此解析能力，见 §4.4.4 链路）。
 
-## 3.10 blueprint_output_contracts（输出契约）
+## 3.10 blueprint_constraints（规划约束，v0.3 新增）
+
+> **定位**：业务规划约束（Planner 生成 Workflow 时的业务级偏好）——
+> 不是执行约束（Workflow 域），不是业务规则（源模型域），是**规划时的偏好**。
+
+```
+constraint_id       VARCHAR(64) PK
+blueprint_id        VARCHAR(64) NOT NULL FK
+constraint_type     VARCHAR(16) NOT NULL CHECK IN
+                    ('priority','mandatory_capability','minimum_evidence',
+                     'ordering','exclusion')
+constraint_value    JSONB NOT NULL               -- 如 priority:{safety>cost}
+                                                 --   / mandatory_capability:[equipment_health]
+                                                 --   / minimum_evidence:2
+rationale           TEXT                         -- 为什么（业务理由，供 Planner/审计）
+```
+
+**语义边界（关键）：**
+
+```
+MUST: 规划约束 = 影响 Planner 的规划决策（顺序/必须能力/证据下限），
+      不是执行细节（不定义重试/超时/并发）
+MUST: 不引入新业务规则——priority/mandatory_capability/minimum_evidence
+      只是对已有模型元素的规划偏好，不产生源模型不存在的逻辑
+      （防双维护 P2 的规划侧延伸）
+SHOULD: 约束可被 Planner 消费并在 Plan 中体现（如 mandatory_capability
+      进入 Plan 的能力解析；priority 影响步骤排序）
+```
+
+示例：
+```
+设备诊断 Blueprint:
+  priority: safety > cost              → Planner 排序：安全相关步骤优先
+  mandatory_capability: equipment_health → 必须解析该能力，缺失即规划失败
+  minimum_evidence: 2                  → 归因输出至少 2 条证据链
+```
+
+## 3.11 blueprint_output_contracts（输出契约）
 
 ```
 output_id           VARCHAR(64) PK
@@ -373,13 +447,12 @@ POST   /v1/ecmc/blueprints/{id}/withdraw                           — 下线（
 
 # 九、开放问题（下一轮评审）
 
-1. **步骤粒度**：Blueprint step 与源模型 node 是 1:1 还是可聚合/拆分？
-   评审建议**不绑定**：Node 可生成多个 Step；Step 可引用多个 Node
-   （业务模型粒度 ≠ 执行粒度）。v0.2 保留灵活性（source_ref 可多对多），
-   具体映射规则待细化
+1. **步骤粒度**：v0.3 已用 blueprint_step_sources 支持 Step 多引用（主引用
+    + 多引用表）；Node→多 Step 的生成规则（一个 node 如何展开为多个 step）
+    L3.1 细化
 2. **多模型 Blueprint 组合**：v0.2 已用 blueprint_source_models 支持多模型
    引用 + 跨模型版本钉扎；多模型组合的引用冲突（同一节点被两模型引用
-   语义不一致）待细化
+   语义不一致）待细化（L3.1）
 3. **性能**：Blueprint 缓存策略（Planner 侧缓存 vs 服务端缓存）、
    intent 匹配索引（复用 Semantic Index / pgvector）
 4. **降级 SLA**：编译失败时"直接模型匹配"路径的可用性保证
