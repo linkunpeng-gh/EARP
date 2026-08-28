@@ -1,7 +1,7 @@
 # EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.12 — 架构修订：模块更名为 Enterprise Cognitive Model Center（企业认知模型中心，ECMC）（见 §19）
+- 状态: v0.13 — 架构修订：Scenario 定位细化为"专家业务方案模板（方法论模板）"，非业务应用（见 §20）
 - 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
@@ -22,7 +22,7 @@
 | 是什么（事实与状态） | KB：RAG / 词典 / ABox 事实（Enterprise Semantic Layer 的 KB 侧） | ✅ 已覆盖 |
 | 为什么（因果规律） | ❌ | **本设计核心缺口** |
 | 怎么办（决策知识） | Decision Engine 有执行时分支，但规则散落代码/配置，非资产 | **本设计核心缺口** |
-| 怎么用（场景组装） | Chat App / Workflow 可组合，但无"专家预组装"的知识表达 | 次要缺口 |
+| 怎么用（场景组装） | Chat App / Workflow 可组合，但无"专家方法论模板"的知识表达 | 次要缺口 |
 
 ### 1.2 建设目标
 
@@ -52,7 +52,7 @@
 
 - 因果模型：影响关系建模、归因推理知识（FDE 编辑、版本化）
 - 决策知识：决策目标、业务约束、决策规则（含事件-任务映射规则）
-- 场景模板：业务模型 × Capability 的组装声明（Phase 3+）
+- 专家业务方案模板（Scenario Template）：业务模型 × Capability 的方法论组装声明（Phase 3+）
 - 模型对象生命周期状态机（draft / testing / published / deprecated）
 - Enterprise Semantic Layer 因果侧关系类型的登记（共建，非拥有）
 - 行业模板包（Industry Pack）的导入/导出契约（Phase 2+ 落地工具）
@@ -97,7 +97,7 @@
 | D2 | 因果模型建模形态 | **因果图是一等模型对象**，与 ABox 事实图完全分离。节点引用 TBox **实体类型**（类型级，非实例），推理时才绑定具体实例 |
 | D3 | Decision Model 是否独立 | **独立存在，但作为知识资产而非引擎**：ECMC 存决策知识（目标/约束/规则/优化模型绑定），版本化治理；执行归现有 Planner（规划时）+ Decision Engine（执行时），优化模型经 Capability 绑定调用 |
 | D4 | Process Model 去留 | **砍独立子模块**：事件-任务映射规则（"给 Workflow 编排提供依据"）并入决策知识；流程执行复用 Workflow + Scheduler，ECMC 不碰执行 |
-| D5 | Scenario 定位 | **知识资产（模板/蓝图），非运行时对象**：场景 = 模型绑定 + Capability 集合 + 输入输出契约的声明式配置；实例化编译为 Workflow / Chat App 由既有执行域运行。**Phase 3+ 落地**（纯知识沉淀，价值依赖消费链路，等 Planner 场景匹配能力就绪） |
+| D5 | Scenario 定位 | **专家业务方案模板（方法论模板），非运行时对象、非业务应用**（v0.13 措辞细化）：Scenario = 专家对某类问题的**方法论沉淀**（模型绑定 + Capability 集合 + 分析步骤 + 输入输出契约的声明式配置）——如"生产异常分析方法论模板"而非"生产异常分析 Agent"；模板实例化编译为 Workflow / Chat App 由既有执行域运行，**实例化后的 Agent/应用是执行产物，不属于 ECMC**。**Phase 3+ 落地**（纯知识沉淀，价值依赖消费链路，等 Planner 模板匹配能力就绪） |
 | D6 | Model Governance | **不自建治理中心**：模型对象生命周期状态机由 ECMC 规范定义；权限/审批复用 Policy Center，变更记录复用 Audit Spec（与 TBox 治理 P6 原则同构） |
 
 ### 2.5 通用性原则（跨行业）
@@ -616,19 +616,31 @@ SHOULD: 规则支持组合（AND / OR / NOT，与 Decision Engine §3.1 一致�
 | Decision Engine | 执行时分支选择从已发布 DecisionRule（scope 含 execution）读取（规则资产化，替代散落代码/配置）；condition.source 仅 metric_ref / context |
 | Scheduler / Workflow | ECMC 将 EventTaskMapping 生命周期发布为事件：`earp.bmc.mapping.published`（创建/更新 trigger）、`earp.bmc.mapping.deprecated`（停用 trigger）、`earp.bmc.mapping.rolled_back`（指向回滚目标版本快照，Scheduler 据此更新 trigger）；事件携带 `mapping_id + mapping_version`；Scheduler 按版本号比较后应用（乱序到达不生效旧版本），并以定时对账任务（对比 ECMC 侧已发布版本 vs Scheduler 侧 trigger 版本）兜底不一致（修订 P1-4 乱序）；ECMC 不主动注册 trigger（修订 P2-13），执行走 Workflow。Scheduler 侧幂等：事件重复消费不重复建 trigger |
 
-### 3.3 ScenarioTemplate（场景模板，Phase 3+）
+### 3.3 ScenarioTemplate（专家业务方案模板，Phase 3+）
+
+> **定位：专家业务方案模板（方法论模板），不是业务应用。**
+> 它封装的是"针对某类业务问题，专家如何分析/如何处理"的**方法论**——
+> 例如"生产异常分析方法论模板"（不是"生产异常分析 Agent"）；
+> 生产异常分析 Agent 是方法论模板实例化后运行的应用形态，
+> 属于执行域，不是 ECMC 的资产。
 
 ```
-ScenarioTemplate
+ScenarioTemplate（专家业务方案模板）
 ├── name / description / data_domain_id / version / status
+├── problem_type           — 适用问题类型（意图语义描述，供 Planner 匹配）
+├── methodology_steps[]    — 方法论步骤骨架（SHOULD）：分析/处理该问题的
+│                            步骤顺序与各步骤引用的模型/能力/输出
 ├── model_bindings[]       — 引用已发布 CausalModel / DecisionKnowledge
 ├── capability_set[]       — 所需 Capability 清单
-├── input_contract         — 触发该场景的意图描述（供 Planner 语义匹配）
+├── input_contract         — 触发该模板的意图描述（供 Planner 语义匹配）
 ├── output_contract        — 输出物契约（原因分析报告/优化建议）
-└── compilation_target     — Workflow 或 Chat App（实例化编译目标，L3 细化）
+└── compilation_target     — 实例化编译目标（Workflow / Chat App，L3 细化）
 ```
 
-场景是**预组装的知识包**（专家把"分析产量下降需要哪些模型、哪些能力、输出什么"沉淀下来），实例化走既有 Workflow / Chatflow 编译执行。Phase 3+ 落地，本次仅定契约骨架。
+模板是**专家方法论沉淀**（专家把"分析产量下降要用哪些模型、哪些能力、
+按什么步骤、输出什么"固化下来），实例化后编译为 Workflow / Chatflow
+由既有执行域运行——**模板是知识资产，实例化后的 Agent/应用是执行产物**，
+两者严格区分。Phase 3+ 落地，本次仅定契约骨架。
 
 ### 3.4 生命周期契约（治理复用，D6）
 
@@ -1027,3 +1039,26 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 
 **保留不变的契约（API 稳定性）**：
 - `earp.bmc.mapping.published / deprecated / rolled_back` 事件类型名**不随模块更名改变**——Scheduler 已按此订阅，事件命名是稳定平台契约；若未来确需改名，走 EventBus 事件类型注册表的版本化流程，禁止直接改名破坏订阅
+
+
+---
+
+## 20. 架构修订：Scenario 定位细化（v0.12 → v0.13）
+
+**背景**：Scenario 易被理解为"业务应用"（如"生产异常分析 Agent"），但 ECMC 是纯知识资产层——Scenario 的实际定位是**专家业务方案模板（方法论模板）**。
+
+**决策**：
+
+```
+不是： 业务应用 —— 生产异常分析 Agent
+而是： 专家业务方案模板 —— 生产异常分析方法论模板
+```
+
+- Scenario 封装的是**方法论**：针对某类业务问题，专家如何分析/如何处理的步骤、模型、能力、输出物
+- **模板是知识资产，实例化后的 Agent/应用是执行产物**——后者属于执行域，不属于 ECMC
+- 与 D5 一致并强化：非运行时对象、非业务应用，纯方法论沉淀
+
+**影响范围**：
+- §3.3 重命名定位为"专家业务方案模板"，结构图新增 problem_type / methodology_steps[]（方法论步骤骨架）
+- D5 决策记录措辞细化（"生产异常分析方法论模板"而非"生产异常分析 Agent"）
+- §2.2 负责清单、§1.1 表格措辞同步
