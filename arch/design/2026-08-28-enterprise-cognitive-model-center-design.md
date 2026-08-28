@@ -1,7 +1,7 @@
 # EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.20 — 架构修订：新增 §3.7 FDE 建模工作流（六步流水线：问题定义→节点关系→数据绑定→能力绑定→测试→发布，每步含产物/校验点/角色）（见 §27）
+- 状态: v0.21 — 架构修订：① Step 5 展开为 Model Validation（历史案例命中验证，区别于 Evaluation）；② Blueprint 防双维护约束（仅引用不定义）（见 §28）
 - 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
@@ -821,7 +821,8 @@ MUST: 变更记录（含版本 diff）走 Audit Spec
 允许的转换:
   draft → testing      （准入：结构校验通过——DAG 无环、引用完整、
                         output_mapping 齐备；无 testing 需求可直接 draft → published）
-  testing → published  （准入：回测报告产出（SHOULD）；依赖完整性校验通过）
+  testing → published  （准入：Model Validation 验证报告达标（命中率
+                        ≥ 阈值，§3.7 Step 5）；依赖完整性校验通过）
   testing → draft      （回测不达标退回）
   published → deprecated（下线）
   deprecated → published（重新启用，仅当依赖仍完整）
@@ -966,6 +967,10 @@ Planning Blueprint
 ```
 MUST: Model Compiler 是纯知识变换（模型 → Blueprint），不执行动作；
       执行仍由 Planner 编排、Runtime 运行（ECMC 纯知识层不破坏）
+MUST: Blueprint 不允许定义新的业务规则——仅允许引用 ECMC 模型中的
+      知识元素（node/relation/rule/requirement 的引用，非复制）；
+      任何新业务逻辑必须回到源模型建模，防止双维护
+      （v0.21 防双维护约束，见 §28）
 MUST: Blueprint 是编译产物，随源模型版本不可变——源模型更新 →
       重新编译新版本 Blueprint；旧版本仍可消费（同 §3.4.3 版本原则）
 MUST: 编译是显式动作（发布时触发 / 手工触发），不是运行时隐式编译
@@ -1076,25 +1081,39 @@ Step 6  发布与治理（Publish Approval）
   MUST: capability_requirements 可被 Planner 解析（§4.4.4）
 ```
 
-#### Step 5 测试与回测（testing）
+#### Step 5 模型验证（Model Validation，v0.21 展开）
+
+> **定位**：企业模型与普通知识的本质区别——专家不会直接发布。
+> 发布前必须**验证模型能否找到正确原因**。这不是 Evaluation（全局评估），
+> 而是 Model Validation（针对性验证：用历史案例检验模型行为）。
 
 ```
-输入：Step 2-4 产物（draft 状态）
+输入：Step 2-4 产物（draft 状态）+ 历史案例集
 产物：
-  - testing 报告（回测：strength/lag 校准、观测方向口径验证）
-  - 决策规则验证（DecisionRule 命中率 / EventTaskMapping 触发验证）
-角色：业务专家 + 数据工程师
+  - 测试用例（Test Case）：历史案例集（如"去年产量下降案例 10 次"，
+    每例标注已知真实原因）
+  - 模拟结果（Simulation Result）：模型对每例的归因输出 + 命中判定
+  - 验证报告：命中率 / 误报 / 漏报 / 未覆盖场景清单
+角色：业务专家（定案）+ 数据工程师（建案例）+ 领域负责人（确认）
 校验点：
-  MUST: 进入 testing 需结构校验通过（Step 2/3/4 全部 MUST 满足）
-  MUST: 回测产出报告（SHOULD）；不达标退回 draft（testing → draft）
-  MUST: 方向判定口径（§3.1.2 三套）在样例数据上可复现
+  MUST: 测试用例来自真实历史（业务事件/执行记录回填），非专家臆造
+  MUST: 模型对每个测试用例的归因输出与已知原因比对（命中/部分/未命中）
+  MUST: 命中率低于阈值（发布时声明，如 60%）→ 退回 draft
+  MUST: 未覆盖场景（模型结构与历史案例不匹配）必须在报告中列出
+        （如"地质因素案例未覆盖"——模型缺该分支）
+  MUST: 决策规则验证（DecisionRule 命中率 / EventTaskMapping 触发验证）
   SHOULD: 与已有模型对比（同 intent 的新旧模型差异说明）
+
+Model Validation 与 Evaluation 的区别：
+  Model Validation（本步）—— 发布前，用历史案例验证模型行为正确性
+  Evaluation（全局评估）  —— 发布后，运行绩效观测（§3.5）+ 周期回测，
+                           发现漂移触发优化（§3.4.1 issue）
 ```
 
 #### Step 6 发布与治理（Publish Approval）
 
 ```
-输入：testing 通过（或无 testing 需求的 draft）
+输入：验证通过（Step 5 Model Validation 达标）
 产物：
   - published 模型 + 不可变版本快照
   - change_log（change_type / reason / trigger_ref / diff_summary）
@@ -1102,6 +1121,7 @@ Step 6  发布与治理（Publish Approval）
   - （EventTaskMapping）发布事件 → Scheduler 订阅创建 trigger（§4.4.5 反向）
 角色：审核者（审批）+ 业务专家（提交）
 校验点：
+  MUST: Step 5 验证报告达标（命中率 ≥ 阈值）——未经验证不可发布
   MUST: 依赖完整性校验（TBox 类型 active / Capability 已注册 /
         source_ref active / workflow_ref 已发布 / 事件类型已注册）
   MUST: Publish Approval（model_asset 策略）通过才进入 published
@@ -1116,7 +1136,7 @@ Step 1 → §3.1.2（applicability）+ §4.4.2（intent_signature）
 Step 2 → §3.1.0 ①②④ + §3.1.2（DAG/effect 契约）
 Step 3 → §3.1.0 ⑤ + §3.1.4（data_requirement）
 Step 4 → §3.1.0 ⑥ + §4.4.4（capability_requirements）
-Step 5 → §3.4.4（testing 准入/退回）+ §7 L3 #5（回测机制）
+Step 5 → §3.4.4（testing 准入/退回）+ §3.7 Step 5（Model Validation）+ §7 L3 #5（回测机制）
 Step 6 → §3.4.4（Publish Approval/依赖校验）+ §3.6（Compiler）+ §3.5（绩效）
 ```
 
@@ -1830,7 +1850,7 @@ Step 1 业务问题定义   —— 专家输入经验 → intent_signature + app
 Step 2 节点与关系建模 —— 拖拽 → ①Node + ②Relation + ④Rule（DAG 校验）
 Step 3 数据绑定       —— ⑤Data Binding（data_requirement + 实例绑定）
 Step 4 Capability 绑定 —— ⑥Capability Binding（能力支撑）
-Step 5 测试与回测     —— testing：回测报告 / 方向口径验证 / 退回机制
+Step 5 模型验证       —— Model Validation：历史案例命中率 / 模拟结果
 Step 6 发布与治理     —— Publish Approval / 版本快照 / Compiler 编译
 ```
 
@@ -1843,3 +1863,36 @@ Step 6 发布与治理     —— Publish Approval / 版本快照 / Compiler 编
 - Step 6 联动：发布触发 Compiler 编译 Blueprint + 绩效观测启动
 
 **至此三章补齐完成**：§4.4 认知服务契约（运行） / §3.1.0 元模型（数据结构） / §3.7 FDE 工作流（产品落地）。
+
+
+---
+
+## 28. 架构修订：Model Validation + Blueprint 防双维护（v0.20 → v0.21）
+
+**背景**：评审两点——① FDE 工作流缺"模型验证"环节（企业模型与普通知识的本质区别：专家不会直接发布，需用历史案例验证模型能否找到正确原因）；② 架构风险：Blueprint 可能成为新的"业务模型"（双维护）。
+
+**① Step 5 展开为 Model Validation：**
+
+```
+旧：Step 5 测试与回测（testing 报告 / 回测校准）
+新：Step 5 模型验证（Model Validation）
+  产物：Test Case（历史案例集，每例标注已知真实原因）
+       + Simulation Result（模型对每例的归因输出 + 命中判定）
+       + 验证报告（命中率 / 误报 / 漏报 / 未覆盖场景清单）
+  校验：命中率 ≥ 发布时声明阈值（如 60%），否则退回 draft；
+        未覆盖场景必须在报告列出（模型缺分支，如"地质因素案例未覆盖"）
+```
+
+Model Validation 与 Evaluation 的区别（写入 §3.7）：
+- **Model Validation**：发布前，用历史案例验证模型行为正确性（针对性）
+- **Evaluation**：发布后，运行绩效观测（§3.5）+ 周期回测，发现漂移触发优化（§3.4.1 issue）
+
+**② Blueprint 防双维护约束（§3.6 新增 MUST）：**
+
+```
+MUST: Blueprint 不允许定义新的业务规则——仅允许引用 ECMC 模型中的
+      知识元素（node/relation/rule/requirement 的引用，非复制）；
+      任何新业务逻辑必须回到源模型建模，防止双维护
+```
+
+**同步**：Step 6 发布准入 = 验证报告达标；§3.4.4 testing→published 准入引用 Model Validation；工作流对应表更新。
