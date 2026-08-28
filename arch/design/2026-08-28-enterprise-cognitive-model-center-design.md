@@ -1,7 +1,7 @@
 # EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.15 — 架构修订：新增运行反馈与模型优化闭环（§3.5）：绩效观测 → 优化触发 → 变更原因管理 → 升级发布（见 §22）
+- 状态: v0.16 — 架构修订：ECMC 四个并列二级模块（Causal / Decision / Scenario / Model Governance）；治理子模块含问题管理（issue）（见 §23）
 - 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
@@ -98,7 +98,7 @@
 | D3 | Decision Model 是否独立 | **独立存在，但作为知识资产而非引擎**：ECMC 存决策知识（目标/约束/规则/优化模型绑定），版本化治理；执行归现有 Planner（规划时）+ Decision Engine（执行时），优化模型经 Capability 绑定调用 |
 | D4 | Process Model 去留 | **砍独立子模块**：事件-任务映射规则（"给 Workflow 编排提供依据"）并入决策知识；流程执行复用 Workflow + Scheduler，ECMC 不碰执行 |
 | D5 | Scenario 定位 | **专家业务方案模板（方法论模板），非运行时对象、非业务应用**（v0.13 措辞细化）：Scenario = 专家对某类问题的**方法论沉淀**（模型绑定 + Capability 集合 + 分析步骤 + 输入输出契约的声明式配置）——如"生产异常分析方法论模板"而非"生产异常分析 Agent"；模板实例化编译为 Workflow / Chat App 由既有执行域运行，**实例化后的 Agent/应用是执行产物，不属于 ECMC**。**Phase 3+ 落地**（纯知识沉淀，价值依赖消费链路，等 Planner 模板匹配能力就绪） |
-| D6 | Model Governance | **不自建治理中心**：模型对象生命周期状态机由 ECMC 规范定义；权限/审批复用 Policy Center，变更记录复用 Audit Spec（与 TBox 治理 P6 原则同构） |
+| D6 | Model Governance | **ECMC 内一等治理子模块，不建平台级独立治理中心**（v0.16 演进）：模型生命周期状态机、问题管理（issue）、修改/版本/发布由 ECMC 的 Model Governance 子模块（§3.4）统一负责；审批/审计/绩效埋点仍复用 Policy Center / Audit Spec / Observation Spec（横切层不重复建设，与 TBox 治理 P6 原则同构） |
 
 ### 2.5 通用性原则（跨行业）
 
@@ -131,20 +131,24 @@ SHOULD: 包内对象声明行业标签，与 applicability 字段联动
 
 ## 3. 子模块设计
 
-ECMC 四个子模块 + 一份生命周期契约，建立在 Enterprise Semantic Layer 之上：
+ECMC 下**四个并列二级模块**（三个资产模块 + 一个治理模块），建立在 Enterprise Semantic Layer 之上：
 
 ```
 Enterprise Semantic Layer（企业语义层 · 公共语义基础设施）
   TBox 词汇（实体类型/关系类型）· KB 与 ECMC 共建 · 双方消费、无人拥有
         ▲            ▲
         │            │
-   ┌────┴────┐  ┌────┴────────────┐
-   │  KB     │  │  ECMC            │
-   │ ABox 事实│  │  ├── Causal Model（"为什么"）
-   │ RAG/词典 │  │  ├── Decision Knowledge（"怎么办"）
-   └─────────┘  │  └── Scenario Template（"怎么用"，Phase 3+）
-               └─────────────────┘
-治理：生命周期状态机 + 复用 Policy / Audit
+   ┌────┴────┐  ┌────┴──────────────────────────────┐
+   │  KB     │  │  ECMC                              │
+   │ ABox 事实│  │  ├── Causal Model（因果模型 · "为什么"）
+   │ RAG/词典 │  │  ├── Decision Knowledge（决策知识 · "怎么办"）
+   └─────────┘  │  ├── Scenario Template（专家方案模板 · "怎么用"，Phase 3+）
+               │  └── Model Governance（模型治理 · 问题/修改/版本/发布）
+               └──────────────────────────────────────┘
+
+治理说明：Model Governance 为 ECMC 内一等子模块（v0.16）；
+审批/审计/绩效埋点复用 Policy Center / Audit Spec / Observation Spec（横切层），
+不重复建设
 ```
 
 ### 3.1 CausalModel（因果模型）
@@ -675,44 +679,59 @@ ScenarioTemplate（专家业务方案模板）
 由既有执行域运行——**模板是知识资产，实例化后的 Agent/应用是执行产物**，
 两者严格区分。Phase 3+ 落地，本次仅定契约骨架。
 
-### 3.4 生命周期契约（治理复用，D6）
+### 3.4 Model Governance（模型治理子模块，v0.16 重构）
 
-**状态机与转换（修订 P1-8）：**
-
-```
-状态: draft → testing → published → deprecated
-
-允许的转换:
-  draft → testing      （准入：结构校验通过——DAG 无环、引用完整、
-                        output_mapping 齐备；无 testing 需求可直接 draft → published）
-  testing → published  （准入：回测报告产出（SHOULD）；依赖完整性校验通过）
-  testing → draft      （回测不达标退回）
-  published → deprecated（下线）
-  deprecated → published（重新启用，仅当依赖仍完整）
-
-禁止: published → draft（不允许就地降级，新修改走新版本）
-```
-
-**依赖完整性校验（发布时 MUST，含引用对象下线的持续保障）：**
+> **定位：ECMC 的一等二级子模块**，负责模型资产的**问题管理、修改、版本、发布**四件事。
+> 横切能力（审批流 / 审计 / 绩效埋点）复用 Policy Center / Audit Spec /
+> Observation Spec，本模块不重复建设。
 
 ```
-MUST: 发布时校验——节点/条件引用的 TBox 类型已 active、
-      capability_binding 指向已注册 Capability、
-      data_requirement.source_ref 指向 active Connector/Capability、
-      workflow_ref 指向已发布 Workflow、事件类型已注册
-MUST: 「依赖失效告警」是 published 状态上的正交布尔标志
-      （dependency_ok: true/false），不是独立状态机状态；
-      被引用对象下线时标志翻转为 false 并通知 owner
-MUST: dependency_ok=false 的模型：检索仍返回（Planner 需要看到
-      归因知识），但模型元数据携带失效依赖清单；依赖节点生成的
-      数据 Step 正常执行、失败时按 Execution 既有重试/降级路径
-      处理，报告中标注哪些原因链证据缺失——消费方不静默消费
-MUST: 回滚不重复执行发布校验（目标快照在首次发布时已校验）；
-      回滚 = 消费入口指向既有版本快照，即便该快照的部分依赖
-      已下线（此时依赖失效标志随迁为 false，走上述告警路径）
+Model Governance
+├── 问题管理（§3.4.1）—— 运行反馈登记为 issue，驱动优化
+├── 模型修改（§3.4.2）—— 分支 / 变更原因（change_log）/ diff 对比
+├── 版本管理（§3.4.3）—— 语义化版本 / 不可变快照 / 回滚 / 版本对比
+└── 发布管理（§3.4.4）—— testing 准入 → Publish Approval → 滚动升级 / 紧急通道
 ```
 
-**版本与回滚（修订 P1-8）：**
+#### 3.4.1 问题管理（Issue，v0.16 新增）
+
+**定位**：模型运行中的反馈（不准 / 漂移 / 业务变化）登记为治理问题，
+驱动"修改 → 升级"闭环。ECMC 内建轻量 issue 登记（方案 A，不引入外部工单系统）。
+
+```
+ModelIssue
+├── issue_id / tenant_id / data_domain_id
+├── model_ref             — model_id + version（针对哪个模型哪个版本）
+├── source_type           — performance_alert | user_feedback |
+│                            business_change | dependency_change | manual
+├── source_ref            — 触发源引用（绩效告警 ID / 反馈 ID / eval job ID）
+├── severity              — low | medium | high | critical
+├── description           — 问题描述（含可复现信息）
+├── status                — open → triaged → in_progress → fixed →
+│                            closed | won't_fix
+├── linked_change         — 关联的变更（新版本 / change_log）
+├── owner / created_at / resolved_at
+└── timeline              — 状态流转记录（Audit 归档）
+
+MUST: issue 与模型版本强关联（model_ref 指向具体版本）
+MUST: issue 状态流转全程记录（timeline 走 Audit Spec）
+MUST: 修复动作必须产生新版本（change_log 引用 issue_id）
+MUST: issue 关闭需有结果记录（fixed 指向修复版本 / won't_fix 附原因）
+SHOULD: 同类 issue 聚合（同一模型同一根因多次反馈合并，避免重复工单）
+```
+
+#### 3.4.2 模型修改
+
+```
+MUST: 新版本从当前 published 版本**分支**（parent_version），
+      禁止就地修改 published；分支进入 draft
+MUST: 每次修改携带结构化 change_log（change_type / reason /
+      trigger_ref / diff_summary / author）；修复 issue 的版本其
+      change_log.reason 引用 issue_id（可追溯）
+MUST: 版本对比工具展示两版本 diff + 变更原因（评审/审计用）
+```
+
+#### 3.4.3 版本管理
 
 ```
 MUST: 版本语义化（major.minor.patch）；发布产生不可变版本快照
@@ -726,32 +745,67 @@ MUST: 只有 published 状态的模型对象可被消费方检索
 MUST: 变更记录（含版本 diff）走 Audit Spec
 ```
 
-**发布审批（修订 P1-9）：**
-
-现状核对：Policy Center 绑定目标为 Capability/Domain/Role/Tenant，
-approval 是 Execution 等待语义——**不支持模型资产内容审批**。因此：
+#### 3.4.4 发布管理
 
 ```
-MUST: ECMC 发布审批为独立审批流（Publish Approval），
-      Policy Center 需新增策略目标类型 "model_asset"（改动项见 §5），
-      审批对象 = 模型资产版本快照 + 变更 diff
-MUST: 审批通过才进入 published；审批记录走 Audit Spec
-SHOULD: 支持「发布者 ≠ 审批者」分离（专家编辑 / 管理者审核，与 TBox P6 同构）
+状态机: draft → testing → published → deprecated
+允许的转换:
+  draft → testing      （准入：结构校验通过——DAG 无环、引用完整、
+                        output_mapping 齐备；无 testing 需求可直接 draft → published）
+  testing → published  （准入：回测报告产出（SHOULD）；依赖完整性校验通过）
+  testing → draft      （回测不达标退回）
+  published → deprecated（下线）
+  deprecated → published（重新启用，仅当依赖仍完整）
+禁止: published → draft（不允许就地降级，新修改走新版本）
+
+发布审批（修订 P1-9）：
+  现状核对：Policy Center 绑定目标为 Capability/Domain/Role/Tenant，
+  approval 是 Execution 等待语义——不支持模型资产内容审批。因此：
+  MUST: 发布审批为独立审批流（Publish Approval），Policy Center 新增
+        策略目标类型 "model_asset"（改动项见 §5），审批对象 = 版本快照 + diff
+  MUST: 审批通过才进入 published；审批记录走 Audit Spec
+  SHOULD: 发布者 ≠ 审批者分离（专家编辑 / 管理者审核，与 TBox P6 同构）
+
+滚动升级与旧版本处理：
+  MUST: 发布新版本后，旧版本按消费方引用情况处理——有活跃引用的
+        旧版本保持 published（不动，消费方自行升级）；无引用可选 deprecated
+        （有下线审批）
+  MUST: 滚动升级由消费方（Planner）在模型检索时优先新版本
+        （applicability 匹配度相同时取最新版本）；消费方可固定版本
+  SHOULD: 重大绩效问题可走「紧急修复」通道：reason 必须标注 emergency，
+        审批加速但审计不减
+
+依赖完整性校验（发布时 MUST，含引用对象下线的持续保障）：
+  MUST: 发布时校验——节点/条件引用的 TBox 类型已 active、
+        capability_binding 指向已注册 Capability、
+        data_requirement.source_ref 指向 active Connector/Capability、
+        workflow_ref 指向已发布 Workflow、事件类型已注册
+  MUST: 「依赖失效告警」是 published 状态上的正交布尔标志
+        （dependency_ok: true/false），不是独立状态机状态；
+        被引用对象下线时标志翻转为 false 并通知 owner
+  MUST: dependency_ok=false 的模型：检索仍返回（Planner 需要看到
+        归因知识），但模型元数据携带失效依赖清单；依赖节点生成的
+        数据 Step 正常执行、失败时按 Execution 既有重试/降级路径
+        处理，报告中标注哪些原因链证据缺失——消费方不静默消费
+  MUST: 回滚不重复执行发布校验（目标快照在首次发布时已校验）；
+        回滚 = 消费入口指向既有版本快照，即便该快照的部分依赖
+        已下线（此时依赖失效标志随迁为 false，走上述告警路径）
 ```
 
-### 3.5 运行反馈与模型优化闭环（v0.15 新增）
+### 3.5 运行绩效观测与优化触发（v0.15 新增，v0.16 定位调整）
 
-§3.4 解决"发布后的管理"，本节解决"运行中发现不准 → 优化 → 升级"的闭环。
+**定位**：Model Governance 子模块（§3.4）的**感知前端**——§3.4.1 问题管理负责
+issue 登记与流转，本节负责**绩效观测与偏差发现**（把"发现不准"变成可度量的信号）：
 
-**闭环总览：**
+**闭环总览（与 §3.4 配合）：**
 
 ```
 运行消费（Planner/Agent/Decision Engine 使用已发布模型）
-  → 绩效观测（Execution 结果 + 用户反馈 + 周期性评估）
-  → 发现偏差（模型不准/漂移/失效）
+  → 绩效观测（Execution 结果 + 用户反馈 + 周期性评估）← §3.5
+  → 发现偏差（模型不准/漂移/失效）→ 登记 ModelIssue ← §3.5 → §3.4.1
   → 触发优化（人工 + 系统提示）
-  → 修改出新版本（新分支，携带变更原因）
-  → 测试/回测 → 审批 → 重新发布（滚动升级）
+  → 修改出新版本（新分支，携带变更原因）← §3.4.2
+  → 测试/回测 → 审批 → 重新发布（滚动升级）← §3.4.4
   → 旧版本下线策略决策
 ```
 
@@ -767,49 +821,35 @@ SHOULD: 绩效异常（采纳率骤降 / 评估分数跌破阈值）自动触发
         「建议优化」告警并通知 owner
 ```
 
-**② 优化触发（MUST）：**
+**② 优化触发（MUST，v0.16 对齐 issue 机制）：**
 
 ```
-触发源（三类）：
-  1. 运行绩效：采纳率低 / 评估漂移（系统告警）
-  2. 用户反馈：专家/员工对归因结果的纠错、补充（显式反馈入口）
+触发源（三类），统一登记为 ModelIssue（§3.4.1）：
+  1. 运行绩效：采纳率低 / 评估漂移（系统告警 → issue，severity 按漂移幅度）
+  2. 用户反馈：专家/员工对归因结果的纠错、补充（显式反馈入口 → issue）
   3. 业务变化：业务规则、数据源、TBox 词汇变化导致模型过时
-     （如新设备类型、新增约束——依赖变更检测触发）
-MUST: 每次触发记录触发原因（reason），进入模型变更日志
+     （依赖变更检测 → issue）
+MUST: 每次触发登记 ModelIssue（source_type + source_ref），
+      issue 与模型版本强关联
+MUST: 修复动作由 issue 驱动：issue → 新版本（change_log 引用 issue_id）
 ```
 
-**③ 版本与变更原因管理（MUST，补 §3.4 缺口）：**
+**③ 变更原因管理（归 §3.4.2，本节仅保留引用）：**
 
 ```
-MUST: 每个版本携带结构化的变更记录（change_log）：
-      - version              — 本版本号
-      - change_type          — new | fix | enhance | deprecate
-      - reason               — 为什么改（结构化：performance_drop /
-                               user_feedback / business_change /
-                               dependency_change / bugfix，附描述）
-      - trigger_ref          — 触发源引用（绩效告警 ID / 用户反馈 ID /
-                               eval job ID）
-      - diff_summary         — 变更 diff 摘要（节点/边/规则增删改）
-      - author / reviewed_by / approved_at
-MUST: change_log 随版本快照不可变存储，随 Audit Spec 归档
-MUST: 新版本从当前 published 版本**分支**（不允许就地改 published），
-      分支记录 parent_version
-SHOULD: 版本对比工具展示两个版本的 diff + 变更原因（评审/审计用）
+MUST: 每个版本携带结构化 change_log（change_type / reason /
+      trigger_ref / diff_summary / author）——结构定义与不可变
+      存储见 §3.4.2/§3.4.3
+MUST: 修复 issue 的版本，其 change_log.reason 引用 issue_id（可追溯）
 ```
 
-**④ 优化升级与旧版本处理（MUST）：**
+**④ 优化升级与旧版本处理（归 §3.4.4，本节仅保留引用）：**
 
 ```
-MUST: 新版本经 testing（回测）→ Publish Approval → published，
-      流程同 §3.4；变更原因进入审批上下文供审批人评估
-MUST: 发布新版本后，旧版本按消费方引用情况处理：
-      - 有活跃引用的旧版本：保持 published（不动，消费方自行升级）
-      - 无引用：可选 deprecated（有下线审批）
-MUST: 滚动升级由消费方（Planner）在模型检索时优先新版本
-      （applicability 匹配度相同时取最新版本）；
-      消费方可固定版本（如对稳定性的要求）
-SHOULD: 重大绩效问题可走「紧急修复」通道：reason 必须标注
-        emergency，审批加速但审计不减
+MUST: 新版本经 testing → Publish Approval → published（流程、
+      滚动升级、旧版本处理、紧急通道均见 §3.4.4）
+MUST: 变更原因（change_log.reason / issue 关联）进入审批上下文
+      供审批人评估
 ```
 
 **与 §7 L3 方向的衔接：** 回测机制（L3 #5）是本闭环的评估支撑；
@@ -924,7 +964,7 @@ ECMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
 | 9 | `policy-center-specification.md` | 新增策略目标类型 model_asset（ECMC 发布审批） | P1 |
 | 10 | migration（代码侧，L3 前瞻） | relation_types 加 namespace 列 + status 扩展 draft；hypothesis_facts 表；既有 QU 校验/导入/understanding 排除 causal namespace | P0 |
 | 11 | `observation-specification.md`（可观测性） | 新增模型运行绩效观测：调用量/成功率/延迟/采纳率埋点（§3.5 ①） | P1 |
-| 12 | `audit-specification.md` | 模型变更日志（change_log：reason/trigger_ref/diff）归档要求对齐（§3.5 ③） | P2 |
+| 12 | `audit-specification.md` | 模型变更日志（change_log：reason/trigger_ref/diff）归档要求对齐（§3.4.2） | P2 |
 
 代码侧（L3 前瞻，不入本文）：新增 `earp_server/bmc/` 域；import-linter 新增契约；`ontology/` 域不迁移。
 
@@ -1237,3 +1277,30 @@ Phase 1 参考实现（默认算法，可替换）：
 - 滚动升级：消费方检索优先新版本；消费方可固定版本；紧急修复通道（reason=emergency，审批加速审计不减）
 
 **影响范围**：§5 清单新增 #11（observation-spec 绩效埋点）、#12（audit-spec change_log 归档）；§6 路线 Phase 2/3 加入反馈闭环起步与自动化评估。
+
+
+---
+
+## 23. 架构修订：四个并列二级模块 + Model Governance 子模块（v0.15 → v0.16）
+
+**背景**：① Causal Model / Decision Knowledge / Scenario Template 应为并列二级模块（此前模块树层级不齐）；② 模型治理（问题管理/修改/版本/发布）需要统一归属——用户确认：ECMC 内建治理子模块 + 轻量问题登记（方案 A），不建平台级独立治理中心、不引入外部工单系统。
+
+**决策**：
+
+```
+ECMC（一级模块）
+├── Causal Model        —— 因果模型（"为什么"）
+├── Decision Knowledge  —— 决策知识（"怎么办"）
+├── Scenario Template   —— 专家方案模板（"怎么用"，Phase 3+）
+└── Model Governance    —— 模型治理（一等子模块）
+      ├── 问题管理（§3.4.1）：ModelIssue 登记与流转，驱动优化闭环
+      ├── 模型修改（§3.4.2）：分支 / change_log / diff 对比
+      ├── 版本管理（§3.4.3）：语义化版本 / 不可变快照 / 回滚
+      └── 发布管理（§3.4.4）：testing 准入 / Publish Approval / 滚动升级
+```
+
+**关键点**：
+- 三个资产模块并列（同层），治理模块作为第四个并列二级模块
+- **ModelIssue（问题管理）**：issue_id / model_ref（模型+版本）/ source_type（绩效告警/用户反馈/业务变化/依赖变化/人工）/ severity / status（open→triaged→in_progress→fixed→closed|won't_fix）/ linked_change / timeline；issue 与版本强关联，修复必须产生新版本，change_log 引用 issue_id
+- §3.5 定位调整为"绩效观测与优化触发"（治理子模块的感知前端），原 §3.5 中的修改/版本/发布/升级内容归入 §3.4 子节（避免重复）
+- D6 决策记录演进：从"不自建治理中心"→"ECMC 内一等治理子模块，横切层仍复用"
