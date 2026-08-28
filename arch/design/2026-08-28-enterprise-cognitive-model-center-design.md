@@ -1,7 +1,7 @@
 # EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.13 — 架构修订：Scenario 定位细化为"专家业务方案模板（方法论模板）"，非业务应用（见 §20）
+- 状态: v0.14 — 架构修订：因果推理改为 Causal Reasoning Contract（L2 锁契约不锁算法），符号传播公式降为 Phase 1 参考实现（见 §21）
 - 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
@@ -27,7 +27,7 @@
 ### 1.2 建设目标
 
 1. **建立企业业务规律模型**：将专家经验（因果链、决策规则、事件应对）沉淀为可治理、可版本化的模型资产
-2. **支撑 Agent 深度业务推理**：使 Planner 从"意图 → 搜数据 → 生成回答"升级为"意图 → 匹配业务模型 → 因果遍历 → 数据获取 → 能力调用 → 形成结论"
+2. **支撑 Agent 深度业务推理**：使 Planner 从"意图 → 搜数据 → 生成回答"升级为"意图 → 匹配业务模型 → 因果推理 → 数据获取 → 能力调用 → 形成结论"
 3. **知识资产沉淀与跨行业复用**：隐性的专家经验转化为租户内知识资产，并支持行业模板包分发
 
 ### 1.3 设计由来（本草案 v0.1 → 本稿的关键决策）
@@ -94,7 +94,7 @@
 | # | 决策 | 结论 |
 |---|---|---|
 | D1 | Ontology 层归属 | **Enterprise Semantic Layer（企业语义层）由 KB/ECMC 共建，双方消费、无人拥有**（v0.11 修正，原“逻辑域归属 ECMC”易误解）：Ontology 不是业务模型，而是企业世界的语言体系（设备/工作面/产线/订单/客户…），同时服务 RAG、数据理解、因果分析、Planner——是 EARP 的公共语义基础设施。代码 `ontology/` 域不迁移（conversation/planner/connector 三处消费方零改动）。语义层内部：结构性关系（ABox 事实用）与因果性关系（ECMC 模型用）分属两个命名空间，同表登记。KB·ABox 管**结构性事实**（世界状态：实例级、时效性、confidence=可信度）；ECMC 管**规律性知识**（世界规律：类型级、可版本化、可回测），两者都是语义层的消费方 |
-| D2 | 因果模型建模形态 | **因果图是一等模型对象**，与 ABox 事实图完全分离。节点引用 TBox **实体类型**（类型级，非实例），推理时才绑定具体实例 |
+| D2 | 因果模型建模形态 | **因果图是一等模型对象**，与 ABox 事实图完全分离。节点引用 TBox **实体类型**（类型级，非实例），推理时才绑定具体实例。**推理算法不绑定**（v0.14）：L2 只定义 Causal Reasoning Contract（输入模型+观测+证据 → 输出原因排序+证据链），默认符号传播算法仅作 Phase 1 参考实现，贝叶斯/LLM/时序等算法 L3 选型 |
 | D3 | Decision Model 是否独立 | **独立存在，但作为知识资产而非引擎**：ECMC 存决策知识（目标/约束/规则/优化模型绑定），版本化治理；执行归现有 Planner（规划时）+ Decision Engine（执行时），优化模型经 Capability 绑定调用 |
 | D4 | Process Model 去留 | **砍独立子模块**：事件-任务映射规则（"给 Workflow 编排提供依据"）并入决策知识；流程执行复用 Workflow + Scheduler，ECMC 不碰执行 |
 | D5 | Scenario 定位 | **专家业务方案模板（方法论模板），非运行时对象、非业务应用**（v0.13 措辞细化）：Scenario = 专家对某类问题的**方法论沉淀**（模型绑定 + Capability 集合 + 分析步骤 + 输入输出契约的声明式配置）——如"生产异常分析方法论模板"而非"生产异常分析 Agent"；模板实例化编译为 Workflow / Chat App 由既有执行域运行，**实例化后的 Agent/应用是执行产物，不属于 ECMC**。**Phase 3+ 落地**（纯知识沉淀，价值依赖消费链路，等 Planner 模板匹配能力就绪） |
@@ -199,15 +199,44 @@ CausalModel
 
 #### 3.1.2 契约
 
+**Causal Reasoning Contract（因果推理契约，v0.14 重构：L2 锁契约不锁算法）**
+
+ECMC 不将因果推理算法绑定为唯一实现——企业因果推理未来可能有规则推理、
+图搜索、贝叶斯网络、LLM reasoning、时序模型等多种算法。L2 只定义**契约**
+（输入/输出/约束），**算法选型归 L3**：
+
+```
+输入：
+  CausalModel（已发布，实例化后的类型/实例绑定）
+  Observation（节点观测：数值序列 / 离散状态 / 聚合值，见 §3.1.4）
+  Evidence（外部证据：历史事实、事件记录、回测数据——SHOULD）
+输出：
+  Cause Ranking（原因排序：候选原因 + 方向 + 排序 + 置信度）
+  Evidence Chain（证据链：从原因到入口的传导路径 + 每步的观测证据与
+                  数据来源，保证可解释）
+约束：
+  MUST: 输出必须可解释——Cause Ranking 的每一项须附 Evidence Chain
+  MUST: 可复现——同一输入（模型版本 + 观测 + 证据）同一输出
+  MUST: 算法可替换——契约不依赖任何具体算法；算法实现经注册接入，
+        允许按模型/场景选择不同算法（Phase 1 默认实现见下）
+  MUST: 输入不变性——算法只消费契约输入，不产生副作用、不修改模型
+```
+
+**Phase 1 参考实现（默认算法，可替换——以下公式不约束契约，仅约束默认实现）：**
+
+当前默认算法 = 符号传播 + 路径排序（下述公式已经九轮评审打磨，作为
+Phase 1 可执行基线；未来引入贝叶斯/LLM 等算法时，满足上述契约即可替换）：
 ```
 MUST: 节点只引用 TBox 已注册的实体类型/metric 类型；未注册先走 TBox 审批
 MUST: 发布状态才能被 Planner 检索；draft/testing 对消费方不可见
 MUST: 因果边登记为 TBox causal 命名空间关系类型（schema 扩展见 §3.1.5）
 MUST: 图为有向无环图（DAG）；编译期做环路检测，含环模型不可发布
+      （DAG 约束属模型结构契约，对任何算法成立）
 MUST: 边带 effect 符号（+/-）；方向约定：effect 表示源节点取值上升时
       对目标节点的影响方向（+ 同向、- 反向）
+      （effect 符号属模型语义契约，任何算法都需消费）
 
-      原因筛选公式（显式定义）：
+默认实现的原因筛选公式（参考实现，可替换）：
       设推理目标方向 d = entry_point.direction（up=+1 / down=-1），
       路径 p = 原因节点 → … → entry_point 的边序列，
       路径符号积 S(p) = ∏ edges.effect（±1 之积），
@@ -218,7 +247,7 @@ MUST: 边带 effect 符号（+/-）；方向约定：effect 表示源节点取�
       健康度↓（effect=-）→ 产量↓"——经公式换算后合法入选），
       候选原因的报告方向按 d'(p) 标注。中间节点不单独输出，
       仅作为传导路径展示
-MUST: 归因排序分值（Phase 1 契约，可评审可替换；v0.8 修正 obs_match
+MUST(默认实现): 归因排序分值（Phase 1 默认算法；v0.8 修正 obs_match
       数学/语义）：
       score(path) = |∏ strength| × ∏ confidence × obs_match(path)
 
@@ -259,7 +288,7 @@ MUST: 归因排序分值（Phase 1 契约，可评审可替换；v0.8 修正 obs
       节点聚合取其全部入径的最高分路径；同一原因节点正负路径
       并存时，分别列出两条解释并标注"方向冲突待数据裁决"
 
-MUST: 观测方向推导口径（P2-3，Phase 1 契约，v0.10 补当前窗口）：
+MUST(默认实现): 观测方向推导口径（P2-3，Phase 1 默认算法，v0.10 补当前窗口）：
       按节点观测类型分三套口径，object 节点统一声明
       observation_window（当前窗口，见 §3.1.4）：
       1. 数值时间序列（metric 节点 / 数值观测）：data_requirement
@@ -279,14 +308,16 @@ MUST: 观测方向推导口径（P2-3，Phase 1 契约，v0.10 补当前窗口�
          基线窗口 = aggregation.baseline_window（缺省 = 当前窗口
          前一等长窗口）
       以上口径均保证 Phase 1 可复现；L3 可扩展趋势拟合/显著性
-MUST: obs_match 语义（P2-5）：几何均值 + 反向一票否决——任一节点
+MUST(默认实现): obs_match 语义（P2-5）：几何均值 + 反向一票否决——任一节点
       反向数据足以推翻该路径解释（obs_match=0）；其余情况几何
       均值消除长路径衰减。若需进一步缓解长路径单节点主导，L3
       提供按节点 confidence 加权的变体（obs_match_w = Σ m(i)·conf(i)
       / Σ conf(i)），Phase 1 保持几何均值 + 一票否决
-MUST: 发布时强制补齐边字段——每条边必须声明 strength 与 confidence
+MUST(默认实现): 发布时强制补齐边字段——每条边必须声明 strength 与 confidence
       （默认值：strength=0.5、confidence=0.5，显式声明者优先），
-      保证排序公式对 published 模型恒有定义
+      保证默认排序公式对 published 模型恒有定义
+      （strength/confidence 字段本身属模型语义契约，任何算法都需要；
+      但“默认补齐值”仅约束默认实现，未来算法可自定义缺失处理）
 MUST: 实例化分两类节点：object 节点沿 KB 结构关系（belongs_to /
       located_in 等）展开到具体实体实例；metric 节点无 ABox 实例，
       按 §3.1.4 的 instance_binding 绑定到实体实例 × 时间窗
@@ -303,21 +334,23 @@ MUST: applicability 发布时必填（实例集合 / 行业标签），
 
 #### 3.1.3 因果推理流程（消费方式）
 
-案例："为什么 3 号矿产量下降？"
+案例："为什么 3 号矿产量下降？"（流程按 Causal Reasoning Contract 调用，
+具体算法由注册的推理实现决定，Phase 1 用默认符号传播算法）：
 
 ```
 Planner 定位 entry_point 节点（产量下降，direction=down）
   → 匹配已发布 CausalModel
-  → 沿因果边反向遍历，按筛选公式 d'(p) = d × S(p) 换算每条路径的
-    解释方向（反向原因链合法入选，如"设备老化↑ → 健康度↓ → 产量↓"）
   → 因果模板实例化：object 节点沿 KB ABox 结构关系展开
     （"3 号矿的设备"）；metric 节点按 instance_binding 绑定
     （产量 × 3 号矿 × 近 30 天）
   → 按节点 data_requirement 生成数据获取 Step → 经 capability_binding 绑定 Capability
-  → 汇总证据，按 score(path) = |∏ strength| × ∏ confidence ×
-    obs_match(path) 排序（obs_match 用各节点 e(i) 子路径符号积，
-    见 §3.1.2）
-    → 输出原因排序报告（候选原因携带 d'(p) 方向标注与证据匹配度）
+  → 组装契约输入（CausalModel + Observation + Evidence）
+  → 调用因果推理实现（Phase 1 默认：沿因果边反向遍历，按
+    筛选公式 d'(p) = d × S(p) 换算解释方向（反向原因链合法入选），
+    按 score(path) = |∏ strength| × ∏ confidence × obs_match(path)
+    排序——见 §3.1.2 参考实现）
+    → 输出契约结果：Cause Ranking（原因排序，候选携带方向与置信度）
+      + Evidence Chain（证据链，每步观测证据与数据来源）
 ```
 
 #### 3.1.4 data_requirement 结构（修订 P1-7）
@@ -719,9 +752,10 @@ SHOULD: 支持「发布者 ≠ 审批者」分离（专家编辑 / 管理者审�
 返回: 已发布 CausalModel 候选集（含节点/边摘要 + 版本号）
 
 后续:
-  → 因果归因类意图: 沿因果边反向遍历（符号积过滤）→ 按节点
+  → 因果归因类意图: 调用 Causal Reasoning Contract（Phase 1 默认：
+    沿因果边反向遍历 + 符号积过滤，见 §3.1.2 参考实现）→ 按节点
     data_requirement（§3.1.4）生成数据获取 Step → 经 capability_binding
-    绑定 Capability → 纳入 Plan
+    绑定 Capability → 纳入 Plan（证据链回填）
   → 决策类意图: 注入 DecisionObjective + ConstraintSet → Goal 分解；
     scope=planner 规则的 capability_call 条件生成前置 Step
   → （Phase 3+）场景类意图: 匹配 ScenarioTemplate → 实例化为 Workflow
@@ -837,13 +871,14 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 ## 7. 后续 L3 设计方向
 
 1. **模型元数据物理模型**：ECMC 各对象的表结构（PG 承载，沿用"基础设施最小化"原则，图数据库留待多跳推理需要时评估）
-2. **因果图引擎**：图存储（递归 CTE vs 图数据库）、图查询、因果遍历算法、实例化展开规则
-3. **Planner 集成实现**：entry_point 语义匹配（复用 Semantic Index）、模型选择、因果遍历 → Plan 生成的映射
-4. **FDE 建模工具**：拖拽编辑器、节点配置、发布流程（对接 Policy 审批）
-5. **回测机制**：testing 阶段的 strength/lag 校准、DecisionRule 回测、testing 准入/退出标准的量化定义
-6. **Industry Pack 格式**：导出/导入 schema、冲突检测算法、ID 映射与重复导入幂等性、发布时 dependency 完整性校验同 §3.4
-7. **多跳因果聚合算法**：Phase 1 已定义基础契约（score = |∏ strength| × ∏ confidence，§3.1.2）；L3 细化重叠路径去重、路径冲突的数据裁决、强度衰减函数
-8. **Publish Approval 审批流实现**：审批对象（版本快照 + diff）、审批人路由（owner 角色）、与 Policy Center model_asset 目标类型的对接
+2. **因果图引擎**：图存储（递归 CTE vs 图数据库）、图查询、实例化展开规则
+3. **因果推理算法选型（v0.14 新增，L2 契约已预留）**：Phase 1 默认 = 符号传播 + 路径排序（§3.1.2 参考实现）；L3 评估并可选引入：规则推理、图搜索、贝叶斯网络、LLM reasoning、时序模型——候选算法必须满足 Causal Reasoning Contract（可解释：输出带 Evidence Chain；可复现；可替换；无副作用）
+4. **Planner 集成实现**：entry_point 语义匹配（复用 Semantic Index）、模型选择、因果遍历 → Plan 生成的映射
+5. **FDE 建模工具**：拖拽编辑器、节点配置、发布流程（对接 Policy 审批）
+6. **回测机制**：testing 阶段的 strength/lag 校准、DecisionRule 回测、testing 准入/退出标准的量化定义
+7. **Industry Pack 格式**：导出/导入 schema、冲突检测算法、ID 映射与重复导入幂等性、发布时 dependency 完整性校验同 §3.4
+8. **多跳因果聚合细化**（默认实现的增强）：重叠路径去重、路径冲突的数据裁决、强度衰减函数
+9. **Publish Approval 审批流实现**：审批对象（版本快照 + diff）、审批人路由（owner 角色）、与 Policy Center model_asset 目标类型的对接
 
 ---
 
@@ -1062,3 +1097,35 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 - §3.3 重命名定位为"专家业务方案模板"，结构图新增 problem_type / methodology_steps[]（方法论步骤骨架）
 - D5 决策记录措辞细化（"生产异常分析方法论模板"而非"生产异常分析 Agent"）
 - §2.2 负责清单、§1.1 表格措辞同步
+
+
+---
+
+## 21. 架构修订：Causal Reasoning Contract（v0.13 → v0.14）
+
+**背景**：前九轮评审将因果归因公式打磨到"可评审、可实现"（score = strength × confidence × obs_match、符号传播、DAG、路径排序）。但 L2 不应将算法锁死——企业因果推理未来可能有规则推理、图搜索、贝叶斯网络、LLM reasoning、时序模型等多种算法。
+
+**决策**：L2 定义 **Causal Reasoning Contract**，不定义 Causal Reasoning Algorithm：
+
+```
+L2 契约（算法无关）：
+  输入：CausalModel（已发布、已实例化）+ Observation（节点观测）+ Evidence（外部证据）
+  输出：Cause Ranking（原因排序）+ Evidence Chain（证据链）
+  约束：可解释（输出带证据链）、可复现（同输入同输出）、
+        可替换（算法经注册接入、可按模型/场景选择）、无副作用
+
+Phase 1 参考实现（默认算法，可替换）：
+  符号传播 + 路径排序（score = |∏strength| × ∏confidence × obs_match、
+  d'(p)/e(i) 符号积、观测三口径）——九轮评审打磨的公式保留为默认基线，
+  但明确标注不约束契约
+```
+
+**关键区分**：
+- **模型语义契约**（任何算法都需要）：DAG 无环、effect 符号、strength/confidence 字段、实例化规则、可见性——这些仍是 MUST
+- **算法实现**（可替换）：原因筛选公式、排序分值、obs_match、观测方向推导——降级为 MUST(默认实现)
+- **输出契约**：Cause Ranking + Evidence Chain 成为一等输出，替代原来的"排序报告"表述
+
+**影响范围**：
+- §3.1.2 重构为契约层 + 参考实现层；§3.1.3 流程改为契约调用
+- D2 决策记录补充"推理算法不绑定"
+- §7 L3 方向新增"因果推理算法选型"（规则/图搜索/贝叶斯/LLM/时序），候选算法须满足契约
