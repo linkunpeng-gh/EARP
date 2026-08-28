@@ -1,7 +1,7 @@
 # EARP Business Model Center（业务模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.2 — 按对抗性评审修订（13 条意见全部处置：P0×2、P1×8、P2×3，处置记录见 §9）
+- 状态: v0.3 — 第二轮对抗性评审修订（9 条：P1×6、P2×3，处置记录见 §10）
 - 定位: L2 前置设计——本文拍板 BMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（business-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: BMC = Business Model Center；KB = Knowledge Center；FDE = Field Domain Engineer（现场领域工程师）
@@ -151,6 +151,8 @@ CausalModel
 ├── name / description              — "三号矿产量下降归因模型"
 ├── version                         — 语义化版本（v1.2.0）
 ├── status                          — draft / testing / published / deprecated
+├── dependency_ok                   — 依赖完整标志（published 上的正交布尔，
+│                                     详见 §3.4）
 ├── nodes[]                         — 节点列表
 │     ├── node_id
 │     ├── entity_type_ref           — 引用 TBox entity_type（object 或 metric kind，
@@ -186,9 +188,23 @@ MUST: 发布状态才能被 Planner 检索；draft/testing 对消费方不可见
 MUST: 因果边登记为 TBox causal 命名空间关系类型（schema 扩展见 §3.1.5）
 MUST: 图为有向无环图（DAG）；编译期做环路检测，含环模型不可发布
 MUST: 边带 effect 符号（+/-）；方向约定：effect 表示源节点取值上升时
-      对目标节点的影响方向。entry_point.direction 与推理目标方向一致时，
-      沿路径做符号乘积传递（多跳影响符号 = 路径上各边 effect 之积），
-      仅方向一致的路径进入原因候选集
+      对目标节点的影响方向（+ 同向、- 反向）
+
+      原因筛选公式（显式定义）：
+      设推理目标方向 d = entry_point.direction（up=+1 / down=-1），
+      路径 p = 原因节点 → … → entry_point 的边序列，
+      路径符号积 S(p) = ∏ edges.effect（±1 之积），
+      则原因节点对目标的解释方向 d'(p) = d × S(p)：
+        - d'(p) = +1：原因节点取值上升可解释目标的 d 方向变化
+        - d'(p) = -1：原因节点取值下降才解释目标的 d 方向变化
+      全部路径保留进入候选集（反向原因链——如"设备老化↑ →
+      健康度↓（effect=-）→ 产量↓"——经公式换算后合法入选），
+      候选原因的报告方向按 d'(p) 标注。中间节点不单独输出，
+      仅作为传导路径展示
+MUST: 归因排序分值（Phase 1 契约，可评审可替换）：
+      score(path) = |∏ strength| × ∏ confidence；节点聚合取其全部
+      入径的最高分路径；同一原因节点正负路径并存时，分别列出
+      两条解释并标注"方向冲突待数据裁决"，不做静默合并
 MUST: 实例化分两类节点：object 节点沿 KB 结构关系（belongs_to /
       located_in 等）展开到具体实体实例；metric 节点无 ABox 实例，
       按 §3.1.4 的 instance_binding 绑定到实体实例 × 时间窗
@@ -210,13 +226,14 @@ MUST: applicability 发布时必填（实例集合 / 行业标签），
 ```
 Planner 定位 entry_point 节点（产量下降，direction=down）
   → 匹配已发布 CausalModel
-  → 沿因果边反向遍历，按路径符号积过滤与 direction 一致的候选原因链
-    （设备/地质/调度）
+  → 沿因果边反向遍历，按筛选公式 d'(p) = d × S(p) 换算每条路径的
+    解释方向（反向原因链合法入选，如"设备老化↑ → 健康度↓ → 产量↓"）
   → 因果模板实例化：object 节点沿 KB ABox 结构关系展开
     （"3 号矿的设备"）；metric 节点按 instance_binding 绑定
     （产量 × 3 号矿 × 近 30 天）
   → 按节点 data_requirement 生成数据获取 Step → 经 capability_binding 绑定 Capability
-  → 汇总证据，按路径符号积 × 边 strength 聚合排序 → 输出原因排序报告
+  → 汇总证据，按 score(path) = |∏ strength| × ∏ confidence 排序
+    → 输出原因排序报告（候选原因携带 d'(p) 方向标注）
 ```
 
 #### 3.1.4 data_requirement 结构（修订 P1-7）
@@ -229,13 +246,32 @@ data_requirement
 ├── source_ref              — connector_id 或 capability_id（MUST 已注册且 active）
 ├── metric_binding          — metric 节点必填
 │     ├── metric_ref        — TBox metric 类型
-│     ├── instance_binding  — 绑定到哪个实体实例（表达式引用推理上下文，
-│     │                       如 "$target_entity" = 3 号矿；沿结构关系下钻声明，
-│     │                       如 "$target_entity.descendants(equipment)"）
+│     ├── instance_binding  — 绑定到哪个实体实例（受限表达式，见下）
 │     ├── time_window       — 时间窗（如 P30D）与粒度（如 daily）
 │     └── aggregation / unit — 聚合方式（sum/avg/max…）与单位
 └── output_mapping          — 输出字段 → 节点取值的映射
                               （Capability 返回 schema 中哪个字段作为节点观测值）
+```
+
+```
+instance_binding 受限表达式（L2 契约，语法固定为三段式，禁止任意代码）：
+  $target_entity                          — 推理目标实体
+  $target_entity.<structural_relation>    — 沿单一结构关系展开（一步），
+                                            如 $target_entity.belongs_to
+  $target_entity.<relation>.<entity_type> — 展开后按类型过滤，
+                                            如 $target_entity.belongs_to.equipment
+  约束：
+  MUST: relation 仅允许 TBox structural namespace 中已注册关系
+  MUST: 展开上限 2 跳（性能与爆炸防护）
+  MUST: 展开结果按双层权限模型过滤（展开越权实体视为无权限，
+        不报错、不返回）
+  SHOULD: 展开结果超过 100 实例时要求模型作者显式声明聚合策略
+
+双数据通道优先级：
+  MUST: 节点同时声明 capability_bindings[] 与 data_requirement 时，
+        data_requirement 为主（它携带取数/映射/聚合完整契约），
+        capability_bindings 为辅助路由信息；两者指向的 Capability
+        必须一致，不一致为编译期错误
 ```
 
 ```
@@ -268,15 +304,19 @@ SHOULD: capability_entity_map.status 同步扩展 draft 态（Phase 2+ Industry 
 
 ### 3.2 DecisionKnowledge（决策知识）
 
-三类知识对象，统一状态机与治理：
+四类知识对象（DecisionObjective / ConstraintSet / DecisionRule /
+EventTaskMapping），统一状态机与治理（均含独立 id/version，§3.4）：
 
 ```
 DecisionKnowledge
 ├── DecisionObjective    — 决策目标（提升产量/降低成本）
+│     ├── objective_id / version / status
 │     ├── metric_ref + 方向 + 阈值
 ├── ConstraintSet        — 业务约束（安全规则/人员/库存/设备能力）
+│     ├── constraint_set_id / version / status
 │     └── 约束引用 TBox 类型
 ├── DecisionRule         — IF-THEN 决策规则
+│     ├── rule_id / version / status
 │     ├── condition
 │     │     ├── source: "metric_ref" | "context" | "capability_call"
 │     │     │       （capability_call 仅限 Planner 消费（见下）；
@@ -288,6 +328,7 @@ DecisionKnowledge
 │     ├── priority / confidence
 │     └── scope          — 规则消费域: "planner" | "execution" | "both"
 └── EventTaskMapping     — 事件/条件-任务映射（给 Workflow 编排提供依据）
+      ├── mapping_id / version / status
       ├── trigger_kind: "event" | "condition"（对齐 Scheduler 两种 Trigger）
       ├── trigger_spec
       │     ├── event: event_type + event_filter
@@ -295,7 +336,8 @@ DecisionKnowledge
       │     └── condition: condition_expr + evaluation_frequency
       │             （对齐 Scheduler condition trigger 的评估频率要求；
       │               边沿触发（条件由假变真时触发一次）为默认语义，
-      │               电平触发（持续满足重复触发）需显式声明）
+      │               电平触发（持续满足重复触发）需显式声明；
+      │               condition_expr 禁止 capability_call——见下）
       └── workflow_ref  — 触发的 Workflow 定义（MUST 存在且已发布）
 ```
 
@@ -312,8 +354,20 @@ capability_call 条件不允许内联在 Decision Engine 执行时分支中
   审计/限流/重试由平台保障），执行结果注入分支评估上下文
 - scope = execution 的规则: condition.source 仅允许 metric_ref（取数据中台
   实时指标）或 context（执行上下文已有数据）
-- MUST: capability_call 源仅允许只读 Capability（无副作用），
-  声明超时上限与输出字段映射（output_mapping，同 §3.1.4）
+- MUST: capability_call 源仅允许只读 Capability，可强制校验而非
+  依赖建模者自觉：
+      a) business_capabilities.type = 'query' 为必要条件（编译期拒绝
+         type='command' 的引用）；
+      b) 执行 adapter 白名单：capability_call 前置 Step 仅允许
+         白名单内 adapter 类型执行（L3 定清单）；
+      c) Planner 生成前置 Step 时强制注入只读门禁
+         （Step 元数据标记 read_only=true，Orchestrator 校验，
+         违规 Step 拒绝执行）
+  MUST: 声明超时上限与输出字段映射（output_mapping，同 §3.1.4）
+MUST: EventTaskMapping.condition.condition_expr 同样禁止 capability_call
+      ——表达式仅允许引用 metric_ref / 事件 payload 字段 /
+      Connector 提供的实时指标（求值方为 Scheduler，无 Capability
+      执行能力）
 ```
 
 #### 3.2.1 契约
@@ -328,9 +382,15 @@ MUST: 与 Policy Center 分工——BMC 规则是业务性"怎么办"，
 MUST: 跨 Data Domain 引用时权限取最高 data_classification（同 §3.1.2）
 MUST: DecisionKnowledge 四类对象独立标识、独立版本；规则间引用
       （如 DecisionRule 引用 ConstraintSet）必须指向已发布对象
-MUST: 同优先级规则冲突时，两个 action 并列输出并标注冲突，
-      由消费方（Planner/LLM/用户）裁决；Policy 不裁决业务冲突，
-      仅作治理性否决
+MUST: 同优先级规则冲突时的裁决按 scope 分离：
+      - scope = planner（规划时）: 两个 action 并列输出并标注冲突，
+        由 Planner/LLM/用户裁决（规划有裁决空间）
+      - scope = execution（执行时）: 确定性裁决，不得并列输出——
+        依次取 (priority 降序 → 更新版本 → 更近发布时间) 选唯一生效
+        action；仍不可分时丢弃两者并走 Decision Engine 默认分支
+        （fallback），审计记录冲突详情。
+        与 Decision Engine "有且仅有一个 selected_branch" 契约对齐；
+        Policy 不裁决业务冲突，仅作治理性否决
 SHOULD: 规则支持组合（AND / OR / NOT，与 Decision Engine §3.1 一致）
 ```
 
@@ -340,7 +400,7 @@ SHOULD: 规则支持组合（AND / OR / NOT，与 Decision Engine §3.1 一致�
 |---|---|
 | Planner | DecisionObjective + ConstraintSet 注入规划上下文，用于 Goal 分解与 Plan 生成；scope=planner 规则的 capability_call 条件生成为前置 Step |
 | Decision Engine | 执行时分支选择从已发布 DecisionRule（scope 含 execution）读取（规则资产化，替代散落代码/配置）；condition.source 仅 metric_ref / context |
-| Scheduler / Workflow | BMC 将 EventTaskMapping 发布为 `earp.bmc.mapping.published` 事件；Scheduler 订阅该事件并创建/更新对应 trigger（BMC 不主动注册 trigger——修订 P2-13），执行走 Workflow |
+| Scheduler / Workflow | BMC 将 EventTaskMapping 生命周期发布为事件：`earp.bmc.mapping.published`（创建/更新 trigger）、`earp.bmc.mapping.deprecated`（停用 trigger）、`earp.bmc.mapping.rolled_back`（指向回滚目标版本快照，Scheduler 据此更新 trigger）；Scheduler 订阅上述事件维护 trigger（BMC 不主动注册 trigger——修订 P2-13），执行走 Workflow。Scheduler 侧幂等：事件重复消费不重复建 trigger |
 
 ### 3.3 ScenarioTemplate（场景模板，Phase 3+）
 
@@ -381,9 +441,16 @@ MUST: 发布时校验——节点/条件引用的 TBox 类型已 active、
       capability_binding 指向已注册 Capability、
       data_requirement.source_ref 指向 active Connector/Capability、
       workflow_ref 指向已发布 Workflow、事件类型已注册
-MUST: 被引用对象（TBox 类型/Capability/Workflow）下线时，
-      依赖它的 published 模型进入「依赖失效」告警态并通知 owner；
-      告警态模型仍可消费，但消费方在结果中标注依赖降级
+MUST: 「依赖失效告警」是 published 状态上的正交布尔标志
+      （dependency_ok: true/false），不是独立状态机状态；
+      被引用对象下线时标志翻转为 false 并通知 owner
+MUST: dependency_ok=false 的模型：检索仍返回（Planner 需要看到
+      归因知识），但模型元数据携带失效依赖清单；依赖节点生成的
+      数据 Step 正常执行、失败时按 Execution 既有重试/降级路径
+      处理，报告中标注哪些原因链证据缺失——消费方不静默消费
+MUST: 回滚不重复执行发布校验（目标快照在首次发布时已校验）；
+      回滚 = 消费入口指向既有版本快照，即便该快照的部分依赖
+      已下线（此时依赖失效标志随迁为 false，走上述告警路径）
 ```
 
 **版本与回滚（修订 P1-8）：**
@@ -454,23 +521,35 @@ MUST: 返回模型版本号（Planner 在 Execution Trace 中记录，保证可�
 
 KB → BMC: 实例化时提供实体实例（ABox 沿 belongs_to / located_in 展开）
 
-BMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b）:
-  因果推理产生的"假设性事实"（如"疑似轴承老化"）写入独立候选表
-  hypothesis_facts（结构同 facts + provenance 字段），不进 facts 表——
-  ABox 检索/Compiled Truth/QU 从根上无污染。
+BMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
+      v0.3 修正表结构——不复制 facts 三元组）:
+  因果推理产生的"假设性断言"（如"3 号矿产量下降疑似因主轴承老化"）
+  写入独立候选表 hypothesis_facts。**hypothesis 不是三元组事实**：
+  因果结论既不能用 structural 关系表达，又不得使用 causal namespace
+  关系类型（§3.1.5 约束其仅限 CausalModel.edges），故采用
+  断言式结构，不复用 facts 的 source/relation/target 三列：
 
   hypothesis_facts
-  ├── 结构同 facts（source/target entity、relation_type、valid_from…）
+  ├── hypothesis_id
+  ├── tenant_id / data_domain_id（可见性同 §3.1.2 双层权限）
+  ├── subject: {entity_id?, entity_type_id?, metric_ref?}  — 断言主体
+  │       （实体或指标，引用 ABox 实例 / TBox 类型）
+  ├── assertion: string          — 断言文本（"疑似主轴承老化"）
+  ├── normalized_relation?: structural relation_type_id + target_entity_id
+  │       （仅当断言可映射为既有结构关系时填写——如"轴承 X 属于 CNC-01"
+  │        可映射 belongs_to；映射不了就留空，不强行造关系）
+  ├── evidence: JSONB（证据摘要：路径、节点观测值、score）
   ├── provenance: model_id + model_version + reasoning_trace_id
-  ├── status: candidate → adopted | rejected | withdrawn
-  └── evidence: JSONB（证据摘要）
+  └── status: candidate → adopted | rejected | withdrawn
 
   MUST: 假设性结论只入 hypothesis_facts，永不直接写 facts
-  MUST: 检索默认排除 hypothesis_facts（显式请求假设查询时单独通道）
-  MUST: 审核通过转正 = 抄录为 facts 新行（source_ref 指向 hypothesis 记录），
-        原 hypothesis 置 adopted
+  MUST: facts/QU/Compiled Truth 检索默认排除 hypothesis_facts
+        （显式请求假设查询时单独通道）
+  MUST: 审核通过转正：有 normalized_relation 的抄录为 facts 新行
+        （source_ref 指向 hypothesis 记录）；无映射的作为
+        RAG 文档型知识归档（供后续检索），原 hypothesis 置 adopted
   MUST: 撤回 = hypothesis 置 withdrawn（已转正的走事实正常生命周期）
-  SHOULD: 同一假设多次独立推理命中 → 提升审核优先级
+  SHOULD: 同一主体 + 相似断言多次独立推理命中 → 提升审核优先级
 ```
 
 ---
@@ -486,7 +565,7 @@ BMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b）:
 | 5 | `concept-model-v2.x` | 新增 CausalModel / DecisionKnowledge / ScenarioTemplate 概念对象 | P1 |
 | 6 | `scheduler-specification.md` | 新增"订阅 earp.bmc.mapping.published 创建/更新 trigger"说明；EventTaskMapping 触发语义（边沿/电平、评估频率）对齐 | P1 |
 | 7 | `workflow-specification.md` | task_template / ScenarioTemplate 实例化的编排依据说明 | P2 |
-| 8 | `eventbus-specification.md` v1.1 → v1.2 | 新增业务事件类型注册表；`earp.bmc.mapping.published` 事件类型 | P1 |
+| 8 | `eventbus-specification.md` v1.1 → v1.2 | 新增业务事件类型注册表；`earp.bmc.mapping.published / deprecated / rolled_back` 事件类型 | P1 |
 | 9 | `policy-center-specification.md` | 新增策略目标类型 model_asset（BMC 发布审批） | P1 |
 | 10 | migration（代码侧，L3 前瞻） | relation_types 加 namespace 列 + status 扩展 draft；hypothesis_facts 表；既有 QU 校验/导入/understanding 排除 causal namespace | P0 |
 
@@ -518,7 +597,7 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 4. **FDE 建模工具**：拖拽编辑器、节点配置、发布流程（对接 Policy 审批）
 5. **回测机制**：testing 阶段的 strength/lag 校准、DecisionRule 回测、testing 准入/退出标准的量化定义
 6. **Industry Pack 格式**：导出/导入 schema、冲突检测算法、ID 映射与重复导入幂等性、发布时 dependency 完整性校验同 §3.4
-7. **多跳因果聚合算法**：路径符号积 × strength 聚合、路径冲突（同一节点正负路径并存）的裁决策略
+7. **多跳因果聚合算法**：Phase 1 已定义基础契约（score = |∏ strength| × ∏ confidence，§3.1.2）；L3 细化重叠路径去重、路径冲突的数据裁决、强度衰减函数
 8. **Publish Approval 审批流实现**：审批对象（版本快照 + diff）、审批人路由（owner 角色）、与 Policy Center model_asset 目标类型的对接
 
 ---
@@ -553,3 +632,19 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 | P2-11 | applicability SHOULD 但过滤依赖它；多模型命中无消歧 | §3.1.2：发布时必填；消歧策略（applicability 匹配度 → 版本排序 → 冲突标注交消费方裁决） |
 | P2-12 | DecisionKnowledge 身份/版本未定义；conflict_resolution 空洞 | §3.2.1：四类对象独立标识/版本、规则间引用须指向已发布对象；冲突 = 并列输出标注，Policy 仅治理性否决 |
 | P2-13 | "BMC 不执行"与"注册 trigger"所有权冲突 | §3.2.2：改为 Scheduler 订阅 `earp.bmc.mapping.published` 事件创建/更新 trigger，BMC 不主动注册 |
+
+---
+
+## 10. 第二轮对抗性评审处置记录（v0.2 → v0.3）
+
+| # | 评审意见 | 处置 |
+|---|---|---|
+| P1-1 | 符号积按字面实现会丢掉反向原因链 | §3.1.2：显式公式 d'(p) = d × S(p)（候选方向 = 目标方向 × 路径符号积），全部路径保留、按 d' 标注方向；中间节点仅作传导路径；归因排序 score = |∏ strength| × ∏ confidence，正负路径并存时并列标注待数据裁决 |
+| P1-2 | hypothesis_facts 复制 facts 三列与 causal namespace 约束矛盾 | §4.3：改为断言式结构（subject + assertion + evidence + provenance），normalized_relation 仅在可映射既有结构关系时填写；不可映射的转正后归档为 RAG 文档型知识 |
+| P1-3 | 并列输出与 Decision Engine 单分支契约冲突 | §3.2.1：按 scope 分离——planner 并列输出交裁决；execution 确定性裁决链（priority → 版本 → 发布时间 → fallback 默认分支），审计记录冲突详情 |
+| P1-4 | mapping 只有 published 事件，无下线/回滚；condition_expr 未禁 capability_call | §3.2.2：新增 `earp.bmc.mapping.deprecated` / `earp.bmc.mapping.rolled_back` 事件，Scheduler 幂等消费；§3.2 契约明禁 condition_expr 使用 capability_call |
+| P1-5 | "只读 Capability"无强制元数据 | §3.2：三重强制——type='query' 编译期必要条件、执行 adapter 白名单（L3 定清单）、Planner 前置 Step 注入 read_only 门禁由 Orchestrator 校验 |
+| P1-6 | 告警态不在状态机内且"仍可消费"矛盾；回滚被发布校验堵死 | §3.4：dependency_ok 明确为 published 上的正交布尔标志；失效模型返回时携带失效清单、数据 Step 失败走既有重试/降级、报告标注证据缺失；回滚不重复执行发布校验（快照首次发布已校验），依赖失效标志随迁 |
+| P2-7 | Phase 1 闭环依赖未定义的聚合算法 | §3.1.2：Phase 1 给出可评审基础契约（score 公式 + 节点取最高分入径 + 冲突并列标注）；去重/衰减留 L3 |
+| P2-8 | instance_binding 无语法/权限/性能约束；双数据通道无优先级 | §3.1.4：三段式受限表达式（2 跳上限、仅 structural 关系、展开越权静默过滤、100 实例需显式聚合）；data_requirement 为主、capability_bindings 为辅助路由、不一致为编译期错误 |
+| P2-9 | "三类对象"与四类不一致；Objective/ConstraintSet 缺 id/version | §3.2：更正为四类；全部补 id/version/status 字段 |
