@@ -1,7 +1,7 @@
 # EARP Business Model Center（业务模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.6 — 第五轮对抗性评审修订（6 条：P1×3、P2×3，处置记录见 §13）
+- 状态: v0.7 — 第六轮对抗性评审修订（5 条：P1×2、P2×3，处置记录见 §14）
 - 定位: L2 前置设计——本文拍板 BMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（business-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: BMC = Business Model Center；KB = Knowledge Center；FDE = Field Domain Engineer（现场领域工程师）
@@ -162,9 +162,14 @@ CausalModel
 │     │     │                               区分"为什么产量下降"与"为什么产量上升"
 │     │     └── description                 — 入口语义描述（供 Planner 匹配）
 │     ├── data_requirement          — 数据需求声明（结构见 §3.1.4）
+│     ├── instance_data_binding     — object 节点实例取数输入契约
+│     │    （object 节点必填，§3.1.4：instance_source / data_source /
+│     │     instance_key_field / instance_observation /
+│     │     aggregation_input）
 │     ├── aggregation               — object 节点用量声明（§3.1.4）：
-│     │    ├── mode: "per_instance" \| "aggregate"（发布时 MUST）
-│     │    └── operator / weight_ref（mode=aggregate 时）
+│     │    ├── mode: "per_instance" \| "aggregate"（发布时校验，
+│     │    │        未声明按 per_instance 补齐入快照）
+│     │    └── operator / predicate / weight_ref（mode=aggregate 时）
 │     └── capability_bindings[]     — 节点 ↔ Capability 绑定（capability_entity_map 模式）
 ├── edges[]                         — 有向影响边
 │     ├── source_node_id / target_node_id
@@ -204,10 +209,20 @@ MUST: 边带 effect 符号（+/-）；方向约定：effect 表示源节点取�
       健康度↓（effect=-）→ 产量↓"——经公式换算后合法入选），
       候选原因的报告方向按 d'(p) 标注。中间节点不单独输出，
       仅作为传导路径展示
-MUST: 归因排序分值（Phase 1 契约，可评审可替换）：
-      score(path) = |∏ strength| × ∏ confidence；节点聚合取其全部
-      入径的最高分路径；同一原因节点正负路径并存时，分别列出
-      两条解释并标注"方向冲突待数据裁决"，不做静默合并
+MUST: 归因排序分值（Phase 1 契约，可评审可替换；v0.7 加入观测证据项）：
+      score(path) = |∏ strength| × ∏ confidence × obs_match(path)
+      obs_match(path) = ∏ 节点观测匹配度，定义：
+        节点 i 的实际观测方向与 d'(p) 预期一致 → +1
+        相反                          → -1
+        无观测数据（取数失败/未声明） → 0（中性，不奖不罚）
+      效果：
+        - 数据全部支持 → score = 纯先验分（obs_match=1）
+        - 数据反向     → obs_match<0 → 该路径降权/垫底（反向证据）
+        - 无数据       → obs_match=0 → 保留纯先验排序，不丢候选
+      obs_match 由节点观测值经 §3.1.4 的 instance_data_binding /
+      data_requirement 计算（观测方向与 d'(p) 比较）；
+      节点聚合取其全部入径的最高分路径；同一原因节点正负路径
+      并存时，分别列出两条解释并标注"方向冲突待数据裁决"
 MUST: 发布时强制补齐边字段——每条边必须声明 strength 与 confidence
       （默认值：strength=0.5、confidence=0.5，显式声明者优先），
       保证排序公式对 published 模型恒有定义
@@ -238,8 +253,9 @@ Planner 定位 entry_point 节点（产量下降，direction=down）
     （"3 号矿的设备"）；metric 节点按 instance_binding 绑定
     （产量 × 3 号矿 × 近 30 天）
   → 按节点 data_requirement 生成数据获取 Step → 经 capability_binding 绑定 Capability
-  → 汇总证据，按 score(path) = |∏ strength| × ∏ confidence 排序
-    → 输出原因排序报告（候选原因携带 d'(p) 方向标注）
+  → 汇总证据，按 score(path) = |∏ strength| × ∏ confidence ×
+    obs_match(path) 排序（观测证据与 d'(p) 匹配度参与排序）
+    → 输出原因排序报告（候选原因携带 d'(p) 方向标注与证据匹配度）
 ```
 
 #### 3.1.4 data_requirement 结构（修订 P1-7）
@@ -276,9 +292,9 @@ instance_binding 受限表达式（L2 契约，语法固定，禁止任意代码
     非目标一侧的实体类型。例：从"3 号矿"取设备 =
     $target_entity.located_in.in.equipment（矿是 located_in 目标）
     单跳为种子解析；多跳展开一律在模型内显式声明为链式表达式
-    （最多 2 跳），禁止依赖引擎"自动继续遍历"——未声明为
-    链式的深巷（>2 跳）在发布时如果模型存在隐藏依赖则编译期
-    报错，Planner 不自由展开（修订 P1-3，收敛未定义行为）
+    （最多 2 跳），禁止依赖引擎"自动继续遍历"——发布校验时
+    展开深度超过 2 跳直接拒绝发布（修订 P1-3/P2-5，收敛为
+    可实现的静态校验）
 
     约束：
     MUST: relation 仅允许 TBox structural namespace 中已注册关系
@@ -307,7 +323,8 @@ object 节点实例化与聚合契约（修订 P1-1，Phase 1 可执行）：
        各实例路径独立计算 score，输出时按实例展示归因结果；
        回答入口级问题时按 score 上卷（top_k 实例 + 汇总）
 
-  MUST: 每个 object 节点发布时声明 aggregation.mode（缺省 per_instance）
+  MUST: 每个 object 节点发布时校验 aggregation.mode，未声明则按
+        per_instance 补齐并落入版本快照（发布后不可再改）
   MUST: mode=aggregate 时 operator 必填；predicate 在 count/ratio 时必填
   MUST: predicate 只能引用展开实例的 TBox attribute 或 metric_ref
         （禁自由文本条件）
@@ -336,8 +353,11 @@ object 节点实例化与聚合契约（修订 P1-1，Phase 1 可执行）：
                                 判定后的布尔序列；max/min/avg 用观测
                                 数值序列）
 
-  MUST: object 节点且 mode=aggregate 时必须声明
-        instance_data_binding（count/ratio 无谓词则编译期错误）
+  MUST: object 节点（无论 mode）发布时必填 instance_data_binding
+        ——per_instance 模式按实例取观测值/判断 status/算实例级
+        证据，比 aggregate 更需要实例级输入契约；
+        mode=aggregate 时再额外要求 aggregation 块（含 predicate）
+  MUST: count/ratio 无谓词则编译期错误
   MUST: data_source 与节点 data_requirement 的 source_ref / 能力绑定
         一致（同 §3.1.4 双通道一致性规则）；connector 源禁 capability
   MUST: instance_observation 只能引用 TBox 已注册 attribute 或
@@ -831,3 +851,16 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 | P2-4 | 聚合算子语义不完整（count/ratio 无谓词、weight_ref 无公式、per_instance 无上卷规则） | §3.1.4：补 predicate、加权公式（weighted_count/weighted_avg）、聚合公式显式化、per_instance 上卷规则（按 score 降序 top_k，k 缺省 5） |
 | P2-5 | data_requirement 代码块重复 | §3.1.4：删除重复块，保留单份 |
 | P2-6 | assertion_schema.property/state 自由字符串 | §4.3：约束为引用 TBox attribute/metric_ref 注册词表，禁自由文本 |
+
+
+---
+
+## 14. 第六轮对抗性评审处置记录（v0.6 → v0.7）
+
+| # | 评审意见 | 处置 |
+|---|---|---|
+| P1-1 | instance_data_binding 只对 aggregate 强制，per_instance（缺省模式）反而可不带，Planner 无法生成实例级取数 Step | §3.1.4：改为**所有 object 节点发布时必填** instance_data_binding；per_instance 按实例取观测/判断 status/算实例级证据；aggregate 再额外要求 aggregation 块 |
+| P1-2 | 排序公式不含观测证据，归因排序本质是作者先验排序 | §3.1.2：score = |∏strength| × ∏confidence × obs_match(path)；obs_match = ∏节点观测匹配度（一致 +1 / 反向 -1 / 无数据 0 中性），反向数据降权垫底、无数据保留纯先验不丢候选；obs_match 由 instance_data_binding/data_requirement 观测值计算 |
+| P2-3 | "MUST 声明 aggregation.mode（缺省 per_instance）"自相矛盾 | §3.1.4：改为发布时校验，未声明按 per_instance 补齐并落入版本快照（发布后不可改） |
+| P2-4 | instance_data_binding 未进 §3.1.1 节点结构 | §3.1.1：节点结构补 instance_data_binding 字段（object 节点必填，含五字段说明） |
+| P2-5 | ">2 跳隐藏依赖编译期报错"不可实现（编译器不知道未声明的依赖） | §3.1.4：改为发布校验时展开深度超过 2 跳直接拒绝发布（静态可校验），删除不可实现的"隐藏依赖报错"表述 |
