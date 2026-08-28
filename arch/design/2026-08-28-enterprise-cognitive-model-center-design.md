@@ -1,7 +1,7 @@
 # EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.19 — 架构修订：新增 §3.6 Cognitive Model Compiler（模型→Planning Blueprint 编译层，纯知识变换；统一模型到 Plan 的最后一跳）（见 §26）
+- 状态: v0.20 — 架构修订：新增 §3.7 FDE 建模工作流（六步流水线：问题定义→节点关系→数据绑定→能力绑定→测试→发布，每步含产物/校验点/角色）（见 §27）
 - 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
@@ -989,6 +989,137 @@ Causal Model       → 不预先编译路径（依赖实时观测），Blueprint
                      推理仍走运行时 Causal Reasoning Contract（§4.4.3）
 ```
 
+### 3.7 FDE 建模工作流（v0.20 新增，产品落地流程）
+
+> **定位**：业务专家（FDE）把经验变成可发布模型的操作流程。
+> 六步流水线，每一步有明确**产物、校验点、角色**。
+> 与元模型六要素（§3.1.0）、治理生命周期（§3.4）一一对应。
+
+```
+角色：
+  业务专家 / FDE（Field Domain Engineer）—— 建模主笔
+  数据工程师（Data Engineer）              —— 数据绑定核验
+  审核者（Manager / 领域负责人）           —— 发布审批
+
+六步流水线：
+
+Step 1  业务问题定义（专家输入经验）
+Step 2  节点与关系建模（拖拽）
+Step 3  数据绑定（取数契约）
+Step 4  Capability 绑定（能力支撑）
+Step 5  测试与回测（testing）
+Step 6  发布与治理（Publish Approval）
+```
+
+#### Step 1 业务问题定义（专家输入经验）
+
+```
+输入：专家经验 / 业务诉求（如"为什么 3 号矿产量下降？"）
+产物：
+  - 模型名称 / 描述 / data_domain_id / 适用业务目标
+  - intent_signature 初稿（entry_point 语义 + business_objective + domain）
+  - applicability 初稿（适用实例集合 / 行业标签）
+角色：业务专家
+校验点：
+  MUST: 意图可对齐到 Enterprise Semantic Layer 的已有实体/metric 词汇
+  MUST: 若引用的业务量（如"产量"）未在语义层注册 → 先走 TBox 审批
+        （语义层共建流程，见 §3.1.5）
+  SHOULD: 复用已有模型（相似 intent_signature 提示，避免重复建模）
+```
+
+#### Step 2 节点与关系建模（拖拽）
+
+```
+输入：Step 1 的意图与适用域
+产物：
+  - nodes[]（① Node：业务量引用 / entry_point / aggregation）
+  - edges[]（② Relation：effect / strength / lag / confidence）
+  - ④ Rule（节点条件：predicate / threshold / direction_rule）
+角色：业务专家
+校验点（编译期，见 §3.1.2）：
+  MUST: 图为 DAG（无环）；至少 1 个 entry_point
+  MUST: 边引用 TBox causal 命名空间关系类型
+  MUST: 节点只引用已注册实体类型/metric 类型
+  MUST: 每条边声明 effect；strength/confidence 发布时补齐（默认值）
+  SHOULD: 节点数量与边数量在合理范围（提示过深/过浅）
+```
+
+#### Step 3 数据绑定（取数契约）
+
+```
+输入：Step 2 的节点
+产物：⑤ Data Binding（§3.1.4）
+  - data_requirement（source_kind / source_ref / metric_binding /
+    time_window / aggregation / output_mapping）
+  - instance_data_binding（object 节点必填）
+  - instance_binding 受限表达式（≤2 跳）
+角色：业务专家 + 数据工程师（核验）
+校验点：
+  MUST: source_ref 指向已注册且 active 的 Connector/Capability
+  MUST: object 节点必填 instance_data_binding；mode=aggregate 补 aggregation
+  MUST: metric 节点 data_requirement 含 metric_binding
+  MUST: instance_binding 语法校验（三段式/链式 ≤2 跳）
+  MUST: 数据工程师确认可访问（连接测试 / 样例数据）
+  SHOULD: 真实取数试跑（取少量样例验证 output_mapping）
+```
+
+#### Step 4 Capability 绑定（能力支撑）
+
+```
+输入：Step 2/3 的节点与数据需求
+产物：⑥ Capability Binding（capability_bindings[]，§3.1.1/§4.4.4）
+角色：业务专家（选能力）+ 能力负责人（确认）
+校验点：
+  MUST: capability 源时与 data_requirement.source_ref 一致（同 id）
+  MUST: connector 源时 capability_bindings 为空（告警不路由）
+  MUST: 只读 Capability（type=query / side_effect=read-only，见 §3.2）
+  MUST: capability_requirements 可被 Planner 解析（§4.4.4）
+```
+
+#### Step 5 测试与回测（testing）
+
+```
+输入：Step 2-4 产物（draft 状态）
+产物：
+  - testing 报告（回测：strength/lag 校准、观测方向口径验证）
+  - 决策规则验证（DecisionRule 命中率 / EventTaskMapping 触发验证）
+角色：业务专家 + 数据工程师
+校验点：
+  MUST: 进入 testing 需结构校验通过（Step 2/3/4 全部 MUST 满足）
+  MUST: 回测产出报告（SHOULD）；不达标退回 draft（testing → draft）
+  MUST: 方向判定口径（§3.1.2 三套）在样例数据上可复现
+  SHOULD: 与已有模型对比（同 intent 的新旧模型差异说明）
+```
+
+#### Step 6 发布与治理（Publish Approval）
+
+```
+输入：testing 通过（或无 testing 需求的 draft）
+产物：
+  - published 模型 + 不可变版本快照
+  - change_log（change_type / reason / trigger_ref / diff_summary）
+  - （Scenario/Decision）经 Model Compiler 产出 Planning Blueprint（§3.6）
+  - （EventTaskMapping）发布事件 → Scheduler 订阅创建 trigger（§4.4.5 反向）
+角色：审核者（审批）+ 业务专家（提交）
+校验点：
+  MUST: 依赖完整性校验（TBox 类型 active / Capability 已注册 /
+        source_ref active / workflow_ref 已发布 / 事件类型已注册）
+  MUST: Publish Approval（model_asset 策略）通过才进入 published
+  MUST: 发布者 ≠ 审批者（专家编辑 / 管理者审核）
+  MUST: 发布后运行绩效观测启动（§3.5 ①埋点）
+```
+
+**工作流与既有章节的对应：**
+
+```
+Step 1 → §3.1.2（applicability）+ §4.4.2（intent_signature）
+Step 2 → §3.1.0 ①②④ + §3.1.2（DAG/effect 契约）
+Step 3 → §3.1.0 ⑤ + §3.1.4（data_requirement）
+Step 4 → §3.1.0 ⑥ + §4.4.4（capability_requirements）
+Step 5 → §3.4.4（testing 准入/退回）+ §7 L3 #5（回测机制）
+Step 6 → §3.4.4（Publish Approval/依赖校验）+ §3.6（Compiler）+ §3.5（绩效）
+```
+
 ---
 
 ## 4. 消费方集成契约
@@ -1684,3 +1815,31 @@ ECMC → Model Compiler（纯知识变换、不执行）→ Planning Blueprint �
 - 三类模型编译关系：Scenario 全量编译；Decision 编译进 goal_skeleton；Causal 不预编译路径（依赖实时观测），Blueprint 只承载 intent_signature + capability_requirements，推理仍走运行时契约
 
 **同步**：§3.3 compilation_target 升级为"经 Model Compiler 产出 Blueprint"；§4.1 场景类意图改为编译路径；§5 概念对象新增 PlanningBlueprint。
+
+
+---
+
+## 27. 架构修订：FDE 建模工作流（v0.19 → v0.20）
+
+**背景**：ECMC 三章补齐的最后一章（评审缺口 2）——FDE 建模需要可执行的操作流程，此前只有 §7 L3 一行"拖拽编辑器"。评审要求明确每步产物。
+
+**新增 §3.7 FDE 建模工作流（六步流水线）**：
+
+```
+Step 1 业务问题定义   —— 专家输入经验 → intent_signature + applicability
+Step 2 节点与关系建模 —— 拖拽 → ①Node + ②Relation + ④Rule（DAG 校验）
+Step 3 数据绑定       —— ⑤Data Binding（data_requirement + 实例绑定）
+Step 4 Capability 绑定 —— ⑥Capability Binding（能力支撑）
+Step 5 测试与回测     —— testing：回测报告 / 方向口径验证 / 退回机制
+Step 6 发布与治理     —— Publish Approval / 版本快照 / Compiler 编译
+```
+
+**每步三要素**：产物（对应元模型六要素）+ 校验点（MUST/SHOULD）+ 角色（业务专家 / 数据工程师 / 审核者）。
+
+**关键设计**：
+- 角色分离：专家建模、数据工程师核验数据可访问、管理者审批发布（与 TBox P6 审批同构）
+- 每步校验点引用既有契约（DAG/effect → §3.1.2；data_requirement → §3.1.4；capability → §4.4.4；testing → §3.4.4；发布 → §3.4.4+§3.6+§3.5）——工作流是既有契约的操作编排，不新增重复契约
+- Step 1 前置：业务量未注册先走 TBox 审批（语义层共建）
+- Step 6 联动：发布触发 Compiler 编译 Blueprint + 绩效观测启动
+
+**至此三章补齐完成**：§4.4 认知服务契约（运行） / §3.1.0 元模型（数据结构） / §3.7 FDE 工作流（产品落地）。
