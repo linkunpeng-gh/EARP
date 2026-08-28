@@ -1,7 +1,7 @@
 # EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.18 — 架构修订：新增 §3.1.0 Causal Model 元模型统一视图（六要素：Node/Relation/Evidence/Rule/Data Binding/Capability Binding）（见 §25）
+- 状态: v0.19 — 架构修订：新增 §3.6 Cognitive Model Compiler（模型→Planning Blueprint 编译层，纯知识变换；统一模型到 Plan 的最后一跳）（见 §26）
 - 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
@@ -739,7 +739,8 @@ ScenarioTemplate（专家业务方案模板）
 ├── capability_set[]       — 所需 Capability 清单
 ├── input_contract         — 触发该模板的意图描述（供 Planner 语义匹配）
 ├── output_contract        — 输出物契约（原因分析报告/优化建议）
-└── compilation_target     — 实例化编译目标（Workflow / Chat App，L3 细化）
+└── compilation_target     — 编译目标（经 Model Compiler 产出
+                            Planning Blueprint，§3.6；L3 细化）
 ```
 
 模板是**专家方法论沉淀**（专家把"分析产量下降要用哪些模型、哪些能力、
@@ -923,6 +924,71 @@ MUST: 变更原因（change_log.reason / issue 关联）进入审批上下文
 **与 §7 L3 方向的衔接：** 回测机制（L3 #5）是本闭环的评估支撑；
 运行绩效观测的 eval jobs 复用 ontology 域已有的 eval 基础设施。
 
+### 3.6 Cognitive Model Compiler（认知模型编译器，v0.19 新增）
+
+> **定位**：把专家模型（Causal / Decision / Scenario）编译为 **Planning Blueprint**
+> （Agent 可执行的规划知识）。纯知识变换、不执行——执行仍由 Planner 编排、
+> Runtime 运行（保持 ECMC 纯知识层定位）。L2 定义概念与契约，L3 实现。
+
+**为什么需要**：当前设计里模型到 Plan 的"最后一跳"机制割裂——
+Causal Model 走运行时推理（§4.4.3），Decision Knowledge 走 Planner 注入
+（§4.1），Scenario Template 只有 compilation_target 字段无编译产物。
+Compiler 统一"专家模型 → 可执行规划知识"的变换。
+
+```
+ECMC
+  │
+  Model Compiler（编译层，纯知识变换、不执行）
+  │
+  ▼
+Planning Blueprint（编译产物，一等资产）
+  │
+Planner（消费 Blueprint 生成 Agent Plan）
+```
+
+**Planning Blueprint 结构（概念级）：**
+
+```
+Planning Blueprint
+├── blueprint_id / version / status（随源模型版本）
+├── source_model_ref        — 编译自哪个模型（Causal/Decision/Scenario）
+├── intent_signature        — 可响应的意图（entry_point +
+│                              business_objective + domain）
+├── goal_skeleton           — 目标分解骨架（Planner 生成 Goal 的模板）
+├── step_sequence           — 步骤蓝图（节点/规则 → 数据获取/能力调用/分支）
+├── capability_requirements — 能力需求清单（复用 §4.4.4）
+├── output_contract         — 输出结构（Cause Ranking / 报告 / 建议）
+└── validation_contract     — 可验证的边界（输入要求、缺失数据容忍度）
+```
+
+**契约（MUST/SHOULD/MAY）：**
+
+```
+MUST: Model Compiler 是纯知识变换（模型 → Blueprint），不执行动作；
+      执行仍由 Planner 编排、Runtime 运行（ECMC 纯知识层不破坏）
+MUST: Blueprint 是编译产物，随源模型版本不可变——源模型更新 →
+      重新编译新版本 Blueprint；旧版本仍可消费（同 §3.4.3 版本原则）
+MUST: 编译是显式动作（发布时触发 / 手工触发），不是运行时隐式编译
+MUST: Blueprint 版本与源模型版本对应关系可追溯（blueprint.version 记录
+      source_model_ref 的版本）
+SHOULD: 编译可校验——Blueprint 对源模型的完整性（引用无遗漏、
+      能力需求可解析）
+SHOULD: Scenario Template 的 compilation_target 升级为"经 Model Compiler
+      产出 Planning Blueprint"（替代原"编译为 Workflow"的直接表述）
+MAY: 未来多级编译（模型 → Blueprint → 具体 Agent 模板），
+      L2 只定义第一级
+```
+
+**与三类模型的编译关系：**
+
+```
+Scenario Template → 全量编译为 Blueprint（步骤/能力/输出齐备）
+Decision Knowledge → 编译进 Blueprint 的 goal_skeleton + 规则序列
+Causal Model       → 不预先编译路径（依赖实时观测），Blueprint 只承载
+                     intent_signature + capability_requirements，
+                     推理仍走运行时 Causal Reasoning Contract（§4.4.3）
+```
+
 ---
 
 ## 4. 消费方集成契约
@@ -942,7 +1008,8 @@ MUST: 变更原因（change_log.reason / issue 关联）进入审批上下文
     绑定 Capability → 纳入 Plan（证据链回填）
   → 决策类意图: 注入 DecisionObjective + ConstraintSet → Goal 分解；
     scope=planner 规则的 capability_call 条件生成前置 Step
-  → （Phase 3+）场景类意图: 匹配 ScenarioTemplate → 实例化为 Workflow
+  → （Phase 3+）场景类意图: 匹配 ScenarioTemplate → 经 Model Compiler
+    编译为 Planning Blueprint（§3.6）→ Planner 据蓝图生成 Plan
 ```
 
 ```
@@ -1202,7 +1269,7 @@ Capability Requirements）→ Capability Center → Enterprise Systems
 | 2 | `knowledge-center-specification.md` v1.2 → v1.3 | 第四章 Ontology 标注"Enterprise Semantic Layer（企业语义层），KB/ECMC 共建"；ABox 增补 hypothesis_facts 候选表契约（ECMC 假设回写通道，方案 b） | P0 |
 | 3 | `planner-specification.md` | 新增"ECMC 知识源"章节：模型检索、因果遍历、决策知识注入、capability_call 前置 Step 化 | P0 |
 | 4 | `decision-engine-specification.md` v1.0 → v1.1 | §3.1 增补"ECMC DecisionRule 为规则来源之一（scope=execution）"；条件源约束（metric_ref/context） | P1 |
-| 5 | `concept-model-v2.x` | 新增 CausalModel / DecisionKnowledge / ScenarioTemplate 概念对象 | P1 |
+| 5 | `concept-model-v2.x` | 新增 CausalModel / DecisionKnowledge / ScenarioTemplate / PlanningBlueprint 概念对象 | P1 |
 | 6 | `scheduler-specification.md` | 新增"订阅 earp.bmc.mapping.published 创建/更新 trigger"说明；EventTaskMapping 触发语义（边沿/电平、评估频率）对齐 | P1 |
 | 7 | `workflow-specification.md` | task_template / ScenarioTemplate 实例化的编排依据说明 | P2 |
 | 8 | `eventbus-specification.md` v1.1 → v1.2 | 新增业务事件类型注册表；`earp.bmc.mapping.published / deprecated / rolled_back` 事件类型 | P1 |
@@ -1594,3 +1661,26 @@ ECMC（一级模块）
 - 六要素整合为一张数据结构图，各要素完整契约仍指向 §3.1.1-§3.1.5（不重复定义）
 - 建模时声明五要素，Evidence 为运行时产物——模型对象不携带证据
 - 六要素与治理（§3.4 版本/快照）和运行时（§4.4 服务契约）的关系明确
+
+
+---
+
+## 26. 架构修订：Cognitive Model Compiler（v0.18 → v0.19）
+
+**背景**：评审建议——ECMC 的模型（Causal/Decision/Scenario）如何被 Planner 使用，当前三种路径割裂（Causal 运行时推理 / Decision 注入 / Scenario 仅 compilation_target 字段），缺统一机制。建议增加 Cognitive Model Compiler：把专家模型编译为 Agent 可执行的规划知识（Planning Blueprint）。
+
+**决策**：采纳，落为 §3.6（L2 概念 + 契约，L3 实现）。
+
+```
+ECMC → Model Compiler（纯知识变换、不执行）→ Planning Blueprint → Planner
+```
+
+**Planning Blueprint（一等资产）**：blueprint_id/version/status、source_model_ref、intent_signature、goal_skeleton、step_sequence、capability_requirements（复用 §4.4.4）、output_contract、validation_contract。
+
+**关键契约**：
+- 纯知识变换不执行；执行由 Planner 编排、Runtime 运行（ECMC 纯知识层不破坏）
+- Blueprint 随源模型版本不可变；源模型更新 → 重新编译新版本，旧版本仍可消费
+- 编译是显式动作（发布时/手工触发），非运行时隐式编译
+- 三类模型编译关系：Scenario 全量编译；Decision 编译进 goal_skeleton；Causal 不预编译路径（依赖实时观测），Blueprint 只承载 intent_signature + capability_requirements，推理仍走运行时契约
+
+**同步**：§3.3 compilation_target 升级为"经 Model Compiler 产出 Blueprint"；§4.1 场景类意图改为编译路径；§5 概念对象新增 PlanningBlueprint。
