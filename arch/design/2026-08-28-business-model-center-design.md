@@ -1,7 +1,7 @@
 # EARP Business Model Center（业务模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.4 — 第三轮对抗性评审修订（9 条：P1×5、P2×4，处置记录见 §11）
+- 状态: v0.5 — 第四轮对抗性评审修订（6 条：P1×2、P2×4，处置记录见 §12）
 - 定位: L2 前置设计——本文拍板 BMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（business-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: BMC = Business Model Center；KB = Knowledge Center；FDE = Field Domain Engineer（现场领域工程师）
@@ -162,6 +162,9 @@ CausalModel
 │     │     │                               区分"为什么产量下降"与"为什么产量上升"
 │     │     └── description                 — 入口语义描述（供 Planner 匹配）
 │     ├── data_requirement          — 数据需求声明（结构见 §3.1.4）
+│     ├── aggregation               — object 节点用量声明（§3.1.4）：
+│     │    ├── mode: "per_instance" \| "aggregate"（发布时 MUST）
+│     │    └── operator / weight_ref（mode=aggregate 时）
 │     └── capability_bindings[]     — 节点 ↔ Capability 绑定（capability_entity_map 模式）
 ├── edges[]                         — 有向影响边
 │     ├── source_node_id / target_node_id
@@ -256,36 +259,75 @@ data_requirement
                               （Capability 返回 schema 中哪个字段作为节点观测值）
 ```
 
+```data_requirement
+├── source_kind: "connector" | "capability"
+├── source_ref              — connector_id 或 capability_id（MUST 已注册且 active）
+├── metric_binding          — metric 节点必填
+│     ├── metric_ref        — TBox metric 类型
+│     ├── instance_binding  — 绑定到哪个实体实例（受限表达式，见下）
+│     ├── time_window       — 时间窗（如 P30D）与粒度（如 daily）
+│     └── aggregation / unit — 聚合方式（sum/avg/max…）与单位
+└── output_mapping          — 输出字段 → 节点取值的映射
+                              （Capability 返回 schema 中哪个字段作为节点观测值）
 ```
-instance_binding 受限表达式（L2 契约，语法固定为三段式，禁止任意代码）：
-  $target_entity                          — 推理目标实体
-  $target_entity.<relation>[.in|.out]     — 沿单一结构关系按方向展开
-                                            （一步）：
-                                            .in  = 沿入边（target_entity
-                                                   是关系目标），
-                                            如 $target_entity.belongs_to.in
-                                                   → 其父节点
-                                            .out = 沿出边（target_entity
-                                                   是关系源），
-                                            如 $target_entity.belongs_to.out
-                                                   → 其子节点
-  $target_entity.<relation>.<dir>.<entity_type>
-                                          — 展开后按实体类型过滤
+
+```
+instance_binding 受限表达式（L2 契约，语法固定，禁止任意代码）：
+  单跳（种子解析）：
+    $target_entity                            — 推理目标实体
+    $target_entity.<relation>.<dir>           — 沿单一结构关系单跳展开
+    $target_entity.<relation>.<dir>.<entity_type>
+                                              — 展开后按实体类型过滤
+  双跳（链式追加第二个跳段，MUST 显式写全方向与类型）：
+    $target_entity.<r1>.<dir1>.<t1>.<r2>.<dir2>.<t2>
+    例：$target_entity.located_in.in.equipment.belongs_to.out.plant
+        （矿 → 矿内设备 → 设备所属工厂）
   （说明：默认方向 = 出边 .out；entity_type 过滤的是展开结果中
     非目标一侧的实体类型。例：从"3 号矿"取设备 =
     $target_entity.located_in.in.equipment（矿是 located_in 目标）
+    单跳为种子解析，深度 > 2 跳的展开由 Planner 实例化时沿
+    结构关系继续遍历（见下聚合契约）——instance_binding 负责
+    圈定种子集，不承载无限下钻）
+
     约束：
     MUST: relation 仅允许 TBox structural namespace 中已注册关系
-    MUST: 展开上限 2 跳（性能与爆炸防护）
+    MUST: 双跳的两个跳段都必须显式声明方向与类型过滤
     MUST: 展开结果按双层权限模型过滤（展开越权实体视为无权限，
           不报错、不返回）
-    SHOULD: 展开结果超过 100 实例时要求模型作者显式声明聚合策略
 
-双数据通道优先级：
+object 节点实例化与聚合契约（修订 P1-1，Phase 1 可执行）：
+  结构关系（belongs_to / located_in…）多为 N:1 / N:M，展开结果
+  是实例集合。节点必须显式声明用量（node.aggregation）：
+
+  aggregation
+  ├── mode: "per_instance" | "aggregate"
+  ├── operator  — mode=aggregate 时：count | ratio | max | min | avg
+  │               （如"设备故障节点"= 故障设备计数 count；
+  │                "设备健康度" = 最差值 min）
+  ├── weight_ref — mode=aggregate 时可选权重来源（实体属性 / metric，
+  │               如设备对产出的重要度得分；缺省 = 等权）
+  └── per_instance 模式：每个实例单独成径参与归因，
+       各实例路径独立计算 score，输出时按实例展示归因结果
+
+  MUST: 每个 object 节点发布时声明 aggregation.mode（缺省 per_instance）
+  MUST: mode=aggregate 时 operator 必填；weight_ref 缺省 = 等权
+  MUST: per_instance 模式下节点不做集合聚合，避免不同设备的
+        故障被混成一个预测值
+  MUST: 聚合不得改变边 effect 语义（聚合值上升/下降的解读与单实例一致）
+  SHOULD: mode=aggregate 且展开结果 > 100 实例时，模型作者须显式
+    声明聚合策略（operator + weight_ref）
+
+双数据通道优先级与一致性（修订 P2-4，按 source_kind 区分）：
   MUST: 节点同时声明 capability_bindings[] 与 data_requirement 时，
         data_requirement 为主（它携带取数/映射/聚合完整契约），
-        capability_bindings 为辅助路由信息；两者指向的 Capability
-        必须一致，不一致为编译期错误
+        capability_bindings 为辅助路由信息
+  MUST: source_kind='capability' 时，capability_bindings[] 与
+        data_requirement.source_ref 必须一致——二者均非空且指向
+        同一 capability_id（列表必须单元素），不一致为编译期错误
+  MUST: source_kind='connector' 时，capability_bindings[] 应当为空
+        （connector 源无 capability 可比对）；若建模者仍填写
+        capability_bindings[]，仅作展示用途并在编译期告警，
+        不参与执行路由
 ```
 
 ```
@@ -376,13 +418,18 @@ capability_call 条件不允许内联在 Decision Engine 执行时分支中
       a) business_capabilities.type = 'query' 为必要条件（编译期拒绝
          type='command' 的引用）；
       b) 执行 adapter 白名单：capability_call 前置 Step 仅允许
-         白名单内 adapter 类型执行（L3 定清单）；
+         白名单内 adapter 类型执行（L3 定清单，且 tool.fetch 类
+         adapter 默认不允许进 capability_call 白名单——见 P2-3）；
       c) 只读属性由 Orchestrator 从 Capability 注册表推导，不信任
          Step 自带标记——Planner 生成前置 Step 时写入
          capability_id 引用，Orchestrator 查注册表 type=query
          才放行；Connector adapter 执行边界强制校验
          （执行层仅允许白名单 adapter 且校验注册表 type），
          恶意/有误 Planner 标注 read_only=true 亦无法绕过
+  MUST（L3）：type=query 仍是注册时声明，不可信任为最终安全边界；
+      L3 增加管理端审核的不可变 side_effect 分类（read-only /
+      write-only / mixed），capability_call 引用强制要求
+      side_effect=read-only，注册后不可变更
   MUST: 声明超时上限与输出字段映射（output_mapping，同 §3.1.4）
 MUST: EventTaskMapping.condition.condition_expr 同样禁止 capability_call
       ——表达式仅允许引用 metric_ref / 事件 payload 字段 /
@@ -423,6 +470,21 @@ MUST: DecisionRule.confidence 语义 = 作者对规则依据的证据置信度�
       置信度恒为 1.0 契约不变），planner 消费时可用于规则排序参考
 MUST: 发布时强制：execution 消费的规则（scope 含 execution）若
       引用 capability_call 则编译期拒绝（见 §3.2 组合约束）
+
+**action × scope 合法组合表（修订 P2-6）：**
+
+| action \ scope | planner | execution |
+|---|---|---|
+| advice | ✅ 生成建议进规划上下文 | ✅ 选择分支时输出建议 |
+| task_generation | ✅ 生成任务模板供 Planner 排入 Plan（不立即执行） | ✅ 生成任务 Step |
+| workflow_trigger | ❌ 禁止——规划期不触发执行，避免旁路 | ✅ 唯一合法域：触发 Workflow 分支 |
+
+说明：
+- scope=planner 的 workflow_trigger 为编译期错误（规划期无执行语义），
+  与 EventTaskMapping 职责边界：EventTaskMapping 是事件/条件 →
+  Workflow 的**外部触发映射**（Scheduler 消费，见 §3.2.2）；
+  DecisionRule.workflow_trigger 是**执行内分支**触发（Decision Engine
+  在 Step 分支处触发已发布 Workflow）——两者触发源不同，互不重叠
 SHOULD: 规则支持组合（AND / OR / NOT，与 Decision Engine §3.1 一致）
 ```
 
@@ -569,7 +631,14 @@ BMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
   ├── tenant_id / data_domain_id（可见性同 §3.1.2 双层权限）
   ├── subject: {entity_id?, entity_type_id?, metric_ref?}  — 断言主体
   │       （实体或指标，引用 ABox 实例 / TBox 类型）
-  ├── assertion: string          — 断言文本（"疑似主轴承老化"）
+  ├── assertion: string          — 断言文本（"疑似主轴承老化"，展示用）
+  ├── assertion_schema            — 结构化断言（修订 P2-5，最小骨架，
+  │     │                         推理时自动生成，自由文本仅作展示）：
+  │     ├── subject               — 断言主体（同 subject）
+  │     ├── property / state      — 属性/状态（如 bearing_wear）
+  │     ├── direction             — up / down / unchanged / unknown
+  │     ├── time_window           — 断言适用时间窗（如 P30D）
+  │     └── confidence_interval   — SHOULD，区间下界（供审核排序）
   ├── normalized_relation?: structural relation_type_id + target_entity_id
   │       （仅当断言可映射为既有结构关系时填写——如"轴承 X 属于 CNC-01"
   │        可映射 belongs_to；映射不了就留空，不强行造关系）
@@ -589,6 +658,7 @@ BMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
   MUST: 撤回 = hypothesis 置 withdrawn（已转正的走事实正常生命周期；
         已归档的按上一条联动移除），无 orphan 残留
   SHOULD: 同一主体 + 相似断言多次独立推理命中 → 提升审核优先级
+        （相似度基于 assertion_schema 字段匹配为主，文本相似度辅助）
 ```
 
 ---
@@ -703,3 +773,16 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 | P2-7 | 排序公式依赖可选字段 | §3.1.2：发布时强制补齐（默认 strength=0.5 / confidence=0.5，显式优先），公式恒有定义 |
 | P2-8 | priority 语义与 Policy Center 冲突 | §3.1.1/§3.2.1：对齐 Policy Center"值越低越高"，execution 裁决链改为 priority 升序取值 |
 | P2-9 | 回滚绕过审批/审计 | §3.4：回滚同样走 Publish Approval + Audit diff + Scheduler 事件，无绕过路径 |
+
+---
+
+## 12. 第四轮对抗性评审处置记录（v0.4 → v0.5）
+
+| # | 评审意见 | 处置 |
+|---|---|---|
+| P1-1 | object 节点展开后观测/聚合语义未定义（逐实例 vs 聚合、权重、2-99 实例无契约） | §3.1.4：新增 aggregation 契约——节点显式声明 mode（per_instance / aggregate 缺省 per_instance）、operator（count/ratio/max/min/avg）、weight_ref（缺省等权）；per_instance 每实例独立成径归因、不混聚；聚合不改边 effect 语义 |
+| P1-2 | instance_binding 声明 2 跳但语法只支持单跳 | §3.1.4：补链式双跳语法（两个跳段均须显式方向+类型）；单跳 = 种子解析，深度 > 2 跳由 Planner 实例化时沿结构关系继续遍历——语法与契约对齐，不再自相矛盾 |
+| P2-3 | 只读建立在 type=query 注册声明之上，不可信 | §3.2：标注 L3 必做——管理端审核的不可变 side_effect 分类，capability_call 要求 side_effect=read-only；tool.fetch 类 adapter 默认不进白名单 |
+| P2-4 | 双数据通道一致性规则对 connector 源不成立（无 capability 可比对、列表 vs 单引用歧义） | §3.1.4：按 source_kind 区分——capability 源要求列表单元素且与 source_ref 同一 id；connector 源 capability_bindings 应为空（填写则告警、不参与路由） |
+| P2-5 | hypothesis 断言自由文本，无法结构化审核 | §4.3：新增 assertion_schema（subject/property-state/direction/time_window/confidence_interval），相似命中以 schema 字段匹配为主；自由文本仅展示 |
+| P2-6 | action × scope 矩阵未定义，workflow_trigger 与 EventTaskMapping 职责重叠 | §3.2.1：新增合法组合表——advice/task_generation 两域合法，workflow_trigger 仅 execution（planner 域编译期错误）；职责边界：EventTaskMapping=外部触发映射（Scheduler），DecisionRule.workflow_trigger=执行内分支触发（Decision Engine） |
