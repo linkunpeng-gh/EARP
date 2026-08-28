@@ -1,7 +1,7 @@
 # EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.14 — 架构修订：因果推理改为 Causal Reasoning Contract（L2 锁契约不锁算法），符号传播公式降为 Phase 1 参考实现（见 §21）
+- 状态: v0.15 — 架构修订：新增运行反馈与模型优化闭环（§3.5）：绩效观测 → 优化触发 → 变更原因管理 → 升级发布（见 §22）
 - 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
@@ -739,6 +739,82 @@ MUST: 审批通过才进入 published；审批记录走 Audit Spec
 SHOULD: 支持「发布者 ≠ 审批者」分离（专家编辑 / 管理者审核，与 TBox P6 同构）
 ```
 
+### 3.5 运行反馈与模型优化闭环（v0.15 新增）
+
+§3.4 解决"发布后的管理"，本节解决"运行中发现不准 → 优化 → 升级"的闭环。
+
+**闭环总览：**
+
+```
+运行消费（Planner/Agent/Decision Engine 使用已发布模型）
+  → 绩效观测（Execution 结果 + 用户反馈 + 周期性评估）
+  → 发现偏差（模型不准/漂移/失效）
+  → 触发优化（人工 + 系统提示）
+  → 修改出新版本（新分支，携带变更原因）
+  → 测试/回测 → 审批 → 重新发布（滚动升级）
+  → 旧版本下线策略决策
+```
+
+**① 运行绩效观测（MUST）：**
+
+```
+MUST: 模型发布后持续记录运行绩效指标：
+      - 调用量 / 成功率 / 平均延迟（Execution 自动埋点）
+      - 归因结果被采纳率（用户对 Cause Ranking 的采纳/否决动作）
+      - 周期性评估（eval jobs：用保留数据集回测，发现准确率下滑/漂移）
+MUST: 绩效数据按 model_id + version 维度存储（可对比版本间表现）
+SHOULD: 绩效异常（采纳率骤降 / 评估分数跌破阈值）自动触发
+        「建议优化」告警并通知 owner
+```
+
+**② 优化触发（MUST）：**
+
+```
+触发源（三类）：
+  1. 运行绩效：采纳率低 / 评估漂移（系统告警）
+  2. 用户反馈：专家/员工对归因结果的纠错、补充（显式反馈入口）
+  3. 业务变化：业务规则、数据源、TBox 词汇变化导致模型过时
+     （如新设备类型、新增约束——依赖变更检测触发）
+MUST: 每次触发记录触发原因（reason），进入模型变更日志
+```
+
+**③ 版本与变更原因管理（MUST，补 §3.4 缺口）：**
+
+```
+MUST: 每个版本携带结构化的变更记录（change_log）：
+      - version              — 本版本号
+      - change_type          — new | fix | enhance | deprecate
+      - reason               — 为什么改（结构化：performance_drop /
+                               user_feedback / business_change /
+                               dependency_change / bugfix，附描述）
+      - trigger_ref          — 触发源引用（绩效告警 ID / 用户反馈 ID /
+                               eval job ID）
+      - diff_summary         — 变更 diff 摘要（节点/边/规则增删改）
+      - author / reviewed_by / approved_at
+MUST: change_log 随版本快照不可变存储，随 Audit Spec 归档
+MUST: 新版本从当前 published 版本**分支**（不允许就地改 published），
+      分支记录 parent_version
+SHOULD: 版本对比工具展示两个版本的 diff + 变更原因（评审/审计用）
+```
+
+**④ 优化升级与旧版本处理（MUST）：**
+
+```
+MUST: 新版本经 testing（回测）→ Publish Approval → published，
+      流程同 §3.4；变更原因进入审批上下文供审批人评估
+MUST: 发布新版本后，旧版本按消费方引用情况处理：
+      - 有活跃引用的旧版本：保持 published（不动，消费方自行升级）
+      - 无引用：可选 deprecated（有下线审批）
+MUST: 滚动升级由消费方（Planner）在模型检索时优先新版本
+      （applicability 匹配度相同时取最新版本）；
+      消费方可固定版本（如对稳定性的要求）
+SHOULD: 重大绩效问题可走「紧急修复」通道：reason 必须标注
+        emergency，审批加速但审计不减
+```
+
+**与 §7 L3 方向的衔接：** 回测机制（L3 #5）是本闭环的评估支撑；
+运行绩效观测的 eval jobs 复用 ontology 域已有的 eval 基础设施。
+
 ---
 
 ## 4. 消费方集成契约
@@ -847,6 +923,8 @@ ECMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
 | 8 | `eventbus-specification.md` v1.1 → v1.2 | 新增业务事件类型注册表；`earp.bmc.mapping.published / deprecated / rolled_back` 事件类型 | P1 |
 | 9 | `policy-center-specification.md` | 新增策略目标类型 model_asset（ECMC 发布审批） | P1 |
 | 10 | migration（代码侧，L3 前瞻） | relation_types 加 namespace 列 + status 扩展 draft；hypothesis_facts 表；既有 QU 校验/导入/understanding 排除 causal namespace | P0 |
+| 11 | `observation-specification.md`（可观测性） | 新增模型运行绩效观测：调用量/成功率/延迟/采纳率埋点（§3.5 ①） | P1 |
+| 12 | `audit-specification.md` | 模型变更日志（change_log：reason/trigger_ref/diff）归档要求对齐（§3.5 ③） | P2 |
 
 代码侧（L3 前瞻，不入本文）：新增 `earp_server/bmc/` 域；import-linter 新增契约；`ontology/` 域不迁移。
 
@@ -860,8 +938,10 @@ Phase 1  CausalModel + 决策知识核心（DecisionRule / EventTaskMapping）
          + 前置基础设施（relation_types namespace 扩展、事件类型注册表、
            model_asset 策略目标）——最小闭环："为什么产量下降"端到端跑通
 Phase 2  DecisionObjective / ConstraintSet 注入 Planner；
-         ECMC → KB hypothesis_facts 回写闭环；Industry Pack 工具化
-Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
+         ECMC → KB hypothesis_facts 回写闭环；Industry Pack 工具化；
+         运行反馈闭环起步（绩效埋点 + change_log 变更原因管理）
+Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译；
+         运行绩效评估自动化（采纳率监控 + 漂移检测 + 建议优化告警）
 ```
 
 排序依据：因果归因是 ECMC 净增值最高、可独立验证的链路，先跑通；决策知识先落规则与事件映射（对 Workflow 编排的依据价值立即兑现）；场景模板价值依赖消费链路，最后落地。
@@ -1129,3 +1209,31 @@ Phase 1 参考实现（默认算法，可替换）：
 - §3.1.2 重构为契约层 + 参考实现层；§3.1.3 流程改为契约调用
 - D2 决策记录补充"推理算法不绑定"
 - §7 L3 方向新增"因果推理算法选型"（规则/图搜索/贝叶斯/LLM/时序），候选算法须满足契约
+
+
+---
+
+## 22. 架构修订：运行反馈与模型优化闭环（v0.14 → v0.15）
+
+**背景**：§3.4 生命周期契约覆盖"发布后的管理"（版本/审批/回滚），但缺少**运行优化闭环**：实际使用中发现模型不准 → 优化 → 修改 → 升级 → 重新发布，以及"为什么修改"的变更原因管理。
+
+**新增 §3.5 运行反馈与模型优化闭环**：
+
+```
+运行消费 → 绩效观测（Execution 埋点 + 用户反馈 + 周期评估）
+  → 发现偏差（采纳率骤降 / 评估漂移 / 业务变化导致过时）
+  → 触发优化（系统告警 + 人工，记录触发原因）
+  → 分支出新版本（携带结构化 change_log：change_type / reason /
+    trigger_ref / diff_summary）
+  → testing → Publish Approval → 重新发布（变更原因进审批上下文）
+  → 旧版本按引用情况处理（有引用保持 published / 无引用可下线）
+```
+
+**关键契约**：
+- 运行绩效观测：调用量/成功率/采纳率 + 周期评估，按 model_id+version 维度存储
+- 三类触发源：运行绩效告警 / 用户反馈 / 业务变化（依赖变更检测）
+- **change_log（变更原因管理）**：每版本结构化记录为什么改（performance_drop / user_feedback / business_change / dependency_change / bugfix），随版本快照不可变归档
+- 新版本从 published 分支（parent_version），禁止就地改 published
+- 滚动升级：消费方检索优先新版本；消费方可固定版本；紧急修复通道（reason=emergency，审批加速审计不减）
+
+**影响范围**：§5 清单新增 #11（observation-spec 绩效埋点）、#12（audit-spec change_log 归档）；§6 路线 Phase 2/3 加入反馈闭环起步与自动化评估。
