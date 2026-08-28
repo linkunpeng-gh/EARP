@@ -1,7 +1,7 @@
 # EARP Business Model Center（业务模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.7 — 第六轮对抗性评审修订（5 条：P1×2、P2×3，处置记录见 §14）
+- 状态: v0.8 — 第七轮对抗性评审修订（5 条：P1×2、P2×3，处置记录见 §15）
 - 定位: L2 前置设计——本文拍板 BMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（business-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: BMC = Business Model Center；KB = Knowledge Center；FDE = Field Domain Engineer（现场领域工程师）
@@ -209,20 +209,50 @@ MUST: 边带 effect 符号（+/-）；方向约定：effect 表示源节点取�
       健康度↓（effect=-）→ 产量↓"——经公式换算后合法入选），
       候选原因的报告方向按 d'(p) 标注。中间节点不单独输出，
       仅作为传导路径展示
-MUST: 归因排序分值（Phase 1 契约，可评审可替换；v0.7 加入观测证据项）：
+MUST: 归因排序分值（Phase 1 契约，可评审可替换；v0.8 修正 obs_match
+      数学/语义）：
       score(path) = |∏ strength| × ∏ confidence × obs_match(path)
-      obs_match(path) = ∏ 节点观测匹配度，定义：
-        节点 i 的实际观测方向与 d'(p) 预期一致 → +1
-        相反                          → -1
-        无观测数据（取数失败/未声明） → 0（中性，不奖不罚）
+
+      节点 i 的预期方向 e(i) = d × S(从 i 到 entry_point 的子路径符号积)
+      ——注意不是整条路径的 d'(p)：以 老化(A)→健康度(B)→产量(C)、
+      A→B effect=-、B→C effect=+ 为例，入口 C 下降（d=-1）时：
+        原因 A 的 e(A) = d × S(A→C 全路径) = -1 × (-1×+1) = +1
+          （老化上升可解释产量下降）
+        中间 B 的 e(B) = d × S(B→C 子路径) = -1 × (+1) = -1
+          （健康度下降才解释产量下降）
+      两者方向相反是正确语义，obs_match 必须用各自的 e(i)，
+      不能复用整条路径的 d'(p)
+
+      obs_match(path) = ∏ 节点观测匹配度 m(i)，定义：
+        观测方向与 e(i) 一致 → m(i) = +1
+        相反                  → m(i) = -1
+        无观测数据（取数失败/未声明） → m(i) = 1（中性乘数，
+          乘法中 0 会整路径归零，不是中性——见 v0.8 修正）
+        观测方向为 unchanged（不变） → m(i) = 0.5（弱支持，
+          不解释目标变化但也不反驳）
+        观测方向为 unknown（未知）  → m(i) = 1（与无数据同中性，
+          不奖不罚）
+
       效果：
-        - 数据全部支持 → score = 纯先验分（obs_match=1）
+        - 数据全部支持 → obs_match=1 → score = 纯先验分
         - 数据反向     → obs_match<0 → 该路径降权/垫底（反向证据）
-        - 无数据       → obs_match=0 → 保留纯先验排序，不丢候选
+        - 无数据/unknown → m(i)=1 → 纯先验排序，不丢候选
+        - 不变(unchanged) → 0.5 弱支持，不反驳
       obs_match 由节点观测值经 §3.1.4 的 instance_data_binding /
-      data_requirement 计算（观测方向与 d'(p) 比较）；
+      data_requirement 计算（观测方向与 e(i) 比较）；
       节点聚合取其全部入径的最高分路径；同一原因节点正负路径
       并存时，分别列出两条解释并标注"方向冲突待数据裁决"
+
+MUST: 观测方向推导口径（P2-3，Phase 1 契约）：观测 up/down 由
+      data_requirement 定义的时间窗（首尾点比较）判定：
+      首尾差 > 阈值 → up；< -阈值 → down；|差| ≤ 阈值 → unchanged；
+      取数失败/无值 → unknown。阈值在模型发布时声明（缺省为
+      时间窗均值的 5%）。L3 可扩展趋势拟合/统计显著性，
+      但 Phase 1 用首尾比较保证可复现
+MUST: obs_match 连乘不等权（P2-5）：反向证据一票否决是有意设计——
+      单节点反向数据足以推翻该路径解释；若需缓解长路径单节点
+      主导，L3 提供按节点 confidence 加权的变体（obs_match_w =
+      Σ m(i)·conf(i) / Σ conf(i)），Phase 1 保持连乘
 MUST: 发布时强制补齐边字段——每条边必须声明 strength 与 confidence
       （默认值：strength=0.5、confidence=0.5，显式声明者优先），
       保证排序公式对 published 模型恒有定义
@@ -254,7 +284,8 @@ Planner 定位 entry_point 节点（产量下降，direction=down）
     （产量 × 3 号矿 × 近 30 天）
   → 按节点 data_requirement 生成数据获取 Step → 经 capability_binding 绑定 Capability
   → 汇总证据，按 score(path) = |∏ strength| × ∏ confidence ×
-    obs_match(path) 排序（观测证据与 d'(p) 匹配度参与排序）
+    obs_match(path) 排序（obs_match 用各节点 e(i) 子路径符号积，
+    见 §3.1.2）
     → 输出原因排序报告（候选原因携带 d'(p) 方向标注与证据匹配度）
 ```
 
@@ -864,3 +895,16 @@ Phase 3  ScenarioTemplate + Planner 场景匹配 + 实例化编译
 | P2-3 | "MUST 声明 aggregation.mode（缺省 per_instance）"自相矛盾 | §3.1.4：改为发布时校验，未声明按 per_instance 补齐并落入版本快照（发布后不可改） |
 | P2-4 | instance_data_binding 未进 §3.1.1 节点结构 | §3.1.1：节点结构补 instance_data_binding 字段（object 节点必填，含五字段说明） |
 | P2-5 | ">2 跳隐藏依赖编译期报错"不可实现（编译器不知道未声明的依赖） | §3.1.4：改为发布校验时展开深度超过 2 跳直接拒绝发布（静态可校验），删除不可实现的"隐藏依赖报错"表述 |
+
+
+---
+
+## 15. 第七轮对抗性评审处置记录（v0.7 → v0.8）
+
+| # | 评审意见 | 处置 |
+|---|---|---|
+| P1-1 | "无数据=0"在乘法里不是中性（整路径归零），与"保留纯先验"矛盾 | §3.1.2：无数据/unknown 因子改为 1（真正中性）；新增 unchanged=0.5 弱支持；乘法中 0 语义明确修正 |
+| P1-2 | obs_match 中间节点复用整条路径 d'(p)，方向会算反 | §3.1.2：定义节点预期方向 e(i) = d × S(i→entry_point 子路径符号积)；用老化→健康度→产量示例证明 e(A)=+1、e(B)=-1 的正确语义 |
+| P2-3 | 观测方向缺从原始数据推导的契约，无法复现 | §3.1.2：Phase 1 用首尾点比较（>阈值=up / <-阈值=down / 差≤阈值=unchanged / 无值=unknown）；阈值发布时声明，缺省时间窗均值 5%；L3 可扩展趋势拟合/显著性 |
+| P2-4 | unchanged/unknown 未归入 obs_match | §3.1.2：unchanged→0.5 弱支持、unknown→1 中性 |
+| P2-5 | 每节点等权连乘，单节点主导长路径 | §3.1.2：声明反向一票否决为有意设计；L3 提供按 confidence 加权变体 obs_match_w = Σ m(i)·conf(i)/Σconf(i)，Phase 1 保持连乘 |
