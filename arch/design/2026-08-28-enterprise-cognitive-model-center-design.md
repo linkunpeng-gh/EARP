@@ -1,7 +1,7 @@
 # EARP Enterprise Cognitive Model Center（企业认知模型中心）架构设计
 
 - 日期: 2026-08-28
-- 状态: v0.16 — 架构修订：ECMC 四个并列二级模块（Causal / Decision / Scenario / Model Governance）；治理子模块含问题管理（issue）（见 §23）
+- 状态: v0.17 — 架构修订：新增 §4.4 ECMC Cognitive Service Contract（认知服务契约：Model Discovery / Reasoning / Capability Dependency / Feedback）（见 §24）
 - 定位: L2 前置设计——本文拍板 ECMC 的模块边界、子模块划分与消费方集成契约；正式 L2 规范（enterprise-cognitive-model-center-specification.md）依本文改版清单另行落盘
 - 关联规范: `arch/L2/02-reasoning/knowledge-center-specification.md`（v1.2 第四章 Ontology）、`arch/L2/02-reasoning/planner-specification.md`、`arch/L2/02-reasoning/decision-engine-specification.md`（v1.0）、`arch/L2/04-execution/workflow-specification.md`、`arch/L2/04-execution/scheduler-specification.md`、`arch/L2/05-governance/policy-center-specification.md`、`arch/design/2026-08-07-ontology-layer-design.md`
 - 术语: ECMC = Enterprise Cognitive Model Center（企业认知模型中心，v0.12 更名，原 BMC = Business Model Center）
@@ -947,13 +947,190 @@ ECMC → KB（假设性知识闭环，修订 P1-6，评审决策：方案 b；
         （相似度基于 assertion_schema 字段匹配为主，文本相似度辅助）
 ```
 
+### 4.4 ECMC Cognitive Service Contract（认知服务契约，v0.17 新增）
+
+> **定位**：Planner（及未来其他消费方）与 ECMC 之间是**认知模型查询与推理服务关系**。
+> 本节定义**语义级服务契约**（谁调用谁、为什么、输入输出语义、关键约束），
+> 不绑定传输实现（HTTP / gRPC / 内存调用 / Event Bus 由 L3 决定）——
+> 避免 L2 被具体协议锁死。
+
+#### 4.4.1 交互定位
+
+Planner 为什么调用 ECMC？因为 ECMC 提供两类认知能力：
+
+```
+                ECMC
+                 |
+     -------------------------
+     |                       |
+ Model Discovery        Reasoning Service
+ （找模型）               （用模型）
+```
+
+- **Model Discovery**：给定意图（入口节点 + 业务目标 + 领域 + 方向），返回匹配的已发布模型
+- **Reasoning Service**：给定模型版本 + 实例绑定 + 观测数据需求，返回推理结果（Cause Ranking + Evidence Chain）
+- 两者均为同步查询语义（无状态）；具体超时/重试策略 L3 定，但**不允许返回假完整结果**（见 4.4.3）
+
+#### 4.4.2 Model Discovery Contract（模型发现契约）
+
+**输入（意图四元组）：**
+
+```
+intent:
+  entry_point         — 入口节点语义（如"产量下降"）
+  direction           — up / down（观测方向，区分"为什么下降"与"为什么上升"）
+  domain              — 业务领域（如 production）
+  business_objective  — 业务目标（v0.17 新增，同节点不同任务）：
+                          diagnose（原因分析）| predict（趋势预测）|
+                          optimize（优化建议）| recommend（推荐）
+context:
+  tenant_id           — 租户
+  entity              — 目标实体（{ entity_id, type }，如 3 号矿）
+  role_scope          — 角色可见域（双层权限过滤输入）
+options:
+  top_k               — 候选数
+  version_policy      — latest（匹配度→最新）| pinned（固定版本）
+```
+
+**输出（模型候选集）：**
+
+```
+models: [{
+  model_id, version, status: "published",
+  entry_points: [{ node_id, direction, description }],
+  business_objective_support: [diagnose|predict|optimize|recommend],
+  applicability: { entities, industries },
+  match_score: 0-1,                    ← 匹配度（Planner 排序用）
+  capability_requirements: [...]        ← 见 4.4.4
+}]
+```
+
+**关键语义：**
+
+```
+MUST: business_objective 参与匹配——同一入口节点不同业务目标可能命中不同模型
+      （产量下降：原因分析模型 / 趋势预测模型 / 优化建议模型）
+MUST: 只返回 published 模型；role_scope 按双层权限过滤
+      （模型可见性 + 模型应用范围 + 数据权限，见 Governance）
+MUST: version_policy=latest 按 applicability 匹配度 → 最新版本排序；
+      pinned 精确匹配版本号
+MUST: match_score 语义明确（基于 entry_point 语义 + business_objective +
+      applicability 的匹配度；具体算法 L3，契约只定义语义）
+```
+
+#### 4.4.3 Reasoning Contract（推理服务契约）
+
+**输入：**
+
+```
+instance:
+  entity_id / entity_type     — 实例绑定（object 节点展开的锚点）
+  scope: time_window          — 观测时间窗（如 P30D）
+options:
+  reasoning_mode (v0.17，替代 algorithm——不暴露算法实现)：
+    default       — 默认（Phase 1 = 符号传播 + 路径排序）
+    fast          — 快速（低延迟优先，ECMC 内部选算法）
+    explainable   — 可解释优先（完整证据链）
+    high_accuracy — 高准确率优先（ECMC 内部选算法，如回测最优）
+  explain_level (v0.17 新增)：
+    basic     — 简单原因（驾驶舱场景）
+    detailed  — 完整证据链（总工场景）
+    audit     — 审计级（安全场景，含全部中间步骤）
+```
+
+**输出：**
+
+```
+cause_ranking: [{
+  node_id, direction_explanation,      ← 解释方向
+  score, confidence,
+  evidence_chain: [{
+    step_node_id, relation,
+    observation: { direction, value, source },
+    data_requirements_met: bool         ← 该步骤数据是否满足
+  }]
+}]
+meta: { model_id, version, reasoning_mode, reasoning_trace_id,
+        complete: bool }                ← complete=false 表示部分结果
+```
+
+**关键语义：**
+
+```
+MUST: 结论可解释——Cause Ranking 每项必须带 Evidence Chain；
+      explain_level 决定证据链粒度（audit 含全部中间步骤与数据来源）
+MUST: 可复现——响应携带 reasoning_trace_id + version，Planner 记入
+      Execution Trace
+MUST: 不允许假完整——超时/数据不足时返回 complete=false 的部分结果
+      + 缺失清单，绝不静默补齐
+MUST: 输入不足（模型需要 30 天数据但只有 3 天）→ 判定为
+      "不可处理"（L3 映射 422 语义）：返回 missing_requirements
+      清单（缺哪些观测/数据），不是"找不到模型"
+MUST: reasoning_mode 是 ECMC 内部算法选择的意图声明；
+      Planner 不感知、不依赖具体算法（贝叶斯/图搜索/LLM 均为
+      ECMC 内部实现，L3 选型）
+```
+
+#### 4.4.4 Capability Dependency Contract（能力依赖契约）
+
+**定位**：ECMC 不执行。它告诉 Planner——为了完成这个业务推理，需要什么能力：
+
+```
+capability_requirements: [{
+  capability_id,                        ← Capability Center 注册的 id
+  purpose,                              ← 为什么需要（对应模型节点/步骤）
+  required: true | false,               ← 必需 vs 可降级
+  input_schema,                         ← 需要的输入（实体/时间窗/字段）
+  output_usage                          ← 输出如何被使用（节点观测值）
+}]
+```
+
+```
+MUST: capability_requirements 是模型运行所必需（区别于"建议"）；
+      Planner 据此向 Capability Center 解析并纳入 Plan
+MUST: required=false 的能力缺失时可降级（推理结果标注降级）
+MUST: ECMC 不直接调用 Capability——调用由 Planner 编排（保持
+      纯知识层定位，见 §2.2 不负责清单）
+```
+
+链路：`Planner → ECMC（能力需求）→ Capability Center（解析）→ Plan 生成`
+
+#### 4.4.5 Feedback Contract（运行反馈契约，v0.17 新增）
+
+**定位**：为模型演进闭环（§3.5）准备的反馈通道——消费方（Agent/用户）
+对推理结果的采纳/否决/纠错回传给 ECMC：
+
+```
+feedback:
+  reasoning_trace_id      — 关联哪次推理
+  model_id / version      — 关联哪个模型版本
+  action: accept | reject | correct
+  correct_payload?        — action=correct 时的新事实/纠错内容
+  source: user | system   — 来源
+```
+
+```
+MUST: 反馈按 reasoning_trace_id + model_id + version 归档（绩效统计基础）
+MUST: 采纳/否决率是 §3.5 ① 运行绩效观测的核心指标
+MUST: correct 反馈触发 ModelIssue 登记（source_type=user_feedback，
+      见 §3.4.1）——驱动模型优化闭环
+```
+
+**交互总链路（闭环）：**
+
+```
+User → Agent Runtime → Planner → ECMC（Discovery → Reasoning →
+Capability Requirements）→ Capability Center → Enterprise Systems
+→ Observation Feedback（§4.4.5）→ ECMC Model Improvement（§3.5）
+```
+
 ---
 
 ## 5. L2 规范改版清单
 
 | # | 文档 | 改动 | 优先级 |
 |---|---|---|---|
-| 1 | 新建 `arch/L2/02-reasoning/enterprise-cognitive-model-center-specification.md` | ECMC 主规范（本文设计的契约化落盘） | P0 |
+| 1 | 新建 `arch/L2/02-reasoning/enterprise-cognitive-model-center-specification.md` | ECMC 主规范（本文设计的契约化落盘；核心章节：元模型统一视图 / 认知服务契约 / FDE 建模工作流 / 治理闭环） | P0 |
 | 2 | `knowledge-center-specification.md` v1.2 → v1.3 | 第四章 Ontology 标注"Enterprise Semantic Layer（企业语义层），KB/ECMC 共建"；ABox 增补 hypothesis_facts 候选表契约（ECMC 假设回写通道，方案 b） | P0 |
 | 3 | `planner-specification.md` | 新增"ECMC 知识源"章节：模型检索、因果遍历、决策知识注入、capability_call 前置 Step 化 | P0 |
 | 4 | `decision-engine-specification.md` v1.0 → v1.1 | §3.1 增补"ECMC DecisionRule 为规则来源之一（scope=execution）"；条件源约束（metric_ref/context） | P1 |
@@ -1304,3 +1481,25 @@ ECMC（一级模块）
 - **ModelIssue（问题管理）**：issue_id / model_ref（模型+版本）/ source_type（绩效告警/用户反馈/业务变化/依赖变化/人工）/ severity / status（open→triaged→in_progress→fixed→closed|won't_fix）/ linked_change / timeline；issue 与版本强关联，修复必须产生新版本，change_log 引用 issue_id
 - §3.5 定位调整为"绩效观测与优化触发"（治理子模块的感知前端），原 §3.5 中的修改/版本/发布/升级内容归入 §3.4 子节（避免重复）
 - D6 决策记录演进：从"不自建治理中心"→"ECMC 内一等治理子模块，横切层仍复用"
+
+
+---
+
+## 24. 架构修订：ECMC Cognitive Service Contract（v0.16 → v0.17）
+
+**背景**：ECMC 需要从"能力定义"进入"运行时可调用的企业认知服务"。新增 Planner 交互协议章节，评审确认方向后做六项调整，落为 §4.4。
+
+**六项调整（评审采纳）：**
+
+| 调整 | 内容 |
+|---|---|
+| 协议 → 服务契约 | 定义语义级契约（谁调用谁/为什么/输入输出语义/约束），不绑定 HTTP/gRPC/内存/Event Bus——传输实现 L3 定，避免 L2 被协议锁死 |
+| business_objective | 意图四元组增加业务目标（diagnose/predict/optimize/recommend）——同节点不同任务命中不同模型，提升匹配准确度 |
+| capability_hint → capability_requirements | 明确 ECMC/Capability 边界：能力需求是模型运行**必需**（含 required 标志），ECMC 不调用，Planner 编排 |
+| explain_level | basic（驾驶舱）/ detailed（完整证据链）/ audit（审计级）——满足企业分级解释需求 |
+| algorithm → reasoning_mode | L2 不暴露算法：default/fast/explainable/high_accuracy 为意图声明，ECMC 内部选算法（贝叶斯/图搜索/LLM 均内部实现） |
+| 增加 422 语义 | 模型存在但输入不足（需 30 天数据只有 3 天）→ "不可处理" + missing_requirements 清单，非"找不到模型" |
+
+**§4.4 结构**：4.4.1 交互定位（Model Discovery + Reasoning Service 两类认知能力）/ 4.4.2 Model Discovery Contract / 4.4.3 Reasoning Contract / 4.4.4 Capability Dependency Contract / 4.4.5 Feedback Contract（为 §3.5 模型演进闭环预留反馈通道）
+
+**闭环链路**：User → Agent Runtime → Planner → ECMC（Discovery → Reasoning → Capability Requirements）→ Capability Center → Enterprise Systems → Observation Feedback → ECMC Model Improvement
