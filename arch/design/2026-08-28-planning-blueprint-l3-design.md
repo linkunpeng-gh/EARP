@@ -1,12 +1,13 @@
 # Planning Blueprint — L3 实现设计
 
 **文档编号：DESIGN-ECMC-BLUEPRINT-L3**
-**版本：v0.4（draft，跨文档契约收口）**
+**版本：v0.5（draft，Freeze Patch）**
 **日期：2026-08-28**
 
 > 上游：`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§3.6 Cognitive Model Compiler / §4.4 Cognitive Service Contract）、`arch/L2/02-reasoning/planner-specification.md`（v1.1）、`arch/design/2026-08-28-planner-runtime-l3-design.md`（v1.0.1，Planner Runtime）、`arch/design/2026-08-28-causal-reasoning-engine-l3-design.md`（v0.5.1，Causal Framework）
 > 定位：ECMC → Planner 的执行规划表示（编译产物 / Planner IR）。本文定义 Planning Blueprint 的元模型（表结构）、Compiler 编译管线、Planner 消费流程。
 > 技术栈：FastAPI + SQLAlchemy 2 async + PostgreSQL 16 + pgvector，复用 `tenant_session()` / RLS `SET LOCAL` 模式。
+> v0.5 变更（Freeze Patch）：⑫ StepType Handler 版本化（P0-1）；⑬ Causal 不静态编译节点 Evidence Capability（P0-2）；⑭ source_models 钉 snapshot（P0-3）；⑮ Logical+Version 数据模型；⑯ goal_skeleton/fallback_policy Schema 补全；⑰ canonical step_type 词汇；⑱ dep 复合 FK + 多 dep_type；⑲ DAG 解耦/Plan≠Workflow；⑳ Compiler LLM 冻结；㉑ 组合来源显式化
 > v0.4 变更（跨文档契约收口）：① Blueprint = 编译产物，去独立审批生命周期（P0-1）；② compile_record = 独立 Build Job（P0-2）；③ 消费流程对齐 Goal Resolution 前置（P0-3）；④ knowledge_query = Planning-time Prepare + 取证/Evaluate Tasks（P0-4）；⑤ capability 逻辑化（P0-5）；⑥ constraints 对齐 Planner Hard/Soft（P0-6）；⑦ Step Source 多模型引用 + 去双维护（P1）；⑧ Step Type 收紧（P1）；⑨ conditional eval phase（P1）；⑩ fallback policy（P1）；⑪ validator 分类型（P1）
 > v0.3 变更（历史）：⑦ 规划约束 blueprint_constraints；⑧ 生命周期 draft/reviewing/approved（v0.4 废弃）；⑨ Step 多引用 blueprint_step_sources（L3.1 细化）
 
@@ -75,28 +76,46 @@ apps/earp-server/src/earp_server/
 | `blueprint_output_contracts` | 输出契约（输出结构声明） |
 | `blueprint_step_sources` | Step 引用（v0.4 唯一事实源：source_model_ref_id + element_key） |
 
-## 3.2 planning_blueprints（主表，v0.4 重构：编译产物）
+## 3.2 planning_blueprints（主表，v0.5 方案 B：Logical + Version）
 
-> **v0.4（评审 P0-1）**：Blueprint 是 **Compiled Artifact / Planner IR**，
-> 不是可独立编辑审批的第二套业务知识资产。治理生命周期属于 Source Model
-> （draft→reviewing→approved→published）；**专家审批的是认知模型，不是
-> Compiler 的输出**。Blueprint 不再有 draft/reviewing/approved。
+> **v0.5（评审 P1-1）**：统一为 Logical Blueprint + Blueprint Version
+> （与 Causal Model 同构）——避免 blueprint_id/blueprint_version_id 混用：
 
 ```
-blueprint_id        VARCHAR(64) PK
-tenant_id           VARCHAR(64) NOT NULL
-primary_model_type  VARCHAR(16) NOT NULL CHECK IN ('causal','decision','scenario')
-primary_model_id    VARCHAR(64) NOT NULL         -- 主源模型（归属用）
-version             VARCHAR(32) NOT NULL            -- 独立不可变版本（source_fingerprint 驱动，v0.4 P2）
-status              VARCHAR(16) NOT NULL CHECK IN
-                    ('compiled','superseded','withdrawn')
-                    -- v0.4：仅编译产物状态（无 draft/reviewing/approved）
-compile_record_id   VARCHAR(64)                    -- 关联 Build Job（§3.4）
-compiler_version    VARCHAR(16)                    -- Compiler 实现版本（可复现）
-intent_signature    JSONB NOT NULL                  -- 编译时快照（projection，权威在 blueprint_intents）
-validation_contract JSONB NOT NULL DEFAULT '{}'     -- 输入要求/缺失数据容忍度
-output_contract     JSONB                           -- 冗余快照（projection，权威在 blueprint_output_contracts）
-UNIQUE (tenant_id, primary_model_type, primary_model_id, version)  -- v0.4 P2：加 model_type 防 ID 冲突
+planning_blueprints（逻辑）
+├── blueprint_id      VARCHAR(64) PK
+├── tenant_id         VARCHAR(64) NOT NULL
+├── primary_model_type / primary_model_id      -- 主源模型（归属用）
+├── name / description
+└── created_at
+
+planning_blueprint_versions（版本，v0.5）
+├── blueprint_version_id VARCHAR(64) PK
+├── blueprint_id      VARCHAR(64) NOT NULL FK
+├── version           VARCHAR(32) NOT NULL   -- 独立不可变版本（source_fingerprint 驱动）
+├── status            VARCHAR(16) NOT NULL CHECK IN
+│                     ('compiled','superseded','withdrawn')
+├── compile_record_id VARCHAR(64)            -- 关联 Build Job（§3.4）
+├── compiler_version  VARCHAR(16)
+├── intent_signature  JSONB NOT NULL         -- projection（权威在 blueprint_intents）
+├── validation_contract JSONB NOT NULL DEFAULT '{}'  -- v0.5 收缩：仅输入合法性（见下）
+├── output_contract   JSONB                  -- projection（权威在 blueprint_output_contracts）
+├── fallback_policy   VARCHAR(16) NOT NULL DEFAULT 'allowed'
+│                     CHECK IN ('allowed','restricted','forbidden')
+│                     -- v0.5 P1-3：来源 = Source Model/Policy 编译，
+│                     -- 不允许人工在 Blueprint 修改
+└── UNIQUE (blueprint_id, version)
+
+compile_record.blueprint_version_id → 指向版本行（v0.5 P1-1 闭环）
+```
+
+**validation_contract 收缩（v0.5，评审 P1-4）**：只负责 Blueprint 输入合法性——
+
+```
+required_context_fields / required_entity_bindings / allowed_scope /
+  schema_version
+MUST: 不表达 minimum_evidence / missing evidence tolerance（那些有权威
+      契约：blueprint_constraints + Causal EvidenceRequirement）
 ```
 
 **生命周期（v0.4，评审 P0-1）：**
@@ -116,17 +135,23 @@ MUST: 修改业务逻辑 → 回源模型 → 重编译（防双维护 P2）
 
 **引用而非复制原则（P2）**：源模型通过 `blueprint_source_models` 关联表引用（见 3.3）；Blueprint 内不存业务规则文本，只存指向源模型元素的引用（见 3.5）。任何业务逻辑变更 → 源模型改 → 重新编译。
 
-## 3.3 blueprint_source_models（源模型引用表，v0.4 命名对齐）
+## 3.3 blueprint_source_models（源模型引用表，v0.5 补 snapshot pin）
 
 ```
 source_ref_id       VARCHAR(64) PK
 blueprint_id        VARCHAR(64) NOT NULL FK
 model_type          VARCHAR(16) NOT NULL CHECK IN ('causal','decision','scenario')
 model_id            VARCHAR(64) NOT NULL
-model_version       VARCHAR(32) NOT NULL            -- 跨模型版本钉扎（每个源模型独立版本）
+model_version       VARCHAR(32) NOT NULL            -- 跨模型版本钉扎
+source_snapshot_id  VARCHAR(64) NOT NULL            -- v0.5 P0-3：钉住具体 Immutable Snapshot
+source_content_hash VARCHAR(64) NOT NULL            -- v0.5：内容哈希
 model_role          VARCHAR(16) NOT NULL CHECK IN ('primary_model','supporting_model')
-                    -- v0.4：命名对齐 Planner（避免与 Blueprint 组合的 blueprint_role 混淆）
 ```
+
+> **v0.5（评审 P0-3）**：只钉 model_version 不够——一个版本可能有多个
+> validation snapshots，生产经 published_snapshot_id 钉住实际发布内容。
+> Blueprint 必须钉 `source_snapshot_id + content_hash`：
+> Blueprint → 具体 Source Snapshot → 具体 Node/Rule/Requirement 完整可复现。
 
 **多模型组合**：一个 Blueprint 可引用多个模型（如 Scenario + Causal + Decision）：
 
@@ -138,7 +163,14 @@ model_role          VARCHAR(16) NOT NULL CHECK IN ('primary_model','supporting_m
 }
 ```
 
-**版本钉扎（MUST）**：每个源模型独立钉扎版本——任一源模型更新 → 重新编译新 Blueprint 版本（保留旧版本可消费）；跨模型版本组合在编译记录中可追溯。
+**组合来源（v0.5，评审 P1-10）**：多模型组合必须来自显式知识关系——
+
+```
+MUST: 组合来源于：① Scenario Model 显式引用；② 模型依赖关系；
+      ③ 预先注册的 semantic dependency；④ Compiler 确定性规则
+MUST: Compiler 可以解析组合，不能创造业务组合关系（禁止 LLM 自由
+      组合模型——"我觉得配 Causal A + Decision B 不错"不属于编译）
+```
 
 ## 3.4 blueprint_compile_records（编译记录 = 独立 Build Job，v0.4 修 P0-2）
 
@@ -188,7 +220,23 @@ UNIQUE (blueprint_id, entry_point, direction, domain, business_objective)
 
 **用途**：Planner Model Discovery（§4.4.2）的匹配键——意图四元组命中 Blueprint。
 
-## 3.6 blueprint_steps（步骤蓝图，核心表，v0.4 去双维护）
+## 3.6 blueprint_goal_skeletons（目标骨架，v0.5 补全 P1-2）
+
+> **定位**：只负责 Goal Instantiation（SubGoal + skeleton + context → Runtime Goal），
+> 不负责 Goal Decomposition（那是 Planner Goal Resolution，Blueprint 之前）。
+
+```
+goal_skeleton_id    VARCHAR(64) PK
+blueprint_id        VARCHAR(64) NOT NULL FK
+objective           VARCHAR(16) NOT NULL CHECK IN ('diagnose','predict','optimize','recommend')
+goal_template       TEXT NOT NULL              -- Goal 模板（含变量占位）
+required_bindings   JSONB NOT NULL DEFAULT '[]'  -- 必须绑定（entity/time_window）
+optional_bindings   JSONB NOT NULL DEFAULT '[]'
+constraint_refs     JSONB NOT NULL DEFAULT '[]'  -- 关联 blueprint_constraints
+output_contract_ref VARCHAR(64)                -- 关联 blueprint_output_contracts
+```
+
+## 3.7 blueprint_steps（步骤蓝图，核心表，v0.4 去双维护）
 
 ```
 step_id             VARCHAR(64) PK
@@ -220,21 +268,32 @@ MUST: 多模型时 element_key 由 source_model_ref_id 限定（无歧义）
 MUST: 引用必须指向源模型真实元素（编译器校验，防双维护 P2）
 ```
 
-## 3.7 blueprint_step_deps（步骤依赖，v0.4 加 eval phase）
+## 3.8 blueprint_step_deps（步骤依赖，v0.5 补 FK + 多 dep_type）
 
 ```
 dep_id              VARCHAR(64) PK
-blueprint_id        VARCHAR(64) NOT NULL FK
+blueprint_version_id VARCHAR(64) NOT NULL FK  -- v0.5：属于版本（Logical+Version）
 from_step_id        VARCHAR(64) NOT NULL
+from_blueprint_version_id VARCHAR(64) NOT NULL
+                                    -- v0.5 P1-6：复合 FK 保证两端同版本
 to_step_id          VARCHAR(64) NOT NULL
+to_blueprint_version_id VARCHAR(64) NOT NULL
 dep_type            VARCHAR(16) NOT NULL CHECK IN ('sequential','conditional','data_flow')
 condition           JSONB                          -- dep_type=conditional 时（引用源模型 Rule）
-condition_eval_phase VARCHAR(16)                   -- v0.4：planning | execution
+condition_eval_phase VARCHAR(16)                   -- planning | execution
                     -- 源自源模型 DecisionRule.scope（Planner 不得自行决定）
-UNIQUE (blueprint_id, from_step_id, to_step_id)
+UNIQUE (blueprint_version_id, from_step_id, to_step_id, dep_type)
+                    -- v0.5：同端对可并存多种 dep（sequential + data_flow）
+
+FOREIGN KEY (from_blueprint_version_id, from_step_id)
+  REFERENCES blueprint_steps(blueprint_version_id, step_id)  -- 复合 FK（v0.5 P1-6）
+FOREIGN KEY (to_blueprint_version_id, to_step_id)
+  REFERENCES blueprint_steps(blueprint_version_id, step_id)
 ```
 
-**约束**：`blueprint_steps + blueprint_step_deps` 构成 DAG（编译期校验，同 Causal Model DAG 原则）。
+**约束（v0.5，评审 P1-7）**：Blueprint Step 图 Phase 1 必须为 DAG——
+这是 **Planner Composition / execution planning 的约束**，与 Causal Model
+是否有环无关（Causal 存储层允许环，DAG 是推理算法 Profile 约束）。
 
 **conditional 执行边界（v0.4，评审 P1）**：
 ```
@@ -243,17 +302,45 @@ Execution scope → Plan 保留 conditional edge，Runtime 到达时由
                   Decision Engine 评估（Planner 不预选）
 ```
 
-## 3.8 step_type_registry（Step Type 扩展注册表，v0.4 收紧）
+## 3.9 step_type_registry（Step Type 扩展注册表，v0.5 版本化）
+
+> **v0.5（评审 P0-1）**：StepType Handler 必须版本化——否则 Blueprint 虽不可变，
+> 但解释它的 Handler 升级后 PlanFragment 会变，破坏可复现。
 
 ```
-type_id             VARCHAR(32) PK                 -- 如 'capability_call'、'human_confirm'
-type_name           VARCHAR(64) NOT NULL
-description         TEXT NOT NULL
-handler_id          VARCHAR(64) NOT NULL           -- 处理器实现（Handler Registry 注册）
-params_schema       JSONB NOT NULL DEFAULT '{}'    -- 该类型步骤的参数 JSON Schema（校验）
-is_core             BOOLEAN NOT NULL DEFAULT false -- 内置五类=true；扩展=false
-status              VARCHAR(16) NOT NULL CHECK IN ('active','deprecated')
-added_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+step_types（逻辑类型）：
+  type_id     VARCHAR(32) PK        -- 'knowledge_query' | 'data_fetch' |
+                                    -- 'capability_requirement' |
+                                    -- 'decision_evaluate' | 'output'
+  type_name   VARCHAR(64) NOT NULL
+  is_core     BOOLEAN NOT NULL DEFAULT false
+
+step_type_versions（版本，v0.5 P0-1）：
+  step_type_version_id VARCHAR(64) PK
+  type_id          VARCHAR(32) NOT NULL FK
+  version          VARCHAR(32) NOT NULL
+  handler_version  VARCHAR(32) NOT NULL    -- Handler 实现版本
+  handler_hash     VARCHAR(64) NOT NULL    -- 实现哈希（可定位/审计）
+  params_schema    JSONB NOT NULL DEFAULT '{}'
+  semantic_contract_version VARCHAR(16) NOT NULL
+  status           VARCHAR(16) CHECK IN ('active','deprecated')
+  UNIQUE (type_id, version)
+
+Blueprint Step 编译时 pin（v0.5）：
+  step_type_version_id  → 解释语义冻结（Handler 升级不改变旧 Blueprint
+    的 PlanFragment）
+Compile Record / Plan Trace 记录：
+  step_type_version + handler_version + handler_hash
+  ——Source Model → Blueprint → Interpreter Version → PlanFragment 全链可复现
+```
+
+**canonical step_type 词汇（v0.5，评审 P1-5 统一）：**
+
+```
+Phase 1 正式五个：knowledge_query / data_fetch / capability_requirement /
+  decision_evaluate / output
+旧名 capability_call → capability_requirement；decision_branch →
+  decision_evaluate（alias/migration，Planner Handler 名称完全一致）
 ```
 
 **扩展机制（v0.2，v0.4 收紧——防 Blueprint 变成第二个 Workflow Engine）：**
@@ -274,7 +361,7 @@ added_at            TIMESTAMPTZ NOT NULL DEFAULT now()
   MUST: 内置五类 is_core=true 不可删除；扩展类型可 deprecated
 ```
 
-## 3.9 blueprint_capability_requirements（能力需求，v0.4 逻辑化 P0-5）
+## 3.10 blueprint_capability_requirements（能力需求，v0.4 逻辑化 P0-5）
 
 > **v0.4（评审 P0-5）**：不绑物理 capability_id——Blueprint 是逻辑需求，
 > 物理解析由 Planner/Capability Resolver 在运行时完成（跨租户/行业复用）。
@@ -298,7 +385,7 @@ MUST: 物理 capability/provider 解析由 Planner + Capability Resolver
 MUST: 不新增能力需求（防双维护——编译自源模型 Capability Binding）
 ```
 
-## 3.10 blueprint_constraints（规划约束，v0.4 与 Planner Hard/Soft 统一 P0-6）
+## 3.11 blueprint_constraints（规划约束，v0.4 与 Planner Hard/Soft 统一 P0-6）
 
 > **v0.4（评审 P0-6）**：直接复用 Planner v1.0 的 Hard/Soft 契约，
 > 不发明第二套——Blueprint Constraint → Planner Constraint Merge 零转换。
@@ -338,7 +425,7 @@ SHOULD: 约束可被 Planner 消费并在 Plan 中体现（mandatory → 规划�
   soft: { priority: cost_vs_speed, explain_level: detailed }
 ```
 
-## 3.11 blueprint_output_contracts（输出契约）
+## 3.12 blueprint_output_contracts（输出契约）
 
 ```
 output_id           VARCHAR(64) PK
@@ -371,8 +458,14 @@ output_schema       JSONB NOT NULL                 -- 输出结构（字段/嵌�
                   Reasoning Prepare；不预编译路径/证据能力）
   ④ 引用解析（reference_resolver）：每步经 blueprint_step_sources
      （source_model_ref_id + element_key）→ 校验源模型元素存在（P5）
-  ⑤ 能力需求编译：节点 Capability Binding → blueprint_capability_
-     requirements（逻辑 contract，非物理 capability_id）
+  ⑤ 能力需求编译（v0.5 P0-2 按模型类型区分）：
+     - Scenario Model → 编译静态 Capability Requirements（方法论固定）
+     - Decision Model → 编译明确要求的 Capability Requirements
+     - Causal Model → 不编译节点级 Evidence Capability（动态证据需求
+       由 Reasoning Prepare 运行时产生——按 target/window/instance/algorithm
+       Profile 确定实际需要的证据）；仅当存在模型级 Hard Requirement
+       （无论分析哪个子图都必须具备的能力）才进 blueprint_capability_
+       requirements
   ⑥ 完整性校验（validator，v0.4 P1 按模型类型）：
      - Scenario Validator → methodology coverage（步骤覆盖方法论）
      - Decision Validator → rule/decision coverage
@@ -398,6 +491,16 @@ blueprint.fallback_policy：allowed | restricted | forbidden
   诊断分析类（allowed）→ 编译失败可 direct model reasoning
   安全决策/设备控制/生产执行（forbidden）→ 缺方法论时 FAIL CLOSED
 MUST: 任何降级继承 Hard Constraints（同 Planner v1.0）
+```
+
+**Compiler 可复现（v0.5，评审 P1-9）**：
+
+```
+Phase 1 尽量确定性规则编译；若内部使用 LLM（如 Scenario 步骤结构化
+辅助），compiler_config 必须冻结：provider / model / prompt_version /
+  temperature / seed（若支持）/ structured_output_schema_version
+MUST: 同 source hash + 同 compiler_version + 同 config → 同 Blueprint
+MUST: LLM 只做候选建议，不成为不可复现的业务逻辑生成器
 ```
 
 ---
@@ -473,15 +576,18 @@ knowledge_query（v0.4 P0-4）：
   → 取证 Tasks + Evaluate Task（运行时推理，不预编译路径）
 ```
 
-## 6.3 与 Workflow 的边界（P6 落地）
+## 6.3 与 Workflow 的边界（P6 落地，v0.5 修正 P1-8）
 
 ```
 Blueprint 不定义：重试次数 / 超时 / 并发度 / 具体端点 / 重试退避
   ——这些是 Workflow / Resource Spec 的执行编排细节
 Blueprint 定义：步骤顺序（业务方法）/ 数据依赖 / 条件分支（业务规则）
   ——业务方法层
-实现：Planner 把 Blueprint 步骤投影为 Workflow 节点时，编排细节
-  由 Workflow/Resource 层补充（L2-04）
+
+实现（v0.5）：Planner 将 Blueprint 投影为 Plan/Task（PlanFragment →
+  Plan）；执行形态由任务决定——直接 Runtime Task / Workflow 编排 /
+  Scheduler / 人工审批 / 事件驱动执行，由 Execution/Workflow 层承载
+  执行细节（Plan ≠ Workflow，不绑死）
 ```
 
 ---
@@ -516,7 +622,7 @@ POST   /v1/ecmc/blueprints/{id}/withdraw                           — 下线（
 
 ---
 
-# 九、开放问题（v0.4 更新，实现期/Phase 2）
+# 九、开放问题（v0.5 更新，实现期/Phase 2）
 
 1. **步骤粒度**：v0.4 已用 blueprint_step_sources（唯一事实源）支持 Step 多引用；Node→多 Step 的生成规则 L3.1 细化
 2. **多模型组合冲突**：同一节点被两模型引用语义不一致的检测 L3.1 细化
@@ -524,6 +630,7 @@ POST   /v1/ecmc/blueprints/{id}/withdraw                           — 下线（
 4. **降级 SLA**：fallback_policy=allowed 时"直接模型匹配"路径的可用性保证
 5. **Step Type 扩展治理**：业务语义型扩展（human_confirm/simulation）的 Handler 测试标准与 Planner 适配
 6. **knowledge_query Handler 细化**：Reasoning Prepare 集成（Evidence Requirements → 取证/Evaluate Tasks）的具体编排——与 Causal Framework 对接实现
+7. **StepType 版本迁移**：canonical 词汇（capability_requirement/decision_evaluate）对旧 Blueprint 的 alias/migration 策略
 
 ---
 
@@ -545,3 +652,23 @@ POST   /v1/ecmc/blueprints/{id}/withdraw                           — 下线（
 | P1 | Fallback 统一允许过绝对 | §四：fallback_policy（allowed/restricted/forbidden）+ Policy 决定；任何降级继承 Hard Constraints（FAIL CLOSED 于安全场景） |
 | P1 | Validator 需按模型类型 | §四：Scenario/Decision/Causal 分类型 validator（Causal 不要求全节点引用——路径运行时由 Prepare 决定） |
 | P2 | 唯一键/version/JSON projection | §3.2：UNIQUE 加 primary_model_type；version 由 source_fingerprint 驱动；intent_signature/output_contract 标注为 projection（权威在子表） |
+
+---
+
+# 十一、v0.5 Freeze Patch 处置记录（v0.4 → v0.5）
+
+| 级别 | 评审意见 | 处置 |
+|---|---|---|
+| P0-1 | StepType Handler 未版本化（Blueprint 不可变但解释语义会变，破坏可复现） | §3.9：step_types + step_type_versions（version/handler_version/handler_hash/params_schema/semantic_contract_version）；Blueprint Step 编译时 pin step_type_version_id；Compile Record/Plan Trace 记录 handler 版本 |
+| P0-2 | Causal Compiler 提前把全部节点 Evidence Capability 编进 Blueprint（破坏 Prepare 价值） | §四⑤：按模型类型——Scenario/Decision 编译静态 Capability；Causal 不编译节点级（动态证据由 Reasoning Prepare 运行时产生）；仅模型级 Hard Requirement 进 Blueprint |
+| P0-3 | source_models 只钉 model_version（一个版本多 snapshot，生产 pin published_snapshot_id） | §3.3：补 source_snapshot_id + source_content_hash——Blueprint → 具体 Snapshot → 具体元素完整可复现 |
+| P1-1 | blueprint_id/blueprint_version_id 概念混用 | §3.2：方案 B（Logical Blueprint + Blueprint Version，与 Causal 同构）；compile_record.blueprint_version_id 指向版本行 |
+| P1-2 | goal_skeleton 无 Schema | §3.6：blueprint_goal_skeletons（objective/goal_template/required_bindings/optional_bindings/constraint_refs/output_contract_ref）；明确只负责 Instantiation 不负责 Decomposition |
+| P1-3 | fallback_policy 被使用但 Schema 无字段 | §3.2：fallback_policy 字段（allowed/restricted/forbidden），来源 = Source Model/Policy 编译，禁人工修改 |
+| P1-4 | validation_contract 模糊（与 minimum_evidence/required 重复） | §3.2：收缩为输入合法性（required_context_fields/required_entity_bindings/allowed_scope/schema_version）——不表达证据相关（有权威契约） |
+| P1-5 | step_type 名称不统一 | §3.9：canonical 五类（knowledge_query/data_fetch/capability_requirement/decision_evaluate/output）；旧名 alias/migration |
+| P1-6 | dep 唯一键过严（A→B 只能一种关系）+ 无真实 FK | §3.8：UNIQUE 加 dep_type；复合 FK（blueprint_version_id, step_id）保证两端同版本 |
+| P1-7 | "同 Causal DAG 原则"表述过时 | §3.8：Blueprint Step 图 DAG 是 Planner 编排约束，与 Causal 是否有环无关 |
+| P1-8 | "投影为 Workflow"绑死 Plan=Workflow | §6.3：投影为 Plan/Task；执行形态由任务决定（Runtime/Workflow/Scheduler/审批/事件），不绑死 |
+| P1-9 | Compiler 用 LLM 时不可复现 | §四：compiler_config 冻结（provider/model/prompt_version/temperature/seed/schema_version）；LLM 只做候选建议 |
+| P1-10 | 多模型组合可由 Compiler/LLM 自由创造 | §3.3：组合必须来自显式知识关系（Scenario 引用/模型依赖/semantic dependency/确定性规则）；Compiler 解析不创造 |
