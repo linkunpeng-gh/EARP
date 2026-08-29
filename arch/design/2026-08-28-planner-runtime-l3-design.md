@@ -1,7 +1,7 @@
 # Planner Runtime — L3 实现设计
 
 **文档编号：DESIGN-ECMC-PLANNER-RUNTIME-L3**
-**版本：v0.3（draft）**
+**版本：v0.4（draft）**
 **日期：2026-08-28**
 
 > 上游：`arch/L2/02-reasoning/planner-specification.md`（v1.1，L2 契约）、`arch/design/2026-08-28-planning-blueprint-l3-design.md`（v0.3 基线，Blueprint 元模型）、`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§4.4 Cognitive Service Contract）
@@ -62,19 +62,25 @@ Interpretation —— 专家方法如何变成执行任务？（Step → PlanFra
 Composition —— 多个执行块如何拼成一个 Plan？（Fragment 组装）
 ```
 
-## 2.1 Goal Resolution / Decomposition（v0.3 新增，评审 P0-1）
+## 2.1 Goal Resolution / Decomposition（v0.3 新增，v0.4 澄清输入与两阶段）
 
 ```
-输入：Intent 四元组（entry_point + direction + domain + business_objective）
+输入（v0.4：支持 Compound Intent，不再限单值四元组）：
+  ParsedIntent:
+    primary_intent: { entry_point, direction, domain, business_objective }
+    objective_candidates[]:  （compound 时，如 diagnose + optimize + recommend）
+      { entry_point, direction, domain, business_objective }
 输出：1..N SubGoal（每个 SubGoal 独立可规划）
 
 SubGoal 结构：
   sub_goal_id / objective（diagnose|predict|optimize|recommend）
-  entry_point / direction / domain（继承或细化自总意图）
+  entry_point / direction / domain（继承或细化自 ParsedIntent）
   priority / dependencies（SubGoal 间顺序或并行）
 
 示例（复杂请求）：
 "为什么产量下降？怎么调整？调整后风险？"
+  → ParsedIntent.primary = diagnose（产量下降）
+  → objective_candidates = [optimize, recommend]
   → SubGoal A：诊断原因（objective=diagnose）
   → SubGoal B：制定优化方案（objective=optimize，依赖 A）
   → SubGoal C：评估风险（objective=recommend，依赖 B）
@@ -84,8 +90,21 @@ SubGoal 结构：
 MUST: Goal Resolution 在 Blueprint Discovery 之前（先定问题，再找方法）
 MUST: 每个 SubGoal 独立 Discovery（不同 SubGoal 可命中不同 Blueprint）
 MUST: SubGoal 间依赖关系（顺序/并行）在 Composition 阶段体现
-MUST: 多 objective 意图（如 diagnose+optimize）分解为多 SubGoal
+MUST: Compound Intent 的多个 objective 分解为多 SubGoal
+      （输入输出一致：不支持"输入单值、输出多值"的矛盾）
 SHOULD: 单 objective 简单请求 → 1 个 SubGoal（无额外开销）
+```
+
+**Goal Resolution vs Goal Instantiation（v0.4 明确，评审 P1-6）：**
+
+```
+Goal Resolution = Request → SubGoals（语义分解："这次到底要解决几个问题"）
+                —— §2.1，Blueprint Discovery 之前
+Goal Instantiation = SubGoal + Blueprint goal_skeleton + Context
+                → Runtime Goal（"把模板套到 3 号矿 + 近 30 天"）
+                —— §5.1，Blueprint 命中之后
+
+两者是不同阶段的不同动作，不重复、不混淆
 ```
 
 ---
@@ -168,13 +187,18 @@ Planner Optimization Preference（内部偏好，最低）
 **约束类型归属：**
 
 ```
-Hard Constraint（不可削弱）：
-  - 安全/合规类 priority（safety > cost）
+Hard Constraint（不可削弱，v0.4 类型化）：
+  - mandatory_check（必须执行的检查，如安全风险检查）
+  - prohibition（禁止动作）
   - mandatory_capability（缺失 → 规划失败）
   - minimum_evidence（证据下限）
-  - 禁止动作（exclusion / compliance 边界）
+  - compliance_rule（合规/政策边界）
+  - priority 语义澄清（v0.4，评审 P1-1）："安全优先"如果只是排序偏好
+    归 Soft；安全真的不可违反，必须表达为 mandatory_check /
+    prohibition / compliance_rule（Hard）
 Soft Constraint（可调整）：
-  - 优化偏好（成本优先/速度优先）
+  - priority / scheduling_weight（任务排序权重）
+  - cost_vs_speed（成本/速度偏好）
   - 解释深度（basic/detailed/audit）
   - 推荐数量 / 排序偏好
 ```
@@ -185,7 +209,8 @@ MUST: 用户只能增加或收紧 Hard Constraint，不能削弱（v0.2 关键�
 MUST: 用户可调整 Soft Constraint（覆盖蓝图默认）
 MUST: Policy/Compliance 优先于一切（平台级，Blueprint 也不可越）
 MUST: mandatory_capability 缺失时规划失败（明确报错，不静默降级）
-MUST: priority 只影响任务排序/调度偏好，不改变任务语义
+MUST: priority/scheduling_weight 只影响任务排序/调度偏好，不改变任务语义
+      （安全约束必须走 mandatory/prohibition，不能仅靠排序表达）
 MUST: minimum_evidence 在 Plan 输出契约中声明（Execution 后校验）
 ```
 
@@ -218,27 +243,69 @@ Composition → 1 Plan
 
 ```
 MUST: 每个 SubGoal 独立 Discovery（§4.4.2），命中 Primary Blueprint
-MUST: Supporting Blueprint 由 Primary 声明（编译时 source_models 中的
-      supporting role）或 Planner 按需发现（交叉验证场景）
+MUST: Supporting Blueprint 由 Planner 动态发现（v0.4 修正：Phase 1
+      禁止 Blueprint 静态引用另一个 Blueprint）——Planner 判断是否需要
+      补充分析（交叉验证/深度下钻）后再 Discovery
+MUST: Blueprint → Source Cognitive Models（source_models：causal/decision/
+      scenario）与 Primary → Supporting Blueprint 是两种不同关系，
+      禁止混用 source_models.supporting 表达 Supporting Blueprint
+      （v0.4 P0：见 §4.5 关系澄清）
 MUST: Supporting 的引入不得改变 Primary 的 Goal 语义（只增强证据）
 SHOULD: Supporting Blueprint 的输出并入 Primary 的 Evidence Chain
         （多源证据合并，输出契约合并）
 ```
 
-## 4.3 多 Blueprint 的约束合并（Hard 取并集）
+## 4.3 多 Blueprint 的约束合并（Hard 取并集 + Merge Operator）
 
 ```
 MUST: 多 Blueprint 的 Hard Constraint 取并集（任一蓝图的 Hard 都生效）
 MUST: 冲突的 Hard（两个 Hard 互斥）→ 规划失败 + 明确冲突报告
       （不静默取舍——由专家改蓝图或人工裁决）
-SHOULD: Soft Constraint 按 Primary 优先、Supporting 补充合并
+MUST: 约束合并用类型化 Merge Operator（v0.4，评审 P1-3）：
+      minimum → max()          （minimum_evidence ≥2 与 ≥3 → ≥3）
+      maximum → min()          （timeout ≤10m 与 ≤5m → ≤5m）
+      set_required → union     （mandatory_capability 并集）
+      allowed_set → intersection
+      prohibited → union
+      priority → Primary 优先 / policy 裁决
+SHOULD: Soft Constraint 按 Primary 优先、Supporting 补充合并（同型算子）
 ```
 
-## 4.4 版本一致性
+## 4.4 版本兼容校验（v0.4 修正，评审 P0-2）
+
+> **关键原则**：Composition 不得修改已冻结 Blueprint 的源模型版本（Blueprint 不可变）。
+> 跨 Blueprint 引用同一 Source Model 时做**兼容校验**，不做强制统一。
 
 ```
-MUST: 多 Blueprint 各版本在 Composition 时同时冻结（§6 版本冻结）
-MUST: 跨 Blueprint 引用同一源模型时，用同一版本（防版本分裂）
+场景：
+  BP-A v2 编译时引用 Causal Model v1.7
+  BP-B v3 编译时引用 Causal Model v1.8
+  → Planner 同时命中 BP-A + BP-B
+
+MUST: 不修改任何 Blueprint 的冻结版本（v1.7 就是 v1.7，不可换 v1.8）
+MUST: 检查 Blueprint 组合的版本兼容性：
+      - 引用同一 Source Model 的多个 Blueprint，若版本相同 → 兼容
+      - 版本不同 → Version Compatibility Conflict
+处理（按序）：
+      ① 优先找兼容版本的 Blueprint（同源模型同版本的替代）
+      ② 找不到 → 要求重新编译 / 换 Blueprint
+      ③ 仍无法兼容 → Composition Failed（明确报错）
+```
+
+## 4.5 关系澄清（v0.4，评审 P0-1）
+
+```
+两种关系必须分开：
+
+Blueprint → Source Cognitive Models（编译时引用）：
+  blueprint_source_models（model_type: causal/decision/scenario，
+  role: primary/supporting）——"这个 Blueprint 用了哪些 ECMC 模型"
+
+Primary Blueprint → Supporting Blueprint（规划时组合）：
+  Phase 1 不静态建模——由 Planner 动态发现（§4.2）
+  未来如需静态关系，单独定义 BlueprintRelation（
+  primary_blueprint_id / supporting_blueprint_id / relation_type / purpose），
+  不复用 source_models
 ```
 
 ---
@@ -285,10 +352,10 @@ MUST: 注入上下文记入 Plan 元数据（审计/复现）
      e. 能力解析：capability_requirements → Capability Center
         （mandatory 缺失 → 该 SubGoal 规划失败）
      → 产出 SubGoal 的 Plan Fragment
-  ③ Composition（§4.3/4.4）：多 Fragment 组装为 1 Plan
+  ③ Composition（§4.3/4.4/4.5）：多 Fragment 组装为 1 Plan
      - SubGoal 间依赖边（顺序/并行）
-     - Hard Constraint 并集（冲突 → 失败 + 冲突报告）
-     - 跨 Blueprint 版本一致性（同一源模型同版本）
+     - Hard Constraint 并集 + Merge Operator（§4.3）
+     - 版本兼容校验（§4.4：不修改冻结版本，不兼容 → 换蓝图/重新编译/失败）
   ④ 输出契约实例化：output_contract → Plan 输出声明（合并）
   ⑤ Plan Validation（复用 L2 §6.3：schema/权限/无环/资源）
      - 失败 → 按 §6.2 边界修复后重试 → 仍失败按 §7 降级
@@ -303,7 +370,8 @@ MUST: Plan 创建时完成版本冻结（v0.3 多 Blueprint：每个 Blueprint �
       source_models: [causal-a v1.7, decision-b v3.1]
       compile_records: [compile-8821, compile-8830]
       blueprint_snapshot_hashes
-MUST: 跨 Blueprint 引用同一源模型 → 用同一版本（防版本分裂，§4.4）
+MUST: 跨 Blueprint 引用同一源模型 → 版本兼容校验（§4.4：同版本兼容，
+      异版本 → Version Compatibility Conflict，不强行统一）
 MUST: 执行期间源模型发布新版本不影响当前 Plan（继续用冻结版本）
 MUST: 下一个 Request 才用新版本（冻结在 Plan 级，不跨 Request）
 MUST: 审计链完整：Execution → Plan → Blueprint → Compile Record →
@@ -333,14 +401,23 @@ MUST: 违反 Forbidden 的"修复" → 拒绝 + 记录（防 Planner 绕过硬�
 SHOULD: 重试次数配置化（默认 ≤3，非架构常量）
 ```
 
-**追溯元数据（P5）：**
+**追溯元数据（P5，v0.4 升级为 Multi-Blueprint 结构）：**
 
 ```
 plan.meta:
-  blueprint_id / blueprint_version
-  source_models: [{ model_id, version }]
-  compile_id / compiler_version / blueprint_snapshot_hash  （v0.2 增强）
-  task_trace: { task_id → step_id → source_ref_path }
+  blueprints: [                       （v0.4：复数，多 Blueprint）
+    {
+      blueprint_id, version, role（primary|supporting）,
+      sub_goal_id,                    ← 关联哪个 SubGoal
+      compile_id, compiler_version, snapshot_hash
+    }
+  ]
+  source_models: [{ model_type, model_id, version }]
+  task_trace: {                       （v0.4：task → 1..N 来源）
+    task_id → [{
+      sub_goal_id, blueprint_id, step_id, source_ref_path
+    }]
+  }
 ```
 
 ---
@@ -414,12 +491,18 @@ SHOULD: 状态机与现有 Planner 核心循环（L2 §2）兼容（理解→规
 
 ---
 
-# 十、API 草案（L3 接口）
+# 十、API 草案（L3 接口，v0.4 主入口升级）
 
 ```
-POST /v1/planner/plan-from-blueprint    — 输入 intent + blueprint_id + 实例绑定，输出 Plan
-GET  /v1/planner/plans/{plan_id}/trace  — Plan 追溯（task → step → source）
-POST /v1/planner/replan                 — 失败重规划（保留意图上下文）
+POST /v1/planner/plans                — 主入口（v0.4）：
+      输入 { request/intent, context, entity, constraints }
+      → Goal Resolution → Discovery → Multi-Blueprint → Composition → Plan
+GET  /v1/planner/plans/{plan_id}       — Plan 查询（含 meta/task_trace）
+GET  /v1/planner/plans/{plan_id}/trace — Plan 追溯（task → subgoal → blueprint → step → source）
+POST /v1/planner/replan                — 失败重规划（保留意图上下文）
+
+内部/调试接口（非主入口）：
+POST /v1/planner/plan-from-blueprint   — 强制指定 Blueprint（调试/内部编排）
 ```
 
 （传输层 HTTP 为参考，gRPC/内存/EventBus 由 Runtime 集成层决定。）
@@ -429,8 +512,10 @@ POST /v1/planner/replan                 — 失败重规划（保留意图上下
 # 十一、开放问题（下一轮评审）
 
 1. **投影粒度实现**：v0.2 已定 Step→Fragment（0..N task）；data_fetch 拆分（多数据源并行）与并行调度（保留独立 Task + 并行边，不物理合并）的具体规则（数据源独立性判定）待细化
-2. **Hard 冲突裁决实现**：v0.3 已定"冲突 → 规划失败 + 冲突报告"；冲突报告的表述与人工裁决流程待细化
-3. **Goal Resolution 启发式**：v0.3 已前置 Goal Decomposition；多 objective 意图的拆分启发式（何时拆/拆几个）与 LLM 辅助拆分的边界待细化
-4. **性能**：Blueprint 解释缓存（相同 blueprint+intent 重复解释 → 缓存 Plan 骨架）
-5. **版本冻结粒度**：v0.3 已拍板 Plan 级冻结（多 Blueprint 独立冻结）；跨多个 Plan 的长期任务（长会话）版本续订策略待定
-6. **SubGoal 依赖编排**：SubGoal 间依赖（如诊断→优化→风险评估）在 Composition 后的执行语义（是否整 Plan 一个 Execution 还是分段）待细化
+2. **Hard 冲突裁决实现**：v0.4 已定"冲突 → 规划失败 + 冲突报告" + Merge Operator；冲突报告的表述与人工裁决流程待细化
+3. **Goal Resolution 启发式**：v0.4 已支持 Compound Intent（objective_candidates）；拆分启发式（何时拆/拆几个）与 LLM 辅助拆分的边界待细化
+4. **Supporting Blueprint 发现启发式**：v0.4 已定"Planner 动态发现、Phase 1 禁止静态引用"；何时需要 Supporting（交叉验证/深度下钻）的判定规则待细化
+5. **性能**：Blueprint 解释缓存（相同 blueprint+intent 重复解释 → 缓存 Plan 骨架）
+6. **版本冻结粒度**：v0.3 已拍板 Plan 级冻结（多 Blueprint 独立冻结）；跨多个 Plan 的长期任务（长会话）版本续订策略待定
+7. **SubGoal 依赖编排**：SubGoal 间依赖（如诊断→优化→风险评估）在 Composition 后的执行语义（是否整 Plan 一个 Execution 还是分段）待细化
+8. **Merge Operator 覆盖**：v0.4 已定义基础算子（min→max/max→min/union/intersection）；更多约束类型（如时序、嵌套）的算子待细化
