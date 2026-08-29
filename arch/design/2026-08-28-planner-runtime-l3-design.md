@@ -1,7 +1,7 @@
 # Planner Runtime — L3 实现设计
 
 **文档编号：DESIGN-ECMC-PLANNER-RUNTIME-L3**
-**版本：v0.4（draft）**
+**版本：v0.5（draft）**
 **日期：2026-08-28**
 
 > 上游：`arch/L2/02-reasoning/planner-specification.md`（v1.1，L2 契约）、`arch/design/2026-08-28-planning-blueprint-l3-design.md`（v0.3 基线，Blueprint 元模型）、`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§4.4 Cognitive Service Contract）
@@ -75,6 +75,7 @@ Composition —— 多个执行块如何拼成一个 Plan？（Fragment 组装�
 SubGoal 结构：
   sub_goal_id / objective（diagnose|predict|optimize|recommend）
   entry_point / direction / domain（继承或细化自 ParsedIntent）
+  origin_clause / confidence（v0.5：来源子句 + 分解置信度）
   priority / dependencies（SubGoal 间顺序或并行）
 
 示例（复杂请求）：
@@ -133,16 +134,20 @@ Planning Fragment
 | `decision_branch` | **0 task + N conditional edges** | 纯分支结构（按源模型 Rule 评估） |
 | `output` | 1 task（输出汇总） | 按 output_contract 声明 |
 
-**投影规则：**
+**投影规则（v0.5 锁定确定性解释）：**
 
 ```
-MUST: Step → Fragment 的 task 数为 0..N（不锁 1:1；由 Interpreter 按
-      业务步骤语义拆分/合并）
+MUST: Step → Fragment 由 StepType Handler 主导（确定性解释）——
+      投影规则在 Handler 内固定（如 data_fetch: 1 datasource → 1 task；
+      N 独立 datasource → N task + parallel edges）
+MUST: LLM 只能做参数补全 / 候选建议，不能自由改变投影语义
+      （如 LLM 可以补 datasource 列表，但不能把 knowledge_query 变成
+      3 个自定义分析任务）
 MUST: step 的 source_ref → task 的输入（实例绑定/时间窗来自编译时投影参数）
 MUST: step 多引用（blueprint_step_sources）→ 展开为多 task 或合并
-      单 task（按数据源独立性与并行性决策）
+      单 task（按 Handler 定义的数据源独立性规则）
 MUST: Fragment 内 tasks 的依赖边同时产出（Fragment 自带子 DAG）
-SHOULD: data_fetch 多数据源默认并行（无依赖时）
+SHOULD: data_fetch 多数据源默认并行（无依赖时，并行边不物理合并）
 ```
 
 ## 3.2 deps → Plan 边
@@ -251,6 +256,14 @@ MUST: Blueprint → Source Cognitive Models（source_models：causal/decision/
       禁止混用 source_models.supporting 表达 Supporting Blueprint
       （v0.4 P0：见 §4.5 关系澄清）
 MUST: Supporting 的引入不得改变 Primary 的 Goal 语义（只增强证据）
+MUST: Supporting 数量/深度/终止规则（v0.5，评审 P1-3）：
+      - 每 SubGoal 最多 max_supporting_per_subgoal（默认 2）
+      - Supporting 不触发递归 Supporting Discovery（结构只允许
+        Primary → Supporting A/B 一层，禁止 Primary → Supporting A
+        → Supporting B 的链）
+      - 每次添加记录 support_reason：cross_validation（交叉验证）/
+        evidence_gap（证据缺口）/ specialist_analysis（专项分析）
+MUST: 超过上限或需要递归 → 规划失败或显式提示（不静默膨胀）
 SHOULD: Supporting Blueprint 的输出并入 Primary 的 Evidence Chain
         （多源证据合并，输出契约合并）
 ```
@@ -260,7 +273,12 @@ SHOULD: Supporting Blueprint 的输出并入 Primary 的 Evidence Chain
 ```
 MUST: 多 Blueprint 的 Hard Constraint 取并集（任一蓝图的 Hard 都生效）
 MUST: 冲突的 Hard（两个 Hard 互斥）→ 规划失败 + 明确冲突报告
-      （不静默取舍——由专家改蓝图或人工裁决）
+      （不静默取舍）
+MUST: Hard 冲突的处理路径（v0.5，评审 P1-4）：
+      - 更换兼容 Blueprint / 修改规划输入 / 发起认知模型治理变更
+        （专家改蓝图，走 ECMC Governance §3.4）
+      - 禁止 Runtime 内直接豁免 Hard Constraint（不弹"是否强制继续"）
+      - Policy/Compliance 永不可人工临时覆盖
 MUST: 约束合并用类型化 Merge Operator（v0.4，评审 P1-3）：
       minimum → max()          （minimum_evidence ≥2 与 ≥3 → ≥3）
       maximum → min()          （timeout ≤10m 与 ≤5m → ≤5m）
@@ -286,6 +304,9 @@ MUST: 不修改任何 Blueprint 的冻结版本（v1.7 就是 v1.7，不可换 v
 MUST: 检查 Blueprint 组合的版本兼容性：
       - 引用同一 Source Model 的多个 Blueprint，若版本相同 → 兼容
       - 版本不同 → Version Compatibility Conflict
+MUST: Phase 1 兼容策略 = strict_exact_version（v0.5，评审 P2-1）：
+      只有完全相同版本才兼容（v1.7 ≠ v1.7.1）；Phase 2 可演进为
+      semantic_version / declared_compatible_range / schema_compatibility
 处理（按序）：
       ① 优先找兼容版本的 Blueprint（同源模型同版本的替代）
       ② 找不到 → 要求重新编译 / 换 Blueprint
@@ -312,16 +333,35 @@ Primary Blueprint → Supporting Blueprint（规划时组合）：
 
 # 五、Goal 实例化与上下文注入
 
-## 4.1 Goal 实例化
+## 5.1 Goal 实例化
 
 ```
-intent 四元组 + 实例绑定（entity/time_window）→ 实例化 goal_skeleton：
+SubGoal + Blueprint goal_skeleton + 实例绑定（entity/time_window）→ Runtime Goal：
   goal 目标 = 实例化后的业务目标（如"归因：3 号矿产量下降（近 30 天）"）
   goal 约束 = 规划约束（§3.3，Hard/Soft 合并）
   goal 输出 = output_contract 实例化（输出结构 + 证据要求）
+  goal 来源 = SubGoal.origin（v0.5：追溯用户哪句话）
 ```
 
-## 4.2 上下文注入
+**SubGoal 结构补充（v0.5，评审 P1-2）：**
+
+```
+SubGoal:
+  sub_goal_id / objective / entry_point / direction / domain
+  origin_clause   — 来源子句（用户原话片段，如"怎么调整？"）
+  confidence      — 分解置信度（LLM 辅助拆分时标注，低置信 → 人工确认）
+  dependencies    — 顺序/并行依赖
+
+LLM 边界（v0.5 明确）：
+  MUST: LLM 可以识别/拆分/归类用户**表达出来的**目标
+  MUST: LLM 不可以凭空新增用户未提出的业务目标
+        （如用户只问"为什么下降" → 只有 diagnose，不自动加 optimize/
+        execute-maintenance，除非 Blueprint/Policy 明确要求后续阶段）
+  MUST: 每个 SubGoal 保留 origin_clause（可追溯"这个 Goal 从哪句话来"）
+  SHOULD: 低置信分解 → 人工确认（不静默）
+```
+
+## 5.2 上下文注入
 
 ```
 注入推理上下文（供运行时/决策分支使用）：
@@ -480,13 +520,19 @@ SHOULD: 状态机与现有 Planner 核心循环（L2 §2）兼容（理解→规
   - plan generation：新增 Blueprint 解释分支（本节）
   - reflection & replanning：保留（失败 → 按 §6.2 边界修复或 §7 降级）
 
-新增组件（planner 模块内）：
-  - blueprint_interpreter.py   # step → Planning Fragment（0..N task）+ edges
-  - fragment_assembler.py      # Fragment 组装为 Plan（v0.2）
-  - constraint_applier.py      # Hard/Soft 分层合并（v0.2）
-  - version_freezer.py         # 版本冻结 + 快照哈希（v0.2）
-  - goal_instantiator.py       # goal_skeleton 实例化 + 上下文注入
-  - blueprint_trace.py         # task_trace 追溯元数据
+新增组件（planner 模块内，v0.5 补全）：
+  - goal_resolver.py         # Goal Resolution：Request → SubGoals（v0.5 新增，
+  -                        #   对应 GOALS_RESOLVED 状态；含 LLM 边界约束）
+  - knowledge_resolver.py    # Discovery：SubGoal → Primary/Supporting Blueprint
+  -                          #   （v0.5 新增，对应 KNOWLEDGE_RESOLVED；含 Supporting
+  -                          #    数量/深度/终止规则）
+  - blueprint_interpreter.py # step → Planning Fragment（0..N task）+ edges
+  -                          #   （Handler 确定性解释，v0.5 锁定）
+  - fragment_assembler.py    # Fragment 组装为 Plan（v0.2）
+  - constraint_applier.py    # Hard/Soft 分层合并 + Merge Operator（v0.2/v0.4）
+  - version_freezer.py       # 版本冻结 + 快照哈希（v0.2）
+  - goal_instantiator.py     # goal_skeleton 实例化 + 上下文注入（§5）
+  - blueprint_trace.py       # task_trace 追溯元数据（Multi-Blueprint，v0.4）
 ```
 
 ---
@@ -517,5 +563,8 @@ POST /v1/planner/plan-from-blueprint   — 强制指定 Blueprint（调试/内�
 4. **Supporting Blueprint 发现启发式**：v0.4 已定"Planner 动态发现、Phase 1 禁止静态引用"；何时需要 Supporting（交叉验证/深度下钻）的判定规则待细化
 5. **性能**：Blueprint 解释缓存（相同 blueprint+intent 重复解释 → 缓存 Plan 骨架）
 6. **版本冻结粒度**：v0.3 已拍板 Plan 级冻结（多 Blueprint 独立冻结）；跨多个 Plan 的长期任务（长会话）版本续订策略待定
-7. **SubGoal 依赖编排**：SubGoal 间依赖（如诊断→优化→风险评估）在 Composition 后的执行语义（是否整 Plan 一个 Execution 还是分段）待细化
+7. **SubGoal 依赖编排（v0.5 给出 Phase 1 默认答案）**：默认 1 Request → 1 Plan → 1 Execution
+   ——SubGoal 只是 Plan 内部逻辑分组（顺序/并行边）；仅当出现人工审批 /
+   超长任务 / 跨时间等待 / 外部事件触发时才切分为多个 Execution
 8. **Merge Operator 覆盖**：v0.4 已定义基础算子（min→max/max→min/union/intersection）；更多约束类型（如时序、嵌套）的算子待细化
+9. **SubGoal 执行编排细化**：v0.5 已定 Phase 1 默认"1 Plan = 1 Execution"；切分 Execution 的触发条件量化（何时算超长/跨时间等待）待细化
