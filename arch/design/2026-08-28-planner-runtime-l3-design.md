@@ -1,7 +1,7 @@
 # Planner Runtime — L3 实现设计
 
 **文档编号：DESIGN-ECMC-PLANNER-RUNTIME-L3**
-**版本：v0.5（draft）**
+**版本：v0.6（draft）**
 **日期：2026-08-28**
 
 > 上游：`arch/L2/02-reasoning/planner-specification.md`（v1.1，L2 契约）、`arch/design/2026-08-28-planning-blueprint-l3-design.md`（v0.3 基线，Blueprint 元模型）、`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§4.4 Cognitive Service Contract）
@@ -141,8 +141,10 @@ MUST: Step → Fragment 由 StepType Handler 主导（确定性解释）——
       投影规则在 Handler 内固定（如 data_fetch: 1 datasource → 1 task；
       N 独立 datasource → N task + parallel edges）
 MUST: LLM 只能做参数补全 / 候选建议，不能自由改变投影语义
-      （如 LLM 可以补 datasource 列表，但不能把 knowledge_query 变成
-      3 个自定义分析任务）
+      （v0.6 收紧：LLM 只能在模型已声明的 Data/Capability Requirement
+      候选集合内做匹配与参数补全——如 ECMC 声明"需要设备健康证据，
+      允许绑定 EAM/IoT/维修历史"，LLM 可选 EAM+IoT，但不得新增
+      未声明的数据需求或外部数据源）
 MUST: step 的 source_ref → task 的输入（实例绑定/时间窗来自编译时投影参数）
 MUST: step 多引用（blueprint_step_sources）→ 展开为多 task 或合并
       单 task（按 Handler 定义的数据源独立性规则）
@@ -320,13 +322,16 @@ MUST: Phase 1 兼容策略 = strict_exact_version（v0.5，评审 P2-1）：
 
 Blueprint → Source Cognitive Models（编译时引用）：
   blueprint_source_models（model_type: causal/decision/scenario，
-  role: primary/supporting）——"这个 Blueprint 用了哪些 ECMC 模型"
+  model_role: primary_model/supporting_model）——"这个 Blueprint
+  用了哪些 ECMC 模型"（v0.6 命名：role → model_role，避免与
+  Blueprint 组合的 role 混淆）
 
 Primary Blueprint → Supporting Blueprint（规划时组合）：
+  blueprint_role: primary/supporting（v0.6 命名区分）
   Phase 1 不静态建模——由 Planner 动态发现（§4.2）
   未来如需静态关系，单独定义 BlueprintRelation（
-  primary_blueprint_id / supporting_blueprint_id / relation_type / purpose），
-  不复用 source_models
+  primary_blueprint_id / supporting_blueprint_id / relation_type /
+  purpose），不复用 source_models
 ```
 
 ---
@@ -378,7 +383,7 @@ MUST: 注入上下文记入 Plan 元数据（审计/复现）
 
 ---
 
-# 六、Plan Composition 与生成流程（v0.3 重构）
+# 六、Plan Composition 与生成流程（v0.3 重构，v0.6 补跨 SubGoal 数据链）
 
 ```
 输入：SubGoals + 各 SubGoal 的 Blueprint（只读）+ 实例绑定 + 上下文
@@ -393,13 +398,70 @@ MUST: 注入上下文记入 Plan 元数据（审计/复现）
         （mandatory 缺失 → 该 SubGoal 规划失败）
      → 产出 SubGoal 的 Plan Fragment
   ③ Composition（§4.3/4.4/4.5）：多 Fragment 组装为 1 Plan
-     - SubGoal 间依赖边（顺序/并行）
+     - SubGoal 间依赖边（顺序/并行，§6.3 Cross-SubGoal Data Binding）
      - Hard Constraint 并集 + Merge Operator（§4.3）
      - 版本兼容校验（§4.4：不修改冻结版本，不兼容 → 换蓝图/重新编译/失败）
-  ④ 输出契约实例化：output_contract → Plan 输出声明（合并）
+  ④ 输出契约实例化：output_contract → Multi-SubGoal Output（§6.4）
   ⑤ Plan Validation（复用 L2 §6.3：schema/权限/无环/资源）
      - 失败 → 按 §6.2 边界修复后重试 → 仍失败按 §7 降级
-输出：合规 Plan（携带版本冻结 + 追溯元数据）
+输出：合规 Plan（携带版本冻结 + 追溯元数据 + 跨 SubGoal 数据绑定）
+```
+
+## 6.3 Cross-SubGoal Data Binding（v0.6 新增，评审 P0）
+
+> **缺口**：此前 SubGoal 间只有 depends_on（控制依赖），缺"B 怎么拿到 A 的结果"。
+> 诊断结果 → 优化方案 → 风险评估，需要 output → input 映射。
+
+```
+SubGoalBinding
+├── from_sub_goal_id
+├── from_output          — 来源输出字段（如 diagnose 的 cause_ranking）
+├── to_sub_goal_id
+├── to_input             — 目标输入字段（如 optimize 的 root_causes）
+└── required             — true=必传（缺失 → 规划失败）；false=可选
+
+控制依赖 vs 数据依赖（v0.6 区分）：
+  control_dependency — B 必须等 A 完成（depends_on，已有）
+  data_dependency    — B 需要 A 的某个输出作为输入（SubGoalBinding，新增）
+  MUST: data_dependency 隐含 control_dependency（传数据必须先完成）
+
+示例：
+  A: diagnose → output: cause_ranking
+    ↓ binding: { from_output: cause_ranking, to_input: root_causes }
+  B: optimize → output: recommended_plan
+    ↓ binding: { from_output: recommended_plan, to_input: plan_assumptions }
+  C: risk → output: risk_list
+```
+
+```
+MUST: SubGoal 间数据传递必须显式声明 SubGoalBinding（不隐式全局共享）
+MUST: to_input 字段必须存在于目标 SubGoal 的 Blueprint 输入契约（编译期校验）
+MUST: from_output 字段必须存在于来源 SubGoal 的输出契约
+MUST: required=true 的绑定在来源 SubGoal 失败时 → 下游规划失败（不静默）
+SHOULD: required=false 绑定缺失 → 下游降级（标注缺输入）
+```
+
+## 6.4 Multi-SubGoal Output Contract（v0.6，评审 P1）
+
+> **不简单 merge 成一个大 JSON**——保留每个 SubGoal 的结构化输出，
+> 再由最终 Output Task 做综合表达：
+
+```
+Plan Output
+├── subgoals:
+│     diagnose:  { cause_ranking, evidence_chain }   ← 保留结构化
+│     optimize:  { recommendation, expected_benefit }
+│     risk:      { risk_list, risk_level }
+├── cross_goal_bindings: [ ... ]                     ← 传递链（可追溯）
+└── final_response: { ... }                          ← 综合表达（Output Task 生成）
+```
+
+```
+MUST: 每个 SubGoal 的输出保留独立结构化结果（好追溯/测试/复用）
+MUST: final_response 由最终 Output Task 综合生成（引用各 SubGoal 输出，
+      不复制业务逻辑）
+MUST: 字段冲突（两个 SubGoal 同名字段不同义）→ 命名空间隔离（按 sub_goal_id）
+      ，不静默覆盖
 ```
 
 ## 6.1 版本冻结（v0.2 拍板，v0.3 扩展多 Blueprint）
@@ -447,7 +509,7 @@ SHOULD: 重试次数配置化（默认 ≤3，非架构常量）
 plan.meta:
   blueprints: [                       （v0.4：复数，多 Blueprint）
     {
-      blueprint_id, version, role（primary|supporting）,
+      blueprint_id, version, blueprint_role（primary|supporting，v0.6）,
       sub_goal_id,                    ← 关联哪个 SubGoal
       compile_id, compiler_version, snapshot_hash
     }
@@ -471,10 +533,14 @@ plan.meta:
      ——功能可用，规划效率降级（无预编译步骤骨架）
   ② 更严重 → Rule Planner 兜底（L2 §8：规则模式）
 
-关键约束（v0.2，评审采纳）：
-MUST: Fallback 只能降低规划质量，不能降低业务约束等级——
-      必须继承：Hard Constraints / Policy / Permission /
-      mandatory capability / minimum evidence / output contract
+关键约束（v0.2，v0.6 按场景澄清 Fallback 约束来源）：
+MUST: Fallback 只能降低规划质量，不能降低业务约束等级
+MUST: FallbackConstraintSet（v0.6 明确，按场景取）：
+      场景 A（Blueprint 已选中但解释失败）：
+        = Policy/Compliance + User Hard + 该 Blueprint 的 Hard Constraints
+      场景 B（未命中 Blueprint，直接模型/规则）：
+        = Policy/Compliance + User Hard + 已解析知识资产的 Hard Constraints
+        （不存在"继承未选中的 Blueprint 约束"——实现勿误读）
 MUST: 降级不静默——响应标注 degraded + 原因 + 继承的约束清单
 MUST: Fallback 也满足不了 Hard Constraint → FAILED（不再继续降级）
 ```
@@ -568,3 +634,4 @@ POST /v1/planner/plan-from-blueprint   — 强制指定 Blueprint（调试/内�
    超长任务 / 跨时间等待 / 外部事件触发时才切分为多个 Execution
 8. **Merge Operator 覆盖**：v0.4 已定义基础算子（min→max/max→min/union/intersection）；更多约束类型（如时序、嵌套）的算子待细化
 9. **SubGoal 执行编排细化**：v0.5 已定 Phase 1 默认"1 Plan = 1 Execution"；切分 Execution 的触发条件量化（何时算超长/跨时间等待）待细化
+10. **Cross-SubGoal Data Binding 类型**：v0.6 已定义 SubGoalBinding（output→input 映射）；更多传递类型（流式/部分结果/事件触发传递）待 Phase 2 细化
