@@ -1,7 +1,7 @@
 # Planner Runtime — L3 实现设计
 
 **文档编号：DESIGN-ECMC-PLANNER-RUNTIME-L3**
-**版本：v1.0（baseline，架构冻结）**
+**版本：v1.0.1（架构冻结，契约修订）**
 **日期：2026-08-28**
 
 > 上游：`arch/L2/02-reasoning/planner-specification.md`（v1.1，L2 契约）、`arch/design/2026-08-28-planning-blueprint-l3-design.md`（v0.3 基线，Blueprint 元模型）、`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§4.4 Cognitive Service Contract）
@@ -128,7 +128,7 @@ Planning Fragment
 
 | Blueprint Step | Planning Fragment（task 数可变） | 说明 |
 |---|---|---|
-| `knowledge_query` | 1 task（Causal Reasoning 调用） | 运行时推理，不预编译路径（§3.6） |
+| `knowledge_query` | **0..N 取证 Task + 1 Evaluate Task**（v0.6.1 跨文档契约，与 Causal Reasoning L3 v0.3 咬合）：Planner 解释期调用 **Reasoning Prepare**（Planning-time，非执行期）→ 得 Evidence Requirements → Handler 生成 PlanFragment = data_fetch/capability Tasks（按需求）+ 1 个 reasoning_evaluate Task | 运行时推理，不预编译路径（§3.6）；Prepare 在规划期、Evaluate 在执行期 |
 | `data_fetch` | **1..N task**（按数据源拆分） | 一个业务步骤可展开多 Task：如"获取设备运行情况" → EAM 故障记录 + IoT 实时状态 + 维修记录（并行） |
 | `capability_call` | 1 task（Capability 调用） | 按 §4.4.4 链路 |
 | `decision_branch` | **0 task + N conditional edges** | 纯分支结构（按源模型 Rule 评估） |

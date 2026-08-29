@@ -1,7 +1,7 @@
 # Causal Model Storage & Reasoning Engine — L3 实现设计
 
 **文档编号：DESIGN-ECMC-CAUSAL-L3**
-**版本：v0.2（draft）**
+**版本：v0.3（draft）**
 **日期：2026-08-28**
 
 > 上游：`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§3.1 CausalModel / §3.1.2 Causal Reasoning Contract + Phase 1 参考实现 / §3.1.4 data_requirement / §4.4.3 Reasoning Contract）、`arch/design/2026-08-07-ontology-layer-design.md`（Enterprise Semantic Layer：TBox/ABox）、`arch/L2/02-reasoning/planner-specification.md`（v1.1）
@@ -34,19 +34,20 @@ P7  模型可表达一般有向图（v0.2，评审 P0-3）——DAG 是算法 Pr
 
 # 二、存储模型（PostgreSQL）
 
-## 2.1 表总览
+## 2.1 表总览（v0.3 更新）
 
 | 表 | 说明 |
 |---|---|
-| `causal_models` | 因果模型主表（版本化资产） |
-| `causal_nodes` | 节点（元模型① Node） |
-| `causal_edges` | 有向影响边（元模型② Relation） |
-| `causal_rules` | 节点规则（元模型④ Rule：predicate/threshold/direction） |
-| `causal_data_bindings` | 数据绑定（元模型⑤ Data Binding） |
-| `causal_capability_bindings` | 能力绑定（元模型⑥ Capability Binding） |
-| `causal_model_snapshots` | 版本快照（发布时不可变拷贝，推理只读它） |
-| `causal_applicability` | 适用范围声明 |
-| `reasoning_traces` | 推理轨迹（Evidence 归档，元模型③） |
+| `causal_models` | 逻辑模型（稳定身份） |
+| `causal_model_versions` | 模型版本（每个版本一套节点/边/规则/绑定） |
+| `causal_nodes` | 节点（元模型① Node，引用 version + node_key） |
+| `causal_edges` | 有向影响边（元模型② Relation，edge_key） |
+| `causal_rules` | 节点规则（元模型④ Rule，rule_key，1:N per node） |
+| `causal_data_bindings` | 逻辑数据需求（元模型⑤ Data Binding，含 requirement_level） |
+| `causal_capability_bindings` | 能力需求（元模型⑥ Capability Binding） |
+| `causal_model_snapshots` | 版本快照（发布时不可变，推理只读；§2.9） |
+| `causal_applicability` | 适用范围（权威表，§2.10） |
+| `reasoning_traces` | 推理轨迹（Evidence 归档，元模型③，§2.11） |
 
 ## 2.2 版本化 Schema（v0.2 重构，评审 P0-2）
 
@@ -122,10 +123,11 @@ observation_window  JSONB                       -- 当前观测窗口声明
 UNIQUE (model_version_id, node_key)
 ```
 
-## 2.4 causal_edges（有向影响边，元模型②）
+## 2.4 causal_edges（有向影响边，元模型②，v0.3 增 edge_key）
 
 ```
 edge_row_id         VARCHAR(64) PK
+edge_key            VARCHAR(64) NOT NULL        -- 稳定身份（v0.3 P1）
 model_version_id    VARCHAR(64) NOT NULL FK
 source_node_key     VARCHAR(64) NOT NULL        -- 稳定引用（v0.2）
 target_node_key     VARCHAR(64) NOT NULL
@@ -134,25 +136,33 @@ effect              VARCHAR(1) NOT NULL CHECK IN ('+','-')
 strength            FLOAT NOT NULL DEFAULT 0.5  -- 0-1（发布补齐）
 lag                 VARCHAR(16)                 -- 滞后周期（如 '7d'）
 confidence          FLOAT NOT NULL DEFAULT 0.5  -- 作者置信度（≠ fact confidence）
-UNIQUE (model_version_id, source_node_key, target_node_key)
+UNIQUE (model_version_id, edge_key)
 ```
+
+> **v0.3 P1（评审）**：不强制 source→target 唯一——未来可能有多条
+> A→B 边（直接因果 / 介导/滞后机制，不同 lag）。稳定 edge_key 支持
+> 1:N 边，语义由 relation_type_ref + lag 区分。
 
 **DAG 约束移至算法 Profile（v0.2，评审 P0-3）**：存储层允许一般有向图
 （可含环，企业存在反馈：设备故障→产量↓→赶工→负荷↑→设备故障）。
 DAG 校验由推理算法 Profile 声明（sign_propagation_v1 要求 DAG，
 调用前做 Algorithm Compatibility Validation，见 §4.5）。
 
-## 2.5 causal_rules（节点规则，元模型④）
+## 2.5 causal_rules（节点规则，元模型④，v0.3 增 rule_key）
 
 ```
 rule_row_id         VARCHAR(64) PK
+rule_key            VARCHAR(64) NOT NULL        -- 稳定身份（v0.3 P1）
 model_version_id    VARCHAR(64) NOT NULL FK
 node_key            VARCHAR(64) NOT NULL
 rule_type           VARCHAR(16) NOT NULL CHECK IN ('predicate','threshold','direction_rule')
 rule_spec           JSONB NOT NULL              -- {attr:'status',op:'==',value:'failed'}
                                                 -- / {metric:'health',op:'>=',value:90}
-UNIQUE (model_version_id, node_key, rule_type)
+UNIQUE (model_version_id, rule_key)
 ```
+
+> **v0.3 P1（评审）**：一个节点可有多个同类型 Rule
+> （health<80 / temperature>90 / vibration>X 都是 threshold）。
 
 ## 2.6 causal_data_bindings（逻辑数据需求，元模型⑤）
 
@@ -165,12 +175,18 @@ binding_row_id      VARCHAR(64) PK
 model_version_id    VARCHAR(64) NOT NULL FK
 node_key            VARCHAR(64) NOT NULL
 logical_requirement VARCHAR(128) NOT NULL       -- 逻辑证据需求（equipment_fault_status）
+requirement_level   VARCHAR(16) NOT NULL DEFAULT 'required'
+                    CHECK IN ('required','optional')  -- v0.3 P1：权威来源
 metric_binding      JSONB                       -- metric 节点：{metric_ref, instance_binding, time_window, aggregation, unit}
 instance_binding_expr JSONB                     -- object 节点：受限表达式（链式 ≤2 跳）
 instance_key_field  VARCHAR(64)                 -- 实例标识字段
 instance_observation VARCHAR(64)                -- 实例观测字段
 output_mapping      JSONB                       -- 输出字段 → 节点取值映射
 UNIQUE (model_version_id, node_key, logical_requirement)
+
+required 权威（v0.3 P1）：requirement_level 在此声明——
+  required=缺失 → 整体失败；optional=缺失 → partial reasoning
+  （不通过 capability_role 推导：primary/supporting ≠ required/optional）
 ```
 
 ## 2.7 causal_capability_bindings（能力需求，元模型⑥）
@@ -211,7 +227,27 @@ causal_model_versions.applicability = projection/cache（v0.2，评审 P1）
   ——仅作查询加速，非第二事实源；变更以 causal_applicability 为准
 ```
 
-## 2.10 reasoning_traces（推理轨迹，Evidence 归档）
+## 2.10 causal_model_snapshots（版本快照，P4，v0.3 补全 Schema）
+
+```
+snapshot_id         VARCHAR(64) PK
+model_version_id    VARCHAR(64) NOT NULL FK      -- 与版本 1:1
+content_hash        VARCHAR(64) NOT NULL         -- 全量内容哈希（防篡改+变更检测）
+nodes_json          JSONB NOT NULL               -- 节点（含 node_key/聚合/窗口）
+edges_json          JSONB NOT NULL               -- 边（edge_key/effect/strength/lag/confidence）
+rules_json          JSONB NOT NULL               -- 规则（rule_key/rule_type/rule_spec）
+requirements_json   JSONB NOT NULL               -- 逻辑数据需求（requirement_id/level）
+applicability_snapshot JSONB NOT NULL DEFAULT '{}'
+created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+UNIQUE (model_version_id)
+
+约束（v0.3 P1 明确）：
+  Published Model Version → 恰好一个不可变 published snapshot
+  （published 状态版本必有且仅有一个快照；draft/testing 无快照）
+  reasoning_traces.snapshot_id 引用此处（完整定义）
+```
+
+## 2.11 reasoning_traces（推理轨迹，Evidence 归档）
 
 ```
 trace_id            VARCHAR(64) PK
@@ -260,22 +296,41 @@ Reasoning Evaluate（§四）
   ↓ Cause Ranking + Evidence Chain
 ```
 
-## 3.1 ReasoningPrepare 接口
+## 3.1 ReasoningPrepare 接口（v0.3：产出 ReasoningContext）
 
 ```
 输入：
   model_version（快照）+ target（entity）+ time_window + 实例绑定上下文
-输出（Evidence Requirements，不取数）：
-  evidence_requirements: [{
-    node_key,
-    logical_requirement,          -- 需要什么数据（§2.6 逻辑需求）
-    instance_scope,               -- 实例范围（instance_binding 展开结果）
-    time_window / granularity / aggregation / unit,
-    capability_role,              -- primary/supporting（§2.7）
-    required: bool
-  }]
-  instantiated_graph:            -- 实例化图（类型 → 实例，供 Evaluate 用）
-    { nodes: [...], edges: [...] }
+输出（ReasoningContext，不取数）：
+  ReasoningPrepareResult:
+    prepare_id            -- 稳定推理上下文 ID（v0.3 P0，如 RP-001）
+    model_snapshot_id / model_snapshot_hash
+    target
+    instance_snapshot: { nodes: [...], edges: [...] }   -- 实例化图（冻结）
+    evidence_requirements: [{
+      requirement_id,        -- 稳定 ID（v0.3 P1，如 req-001）
+      node_key,
+      logical_requirement,  -- 需要什么数据（§2.6 逻辑需求）
+      instance_scope,       -- 实例范围（instance_binding 展开结果）
+      time_window / granularity / aggregation / unit,
+      capability_role,      -- primary/supporting（§2.7）
+      requirement_level      -- required | optional（v0.3 P1：权威来源见下）
+    }]
+    scope_meta:            -- 权限范围（v0.3 P1，见 §3.2）
+      { scope_complete, scope_restricted, accessible_count }
+    prepared_at
+    content_hash
+
+requirement_level 权威来源（v0.3 P1）：
+  由 logical_requirement 声明（§2.6 data_bindings 增加 required 字段），
+  非 capability_role 推导（primary ≠ required）——
+  Planner 据此判断：证据缺失 → 整体失败（required）或 partial（optional）
+
+Evaluate 必须消费同一个 prepare_id（v0.3 P0）：
+  Evaluate 输入 = prepare_id + observations + evidence + reasoning_mode
+  ——不得仅凭 model_version + target 重新实例化
+  （ABox 在取证期间可能变化：设备 C 移出/设备 D 加入——
+  重新实例化会破坏 Prepare 依据与证据的一致性、不可复现）
 ```
 
 ## 3.2 实例化（Prepare 内完成，不取数）
@@ -298,9 +353,16 @@ MUST: Prepare 只产出 Evidence Requirements + 实例化图，不调用
       Connector/Capability（P0-1）
 MUST: 展开沿 Enterprise Semantic Layer 的 ABox（ontology 域）
 MUST: 展开结果权限过滤（越权静默，不报错）
+MUST: 权限范围记入 scope_meta（v0.3 P1）：
+      scope_complete / scope_restricted / accessible_count
+      ——不泄露被过滤实体身份（不输出 filtered_ids）
+MUST: scope_restricted=true 时，Evaluate 输出的 Cause Ranking
+      标注 complete=false + reason=scope_restricted
+      （企业审计：不装作"分析了全部设备"）
 MUST: 逻辑需求 → 物理数据源的解析由 Planner 在取证阶段完成
       （Capability/Connector Resolution，模型与部署环境解耦）
-MUST: Prepare 结果记入 trace（input_snapshot，可复现）
+MUST: Prepare 结果（ReasoningContext）记入 trace
+      （input_snapshot，可复现——含 prepare_id + instance_snapshot）
 SHOULD: 展开 > 100 实例且 mode=aggregate → 按聚合策略（operator+predicate+weight）
 ```
 
@@ -448,7 +510,7 @@ MUST: 超时 → complete=false 部分结果（不假完整，P4）
 | Reasoning Contract（§4.4.3） | 输入（模型+观测+证据）/输出（Cause Ranking+Evidence Chain） |
 | Model Governance（§3.4） | 发布时建快照；变更 → 新版本新快照；推理只读快照 |
 | Model Validation（§3.7 Step 5） | 历史案例回放 → 命中率评估（复用推理引擎 + trace） |
-| **Planner（L3 v1.0，v0.2 关键）** | knowledge_query → Prepare（证据需求）→ Planner 生成 data_fetch/capability Tasks → Runtime 取数 → Evaluate（推理）——**引擎不取数**，与 Planner Runtime v1.0 的 data_fetch/knowledge_query 边界完全咬合 |
+| **Planner（L3 v1.0，v0.2/v0.3 关键）** | knowledge_query → **Planning-time Prepare**（v0.3 P0：Prepare 在 Planner 解释期调用，非执行期）→ 生成 Evidence Requirements → knowledge_query Handler 产出 PlanFragment = **0..N 取证 Task + 1 Evaluate Task**（v0.3 P0 跨文档契约：Planner v1.0 的 knowledge_query "1 Task" 映射微调为 Fragment 多 Task，见 Planner 文档同步）→ Runtime 取数 → Evaluate（消费 prepare_id）——**引擎不取数、不在运行时动态加 Task** |
 
 ---
 
@@ -477,27 +539,37 @@ apps/earp-server/src/earp_server/
 
 ---
 
-# 七、API 草案（v0.2 两阶段接口）
+# 七、API 草案（v0.3 两阶段接口 + invoke 定位修正）
 
 ```
 POST /v1/ecmc/reasoning/prepare
     — 输入 {model_version, target, time_window, reasoning_mode}
-    → Evidence Requirements + instantiated_graph（不取数）
+    → ReasoningContext（prepare_id + Evidence Requirements + 实例化图，不取数）
 POST /v1/ecmc/reasoning/evaluate
-    — 输入 {model_version, target, observations, evidence, reasoning_mode, explain_level}
-    → Cause Ranking + Evidence Chain（§4.4.3）
+    — 输入 {prepare_id, observations, evidence, reasoning_mode, explain_level}
+    → Cause Ranking + Evidence Chain（消费同一 prepare_id，不重新实例化）
 POST /v1/ecmc/reasoning/invoke
-    — 便捷接口（内部 = prepare + planner 取证 + evaluate；供调试/单测）
+    — 测试/回放接口（v0.3 P0 降级，非生产主路径）：
+      仅允许两种用法：
+      a) 调用方直接提供 observations/evidence（服务内部 prepare →
+         validate supplied evidence → evaluate，不调用 Planner）
+      b) Model Validation / 单元测试 / 历史案例回放
+      禁止：内部调用 Planner/Runtime 取数（避免
+      Planner→ECMC→Planner→Runtime 循环，破坏边界）
 GET  /v1/ecmc/reasoning/traces/{trace_id}  — 推理轨迹（可复现/审计）
 POST /v1/ecmc/reasoning/validate  — Model Validation 回放（历史案例 → 命中率）
 GET  /v1/ecmc/reasoning/algorithms — 算法注册列表（含 Profile）
+
+生产主路径（唯一）：
+  Planner → Prepare（Planning-time）→ Plan（取证 Tasks + Evaluate Task）
+  → Runtime 取证 → Evaluate（prepare_id）
 ```
 
 （传输层 HTTP 为参考，gRPC/内存/EventBus 由 Runtime 集成层决定。）
 
 ---
 
-# 八、开放问题（v0.2 更新；已拍板项移除）
+# 八、开放问题（v0.3 更新；已拍板项移除）
 
 1. **路径枚举复杂度**：DAG 反向枚举最坏情况指数爆炸——限制深度 ≤ 3 跳 + 每节点最多 N 条路径（Algorithm Profile max_depth）
 2. **strength/confidence 校准**：Model Validation 回测如何回写校准值（仅 testing 阶段可校准，published 不可变——校准只影响新版本）
@@ -513,6 +585,24 @@ GET  /v1/ecmc/reasoning/algorithms — 算法注册列表（含 Profile）
 ---
 
 # 九、v0.2 评审处置记录（v0.1 → v0.2）
+
+---
+
+# 十、v0.3 评审处置记录（v0.2 → v0.3）
+
+| 级别 | 评审意见 | 处置 |
+|---|---|---|
+| P0-1 | Prepare/Evaluate 间缺稳定推理上下文（Evaluate 可能重新实例化，ABox 变化破坏一致性） | §3.1：新增 ReasoningPrepareResult（prepare_id + instance_snapshot + content_hash）；Evaluate 必须消费同一 prepare_id，不得凭 model_version+target 重新实例化 |
+| P0-2 | knowledge_query=1 Task 与两阶段推理冲突（跨文档） | §五 + Planner v1.0.1：Prepare = Planning-time；knowledge_query Handler 产出 0..N 取证 Task + 1 Evaluate Task（Step→Fragment 多 Task，Planner 架构不动） |
+| P0-3 | /invoke 内部调用 Planner/Runtime 取数破坏边界 | §七：/invoke 降级为测试/回放接口（调用方提供 evidence 或仅 Model Validation/单测）；生产主路径 = Planner→Prepare→Plan→Runtime 取证→Evaluate |
+| P1-1 | Evidence Requirement 缺稳定 ID | §3.1：evidence_requirements 增加 requirement_id（req-001），Runtime 回传 Observation 带 requirement_id（Requirement↔Observation↔Evidence Chain 可追溯） |
+| P1-2 | required 权威来源不清 | §2.6：data_bindings 增加 requirement_level（required/optional 声明）；不通过 capability_role 推导（primary≠required） |
+| P1-3 | 权限过滤完全静默 | §3.2：scope_meta（scope_complete/scope_restricted/accessible_count，不泄露实体身份）；scope_restricted → Cause Ranking 标注 complete=false + reason=scope_restricted |
+| P1-4 | 快照缺 Schema | §2.10：补全 causal_model_snapshots（snapshot_id/model_version_id 1:1/content_hash/nodes/edges/rules/requirements/applicability）；published 版本恰好一个不可变快照 |
+| P1-5 | Edge 唯一键太严格 | §2.4：edge_key 稳定身份（1:N 边，语义由 relation_type_ref+lag 区分），不强制 source→target 唯一 |
+| P1-6 | Rule 唯一键太严格 | §2.5：rule_key 稳定身份；节点可 1:N 同类型 Rule（health<80/temp>90/vibration>X） |
+
+**留待 Reasoning Algorithm v1 专门评审**：unknown=1（无数据=完全支持）、evidence_coverage、epistemic_status、反向一票否决置信阈值、structural×observation×coverage×epistemic 组合。
 
 | 级别 | 评审意见 | 处置 |
 |---|---|---|
