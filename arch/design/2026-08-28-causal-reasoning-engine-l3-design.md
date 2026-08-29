@@ -1,7 +1,7 @@
 # Causal Model Storage & Reasoning Engine — L3 实现设计
 
 **文档编号：DESIGN-ECMC-CAUSAL-L3**
-**版本：v0.4（draft）**
+**版本：v0.5（draft，Framework 收口）**
 **日期：2026-08-28**
 
 > 上游：`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§3.1 CausalModel / §3.1.2 Causal Reasoning Contract + Phase 1 参考实现 / §3.1.4 data_requirement / §4.4.3 Reasoning Contract）、`arch/design/2026-08-07-ontology-layer-design.md`（Enterprise Semantic Layer：TBox/ABox）、`arch/L2/02-reasoning/planner-specification.md`（v1.1）
@@ -205,7 +205,7 @@ requirement_key vs requirement_id（v0.4 P1）：
 cap_binding_row_id  VARCHAR(64) PK
 model_version_id    VARCHAR(64) NOT NULL FK
 node_key            VARCHAR(64) NOT NULL
-logical_requirement VARCHAR(128) NOT NULL       -- 关联 §2.6 逻辑需求
+requirement_key     VARCHAR(128) NOT NULL       -- 关联 §2.6 的 requirement_key（v0.5 P2 统一）
 capability_role     VARCHAR(16) NOT NULL CHECK IN ('primary','supporting')
 read_only_required  BOOLEAN NOT NULL DEFAULT true
 ```
@@ -229,8 +229,10 @@ read_only_required  BOOLEAN NOT NULL DEFAULT true
   属 Planner / Capability Resolution 职责（v0.2 已定：物理解析在运行时）
 
 MUST: 运行状态变化不得修改 published 模型版本（依赖解析只含静态检查）
-MUST: binding readiness 缺失 → 在 Prepare 的 Evidence Requirement 标注
-      （requirement 无法满足），由 Planner 决定降级/失败——不进模型
+MUST: binding readiness 由 Planner/Capability Resolver 判断（v0.5 P1）——
+      Prepare 只声明"需要什么"（requirement_key），不查 Connector/credential/
+      provider（ECMC 不判断运行就绪）；ResolvedEvidenceRequirement 带
+      binding_status（resolved|unavailable）属 Planner 层
 ```
 
 ## 2.9 适用范围（单一事实源）
@@ -245,29 +247,58 @@ causal_model_versions.applicability = projection/cache（v0.2，评审 P1）
   ——仅作查询加速，非第二事实源；变更以 causal_applicability 为准
 ```
 
-## 2.10 causal_model_snapshots（不可变内容快照，v0.4 补 validation 类型）
+## 2.10 causal_model_snapshots（绝对不可变内容快照，v0.5 重构）
+
+> **v0.5（评审 P0-2）**：快照**永远不可修改**（含 type 字段）。
+> validation/published 是**治理事实**（usage/pointer），不是快照自身状态——
+> 不通过修改 snapshot 行表达。
 
 ```
-snapshot_id         VARCHAR(64) PK
-model_version_id    VARCHAR(64) NOT NULL FK
-snapshot_type       VARCHAR(16) NOT NULL CHECK IN ('validation','published')
-                    -- v0.4 P0-2：testing 也可建不可变 validation 快照
-content_hash        VARCHAR(64) NOT NULL         -- 全量内容哈希（防篡改+变更检测）
-nodes_json          JSONB NOT NULL               -- 节点（含 node_key/聚合/窗口）
-edges_json          JSONB NOT NULL               -- 边（edge_key/effect/strength/lag/confidence）
-rules_json          JSONB NOT NULL               -- 规则（rule_key/rule_type/rule_spec）
-requirements_json   JSONB NOT NULL               -- 逻辑数据需求（requirement_key/level）
-applicability_snapshot JSONB NOT NULL DEFAULT '{}'
-created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+causal_model_snapshots（内容快照，无生命周期身份）：
+  snapshot_id         VARCHAR(64) PK
+  model_version_id    VARCHAR(64) NOT NULL FK
+  content_hash        VARCHAR(64) NOT NULL   -- 全量内容哈希（防篡改）
+  nodes_json / edges_json / rules_json      -- 元模型①②④
+  requirements_json   JSONB NOT NULL        -- 完整需求包（v0.5 P0-3，见下）
+  applicability_snapshot JSONB NOT NULL DEFAULT '{}'
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  UNIQUE (model_version_id, content_hash)   -- 内容寻址（同内容同快照）
 
-约束（v0.4，评审 P0-2）：
-  model_version → N validation snapshots → 1 published snapshot
-  testing：每次回放/校准前创建不可变 validation 快照（历史案例回放
-    基于它）——修改模型 → 新 validation 快照（不覆盖旧的）
-  published：发布时创建 published 快照，或直接 pin 某个
-    validation snapshot（snapshot_type 升级为 published，不复制内容）
-    ——"测试的模型 = 发布的模型"（企业模型治理关键）
-  不再 UNIQUE(model_version_id)（版本可有多个 validation 快照）
+用法（v0.5 P0-2，分离治理事实）：
+  causal_model_versions.published_snapshot_id
+    = snapshot-ABC      -- 发布指针（不复制、不修改快照）
+  validation_runs 记录某次验证用了哪个 snapshot：
+    validation_run { run_id, snapshot_id, result, created_at }
+
+  ——"测试使用的内容 = 发布使用的内容"（published_snapshot_id 指向
+  验证过的 snapshot）仍成立，但 snapshot 本身从未被修改
+  ——同一快照可同时拥有 validated + published 两个治理事实
+
+P4 修正（v0.5 P0-2，原则同步）：
+  生产推理只读 Published Snapshot；Model Validation 读 Validation
+  Snapshot；两者都必须是 Immutable Snapshot；
+  Reasoning Engine 不直接读取可编辑模型表
+```
+
+## 2.10.1 Snapshot = 完整可运行认知包（v0.5 P0-3）
+
+> **原则**：Snapshot + ABox Instance Snapshot = Prepare 所需的全部认知输入。
+> Prepare 不得回查 live 表（causal_nodes/edges/rules/data_bindings/
+> capability_bindings）——否则 Snapshot 只是半个。
+
+```
+requirements_json（完整需求包，含能力需求）：
+  [{
+    requirement_key, node_key, requirement_level,
+    data_requirement: { metric_binding / instance_binding_expr /
+      instance_key_field / instance_observation / output_mapping },
+    capability_requirement: { capability_role / read_only_required /
+      capability_contract_ref }
+  }]
+
+MUST: Prepare 只消费 Snapshot（+ ABox 实例化）——包含节点/边/规则/
+      数据需求/能力需求全部静态信息
+MUST: 生产推理绝不查 live 模型表（draft/testing 编辑态）
 ```
 
 ## 2.11 reasoning_contexts（推理上下文，v0.4 新增 P0-1）
@@ -278,17 +309,23 @@ created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 > 的审计记录）**分离**——trace 不兼任 Prepare 状态。
 
 ```
-reasoning_contexts（上下文，Prepare 产出）
+reasoning_contexts（上下文，Prepare 产出；自身即完整可重放的 Prepare Snapshot）
 ├── prepare_id        VARCHAR(64) PK
 ├── tenant_id         VARCHAR(64) NOT NULL
 ├── model_version_id  VARCHAR(64) NOT NULL FK
 ├── snapshot_id       VARCHAR(64) NOT NULL FK
 ├── snapshot_hash     VARCHAR(64) NOT NULL
-├── instance_snapshot JSONB NOT NULL        -- 实例化图（冻结）
-├── evidence_requirements JSONB NOT NULL    -- requirements[]（含 requirement_id）
-├── scope_meta        JSONB NOT NULL        -- scope_complete/restricted/accessible_count
-├── algorithm_id / algorithm_version / algorithm_config_hash  -- 冻结（P0-3）
-├── context_hash      VARCHAR(64) NOT NULL  -- 可复现键（见下）
+├── target_json       JSONB NOT NULL         -- v0.5 P1：目标实体/绑定
+├── time_window_json  JSONB NOT NULL         -- v0.5 P1：时间窗
+├── instance_snapshot JSONB NOT NULL         -- 实例化图（冻结）
+├── evidence_requirements JSONB NOT NULL     -- requirements[]（requirement_id + key）
+├── scope_meta        JSONB NOT NULL         -- scope_complete/restricted/accessible_count
+├── authz_scope_hash  VARCHAR(64)            -- v0.5 P1：权限范围哈希
+├── algorithm_version_id VARCHAR(64) NOT NULL FK  -- v0.5 P0-1：可定位版本
+├── algorithm_profile_version VARCHAR(32) NOT NULL
+├── algorithm_params_json JSONB NOT NULL     -- v0.5 P1：不可变 params（非只存 hash）
+├── algorithm_config_hash VARCHAR(64) NOT NULL
+├── context_hash      VARCHAR(64) NOT NULL   -- 可复现键（见下）
 ├── prepared_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 ├── expires_at        TIMESTAMPTZ NOT NULL  -- 生命周期（如 P1D）
 └── status            VARCHAR(16) NOT NULL CHECK IN ('prepared','consumed','expired','cancelled')
@@ -299,6 +336,8 @@ reasoning_contexts（上下文，Prepare 产出）
           → cancelled（Plan 取消）
 MUST: 持久化存储（非内存 cache）；过期回收任务
 MUST: 过期/取消后 Evaluate 拒绝（prepare_id 无效）
+MUST: context 自包含（target/window/params/profile 全落库，
+      不只存 hash——历史可重放可恢复真实参数）
 ```
 
 ## 2.12 reasoning_traces（推理轨迹，Evaluate 后审计记录）
@@ -306,6 +345,7 @@ MUST: 过期/取消后 Evaluate 拒绝（prepare_id 无效）
 ```
 trace_id            VARCHAR(64) PK
 prepare_id          VARCHAR(64) NOT NULL FK → reasoning_contexts
+observation_hash    VARCHAR(64) NOT NULL   -- v0.5 P1：幂等键
 model_version_id    VARCHAR(64) NOT NULL FK
 snapshot_id         VARCHAR(64) NOT NULL FK
 observations_json   JSONB NOT NULL         -- EvidenceObservation[]（P0-4）
@@ -313,6 +353,13 @@ result_snapshot     JSONB NOT NULL         -- Cause Ranking + Evidence Chain
 status              VARCHAR(16) NOT NULL CHECK IN ('complete','partial','failed')
 latency_ms          INT
 created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+UNIQUE (prepare_id, observation_hash)     -- v0.5 P1：Evaluate 幂等
+
+幂等/重试语义（v0.5 P1）：
+  同 prepare_id + 同 Observation/Evidence Hash → 直接返回已有结果
+    （网络超时后 Runtime 重试不导致 Plan 失败）
+  同 prepare_id + 不同 Observation Hash → 拒绝（须显式新建 Evaluation
+    Attempt 或重新 Prepare）
 
 可复现键（v0.4 收紧，评审 P0-1/P0-3）：
   = ReasoningContext Hash + Observation/Evidence Hash
@@ -457,8 +504,9 @@ MUST: scope_restricted=true 时，Evaluate 输出的 Cause Ranking
       （企业审计：不装作"分析了全部设备"）
 MUST: 逻辑需求 → 物理数据源的解析由 Planner 在取证阶段完成
       （Capability/Connector Resolution，模型与部署环境解耦）
-MUST: Prepare 结果（ReasoningContext）记入 trace
-      （input_snapshot，可复现——含 prepare_id + instance_snapshot）
+MUST: Prepare 结果持久化到 reasoning_contexts（v0.5 P2 修正：
+      Prepare → reasoning_contexts；Evaluate → reasoning_traces 经
+      prepare_id 引用——不再写 trace.input_snapshot）
 SHOULD: 展开 > 100 实例且 mode=aggregate → 按聚合策略（operator+predicate+weight）
 ```
 
@@ -485,13 +533,29 @@ Reasoning Engine（实现 Causal Reasoning Contract §3.1.2）
 **算法注册机制（P2）：**
 
 ```
-reasoning_algorithms 表：
-  algo_id           VARCHAR(32) PK        -- 'sign_propagation_v1'
-  contract_version  VARCHAR(16) NOT NULL  -- 实现的契约版本
+reasoning_algorithms（逻辑算法）表：
+  algorithm_id     VARCHAR(32) PK        -- 'sign_propagation'
+  name             VARCHAR(64) NOT NULL
+
+reasoning_algorithm_versions（版本，v0.5 P0-1 新增）：
+  algorithm_version_id VARCHAR(64) PK    -- 可定位的不可变版本
+  algorithm_id      VARCHAR(32) NOT NULL FK
+  version           VARCHAR(32) NOT NULL -- '1.0' / '1.2'
+  contract_version  VARCHAR(16) NOT NULL -- 实现的契约版本
+  profile_version   VARCHAR(32) NOT NULL
+  profile_json      JSONB NOT NULL       -- Algorithm Profile（graph_type/max_depth）
+  params_schema     JSONB NOT NULL       -- 参数声明
+  handler           VARCHAR(128) NOT NULL
+  implementation_hash VARCHAR(64) NOT NULL -- 实现哈希（可定位/审计）
   status            VARCHAR(16) CHECK IN ('active','beta','deprecated')
-  params_schema     JSONB                 -- 算法参数声明
-  profile           JSONB NOT NULL        -- Algorithm Profile（v0.2，见 §4.5）
-  handler           VARCHAR(128)          -- 实现入口
+  UNIQUE (algorithm_id, version)
+
+ReasoningContext 冻结（v0.5 P0-1，闭环）：
+  algorithm_version_id + algorithm_config（immutable params）+
+    algorithm_config_hash
+  MUST: config_hash → 不可变 config 有可查询映射（历史重放可恢复真实参数，
+    不能只存 hash）
+  MUST: Context 可定位到具体 algorithm_version_id（Registry 中存在）
 
 MUST: 算法实现 Causal Reasoning Contract（输入/输出/约束，§3.1.2）
 MUST: 新算法经注册 + 测试接入；Planner 只感知 reasoning_mode
@@ -593,7 +657,11 @@ meta：model_id / version / algorithm / prepare_id / trace_id / complete
 
 ```
 MUST: 输出必须可解释（每项带 evidence_chain）
-MUST: 数据不足 → complete=false + missing_requirements（422 语义，非 404）
+MUST: Required evidence missing → FAILED + 422 +
+      missing_required_requirements（v0.5 P1）
+MUST: Optional evidence missing → PARTIAL + 正常业务结果（非 422）+
+      complete=false + missing_optional_requirements
+      （防止 Runtime 把非 2xx 一律判为 Task Failure）
 MUST: 超时 → complete=false 部分结果（不假完整，P4）
 MUST: scope_restricted → complete=false + reason=scope_restricted（§3.2）
 ```
@@ -736,3 +804,21 @@ GET  /v1/ecmc/reasoning/algorithms — 算法注册列表（含 Profile）
 
 **Framework 冻结标准**（评审）：Storage + Prepare/Evaluate Framework 完成后冻结；
 下一轮单独 Reasoning Algorithm v1（structural × observation × coverage × epistemic 组合、unknown=1、epistemic_status、veto 阈值）。
+
+---
+
+# 十二、v0.5 评审处置记录（v0.4 → v0.5，Framework Closure）
+
+| 级别 | 评审意见 | 处置 |
+|---|---|---|
+| P0-1 | Algorithm 版本冻结在数据模型上未闭环（Context 说冻结 1.2 但 Registry 无可定位版本） | §4.1：reasoning_algorithms（逻辑）+ reasoning_algorithm_versions（版本：version/profile_version/profile_json/params_schema/handler/implementation_hash）；Context 冻结 algorithm_version_id + 不可变 config（config_hash→config 可查询映射，历史重放可恢复真实参数） |
+| P0-2 | Snapshot 不可变与 validation 升级 published 矛盾（修改 type 破坏 immutable） | §2.10：Snapshot 无生命周期身份（绝对不可变）；validation/published 分离为治理事实——published_snapshot_id 指针 + validation_run 记录；同一快照可同时拥有两个治理事实；P4 原则修正（生产读 Published、验证读 Validation、均不可变） |
+| P0-3 | Snapshot 缺 Prepare 所需全部信息（capability_role 要回查 live 表） | §2.10.1：requirements_json = 完整需求包（data_requirement + capability_requirement{role/read_only/contract_ref}）；原则：Snapshot + ABox 实例快照 = Prepare 全部认知输入，不查 live 表 |
+| P1-1 | ReasoningContext 缺 target/time_window/params/profile/authz scope | §2.11：补 target_json/time_window_json/authz_scope_hash/algorithm_params_json（不可变 params 落库，不只存 hash）——context 自包含可重放 |
+| P1-2 | Prepare 判断 Runtime Binding Readiness 职责冲突 | §2.8/§3.1：readiness 完全留给 Planner/Capability Resolver（ResolvedEvidenceRequirement.binding_status）；ECMC 不查 Connector/credential/provider |
+| P1-3 | Evaluate 需幂等/重试语义 | §2.12：UNIQUE(prepare_id, observation_hash)——同 hash 重试返回已有结果；异 hash 拒绝（须新 Attempt/重新 Prepare） |
+| P1-4 | required/optional 失败语义统一 | §4.3：Required missing → FAILED + 422 + missing_required_requirements；Optional missing → PARTIAL + 正常业务结果（非 422）+ missing_optional_requirements（防 Runtime 非 2xx 一律判失败） |
+| P2 | 残留描述清理 | §2.7 logical_requirement→requirement_key；§3.2 Prepare 写 trace → 改 reasoning_contexts；旧 UNIQUE 描述清除 |
+
+**Framework 冻结标准达成**：Storage + Prepare/Evaluate Framework 收口。
+下一轮：Causal Reasoning Algorithm v1（structural × observation × coverage × epistemic、unknown=1、epistemic_status、veto 阈值）。
