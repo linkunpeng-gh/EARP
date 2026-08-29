@@ -1,7 +1,7 @@
 # Planner Runtime — L3 实现设计
 
 **文档编号：DESIGN-ECMC-PLANNER-RUNTIME-L3**
-**版本：v0.6（draft）**
+**版本：v1.0（baseline，架构冻结）**
 **日期：2026-08-28**
 
 > 上游：`arch/L2/02-reasoning/planner-specification.md`（v1.1，L2 契约）、`arch/design/2026-08-28-planning-blueprint-l3-design.md`（v0.3 基线，Blueprint 元模型）、`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§4.4 Cognitive Service Contract）
@@ -345,7 +345,7 @@ SubGoal + Blueprint goal_skeleton + 实例绑定（entity/time_window）→ Runt
   goal 目标 = 实例化后的业务目标（如"归因：3 号矿产量下降（近 30 天）"）
   goal 约束 = 规划约束（§3.3，Hard/Soft 合并）
   goal 输出 = output_contract 实例化（输出结构 + 证据要求）
-  goal 来源 = SubGoal.origin（v0.5：追溯用户哪句话）
+  goal 来源 = SubGoal.origin_clause（v1.0 统一命名：追溯用户哪句话）
 ```
 
 **SubGoal 结构补充（v0.5，评审 P1-2）：**
@@ -407,63 +407,6 @@ MUST: 注入上下文记入 Plan 元数据（审计/复现）
 输出：合规 Plan（携带版本冻结 + 追溯元数据 + 跨 SubGoal 数据绑定）
 ```
 
-## 6.3 Cross-SubGoal Data Binding（v0.6 新增，评审 P0）
-
-> **缺口**：此前 SubGoal 间只有 depends_on（控制依赖），缺"B 怎么拿到 A 的结果"。
-> 诊断结果 → 优化方案 → 风险评估，需要 output → input 映射。
-
-```
-SubGoalBinding
-├── from_sub_goal_id
-├── from_output          — 来源输出字段（如 diagnose 的 cause_ranking）
-├── to_sub_goal_id
-├── to_input             — 目标输入字段（如 optimize 的 root_causes）
-└── required             — true=必传（缺失 → 规划失败）；false=可选
-
-控制依赖 vs 数据依赖（v0.6 区分）：
-  control_dependency — B 必须等 A 完成（depends_on，已有）
-  data_dependency    — B 需要 A 的某个输出作为输入（SubGoalBinding，新增）
-  MUST: data_dependency 隐含 control_dependency（传数据必须先完成）
-
-示例：
-  A: diagnose → output: cause_ranking
-    ↓ binding: { from_output: cause_ranking, to_input: root_causes }
-  B: optimize → output: recommended_plan
-    ↓ binding: { from_output: recommended_plan, to_input: plan_assumptions }
-  C: risk → output: risk_list
-```
-
-```
-MUST: SubGoal 间数据传递必须显式声明 SubGoalBinding（不隐式全局共享）
-MUST: to_input 字段必须存在于目标 SubGoal 的 Blueprint 输入契约（编译期校验）
-MUST: from_output 字段必须存在于来源 SubGoal 的输出契约
-MUST: required=true 的绑定在来源 SubGoal 失败时 → 下游规划失败（不静默）
-SHOULD: required=false 绑定缺失 → 下游降级（标注缺输入）
-```
-
-## 6.4 Multi-SubGoal Output Contract（v0.6，评审 P1）
-
-> **不简单 merge 成一个大 JSON**——保留每个 SubGoal 的结构化输出，
-> 再由最终 Output Task 做综合表达：
-
-```
-Plan Output
-├── subgoals:
-│     diagnose:  { cause_ranking, evidence_chain }   ← 保留结构化
-│     optimize:  { recommendation, expected_benefit }
-│     risk:      { risk_list, risk_level }
-├── cross_goal_bindings: [ ... ]                     ← 传递链（可追溯）
-└── final_response: { ... }                          ← 综合表达（Output Task 生成）
-```
-
-```
-MUST: 每个 SubGoal 的输出保留独立结构化结果（好追溯/测试/复用）
-MUST: final_response 由最终 Output Task 综合生成（引用各 SubGoal 输出，
-      不复制业务逻辑）
-MUST: 字段冲突（两个 SubGoal 同名字段不同义）→ 命名空间隔离（按 sub_goal_id）
-      ，不静默覆盖
-```
-
 ## 6.1 版本冻结（v0.2 拍板，v0.3 扩展多 Blueprint）
 
 ```
@@ -523,6 +466,80 @@ plan.meta:
 ```
 
 ---
+
+## 6.3 Cross-SubGoal Data Binding（v0.6 新增，评审 P0）
+
+> **缺口**：此前 SubGoal 间只有 depends_on（控制依赖），缺"B 怎么拿到 A 的结果"。
+> 诊断结果 → 优化方案 → 风险评估，需要 output → input 映射。
+
+```
+SubGoalBinding
+├── from_sub_goal_id
+├── from_output          — 来源输出字段（如 diagnose 的 cause_ranking）
+├── to_sub_goal_id
+├── to_input             — 目标输入字段（如 optimize 的 root_causes）
+└── required             — true=必传（缺失 → 规划失败）；false=可选
+
+控制依赖 vs 数据依赖（v0.6 区分）：
+  control_dependency — B 必须等 A 完成（depends_on，已有）
+  data_dependency    — B 需要 A 的某个输出作为输入（SubGoalBinding，新增）
+  MUST: data_dependency 隐含 control_dependency（传数据必须先完成）
+
+示例：
+  A: diagnose → output: cause_ranking
+    ↓ binding: { from_output: cause_ranking, to_input: root_causes }
+  B: optimize → output: recommended_plan
+    ↓ binding: { from_output: recommended_plan, to_input: plan_assumptions }
+  C: risk → output: risk_list
+```
+
+```
+MUST: SubGoal 间数据传递必须显式声明 SubGoalBinding（不隐式全局共享）
+MUST: to_input 字段必须存在于目标 SubGoal 的 Blueprint 输入契约；
+      from_output 字段必须存在于来源 SubGoal 的输出契约
+      ——由 Plan Composition / Plan Validation 阶段校验
+      （v1.0：Composition-time Validation，非 Compiler 编译期——
+      SubGoal/Binding 是 Planner Runtime 组合出来的，ECMC Compiler
+      不知道 SubGoal 结构）
+MUST: from_output schema 与 to_input schema 基础兼容校验
+      （v1.0：类型匹配如 array<Cause> → array<RootCause> 需兼容；
+      不兼容 → Plan Validation Failed；Phase 1 不允许 LLM 随意
+      转换数据结构，future 可加 registered_transform）
+MUST: 校验分两个时间阶段（v1.0，评审）:
+      - Planning-time：绑定契约不成立（字段不存在/类型不兼容）
+        → PLAN_INVALID（规划/校验失败）
+      - Execution-time：required 来源输出缺失（上游执行失败）
+        → 下游 BLOCKED + 失败传播（Execution failure propagation，
+        Plan 结果 = FAILED / PARTIAL_FAILED 依 Plan Policy）
+MUST: 所有 SubGoalBinding 转换为依赖边后参与最终 Plan DAG 校验
+      （v1.0：Final DAG = Fragment 内部边 + SubGoal 控制依赖 +
+      跨 SubGoal 数据依赖 + 条件边；Composition 后整体无环，
+      防 A→B→C→A 跨 Fragment 环）
+SHOULD: required=false 绑定缺失 → 下游降级（标注缺输入）
+```
+
+## 6.4 Multi-SubGoal Output Contract（v0.6，评审 P1）
+
+> **不简单 merge 成一个大 JSON**——保留每个 SubGoal 的结构化输出，
+> 再由最终 Output Task 做综合表达：
+
+```
+Plan Output
+├── subgoals:
+│     diagnose:  { cause_ranking, evidence_chain }   ← 保留结构化
+│     optimize:  { recommendation, expected_benefit }
+│     risk:      { risk_list, risk_level }
+├── cross_goal_bindings: [ ... ]                     ← 传递链（可追溯）
+└── final_response: { ... }                          ← 综合表达（Output Task 生成）
+```
+
+```
+MUST: 每个 SubGoal 的输出保留独立结构化结果（好追溯/测试/复用）
+MUST: final_response 由最终 Output Task 综合生成（引用各 SubGoal 输出，
+      不复制业务逻辑）
+MUST: 字段冲突（两个 SubGoal 同名字段不同义）→ 命名空间隔离（按 sub_goal_id）
+      ，不静默覆盖
+```
 
 # 七、降级路径（P4，v0.2 强化）
 
@@ -621,9 +638,10 @@ POST /v1/planner/plan-from-blueprint   — 强制指定 Blueprint（调试/内�
 
 ---
 
-# 十一、开放问题（下一轮评审）
+# 十一、Implementation Follow-ups / Phase 2（v1.0 降级：不再阻塞 L3）
 
-1. **投影粒度实现**：v0.2 已定 Step→Fragment（0..N task）；data_fetch 拆分（多数据源并行）与并行调度（保留独立 Task + 并行边，不物理合并）的具体规则（数据源独立性判定）待细化
+以下均为实现迭代 / Phase 2 优化项，不阻塞 L3 冻结：
+1. **投影粒度实现**：data_fetch 拆分与并行调度的具体规则（数据源独立性判定）——实现期细化
 2. **Hard 冲突裁决实现**：v0.4 已定"冲突 → 规划失败 + 冲突报告" + Merge Operator；冲突报告的表述与人工裁决流程待细化
 3. **Goal Resolution 启发式**：v0.4 已支持 Compound Intent（objective_candidates）；拆分启发式（何时拆/拆几个）与 LLM 辅助拆分的边界待细化
 4. **Supporting Blueprint 发现启发式**：v0.4 已定"Planner 动态发现、Phase 1 禁止静态引用"；何时需要 Supporting（交叉验证/深度下钻）的判定规则待细化
@@ -635,3 +653,18 @@ POST /v1/planner/plan-from-blueprint   — 强制指定 Blueprint（调试/内�
 8. **Merge Operator 覆盖**：v0.4 已定义基础算子（min→max/max→min/union/intersection）；更多约束类型（如时序、嵌套）的算子待细化
 9. **SubGoal 执行编排细化**：v0.5 已定 Phase 1 默认"1 Plan = 1 Execution"；切分 Execution 的触发条件量化（何时算超长/跨时间等待）待细化
 10. **Cross-SubGoal Data Binding 类型**：v0.6 已定义 SubGoalBinding（output→input 映射）；更多传递类型（流式/部分结果/事件触发传递）待 Phase 2 细化
+
+
+---
+
+# 十二、v1.0 冻结记录（v0.6 → v1.0）
+
+**评审结论**：Planner Runtime 架构设计完成，`Request → SubGoal → Blueprint → Fragment → Plan → Execution` 链路闭环。不建议再增加架构概念；后续为实现迭代（数据源拆分规则、Goal 启发式、Supporting 触发、缓存等，见 §十一）。
+
+**v1.0 冻结前四项契约修正（评审采纳）：**
+1. SubGoalBinding 字段校验 = **Composition/Planning-time**（SubGoal/Binding 由 Planner 组合，ECMC Compiler 不知其结构）
+2. 区分 **Planning-time binding invalid（PLAN_INVALID）** vs **Execution-time upstream failure → downstream BLOCKED + 失败传播**
+3. 跨 SubGoal 数据依赖纳入**最终 Plan DAG 校验**（Final DAG = Fragment 内部边 + 控制依赖 + 数据依赖 + 条件边，整体无环）
+4. from_output → to_input **Schema 兼容校验**（Phase 1 不做 LLM 随意转换；future 可加 registered_transform）
+
+**文档修正**：6.x 重排（6.1 版本冻结 / 6.2 Replanning / 6.3 数据绑定 / 6.4 输出契约）；origin 统一为 origin_clause；§十一 降级为 Implementation Follow-ups / Phase 2。
