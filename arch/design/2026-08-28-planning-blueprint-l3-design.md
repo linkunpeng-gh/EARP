@@ -380,7 +380,7 @@ output_schema       JSONB NOT NULL                 -- 输出结构（字段/嵌�
 > 需要明确的执行语义——这不是 Workflow 编排（P6），而是 Blueprint 步骤的
 > 解释规则。
 
-## 5.1 Step 生命周期（解释视角）
+## 6.1 Step 生命周期（解释视角）
 
 ```
 Blueprint Step（静态定义）
@@ -389,7 +389,7 @@ Blueprint Step（静态定义）
   → 结果回填（output_field）
 ```
 
-## 5.2 Step 执行语义（语义级，非编排细节）
+## 6.2 Step 执行语义（语义级，非编排细节）
 
 ```
 同步性（由 Handler 声明，step_type_registry 注册）：
@@ -404,7 +404,7 @@ Blueprint Step（静态定义）
   条件引用源模型 Rule（不是新规则）——Planner 评估后选分支
 ```
 
-## 5.3 与 Workflow 的边界（P6 落地）
+## 6.3 与 Workflow 的边界（P6 落地）
 
 ```
 Blueprint 不定义：重试次数 / 超时 / 并发度 / 具体端点 / 重试退避
