@@ -1,7 +1,7 @@
 # Causal Model Storage & Reasoning Engine — L3 实现设计
 
 **文档编号：DESIGN-ECMC-CAUSAL-L3**
-**版本：v0.5（draft，Framework 收口）**
+**版本：v0.5.1（draft，Framework Freeze Patch）**
 **日期：2026-08-28**
 
 > 上游：`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§3.1 CausalModel / §3.1.2 Causal Reasoning Contract + Phase 1 参考实现 / §3.1.4 data_requirement / §4.4.3 Reasoning Contract）、`arch/design/2026-08-07-ontology-layer-design.md`（Enterprise Semantic Layer：TBox/ABox）、`arch/L2/02-reasoning/planner-specification.md`（v1.1）
@@ -19,7 +19,9 @@ P2  契约驱动——推理引擎实现 Causal Reasoning Contract（§3.1.2）�
 P3  存储与图计算分离（v0.2，评审 P1）：PostgreSQL 负责存/查/版本/快照；
      Reasoning Engine 消费统一的 CausalGraphSnapshot（加载内存构建图，
      Python 遍历）——递归 CTE 不作为推理主路径（图计算与算法解耦）
-P4  不可变快照——推理只读已发布版本快照，不接触 draft/testing
+P4  不可变快照（v0.5.1 修正）——生产推理只读 Published Snapshot；
+     Model Validation 读 Validation Snapshot；两者都必须是 Immutable
+     Snapshot；Reasoning Engine 永不读取可编辑模型表（draft/testing）
 P5  可复现——同输入（模型快照 + 观测 + 证据）同输出（reasoning_trace）；
      可复现键含 algorithm id/version + params（v0.2 强化，见 §2.9）
 P6  Reasoning Engine 不取数（v0.2，评审 P0-1）——推理拆为
@@ -56,11 +58,12 @@ P7  模型可表达一般有向图（v0.2，评审 P0-3）——DAG 是算法 Pr
 ```
 causal_models（逻辑模型，稳定身份）
 └── model_id / tenant_id / data_domain_id / name / description
-    └── causal_model_versions（版本，每个版本一个快照）
+    └── causal_model_versions（版本）
          ├── model_version_id / model_id FK / version / status
          ├── 依赖解析（结构化）/ applicability / owner / 时间戳
-         └── causal_nodes / causal_edges / causal_rules / 绑定
-              引用 model_version_id + 稳定 node_key
+         └── 1 版本 → N 不可变快照 → 0..1 published_snapshot_id
+             （v0.5.1：版本可有多个 validation 快照，published_snapshot_id
+             指向发布快照——不再"每版本一快照"）
 ```
 
 ```
@@ -77,6 +80,7 @@ causal_model_versions（版本）
 ├── status           VARCHAR(16) NOT NULL CHECK IN ('draft','testing','published','deprecated')
 ├── dependency_resolution JSONB NOT NULL DEFAULT '{}'  -- 结构化依赖（v0.2，见 2.8）
 ├── applicability   JSONB                   -- 适用范围投影（v0.2，权威见 2.9）
+├── published_snapshot_id VARCHAR(64)       -- v0.5.1 P1：发布快照指针（见 2.10）
 ├── owner / created_at / updated_at / published_at
 └── UNIQUE (model_id, version)
 
@@ -199,15 +203,22 @@ requirement_key vs requirement_id（v0.4 P1）：
   Snapshot 保存 requirement_key；Prepare 输出 requirement_id + requirement_key
 ```
 
-## 2.7 causal_capability_bindings（能力需求，元模型⑥）
+## 2.7 causal_capability_bindings（能力需求，元模型⑥，v0.5.1 补 contract_ref + FK）
 
 ```
 cap_binding_row_id  VARCHAR(64) PK
 model_version_id    VARCHAR(64) NOT NULL FK
 node_key            VARCHAR(64) NOT NULL
-requirement_key     VARCHAR(128) NOT NULL       -- 关联 §2.6 的 requirement_key（v0.5 P2 统一）
+requirement_key     VARCHAR(128) NOT NULL       -- 关联 §2.6 的 requirement_key
 capability_role     VARCHAR(16) NOT NULL CHECK IN ('primary','supporting')
 read_only_required  BOOLEAN NOT NULL DEFAULT true
+capability_contract_ref VARCHAR(128) NOT NULL   -- v0.5.1 P1：逻辑 Capability Contract
+                                                --  （非当前租户物理 capability instance）
+
+复合外键（v0.5.1 P1，Schema Closure）：
+  FOREIGN KEY (model_version_id, node_key, requirement_key)
+    REFERENCES causal_data_bindings(model_version_id, node_key, requirement_key)
+  ——能力需求必须对应一个真实存在的数据需求（防悬空引用）
 ```
 
 ## 2.8 依赖解析：静态模型依赖 vs 运行绑定就绪（v0.4 拆分，评审 P1）
@@ -340,31 +351,35 @@ MUST: context 自包含（target/window/params/profile 全落库，
       不只存 hash——历史可重放可恢复真实参数）
 ```
 
-## 2.12 reasoning_traces（推理轨迹，Evaluate 后审计记录）
+## 2.12 reasoning_traces（推理轨迹，Evaluate 后审计记录，v0.5.1 补 evidence_items）
 
 ```
 trace_id            VARCHAR(64) PK
 prepare_id          VARCHAR(64) NOT NULL FK → reasoning_contexts
-observation_hash    VARCHAR(64) NOT NULL   -- v0.5 P1：幂等键
+evaluation_input_hash VARCHAR(64) NOT NULL   -- v0.5.1：幂等键（覆盖观测+证据）
 model_version_id    VARCHAR(64) NOT NULL FK
 snapshot_id         VARCHAR(64) NOT NULL FK
-observations_json   JSONB NOT NULL         -- EvidenceObservation[]（P0-4）
-result_snapshot     JSONB NOT NULL         -- Cause Ranking + Evidence Chain
+observations_json   JSONB NOT NULL           -- EvidenceObservation[]（P0-4）
+evidence_items_json JSONB NOT NULL DEFAULT '[]'  -- v0.5.1 P0/P1：非结构化证据
+                                                --  （专家记录/文档/维修说明）必须保存原文
+                                                --  （不只存 hash——历史重放可见原始证据）
+result_snapshot     JSONB NOT NULL           -- Cause Ranking + Evidence Chain
 status              VARCHAR(16) NOT NULL CHECK IN ('complete','partial','failed')
 latency_ms          INT
 created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
-UNIQUE (prepare_id, observation_hash)     -- v0.5 P1：Evaluate 幂等
+UNIQUE (prepare_id, evaluation_input_hash)  -- v0.5.1：幂等键覆盖 observations + evidence_items
 
 幂等/重试语义（v0.5 P1）：
-  同 prepare_id + 同 Observation/Evidence Hash → 直接返回已有结果
+  同 prepare_id + 同 Evaluation Input Hash → 直接返回已有结果
     （网络超时后 Runtime 重试不导致 Plan 失败）
-  同 prepare_id + 不同 Observation Hash → 拒绝（须显式新建 Evaluation
-    Attempt 或重新 Prepare）
+  同 prepare_id + 不同 Evaluation Input Hash → 拒绝（须显式新建
+    Evaluation Attempt 或重新 Prepare）
 
-可复现键（v0.4 收紧，评审 P0-1/P0-3）：
-  = ReasoningContext Hash + Observation/Evidence Hash
+可复现键（v0.4/v0.5.1）：
+  = ReasoningContext Hash + Evaluation Input Hash
   ReasoningContext Hash = Model Snapshot Hash + Instance Snapshot Hash
     + Algorithm ID/Version + Algorithm Params Hash + Target/Time Window + Scope
+  Evaluation Input Hash = Observations + Evidence Items（含原文归档）
   ——Evaluate 不重新实例化、不换算法（全部冻结于 context），
   可复现自然成立
 ```
@@ -474,6 +489,17 @@ MUST: Evaluate 输入 = prepare_id + observations[]（EvidenceObservation）
       + evidence_items[]（可选）
 MUST: observation 按 requirement_id 关联（Requirement↔Observation↔
       Evidence Chain 完整可追溯）
+
+取证失败任务语义（v0.5.1 P1，跨模块契约）：
+  业务数据缺失（DATA_UNAVAILABLE）→ 取证 Task 正常完成，产出
+    EvidenceObservation 带 error: { code: DATA_UNAVAILABLE }——
+    不是 Task FAILED（防止 Runtime DAG 上游失败 → Evaluate BLOCKED，
+    导致 optional missing → PARTIAL 永远到不了）
+  Evaluate：required missing → FAILED+422；optional missing → PARTIAL
+    （正常业务结果）
+  执行基础设施故障（Runtime crash / Capability executor crash /
+    认证系统故障）→ 才是 Task FAILED → Evaluate BLOCKED（Runtime Failure）
+  ——业务数据缺失由 Reasoning 解释；基础设施故障由 Runtime 失败
 ```
 
 ## 3.2 实例化（Prepare 内完成，不取数）
@@ -711,7 +737,12 @@ apps/earp-server/src/earp_server/
 
 ```
 POST /v1/ecmc/reasoning/prepare
-    — 输入 {model_version, target, time_window, reasoning_mode}
+    — 输入（v0.5.1 明确快照选择路径）：
+      Production：{ model_id, version, target, time_window, reasoning_mode }
+        → 服务经 version → published_snapshot_id → Snapshot（生产不可
+          任意指定 validation snapshot）
+      Model Validation：{ snapshot_id, target, ... }
+        → 显式指定 validation snapshot（经 /validate 路径执行）
     → ReasoningContext（prepare_id + Evidence Requirements + 实例化图，不取数）
 POST /v1/ecmc/reasoning/evaluate
     — 输入 {prepare_id, observations: EvidenceObservation[], evidence_items?, explain_level}
@@ -822,3 +853,18 @@ GET  /v1/ecmc/reasoning/algorithms — 算法注册列表（含 Profile）
 
 **Framework 冻结标准达成**：Storage + Prepare/Evaluate Framework 收口。
 下一轮：Causal Reasoning Algorithm v1（structural × observation × coverage × epistemic、unknown=1、epistemic_status、veto 阈值）。
+
+---
+
+# 十三、v0.5.1 评审处置记录（v0.5 → v0.5.1，Framework Freeze Patch）
+
+| 级别 | 评审意见 | 处置 |
+|---|---|---|
+| P0/P1 | Trace 未存 evidence_items（只存 hash，历史重放找不到原始证据） | §2.12：reasoning_traces 增加 evidence_items_json（原文归档）；observation_hash → evaluation_input_hash（幂等键覆盖 observations + evidence_items） |
+| P1 | Prepare 加载哪个 Snapshot 有歧义（Production vs Validation） | §七 API：Production 只传 model_id+version → 经 published_snapshot_id → Snapshot（生产不可指定 validation）；Model Validation 显式传 snapshot_id（经 /validate）；causal_model_versions 补 published_snapshot_id 字段 |
+| P1 | capability_contract_ref 来源未闭环 | §2.7：补 capability_contract_ref（逻辑 Capability Contract，非物理实例）+ 复合 FK（model_version_id, node_key, requirement_key）→ causal_data_bindings（防悬空引用） |
+| P1 | 取证失败 Task FAILED 会让 optional missing → Evaluate BLOCKED（PARTIAL 永远到不了） | §3.1.1：业务数据缺失（DATA_UNAVAILABLE）→ 取证 Task 正常完成 + Observation 带 error envelope（非 Task FAILED）；仅基础设施故障（crash/认证）→ Task FAILED → BLOCKED——业务缺失由 Reasoning 解释、基础设施故障由 Runtime 失败 |
+
+**残留清理**：P4 原则修正（生产读 Published / 验证读 Validation / 永不读编辑表）；版本模型描述（1 版本 → N 快照 → 0..1 published_snapshot_id）；旧 UNIQUE 描述清除。
+
+**冻结声明**：Causal Model Storage + Prepare/Evaluate Framework 达到 v1.0 baseline 标准——模型存/版本化/快照/实例化/证据需求/取证/证据回传/算法冻结/Prepare-Evaluate 衔接/审计/重试/复现全部闭环。不再扩架构。
