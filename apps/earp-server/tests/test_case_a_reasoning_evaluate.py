@@ -123,9 +123,7 @@ async def test_required_optional_and_infrastructure_terminal_semantics(
 ) -> None:
     prepare_id, requirements = await _prepared(app_engine, registry_engine)
     required = next(
-        item
-        for item in requirements
-        if item["source_requirement_id"] == "er-production-actual-and-baseline"
+        item for item in requirements if item["source_requirement_id"] == "er-production-actual-and-baseline"
     )
     required_result = await evaluate_case_a_reasoning(
         app_engine,

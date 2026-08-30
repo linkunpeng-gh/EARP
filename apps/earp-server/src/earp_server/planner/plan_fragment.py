@@ -119,16 +119,10 @@ def build_case_a_plan_fragment(
     max_graph_depth: int = 5,
 ) -> PlanFragment:
     """Project immutable Prepare requirements into Case A physical tasks."""
-    if not all(
-        isinstance(value, str) and value for value in (prepare_id, blueprint_version_id, knowledge_query_step_id)
-    ):
+    # Parameters are already str-typed; only the non-empty contract is checked here.
+    if not all(value for value in (prepare_id, blueprint_version_id, knowledge_query_step_id)):
         raise PlanFragmentError("Case A PlanFragment requires pinned Prepare and Blueprint identities")
-    if (
-        not isinstance(output_step_id, str)
-        or not output_step_id
-        or not isinstance(output_contract_ref, str)
-        or not output_contract_ref
-    ):
+    if not output_step_id or not output_contract_ref:
         raise PlanFragmentError("Case A PlanFragment requires a pinned output Blueprint step and contract")
 
     acquisition_tasks: list[PlanTask] = []

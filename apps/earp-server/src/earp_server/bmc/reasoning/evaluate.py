@@ -177,12 +177,17 @@ def _evaluate_graph(
     nodes = snapshot.get("nodes")
     edges = snapshot.get("edges")
     rules = snapshot.get("rules")
-    if not all(isinstance(value, list) for value in (nodes, edges, rules)):
+    if not isinstance(nodes, list) or not isinstance(edges, list) or not isinstance(rules, list):
         raise ReasoningEvaluateError("pinned Snapshot causal graph is incomplete")
-    node_by_key = {item.get("node_key"): item for item in nodes if isinstance(item, Mapping)}
+    node_by_key: dict[str, Mapping[str, Any]] = {}
+    for item in nodes:
+        if not isinstance(item, Mapping):
+            continue
+        node_key = item.get("node_key")
+        if not isinstance(node_key, str) or not node_key:
+            raise ReasoningEvaluateError("pinned Snapshot contains an invalid node")
+        node_by_key[node_key] = item
     rule_by_node = {item.get("node_key"): item for item in rules if isinstance(item, Mapping)}
-    if not all(isinstance(key, str) and key for key in node_by_key):
-        raise ReasoningEvaluateError("pinned Snapshot contains an invalid node")
     requirement_by_node: dict[str, Mapping[str, Any]] = {}
     for requirement in context_requirements:
         node_key = requirement.get("node_key")
@@ -307,7 +312,9 @@ async def evaluate_case_a_reasoning(
             if requirement_id in by_requirement:
                 raise ReasoningEvaluateError("duplicate acquisition result for a pinned requirement")
             by_requirement[requirement_id] = record
-        missing_terminal = sorted(set(requirement_by_id) - set(by_requirement))
+        missing_terminal = sorted(
+            key for key in requirement_by_id if key not in by_requirement and isinstance(key, str)
+        )
         if missing_terminal:
             raise ReasoningEvaluateError(f"Evaluate started before all acquisition terminal states: {missing_terminal}")
 
@@ -365,11 +372,13 @@ async def evaluate_case_a_reasoning(
         missing_optional = tuple(
             sorted(key for key in unavailable if requirement_by_id[key].get("requirement_level") == "optional")
         )
-        observations = {
-            requirement_id: _as_observation(record)
-            for requirement_id, record in by_requirement.items()
-            if _as_observation(record) is not None and requirement_id not in unavailable
-        }
+        observations: dict[str, Mapping[str, Any]] = {}
+        for requirement_id, record in by_requirement.items():
+            if requirement_id in unavailable:
+                continue
+            observation = _as_observation(record)
+            if observation is not None:
+                observations[requirement_id] = observation
         evaluation_input = {
             "prepare_id": prepare_id,
             "context_hash": context["context_hash"],

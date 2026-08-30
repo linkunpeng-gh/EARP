@@ -118,6 +118,10 @@ ignore_imports = [
     "earp_server.connector -> earp_server.orchestrator.types",
     # 2026-08-25: flow Knowledge 节点与 chat 检索同源——复用 ontology 三层检索（ABox 层）
     "earp_server.connector -> earp_server.ontology.search",
+    # 路由调试明细（05626d1）：knowledge.routing 复用 ontology 三层检索（_knowledge_layers），
+    # 与 connector/chat_service 检索同源（同款 ignore 模式）；ontology.search 不在契约域内，
+    # 其传递依赖（tbox_service→policy、understanding→connector）不构成契约模块间直连。
+    "earp_server.knowledge.routing -> earp_server.ontology.search",
     "earp_server.planner.service -> earp_server.knowledge.routing",  # D-13: keyword table lives in knowledge domain
     # tech-debt #9: knowledge.routing 复用 policy.roles_service.role_domain_access（域过滤单一实现）
     "earp_server.knowledge.routing -> earp_server.policy.roles_service",
@@ -125,18 +129,17 @@ ignore_imports = [
     "earp_server.knowledge.search_service -> earp_server.policy.roles_service",
     # P1 问答链路一期：conversation.chat_service 是 RAG 编排层——检索/路由/LLM 均为编排依赖
     "earp_server.conversation.chat_service -> earp_server.knowledge.embedding_service",
-    "earp_server.conversation.chat_service -> earp_server.knowledge.routing",
     "earp_server.conversation.chat_service -> earp_server.connector",
     # P2: chat 软路由路径接入 ontology 三层检索（ontology.search 传递依赖 knowledge.search_service）
     "earp_server.conversation.chat_service -> earp_server.ontology.search",
     # Phase D D1d: chat 软路由路径走 planner（understanding/planning/capability_query 传递依赖 knowledge.*）
     "earp_server.conversation.chat_service -> earp_server.ontology.planning",
     "earp_server.conversation.chat_service -> earp_server.ontology.understanding",
-    "earp_server.conversation.chat_service -> earp_server.ontology.capability_query",
     # Chatflow F1: flow_schema 声明层校验复用 orchestrator workflow_dsl（F0 编译校验单一实现，
     # 图结构校验不重复实现——chat_app_service 是 flow 声明的入口）
     "earp_server.conversation.chat_app_service -> earp_server.orchestrator.workflow_dsl",
-    # Chatflow F2: flow 模式图执行编排——对话层是图执行的编排方（编译 + MultiStepExecutor）
+    # Chatflow F2: flow 模式图执行编排——对话层是图执行的编排方（编译 + MultiStepExecutor + Step 值对象）
     "earp_server.conversation.chat_service -> earp_server.orchestrator.multi_step",
     "earp_server.conversation.chat_service -> earp_server.orchestrator.workflow_dsl",
+    "earp_server.conversation.chat_service -> earp_server.orchestrator.types",
 ]

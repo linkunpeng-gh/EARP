@@ -26,6 +26,19 @@ components:
       - mode
       title: AppAccessIn
       type: object
+    BlueprintPlanningEntryRequest:
+      description: T07's explicit Case A entry; it is intentionally not a ``/plan``
+        variant.
+      properties:
+        text:
+          maxLength: 500
+          minLength: 1
+          title: Text
+          type: string
+      required:
+      - text
+      title: BlueprintPlanningEntryRequest
+      type: object
     Body_import_abox_endpoint_v1_ontology_import_post:
       properties:
         dry_run:
@@ -3875,6 +3888,41 @@ paths:
       summary: Stream Invoke
       tags:
       - streaming
+  /v1/ecmc/planning/entry:
+    post:
+      description: 'Resolve the fixed Case A request to one immutable Blueprint goal.
+
+
+        T07 intentionally stops before Prepare; no Provider/Evidence task is
+
+        created at this boundary.'
+      operationId: blueprint_planning_entry_endpoint_v1_ecmc_planning_entry_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlueprintPlanningEntryRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Blueprint Planning Entry Endpoint V1 Ecmc Planning
+                  Entry Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Blueprint Planning Entry Endpoint
+      tags:
+      - ecmc
+      - planner
   /v1/evaluations/cases/{case_id}:
     delete:
       operationId: delete_eval_case_v1_evaluations_cases__case_id__delete

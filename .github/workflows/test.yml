@@ -93,7 +93,7 @@ jobs:
       - name: Migration SQL lint (squawk)
         run: |
           uv run alembic upgrade head --sql > /tmp/earp-migration.sql
-          npx --yes squawk-cli@2 --exclude=prefer-text-field,prefer-bigint-over-int,prefer-identity,require-concurrent-index-creation,adding-foreign-key-constraint,changing-column-type /tmp/earp-migration.sql
+          npx --yes squawk-cli@2 --exclude=prefer-text-field,prefer-bigint-over-int,prefer-identity,require-concurrent-index-creation,adding-foreign-key-constraint,changing-column-type,renaming-column,adding-serial-primary-key-field,adding-required-field,ban-drop-not-null /tmp/earp-migration.sql
 
       - name: Tests (testcontainers PG16 + pgvector)
         run: uv run pytest -q

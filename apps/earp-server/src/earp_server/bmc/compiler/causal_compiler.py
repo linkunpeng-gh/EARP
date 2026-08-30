@@ -446,9 +446,8 @@ async def compile_case_a_causal_blueprint(
             # auditable failed CompileRecord.  There are no Blueprint writes
             # before the validation paths handled above.
             failure = error
-    if failure is not None:
-        raise failure
-    raise AssertionError("compile did not produce a result or failure")
+    # Every non-exception path above returned, so failure is set when we get here.
+    raise failure
 
 
 async def _persist_blueprint(

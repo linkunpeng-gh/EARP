@@ -92,7 +92,7 @@ def _observation(
     measurement = input_.get("measurement")
     if isinstance(measurement, Mapping):
         unit = measurement.get("unit")
-    timestamp = quality.get("observed_at") if isinstance(quality, Mapping) else None
+    timestamp = quality.get("observed_at")
     timestamp = timestamp if isinstance(timestamp, str) and timestamp else _now()
     provenance = {
         "provider_key": provider_key,
@@ -164,8 +164,6 @@ class FixtureReasoningRuntimeAdapter:
         optional unbound requirement follows the same path so that its task is
         still present as an Evaluate dependency.
         """
-        if not isinstance(input_, Mapping):
-            raise ReasoningRuntimeError("reasoning.acquire input must be an object")
         if input_.get("contract") not in {None, ACQUIRE_CONTRACT}:
             raise ReasoningRuntimeError("unsupported reasoning.acquire contract")
         provider_key = input_.get("provider_key")
@@ -226,8 +224,8 @@ class FixtureReasoningRuntimeAdapter:
         # the fixture observation intentionally has no second mutable binding.
         if not isinstance(expected_type, str) or not expected_type:
             raise ReasoningRuntimeError("reasoning.acquire target entity type is missing")
-        quality = match.get("quality") if isinstance(match.get("quality"), Mapping) else {"status": "valid"}
-        quality = dict(quality)
+        raw_quality = match.get("quality")
+        quality = dict(raw_quality) if isinstance(raw_quality, Mapping) else {"status": "valid"}
         quality_override = self._quality_overrides.get(source_requirement_id)
         if quality_override:
             quality.update(quality_override)
@@ -254,8 +252,6 @@ class FixtureReasoningRuntimeAdapter:
         acquisition_results: Iterable[Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Check acquisition readiness without performing causal inference."""
-        if not isinstance(input_, Mapping):
-            raise ReasoningRuntimeError("reasoning.evaluate input must be an object")
         if input_.get("contract") not in {None, EVALUATE_CONTRACT}:
             raise ReasoningRuntimeError("unsupported reasoning.evaluate contract")
         prepare_id = _required_string(input_.get("prepare_id"), "prepare_id")

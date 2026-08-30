@@ -13,9 +13,10 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import text
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from earp_server.bmc.metamodel import canonical_json_hash
@@ -253,6 +254,14 @@ async def _resolve_requirement_target(
     return row, [fact]
 
 
+def _requirement_sort_key(item: object) -> str:
+    """Stable sort key for pinned evidence requirements; missing key sorts first."""
+    if not isinstance(item, Mapping):
+        return ""
+    key = item.get("requirement_key")
+    return key if isinstance(key, str) else ""
+
+
 async def prepare_case_a_reasoning(
     engine: AsyncEngine,
     tenant_id: str,
@@ -330,7 +339,7 @@ async def prepare_case_a_reasoning(
         source_requirements = source["requirements_json"]
         if not isinstance(source_requirements, list) or not source_requirements:
             raise ReasoningPrepareError("pinned Snapshot has no evidence requirements")
-        for requirement in sorted(source_requirements, key=lambda item: item.get("requirement_key", "")):
+        for requirement in sorted(source_requirements, key=_requirement_sort_key):
             if not isinstance(requirement, Mapping):
                 raise ReasoningPrepareError("pinned Snapshot requirement is malformed")
             stable_key = requirement.get("requirement_key")
@@ -451,12 +460,15 @@ async def get_reasoning_context(engine: AsyncEngine, tenant_id: str, prepare_id:
 async def cancel_reasoning_context(engine: AsyncEngine, tenant_id: str, prepare_id: str) -> None:
     """Cancel an unused prepared Context; consumed/expired contexts stay immutable."""
     async with tenant_session(engine, tenant_id) as session:
-        result = await session.execute(
-            text(
-                "UPDATE reasoning_contexts SET status = 'cancelled' WHERE tenant_id = :tenant_id "
-                "AND prepare_id = :prepare_id AND status = 'prepared'"
+        result = cast(
+            "CursorResult[Any]",
+            await session.execute(
+                text(
+                    "UPDATE reasoning_contexts SET status = 'cancelled' WHERE tenant_id = :tenant_id "
+                    "AND prepare_id = :prepare_id AND status = 'prepared'"
+                ),
+                {"tenant_id": tenant_id, "prepare_id": prepare_id},
             ),
-            {"tenant_id": tenant_id, "prepare_id": prepare_id},
         )
         if result.rowcount != 1:
             raise ReasoningPrepareError("only an existing prepared ReasoningContext can be cancelled")

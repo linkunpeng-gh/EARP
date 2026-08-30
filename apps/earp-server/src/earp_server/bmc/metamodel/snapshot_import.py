@@ -13,7 +13,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from sqlalchemy import text
@@ -95,7 +95,7 @@ def _load_fixture(fixture_dir: Path, tenant_id: str | None) -> _Fixture:
     files = manifest.get("files")
     if manifest.get("schema_version") != "case-a-fixture-hashes/v1" or not isinstance(files, dict):
         raise FixtureImportError("unsupported fixture hash manifest")
-    if set(files) != FIXTURE_FILES:
+    if frozenset(files) != FIXTURE_FILES:
         raise FixtureImportError("fixture hash manifest file set does not match the Case A contract")
     actual_hashes: dict[str, str] = {}
     for name, expected_hash in files.items():
@@ -156,14 +156,19 @@ def _validate_snapshot_graph(fixture: _Fixture) -> None:
     edges = snapshot.get("edges")
     requirements = snapshot.get("evidence_requirements")
     rules = snapshot.get("rules")
-    if not all(isinstance(value, list) for value in (nodes, edges, requirements, rules)):
+    if (
+        not isinstance(nodes, list)
+        or not isinstance(edges, list)
+        or not isinstance(requirements, list)
+        or not isinstance(rules, list)
+    ):
         raise FixtureImportError("snapshot graph arrays are required")
     node_keys = [node.get("node_key") for node in nodes if isinstance(node, dict)]
     if len(node_keys) != len(nodes) or not all(isinstance(key, str) and key for key in node_keys):
         raise FixtureImportError("each causal node needs node_key")
     if len(set(node_keys)) != len(node_keys):
         raise FixtureImportError("duplicate causal node_key")
-    known_nodes = set(node_keys)
+    known_nodes = {key for key in node_keys if isinstance(key, str)}
     entry_points = _as_string_set(snapshot.get("entry_points"), "entry_points")
     if not entry_points <= known_nodes:
         raise FixtureImportError("entry_points reference unknown causal nodes")
@@ -218,6 +223,10 @@ def _validate_snapshot_graph(fixture: _Fixture) -> None:
         )
         if not all(isinstance(value, str) and value for value in (requirement_id, requirement_key, node_key)):
             raise FixtureImportError("evidence requirement identity is incomplete")
+        # The all() guard cannot narrow tuple elements; cast after validation.
+        requirement_id = cast(str, requirement_id)
+        requirement_key = cast(str, requirement_key)
+        node_key = cast(str, node_key)
         if requirement_id in requirement_ids or node_key not in known_nodes:
             raise FixtureImportError("evidence requirement has duplicate identity or dangling node")
         if requirement.get("requirement_level") not in {"required", "optional"}:
@@ -257,9 +266,12 @@ def _validate_ontology_contract(fixture: _Fixture) -> dict[str, str]:
     relation_types = tbox.get("relation_types")
     entities = ontology.get("entities")
     facts = ontology.get("facts")
-    if not all(
-        isinstance(value, list)
-        for value in (contract.get("data_domains"), entity_types, relation_types, entities, facts)
+    if (
+        not isinstance(contract.get("data_domains"), list)
+        or not isinstance(entity_types, list)
+        or not isinstance(relation_types, list)
+        or not isinstance(entities, list)
+        or not isinstance(facts, list)
     ):
         raise FixtureImportError("ontology contract arrays are required")
     entity_type_ids = {entry.get("entity_type_id") for entry in entity_types if isinstance(entry, dict)}
@@ -312,7 +324,7 @@ def _validate_ontology_contract(fixture: _Fixture) -> dict[str, str]:
         if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
             raise FixtureImportError("ontology fact confidence must be within [0, 1]")
         fact_keys.add(fact_key)
-    return {entity_id: entity["entity_type"] for entity_id, entity in entity_by_id.items()}
+    return {str(entity_id): str(entity["entity_type"]) for entity_id, entity in entity_by_id.items()}
 
 
 def _resolve_fixture_bindings(fixture: _Fixture, entity_types: dict[str, str]) -> dict[str, str]:

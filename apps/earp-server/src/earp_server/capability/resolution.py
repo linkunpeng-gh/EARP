@@ -16,7 +16,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 class CapabilityResolutionError(ValueError):
@@ -66,6 +66,10 @@ class FixtureCapabilityResolver:
         level = requirement.get("requirement_level")
         if not all(isinstance(value, str) and value for value in (contract_ref, source_requirement_id, target_type)):
             raise CapabilityResolutionError("prepared requirement lacks contract, source identity, or target type")
+        # The all() guard cannot narrow tuple elements; cast after validation.
+        contract_ref = cast(str, contract_ref)
+        source_requirement_id = cast(str, source_requirement_id)
+        target_type = cast(str, target_type)
         if level not in {"required", "optional"}:
             raise CapabilityResolutionError("prepared requirement must be required or optional")
         required = level == "required"

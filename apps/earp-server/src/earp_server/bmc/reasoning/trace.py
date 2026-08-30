@@ -40,8 +40,6 @@ def _records(value: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     records = [dict(item) for item in value]
     if not records:
         raise ReasoningTraceError("a reasoning trace requires acquisition records")
-    if any(not isinstance(item, dict) for item in records):
-        raise ReasoningTraceError("acquisition records must be objects")
     return records
 
 
