@@ -1,0 +1,54 @@
+schema_version: case-a-scenario/v1
+fixture_status: provisional_pending_domain_confirmation
+fixture_id: mine-3-production-drop-2026-08-28
+fixture_version: 0.1.1
+title: "Why did Mine 3 production decrease yesterday?"
+authority:
+  execution_authority: machine_readable_fixture
+  business_knowledge_status: provisional
+  confirmation_required_before_production_use: true
+fixture_release:
+  release_scope: deterministic_test_input_only
+  executable_evaluate_status: blocked_until_t11_artifact_release
+  published_fixture_boundary: >-
+    published_fixture identifies a hash-locked fixture release for test import only. It is not
+    a domain approval, production publication, or a request to coerce the stored model status.
+  hash_update_rule: >-
+    Fixture authors explicitly update semantic hashes, raw-byte file hashes, and package hash in
+    one reviewed release. T05 verifies hashes and must never generate, replace, or silently rehash them.
+request:
+  tenant_id: tenant-mine-demo
+  request_id: req-mine-3-production-drop-fixture
+  request_time: "2026-08-29T09:00:00+08:00"
+  timezone: Asia/Shanghai
+  text: "为什么 3 号矿昨天产量下降？"
+context:
+  entity_id: mine-3
+  entity_type: mine
+  business_objective: diagnose
+  entry_point: production_output
+  direction: down
+  domain: production
+  reasoning_mode: explainable
+  explain_level: detailed
+  production_day:
+    business_date: "2026-08-28"
+    start: "2026-08-28T00:00:00+08:00"
+    end: "2026-08-29T00:00:00+08:00"
+    boundary_rule: local_calendar_day
+policy:
+  provider_unbound_required: fail_closed_at_planning
+  provider_unbound_optional: allow_partial
+  required_data_unavailable: failed
+  optional_data_unavailable: partial
+  infrastructure_failure: blocked
+fixture_files:
+  intent_goal: intent_goal_fixture.json
+  causal_model_snapshot: causal_model_snapshot.json
+  ontology: ontology_fixture.json
+  capability: capability_fixture.json
+  algorithm: algorithm_fixture.json
+  observations: evidence_observations.json
+  expected_plan: expected_plan.json
+  expected_reasoning: expected_reasoning.json
+  manifest: fixture_hashes.json

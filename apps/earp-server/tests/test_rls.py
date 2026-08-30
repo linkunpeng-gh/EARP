@@ -9,8 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.infra.db import build_session_factory, tenant_session
 
-TENANT_TABLE_COUNT = 47  # +0029 agent 3 表
-# (app_categories/app_role_access/user_app_favorites，RLS 三件套)  # 0018 tbox_changes + 0019
+TENANT_TABLE_COUNT = 70  # + T04: 23 tenant-owned causal/Blueprint/reasoning tables
 
 
 @pytest.fixture(scope="module")
@@ -119,6 +118,29 @@ async def test_full_table_rls_matrix(app_engine: AsyncEngine) -> None:
         "conversations",
         "messages",
         "connector_configs",
+        "causal_models",
+        "causal_model_versions",
+        "causal_nodes",
+        "causal_edges",
+        "causal_rules",
+        "causal_data_bindings",
+        "causal_capability_bindings",
+        "causal_applicability",
+        "causal_model_snapshots",
+        "causal_snapshot_validation_runs",
+        "blueprint_compile_records",
+        "planning_blueprints",
+        "planning_blueprint_versions",
+        "blueprint_source_models",
+        "blueprint_intents",
+        "blueprint_constraints",
+        "blueprint_output_contracts",
+        "blueprint_goal_skeletons",
+        "blueprint_steps",
+        "blueprint_step_deps",
+        "blueprint_step_sources",
+        "reasoning_contexts",
+        "reasoning_traces",
     ]
     async with tenant_session(app_engine, "rls-t1") as session:
         for table in tables:

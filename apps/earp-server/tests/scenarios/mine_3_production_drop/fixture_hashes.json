@@ -1,0 +1,19 @@
+{
+  "schema_version": "case-a-fixture-hashes/v1",
+  "hash_algorithm": "sha256",
+  "hash_encoding": "hex-lowercase",
+  "hash_scope": "raw_utf8_file_bytes",
+  "excluded_from_package_hash": ["fixture_hashes.json", "README.md"],
+  "files": {
+    "algorithm_fixture.json": "19d6f5ca13f63322016bce7997bad47a53b1acfb5498225a7789d276654173ce",
+    "capability_fixture.json": "e185d5df4db68295cb332a7257fb6c543a785ba77ac9f57deec2fafa8e8efdc5",
+    "causal_model_snapshot.json": "5e3adac6c207e3c1132f9522bb5c35a8f6c41a2b96f1dba16f51bb29f93d2158",
+    "evidence_observations.json": "a453d9e2db6615b4791635214b9aeae6aedd24e107446cb98f273cd5aad6d5f0",
+    "expected_plan.json": "9b31979f29d7d818e370fc2f8d304f2ceed6a356deee2667010e5ec48c85ea81",
+    "expected_reasoning.json": "b69f8488955f8fd8b65d49e85b1d914951640466d2873ac50af024fb8fff6b42",
+    "intent_goal_fixture.json": "2459d1bf8380321d23dc3998e978fafb327fec95c4d6c59458f76fedd846b334",
+    "ontology_fixture.json": "82e1fb9d54c6f1966489dc783f69a9efcbc958919643d52cad1c4a4951195314",
+    "scenario.yaml": "04a55c6f7e69ca32060108dad4e3e1f0543fb340a9c2ce00c78a42759c41cffb"
+  },
+  "package_hash": "f9c9620f34e90c0119464e43cb1f51b4cb9daf63c26ee77e14040068dda35e66"
+}

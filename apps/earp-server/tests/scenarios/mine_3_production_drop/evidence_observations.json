@@ -1,0 +1,77 @@
+{
+  "schema_version": "evidence-observations/v1",
+  "fixture_status": "provisional_pending_data_confirmation",
+  "prepare_id": "prepare-mine-3-production-drop-fixture",
+  "observations": [
+    {
+      "observation_id": "obs-production-output-v1",
+      "requirement_id": "er-production-actual-and-baseline",
+      "requirement_key": "production_actual_and_baseline",
+      "node_key": "production_output",
+      "entity_id": "mine-3",
+      "value": 8200,
+      "baseline_value": 10000,
+      "unit": "t",
+      "derived_direction": "down",
+      "time_window": {"start": "2026-08-28T00:00:00+08:00", "end": "2026-08-29T00:00:00+08:00"},
+      "quality": {"status": "valid", "observed_at": "2026-08-29T00:05:00+08:00"},
+      "provenance": {"provider_key": "mock-production-metrics-v1", "source_ref": "fixture://mine-3/production-output"}
+    },
+    {
+      "observation_id": "obs-equipment-availability-v1",
+      "requirement_id": "er-critical-equipment-availability",
+      "requirement_key": "critical_equipment_availability",
+      "node_key": "equipment_availability",
+      "entity_id": "critical-equipment-group-mine-3",
+      "value": 0.96,
+      "baseline_value": 0.95,
+      "unit": "ratio",
+      "derived_direction": "unchanged",
+      "time_window": {"start": "2026-08-28T00:00:00+08:00", "end": "2026-08-29T00:00:00+08:00"},
+      "quality": {"status": "valid", "observed_at": "2026-08-29T00:05:00+08:00"},
+      "provenance": {"provider_key": "mock-equipment-health-v1", "source_ref": "fixture://mine-3/equipment-availability"}
+    },
+    {
+      "observation_id": "obs-haulage-cycle-v1",
+      "requirement_id": "er-haulage-cycle-observation",
+      "requirement_key": "haulage_cycle_observation",
+      "node_key": "haulage_cycle_time",
+      "entity_id": "haulage-system-mine-3",
+      "value": 51,
+      "baseline_value": 38,
+      "unit": "min",
+      "derived_direction": "up",
+      "time_window": {"start": "2026-08-28T00:00:00+08:00", "end": "2026-08-29T00:00:00+08:00"},
+      "quality": {"status": "valid", "observed_at": "2026-08-29T00:05:00+08:00"},
+      "provenance": {"provider_key": "mock-haulage-operations-v1", "source_ref": "fixture://mine-3/haulage-cycle"}
+    },
+    {
+      "observation_id": "obs-haulage-queue-v1",
+      "requirement_id": "er-haulage-queue-observation",
+      "requirement_key": "haulage_queue_observation",
+      "node_key": "haulage_queue_time",
+      "entity_id": "haulage-system-mine-3",
+      "value": 17,
+      "baseline_value": 6,
+      "unit": "min",
+      "derived_direction": "up",
+      "time_window": {"start": "2026-08-28T00:00:00+08:00", "end": "2026-08-29T00:00:00+08:00"},
+      "quality": {"status": "valid", "observed_at": "2026-08-29T00:05:00+08:00"},
+      "provenance": {"provider_key": "mock-haulage-operations-v1", "source_ref": "fixture://mine-3/haulage-queue"}
+    },
+    {
+      "observation_id": "obs-ore-quality-v1",
+      "requirement_id": "er-ore-quality-observation",
+      "requirement_key": "ore_quality_observation",
+      "node_key": "ore_quality",
+      "entity_id": "mine-3",
+      "value": 1.15,
+      "baseline_value": 1.16,
+      "unit": "grade_index",
+      "derived_direction": "unchanged",
+      "time_window": {"start": "2026-08-28T00:00:00+08:00", "end": "2026-08-29T00:00:00+08:00"},
+      "quality": {"status": "valid", "observed_at": "2026-08-29T00:05:00+08:00"},
+      "provenance": {"provider_key": "mock-quality-metrics-v1", "source_ref": "fixture://mine-3/ore-quality"}
+    }
+  ]
+}

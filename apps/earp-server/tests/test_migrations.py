@@ -8,8 +8,7 @@ from alembic import command
 
 from tests.conftest import alembic_config
 
-EXPECTED_TABLES = 48  # tenants+baseline+0005/6/8/9/14+0018/19+0025/26/0029
-# (app_categories+app_role_access+user_app_favorites) 表
+EXPECTED_TABLES = 75  # + T04: 27 causal/Blueprint/reasoning tables (0035-0037); 0038-0039 alter columns only.
 
 
 @pytest.fixture(scope="module")
@@ -36,6 +35,18 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES
 
+    # T08 adds a width-only profile-pin migration after T05's registry-column
+    # erratum; both roll back without changing table count.  The preceding
+    # runtime-state leaf removes two tables.
+    command.downgrade(cfg, "-1")
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES
+    command.downgrade(cfg, "-1")
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES
+    command.downgrade(cfg, "-1")
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 2
+    command.upgrade(cfg, "head")
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES
+
     # re-running upgrade head is a no-op (alembic version bookkeeping)
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES
@@ -56,8 +67,8 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
     # + 0022(列) + 0021(列) + 0020(CHECK) + 0019(eval 4 表) + 0018(tbox_changes 表) + 0017(加列)
     # + 0016(纯 UPDATE) + 0015(加列) → 0014；表被回退
     # (agent 3 + flow_runs 1 + import_rules 1 + tbox_changes 1 + eval 4) = 10
-    # → 表数 = EXPECTED_TABLES - 10
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 10
+    # T04 新增 27 表，加上既有 0015..0034 范围内的 10 表，均应回退。
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 37
 
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES

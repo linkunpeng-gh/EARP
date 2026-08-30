@@ -1,0 +1,53 @@
+{
+  "schema_version": "case-a-ontology-fixture/v2",
+  "fixture_status": "provisional_pending_ontology_confirmation",
+  "tenant_id": "tenant-mine-demo",
+  "import_contract": {
+    "contract_version": "case-a-ontology-import/v1",
+    "target": "existing_ontology_tbox_and_abox_services",
+    "import_order": ["data_domains", "tbox.entity_types", "tbox.relation_types", "entities", "facts"],
+    "data_domains": [
+      {"data_domain_id": "production_data", "name": "生产数据", "description": "Case A 生产与运输演示数据", "data_classification": "internal", "status": "active"},
+      {"data_domain_id": "equipment_data", "name": "设备数据", "description": "Case A 设备可用率演示数据", "data_classification": "internal", "status": "active"}
+    ],
+    "tbox": {
+      "entity_types": [
+        {"entity_type_id": "mine", "name": "矿山", "kind": "object", "data_domain_id": "production_data", "description": "Case A 诊断目标"},
+        {"entity_type_id": "haulage_system", "name": "运输系统", "kind": "object", "data_domain_id": "production_data", "description": "矿山运输子系统"},
+        {"entity_type_id": "equipment_group", "name": "设备组", "kind": "object", "data_domain_id": "equipment_data", "description": "矿山关键生产设备组"}
+      ],
+      "relation_types": [
+        {"relation_type_id": "has_subsystem", "name": "拥有子系统", "source_type": ["mine"], "target_type": ["haulage_system"], "cardinality": "1:N"},
+        {"relation_type_id": "has_equipment_group", "name": "拥有设备组", "source_type": ["mine"], "target_type": ["equipment_group"], "cardinality": "1:N"}
+      ]
+    },
+    "metric_catalog_boundary": "metrics below are Case A fixture metadata. Current ontology import service has no metric TBox table, so T05 must not claim to import them through the existing TBox/ABox APIs."
+  },
+  "entities": [
+    {"entity_id": "mine-3", "entity_type": "mine", "business_code": "MINE-003", "name": "3号矿", "data_domain_id": "production_data"},
+    {"entity_id": "haulage-system-mine-3", "entity_type": "haulage_system", "business_code": "HAUL-M3", "name": "3号矿运输系统", "data_domain_id": "production_data"},
+    {"entity_id": "critical-equipment-group-mine-3", "entity_type": "equipment_group", "business_code": "EQ-GRP-M3", "name": "3号矿关键设备组", "data_domain_id": "equipment_data"}
+  ],
+  "facts": [
+    {"fact_key": "mine-3-has-haulage", "subject_entity_id": "mine-3", "relation_type_id": "has_subsystem", "object_entity_id": "haulage-system-mine-3", "confidence": 1.0},
+    {"fact_key": "mine-3-has-critical-equipment", "subject_entity_id": "mine-3", "relation_type_id": "has_equipment_group", "object_entity_id": "critical-equipment-group-mine-3", "confidence": 1.0}
+  ],
+  "metrics": [
+    {"metric_key": "production_output", "entity_type": "mine", "unit": "t", "aggregation": "sum_over_production_day"},
+    {"metric_key": "equipment_availability", "entity_type": "equipment_group", "unit": "ratio", "aggregation": "availability_over_production_day"},
+    {"metric_key": "haulage_cycle_time", "entity_type": "haulage_system", "unit": "min", "aggregation": "mean_over_production_day"},
+    {"metric_key": "haulage_queue_time", "entity_type": "haulage_system", "unit": "min", "aggregation": "mean_over_production_day"},
+    {"metric_key": "ore_quality", "entity_type": "mine", "unit": "grade_index", "aggregation": "mean_over_production_day"}
+  ],
+  "prepare_binding_expectations": {
+    "binding_language": "case-a-abox-binding/v1",
+    "resolution_rule": "Prepare resolves the Snapshot instance_binding against this fixture ABox. Capability Resolution receives the resolved target and may select only a provider; it must not infer or replace the target entity.",
+    "bindings": [
+      {"requirement_id": "er-production-actual-and-baseline", "target_entity_id": "mine-3", "resolution_priority": 1},
+      {"requirement_id": "er-critical-equipment-availability", "target_entity_id": "critical-equipment-group-mine-3", "resolution_priority": 1},
+      {"requirement_id": "er-haulage-cycle-observation", "target_entity_id": "haulage-system-mine-3", "resolution_priority": 1},
+      {"requirement_id": "er-haulage-queue-observation", "target_entity_id": "haulage-system-mine-3", "resolution_priority": 1},
+      {"requirement_id": "er-ore-quality-observation", "target_entity_id": "mine-3", "resolution_priority": 1}
+    ]
+  }
+}

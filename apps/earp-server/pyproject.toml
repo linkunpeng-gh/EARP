@@ -107,6 +107,10 @@ ignore_imports = [
     "earp_server.planner.validation -> earp_server.orchestrator.types",
     "earp_server.planner.task_planner -> earp_server.orchestrator.types",
     "earp_server.planner.task_planner -> earp_server.connector",
+    # Case A dynamic PlanFragment is planner-layer orchestration over the
+    # logical capability binding adapter and existing Step value object.
+    "earp_server.planner.plan_fragment -> earp_server.capability.resolution",
+    "earp_server.planner.plan_fragment -> earp_server.orchestrator.types",
     "earp_server.capability.registry -> earp_server.knowledge.embedding_service",
     "earp_server.orchestrator.multi_step -> earp_server.connector",
     "earp_server.orchestrator.step_runner -> earp_server.connector",

@@ -1,0 +1,23 @@
+{
+  "schema_version": "case-a-capability-fixture/v1",
+  "fixture_status": "provisional_pending_capability_confirmation",
+  "contracts": [
+    {"contract_ref": "production_metric_query", "input_scope": "mine", "output_kind": "metric_with_baseline", "required_permission": "production:read"},
+    {"contract_ref": "equipment_health_query", "input_scope": "equipment_group", "output_kind": "availability_with_downtime", "required_permission": "equipment:read"},
+    {"contract_ref": "haulage_operation_query", "input_scope": "haulage_system", "output_kind": "haulage_metrics", "required_permission": "haulage:read"},
+    {"contract_ref": "quality_metric_query", "input_scope": "mine", "output_kind": "quality_metric_with_baseline", "required_permission": "quality:read"}
+  ],
+  "mock_providers": [
+    {"provider_key": "mock-production-metrics-v1", "contract_ref": "production_metric_query", "applicable_entity_types": ["mine"], "deterministic": true},
+    {"provider_key": "mock-equipment-health-v1", "contract_ref": "equipment_health_query", "applicable_entity_types": ["equipment_group"], "deterministic": true},
+    {"provider_key": "mock-haulage-operations-v1", "contract_ref": "haulage_operation_query", "applicable_entity_types": ["haulage_system"], "deterministic": true},
+    {"provider_key": "mock-quality-metrics-v1", "contract_ref": "quality_metric_query", "applicable_entity_types": ["mine"], "deterministic": true}
+  ],
+  "provider_bindings": [
+    {"requirement_id": "er-production-actual-and-baseline", "provider_key": "mock-production-metrics-v1"},
+    {"requirement_id": "er-critical-equipment-availability", "provider_key": "mock-equipment-health-v1"},
+    {"requirement_id": "er-haulage-cycle-observation", "provider_key": "mock-haulage-operations-v1"},
+    {"requirement_id": "er-haulage-queue-observation", "provider_key": "mock-haulage-operations-v1"},
+    {"requirement_id": "er-ore-quality-observation", "provider_key": "mock-quality-metrics-v1"}
+  ]
+}

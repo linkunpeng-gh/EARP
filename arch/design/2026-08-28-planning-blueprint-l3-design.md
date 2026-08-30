@@ -1,12 +1,13 @@
-# Planning Blueprint — L3 实现设计
+# Planning Blueprint — L3 实现设计 v1.0
 
 **文档编号：DESIGN-ECMC-BLUEPRINT-L3**
-**版本：v0.5.1（draft，Freeze Patch 2）**
+**版本：v1.0（Architecture Frozen / Development Baseline）**
 **日期：2026-08-28**
 
 > 上游：`arch/design/2026-08-28-enterprise-cognitive-model-center-design.md`（v0.21，§3.6 Cognitive Model Compiler / §4.4 Cognitive Service Contract）、`arch/L2/02-reasoning/planner-specification.md`（v1.1）、`arch/design/2026-08-28-planner-runtime-l3-design.md`（v1.0.1，Planner Runtime）、`arch/design/2026-08-28-causal-reasoning-engine-l3-design.md`（v0.5.1，Causal Framework）
 > 定位：ECMC → Planner 的执行规划表示（编译产物 / Planner IR）。本文定义 Planning Blueprint 的元模型（表结构）、Compiler 编译管线、Planner 消费流程。
 > 技术栈：FastAPI + SQLAlchemy 2 async + PostgreSQL 16 + pgvector，复用 `tenant_session()` / RLS `SET LOCAL` 模式。
+> v1.0 变更（Architecture Freeze）：㉛ 修复 intents 唯一键；㉜ Step/Dep 复合 FK 可建且同版本闭环；㉝ StepSource 增加版本域；㉞ Logical Blueprint 当前 compiled 版本唯一；㉟ 清理 CompileRecord 反向引用残留；㊱ withdraw 明确为版本级；㊲ 表名与目录说明同步
 > v0.5.1 变更（Freeze Patch 2）：㉒ 子表统一挂 blueprint_version_id（P0）；㉓ steps 落 step_type_version_id（P0）；㉔ 去双向 FK；㉕ direction 扩展；㉖ fallback Policy Center 权威；㉗ 去 sync/async；㉘ capability vs mandatory 关系；㉙ workflow_recommendation；㉚ LLM 可复现措辞
 > v0.5 变更（Freeze Patch）：⑫ StepType Handler 版本化（P0-1）；⑬ Causal 不静态编译节点 Evidence Capability（P0-2）；⑭ source_models 钉 snapshot（P0-3）；⑮ Logical+Version 数据模型；⑯ goal_skeleton/fallback_policy Schema 补全；⑰ canonical step_type 词汇；⑱ dep 复合 FK + 多 dep_type；⑲ DAG 解耦/Plan≠Workflow；⑳ Compiler LLM 冻结；㉑ 组合来源显式化
 > v0.4 变更（跨文档契约收口）：① Blueprint = 编译产物，去独立审批生命周期（P0-1）；② compile_record = 独立 Build Job（P0-2）；③ 消费流程对齐 Goal Resolution 前置（P0-3）；④ knowledge_query = Planning-time Prepare + 取证/Evaluate Tasks（P0-4）；⑤ capability 逻辑化（P0-5）；⑥ constraints 对齐 Planner Hard/Soft（P0-6）；⑦ Step Source 多模型引用 + 去双维护（P1）；⑧ Step Type 收紧（P1）；⑨ conditional eval phase（P1）；⑩ fallback policy（P1）；⑪ validator 分类型（P1）
@@ -42,7 +43,7 @@ apps/earp-server/src/earp_server/
 │   ├── __init__.py
 │   ├── compiler/
 │   │   ├── __init__.py
-│   │   ├── models.py           # Planning Blueprint SQLAlchemy 表模型（7 张表）
+│   │   ├── models.py           # Planning Blueprint SQLAlchemy 表模型
 │   │   ├── compile_service.py  # 编译管线：模型 → Blueprint
 │   │   ├── reference_resolver.py # 引用解析：模型知识元素 → Blueprint 引用
 │   │   ├── validator.py        # 编译完整性校验（引用无遗漏/能力可解析）
@@ -64,14 +65,16 @@ apps/earp-server/src/earp_server/
 
 | 表 | 说明 |
 |---|---|
-| `planning_blueprints` | Blueprint 主表（版本化资产，**多模型引用** v0.2） |
+| `planning_blueprints` | Logical Blueprint 主表（稳定身份） |
+| `planning_blueprint_versions` | 不可变 Blueprint 编译版本（Planner IR） |
 | `blueprint_source_models` | 源模型引用表（多模型组合 + 跨模型版本钉扎，v0.2 新增） |
 | `blueprint_compile_records` | 编译记录（build log，v0.2 新增） |
 | `blueprint_intents` | 意图签名（可响应意图，多值） |
 | `blueprint_goal_skeletons` | 目标分解骨架（Goal 模板，结构化） |
 | `blueprint_steps` | 步骤蓝图（引用源模型元素 + 注册表 step_type） |
 | `blueprint_step_deps` | 步骤依赖（DAG 边） |
-| `step_type_registry` | Step Type 扩展注册表（v0.2 新增） |
+| `step_types` | Step Type 逻辑类型注册表 |
+| `step_type_versions` | Step Type Handler 版本注册表（Blueprint Step pin 此版本） |
 | `blueprint_capability_requirements` | 能力需求（v0.4 逻辑化：requirement_key + contract_ref，非物理 id） |
 | `blueprint_constraints` | 规划约束（v0.4 对齐 Planner Hard/Soft：class + type） |
 | `blueprint_output_contracts` | 输出契约（输出结构声明） |
@@ -96,7 +99,7 @@ planning_blueprint_versions（版本，v0.5）
 ├── version           VARCHAR(32) NOT NULL   -- 独立不可变版本（source_fingerprint 驱动）
 ├── status            VARCHAR(16) NOT NULL CHECK IN
 │                     ('compiled','superseded','withdrawn')
-├── compile_record_id VARCHAR(64)            -- 关联 Build Job（§3.4）
+├── compile_record_id VARCHAR(64) NOT NULL FK -- → blueprint_compile_records（§3.4）
 ├── compiler_version  VARCHAR(16)
 ├── intent_signature  JSONB NOT NULL         -- projection（权威在 blueprint_intents）
 ├── validation_contract JSONB NOT NULL DEFAULT '{}'  -- v0.5 收缩：仅输入合法性（见下）
@@ -105,10 +108,20 @@ planning_blueprint_versions（版本，v0.5）
 │                     CHECK IN ('allowed','restricted','forbidden')
 │                     -- v0.5 P1-3：来源 = Source Model/Policy 编译，
 │                     -- 不允许人工在 Blueprint 修改
-└── UNIQUE (blueprint_id, version)
+├── UNIQUE (blueprint_id, version)
+└── PARTIAL UNIQUE INDEX (blueprint_id) WHERE status = 'compiled'
+    -- 一个 Logical Blueprint 最多一个当前版本
 
-compile_record.blueprint_version_id → 指向版本行（v0.5 P1-1 闭环）
+-- DDL 示例：
+CREATE UNIQUE INDEX uq_planning_blueprint_current_compiled
+  ON planning_blueprint_versions (blueprint_id)
+  WHERE status = 'compiled';
 ```
+
+**当前版本规则（v1.0）**：一个 Logical Blueprint 同一时间最多有一个
+`status='compiled'` 的当前版本。新版本编译成功时，必须在同一事务中将旧版本
+`compiled → superseded`，再将新版本置为 `compiled`。Discovery 只加载该唯一
+`compiled` 版本；没有 compiled 版本表示当前不可用。
 
 **validation_contract 收缩（v0.5，评审 P1-4）**：只负责 Blueprint 输入合法性——
 
@@ -127,7 +140,10 @@ Source Model（专家治理）
       ↓
 published Source Model → Compiler → Immutable Blueprint Version
       ↓
-Blueprint status：compiled → superseded（源模型更新，重编译）→ withdrawn（下线）
+BlueprintVersion status：
+  compiled → superseded（新版本成为当前版本）
+  compiled → withdrawn（当前版本主动下线）
+  superseded → withdrawn（历史版本撤回）
 
 MUST: Blueprint 由 Compiler 从 published Source Model 编译产生，
       不经专家独立审批（审批已发生在 Source Model 层）
@@ -147,6 +163,8 @@ model_version       VARCHAR(32) NOT NULL            -- 跨模型版本钉扎
 source_snapshot_id  VARCHAR(64) NOT NULL            -- v0.5 P0-3：钉住具体 Immutable Snapshot
 source_content_hash VARCHAR(64) NOT NULL            -- v0.5：内容哈希
 model_role          VARCHAR(16) NOT NULL CHECK IN ('primary_model','supporting_model')
+UNIQUE (blueprint_version_id, source_ref_id)
+                    -- 供 StepSource 复合 FK 引用，阻止跨版本串线
 ```
 
 > **v0.5（评审 P0-3）**：只钉 model_version 不够——一个版本可能有多个
@@ -197,9 +215,8 @@ error_log           JSONB DEFAULT '[]'      -- 失败原因/告警（build log�
 compile_time        TIMESTAMPTZ NOT NULL DEFAULT now()
 
 MUST: 编译先写 compile_record（build log）→ validation success →
-      才创建 Blueprint 并回填 blueprint_version_id
-MUST: 编译失败 → blueprint_version_id = NULL，Blueprint 不产生
-      （build log 保留用于排查）
+      才创建 BlueprintVersion，且 BlueprintVersion.compile_record_id = compile_id
+MUST: 编译失败 → 不创建 BlueprintVersion（build log 保留用于排查）
 ```
 
 **用途（类似编译器 build log）**：
@@ -219,7 +236,7 @@ direction           VARCHAR(8) NOT NULL CHECK IN ('up','down','change','neutral'
                     -- v0.5.1 P1：诊断有 up/down；预测/优化/推荐可能无方向
 domain              VARCHAR(64) NOT NULL
 business_objective  VARCHAR(16) NOT NULL CHECK IN ('diagnose','predict','optimize','recommend')
-UNIQUE (blueprint_id, entry_point, direction, domain, business_objective)
+UNIQUE (blueprint_version_id, entry_point, direction, domain, business_objective)
 ```
 
 **用途**：Planner Model Discovery（§4.4.2）的匹配键——意图四元组命中 Blueprint。
@@ -251,6 +268,8 @@ step_type           VARCHAR(32)                    -- projection（冗余，权�
 step_name           VARCHAR(128) NOT NULL
 params              JSONB NOT NULL DEFAULT '{}'    -- 步骤参数（编译时投影，非新业务逻辑）
 output_field        VARCHAR(128)                   -- 本步输出字段（供后续步引用）
+UNIQUE (blueprint_version_id, step_id)
+                    -- 供 Dep/StepSource 复合 FK 引用
 ```
 
 **Step Source 引用（v0.4 重构，评审 P1）**：
@@ -258,17 +277,24 @@ output_field        VARCHAR(128)                   -- 本步输出字段（供�
 - 多模型条件：source 必须关联到具体源模型（防跨模型歧义）：
 
 ```
-blueprint_step_sources（唯一事实源，v0.4）
+blueprint_step_sources（唯一事实源，v1.0 增加版本域）
 ├── step_source_id   VARCHAR(64) PK
-├── step_id          VARCHAR(64) NOT NULL FK
-├── source_model_ref_id VARCHAR(64) NOT NULL FK → blueprint_source_models
+├── blueprint_version_id VARCHAR(64) NOT NULL FK
+├── step_id          VARCHAR(64) NOT NULL
+├── source_model_ref_id VARCHAR(64) NOT NULL
 │                     -- 明确属于哪个源模型（causal v1.7 / decision v3.1）
 ├── element_type     VARCHAR(16) NOT NULL  -- node | relation | rule | requirement
 ├── element_key      VARCHAR(64) NOT NULL  -- 源模型内稳定键（equipment_failure）
 ├── element_path     TEXT                 -- 展示用语义路径（非事实源）
 └── role             VARCHAR(16) NOT NULL CHECK IN ('primary','supporting','optional')
 
+FOREIGN KEY (blueprint_version_id, step_id)
+  REFERENCES blueprint_steps(blueprint_version_id, step_id)
+FOREIGN KEY (blueprint_version_id, source_model_ref_id)
+  REFERENCES blueprint_source_models(blueprint_version_id, source_ref_id)
+
 MUST: 所有 Step 引用经 blueprint_step_sources（无主表冗余）
+MUST: Step 与 Source Model Ref 必须属于同一 BlueprintVersion（数据库复合 FK 保证）
 MUST: 多模型时 element_key 由 source_model_ref_id 限定（无歧义）
 MUST: 引用必须指向源模型真实元素（编译器校验，防双维护 P2）
 ```
@@ -279,10 +305,7 @@ MUST: 引用必须指向源模型真实元素（编译器校验，防双维护 P
 dep_id              VARCHAR(64) PK
 blueprint_version_id VARCHAR(64) NOT NULL FK  -- v0.5：属于版本（Logical+Version）
 from_step_id        VARCHAR(64) NOT NULL
-from_blueprint_version_id VARCHAR(64) NOT NULL
-                                    -- v0.5 P1-6：复合 FK 保证两端同版本
 to_step_id          VARCHAR(64) NOT NULL
-to_blueprint_version_id VARCHAR(64) NOT NULL
 dep_type            VARCHAR(16) NOT NULL CHECK IN ('sequential','conditional','data_flow')
 condition           JSONB                          -- dep_type=conditional 时（引用源模型 Rule）
 condition_eval_phase VARCHAR(16)                   -- planning | execution
@@ -290,11 +313,15 @@ condition_eval_phase VARCHAR(16)                   -- planning | execution
 UNIQUE (blueprint_version_id, from_step_id, to_step_id, dep_type)
                     -- v0.5：同端对可并存多种 dep（sequential + data_flow）
 
-FOREIGN KEY (from_blueprint_version_id, from_step_id)
+FOREIGN KEY (blueprint_version_id, from_step_id)
   REFERENCES blueprint_steps(blueprint_version_id, step_id)  -- 复合 FK（v0.5 P1-6）
-FOREIGN KEY (to_blueprint_version_id, to_step_id)
+FOREIGN KEY (blueprint_version_id, to_step_id)
   REFERENCES blueprint_steps(blueprint_version_id, step_id)
 ```
+
+> `blueprint_steps.UNIQUE(blueprint_version_id, step_id)` 使上述复合 FK 在
+> PostgreSQL 中可建；两条 FK 共用 Dep 行的同一个 `blueprint_version_id`，
+> 因而数据库层保证边的两端不能跨 BlueprintVersion。
 
 **约束（v0.5，评审 P1-7）**：Blueprint Step 图 Phase 1 必须为 DAG——
 这是 **Planner Composition / execution planning 的约束**，与 Causal Model
@@ -307,7 +334,7 @@ Execution scope → Plan 保留 conditional edge，Runtime 到达时由
                   Decision Engine 评估（Planner 不预选）
 ```
 
-## 3.9 step_type_registry（Step Type 扩展注册表，v0.5 版本化）
+## 3.9 step_types / step_type_versions（Step Type 扩展注册表，v0.5 版本化）
 
 > **v0.5（评审 P0-1）**：StepType Handler 必须版本化——否则 Blueprint 虽不可变，
 > 但解释它的 Handler 升级后 PlanFragment 会变，破坏可复现。
@@ -459,7 +486,7 @@ output_schema       JSONB NOT NULL                 -- 输出结构（字段/嵌�
 ```
 触发（显式）：
   源模型发布（Publish Approval 通过）→ 自动触发编译
-  手工触发（Compile API）→ 重新编译当前版本
+  手工触发（Compile API）→ 基于当前已发布 Source Snapshot 编译新版本
 
 管线：
   ① 读取源模型（metamodel 服务，取已发布版本快照）
@@ -490,13 +517,16 @@ output_schema       JSONB NOT NULL                 -- 输出结构（字段/嵌�
      - 步骤图 DAG 无环
      - 防双维护检查（无自定义规则类型 / 无孤儿业务逻辑）
   ⑦ 写入 compile_record（Build Job，v0.4 P0-2）：先写 build log →
-     validation success → 才创建 Blueprint（blueprint_version_id 回填）
-  ⑧ 落库：blueprints + 子表（同一事务，compile_record.status=success 才落）
+     validation success → 才创建 BlueprintVersion，并令其
+     compile_record_id = compile_id
+  ⑧ 落库：Logical Blueprint（首次编译时）+ BlueprintVersion + 子表；
+     新版本替换当前版本时，在同一事务内完成旧版本 superseded 与新版本
+     compiled（compile_record.status=success 才落）
   ⑨ 发布事件：earp.ecmc.blueprint.compiled（Planner 侧缓存失效通知）
 ```
 
-**编译失败处理**：校验失败 → compile_record 记 failed + error_log（build log 保留，
-blueprint_version_id=NULL），不产出 Blueprint；源模型仍可 published（标注
+**编译失败处理**：校验失败 → compile_record 记 failed + error_log（build log 保留），
+不创建 BlueprintVersion；源模型仍可 published（标注
 "编译失败"告警，通知 owner）——编译是独立产物，不阻断模型发布。
 
 **Fallback Policy（v0.4，v0.5.1 补 Policy Center 最终权威）**：
@@ -636,8 +666,12 @@ GET    /v1/ecmc/blueprints?intent=...&objective=...&domain=...   — Discovery�
 GET    /v1/ecmc/blueprints/{id}/versions/{ver}                    — 加载完整 Blueprint
 POST   /v1/ecmc/blueprints/{id}/compile                            — 手工重新编译
 GET    /v1/ecmc/blueprints/{id}/versions                          — 版本列表
-POST   /v1/ecmc/blueprints/{id}/withdraw                           — 下线（走审批）
+POST   /v1/ecmc/blueprints/{id}/versions/{ver}/withdraw            — 下线指定版本（走审批）
 ```
+
+`withdraw` 只作用于指定 BlueprintVersion；若撤下当前 `compiled` 版本，撤下后
+该 Logical Blueprint 没有当前可用版本。未来若需要永久禁用整个 Logical
+Blueprint，另行定义 `/v1/ecmc/blueprints/{id}/disable`，不复用版本级 withdraw。
 
 （传输层 HTTP 为参考实现，gRPC/内存/EventBus 由 Runtime 集成层决定——L2 §4.4 原则。）
 
@@ -662,7 +696,7 @@ POST   /v1/ecmc/blueprints/{id}/withdraw                           — 下线（
 | 级别 | 评审意见 | 处置 |
 |---|---|---|
 | P0-1 | Blueprint 独立 draft/reviewing/approved 生命周期与"编译产物"冲突（双维护风险） | §3.2：Blueprint = Compiled Artifact / Planner IR；治理生命周期归 Source Model（专家审批认知模型，不是 Compiler 输出）；Blueprint 仅 compiled/superseded/withdrawn |
-| P0-2 | compile_record.blueprint_id NOT NULL FK 与"失败无 Blueprint"矛盾 | §3.4：compile_record = 独立 Build Job（primary_model refs + 输入快照 + status）；成功才创建 Blueprint 并回填 blueprint_version_id；失败 → NULL |
+| P0-2 | compile_record.blueprint_id NOT NULL FK 与"失败无 Blueprint"矛盾 | §3.4：compile_record = 独立 Build Job（primary_model refs + 输入快照 + status）；成功才创建 BlueprintVersion，由 Version.compile_record_id 单向指向 Build Job；失败不创建 Version |
 | P0-3 | Planner 消费流程未对齐 Goal Resolution 前置 | §五：Goal Resolution → per-SubGoal Discovery → Blueprint → Goal Instantiation（与 Resolution 区分）→ StepType Handler → PlanFragment |
 | P0-4 | knowledge_query = 运行时调 Causal Reasoning 已过时 | §五/§六：knowledge_query = Planning-time Reasoning Prepare → Evidence Requirements → 0..N 取证 Task + 1 Evaluate Task（Causal Framework v0.5.1 咬合） |
 | P0-5 | capability 绑物理 capability_id（跨租户失效） | §3.9：blueprint_capability_requirements（requirement_key + capability_contract_ref 逻辑化）；Compiler 只校验 Contract 存在；物理解析由 Planner/Capability Resolver 运行时完成 |
@@ -683,7 +717,7 @@ POST   /v1/ecmc/blueprints/{id}/withdraw                           — 下线（
 | P0-1 | StepType Handler 未版本化（Blueprint 不可变但解释语义会变，破坏可复现） | §3.9：step_types + step_type_versions（version/handler_version/handler_hash/params_schema/semantic_contract_version）；Blueprint Step 编译时 pin step_type_version_id；Compile Record/Plan Trace 记录 handler 版本 |
 | P0-2 | Causal Compiler 提前把全部节点 Evidence Capability 编进 Blueprint（破坏 Prepare 价值） | §四⑤：按模型类型——Scenario/Decision 编译静态 Capability；Causal 不编译节点级（动态证据由 Reasoning Prepare 运行时产生）；仅模型级 Hard Requirement 进 Blueprint |
 | P0-3 | source_models 只钉 model_version（一个版本多 snapshot，生产 pin published_snapshot_id） | §3.3：补 source_snapshot_id + source_content_hash——Blueprint → 具体 Snapshot → 具体元素完整可复现 |
-| P1-1 | blueprint_id/blueprint_version_id 概念混用 | §3.2：方案 B（Logical Blueprint + Blueprint Version，与 Causal 同构）；compile_record.blueprint_version_id 指向版本行 |
+| P1-1 | blueprint_id/blueprint_version_id 概念混用 | §3.2：方案 B（Logical Blueprint + Blueprint Version，与 Causal 同构）；BlueprintVersion.compile_record_id 单向指向 Build Job |
 | P1-2 | goal_skeleton 无 Schema | §3.6：blueprint_goal_skeletons（objective/goal_template/required_bindings/optional_bindings/constraint_refs/output_contract_ref）；明确只负责 Instantiation 不负责 Decomposition |
 | P1-3 | fallback_policy 被使用但 Schema 无字段 | §3.2：fallback_policy 字段（allowed/restricted/forbidden），来源 = Source Model/Policy 编译，禁人工修改 |
 | P1-4 | validation_contract 模糊（与 minimum_evidence/required 重复） | §3.2：收缩为输入合法性（required_context_fields/required_entity_bindings/allowed_scope/schema_version）——不表达证据相关（有权威契约） |
@@ -710,4 +744,23 @@ POST   /v1/ecmc/blueprints/{id}/withdraw                           — 下线（
 | P1-6 | output_type=workflow 易混淆 | 改 workflow_recommendation（与 Runtime Workflow 对象区分） |
 | P1-7 | LLM 可复现承诺过强 | 可复现 = Compile Record + Compiled Blueprint Snapshot；不承诺重跑外部 LLM bit-for-bit 相同 |
 
-**冻结声明**：Planning Blueprint L3 达到 v1.0 baseline 标准——聚合根统一、Handler Pin 落 Schema、跨文档契约全部对齐。可升 v1.0 Architecture Frozen。
+**阶段结论**：v0.5.1 完成聚合根统一、Handler Pin 落 Schema 与跨文档契约对齐；
+剩余 Schema Cleanup 由 v1.0 冻结补丁收口。
+
+---
+
+# 十三、v1.0 Architecture Freeze 处置记录（v0.5.1 → v1.0）
+
+| 级别 | 评审意见 | 处置 |
+|---|---|---|
+| P0 | `blueprint_intents.UNIQUE` 仍引用已删除的 `blueprint_id` | §3.5：改为 `UNIQUE(blueprint_version_id, entry_point, direction, domain, business_objective)` |
+| P0 | StepDeps 复合 FK 的目标列没有可引用唯一约束 | §3.7：`blueprint_steps` 增加 `UNIQUE(blueprint_version_id, step_id)`；§3.8 两端复合 FK 共用 Dep 的 `blueprint_version_id`，确保 DDL 可建且禁止跨版本边 |
+| P1 | StepSource 可把一个版本的 Step 连到另一版本的 Source Model Ref | §3.3：`blueprint_source_models` 增加复合唯一约束；§3.7：`blueprint_step_sources` 增加 `blueprint_version_id` 与两条复合 FK |
+| P1 | Logical Blueprint 可同时存在多个 `compiled` 版本 | §3.2：增加 `WHERE status='compiled'` 的 partial unique index，并规定版本切换事务语义 |
+| P1 | CompileRecord 去反向 FK 后仍有旧文字 | §3.2/§3.4/§四及历史处置记录：统一为 `BlueprintVersion.compile_record_id → Build Job`；失败不创建 Version |
+| P1 | withdraw API 的 Logical/Version 语义不明确 | §八：改为版本级 `/blueprints/{id}/versions/{ver}/withdraw`；整个 Logical Blueprint 的 disable 保留为未来独立语义 |
+| P2 | 表总览和目录说明过时 | §二移除“7 张表”；§3.1/§3.9 改为 `step_types` + `step_type_versions`，并补列 Logical/Version 两张表 |
+
+**冻结声明**：Planning Blueprint L3 v1.0 现为 **Architecture Frozen /
+Development Baseline**。后续变更进入实现勘误或显式架构变更流程，不再沿用
+Freeze Patch 草案版本。

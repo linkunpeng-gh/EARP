@@ -1,0 +1,44 @@
+{
+  "schema_version": "intent-goal-fixture/v1",
+  "fixture_status": "provisional_pending_planner_confirmation",
+  "prompt_version": "case-a-deterministic-stub/v1",
+  "structured_output_schema_version": "intent-goal-output/v1",
+  "input": {
+    "text": "为什么 3 号矿昨天产量下降？",
+    "tenant_id": "tenant-mine-demo",
+    "request_time": "2026-08-29T09:00:00+08:00"
+  },
+  "output": {
+    "parsed_intent": {
+      "primary_intent": {
+        "entry_point": "production_output",
+        "direction": "down",
+        "domain": "production",
+        "business_objective": "diagnose"
+      },
+      "objective_candidates": []
+    },
+    "sub_goals": [
+      {
+        "sub_goal_key": "sg-diagnose-production-drop",
+        "objective": "diagnose",
+        "entry_point": "production_output",
+        "direction": "down",
+        "domain": "production",
+        "origin_clause": "为什么 3 号矿昨天产量下降",
+        "confidence": 1.0,
+        "priority": 1,
+        "dependencies": []
+      }
+    ],
+    "resolved_context": {
+      "entity_id": "mine-3",
+      "entity_type": "mine",
+      "time_window": {
+        "start": "2026-08-28T00:00:00+08:00",
+        "end": "2026-08-29T00:00:00+08:00"
+      }
+    }
+  },
+  "fixture_hash": "bd2b059dfac685957a151a3254893089581b8acbd6eccbb12c0d79281a5cbcae"
+}

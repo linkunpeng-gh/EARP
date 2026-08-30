@@ -1,0 +1,173 @@
+{
+  "schema_version": "causal-model-snapshot/v1",
+  "fixture_status": "provisional_pending_fde_confirmation",
+  "snapshot": {
+    "model_id": "causal-production-drop-mine",
+    "model_version": "1.0.1-fixture",
+    "model_snapshot_id": "cms-mine-3-production-drop-v1",
+    "status": "published_fixture",
+    "graph_type": "dag",
+    "entry_points": ["production_output"],
+    "supported_objectives": ["diagnose"],
+    "applicability": {
+      "entity_types": ["mine"],
+      "domain": "production"
+    },
+    "nodes": [
+      {"node_key": "production_output", "role": "effect", "label": "生产产量"},
+      {"node_key": "effective_production_capacity", "role": "intermediate", "label": "有效生产能力"},
+      {"node_key": "equipment_availability", "role": "cause", "label": "关键设备可用率"},
+      {"node_key": "haulage_cycle_time", "role": "cause", "label": "运输循环时间"},
+      {"node_key": "haulage_queue_time", "role": "cause", "label": "运输排队时间"},
+      {"node_key": "ore_quality", "role": "cause", "label": "原矿品位"}
+    ],
+    "edges": [
+      {
+        "edge_key": "edge-equipment-capacity",
+        "source_node_key": "equipment_availability",
+        "target_node_key": "effective_production_capacity",
+        "effect": "+",
+        "strength": 0.85,
+        "confidence": 0.95
+      },
+      {
+        "edge_key": "edge-cycle-capacity",
+        "source_node_key": "haulage_cycle_time",
+        "target_node_key": "effective_production_capacity",
+        "effect": "-",
+        "strength": 0.9,
+        "confidence": 0.95
+      },
+      {
+        "edge_key": "edge-queue-capacity",
+        "source_node_key": "haulage_queue_time",
+        "target_node_key": "effective_production_capacity",
+        "effect": "-",
+        "strength": 0.8,
+        "confidence": 0.95
+      },
+      {
+        "edge_key": "edge-capacity-output",
+        "source_node_key": "effective_production_capacity",
+        "target_node_key": "production_output",
+        "effect": "+",
+        "strength": 0.95,
+        "confidence": 0.98
+      },
+      {
+        "edge_key": "edge-quality-output",
+        "source_node_key": "ore_quality",
+        "target_node_key": "production_output",
+        "effect": "+",
+        "strength": 0.55,
+        "confidence": 0.9
+      }
+    ],
+    "rules": [
+      {"rule_key": "rule-output-down", "node_key": "production_output", "operator": "relative_change_lte", "threshold": -0.1, "direction": "down"},
+      {"rule_key": "rule-equipment-unchanged", "node_key": "equipment_availability", "operator": "absolute_gte", "threshold": 0.95, "direction": "unchanged"},
+      {"rule_key": "rule-cycle-up", "node_key": "haulage_cycle_time", "operator": "relative_change_gte", "threshold": 0.2, "direction": "up"},
+      {"rule_key": "rule-queue-up", "node_key": "haulage_queue_time", "operator": "relative_change_gte", "threshold": 0.5, "direction": "up"},
+      {"rule_key": "rule-quality-unchanged", "node_key": "ore_quality", "operator": "absolute_relative_change_lt", "threshold": 0.05, "direction": "unchanged"}
+    ],
+    "evidence_requirements": [
+      {
+        "requirement_id": "er-production-actual-and-baseline",
+        "requirement_key": "production_actual_and_baseline",
+        "node_key": "production_output",
+        "requirement_level": "required",
+        "capability_contract_ref": "production_metric_query",
+        "unit": "t",
+        "aggregation": "sum_over_production_day",
+        "instance_binding": {
+          "binding_language": "case-a-abox-binding/v1",
+          "resolution_priority": 1,
+          "expression": {
+            "op": "context_entity",
+            "expected_entity_type_id": "mine",
+            "cardinality": "exactly_one"
+          }
+        }
+      },
+      {
+        "requirement_id": "er-critical-equipment-availability",
+        "requirement_key": "critical_equipment_availability",
+        "node_key": "equipment_availability",
+        "requirement_level": "required",
+        "capability_contract_ref": "equipment_health_query",
+        "unit": "ratio",
+        "aggregation": "availability_over_production_day",
+        "instance_binding": {
+          "binding_language": "case-a-abox-binding/v1",
+          "resolution_priority": 1,
+          "expression": {
+            "op": "outbound_relation",
+            "from": "context.entity_id",
+            "relation_type_id": "has_equipment_group",
+            "target_entity_type_id": "equipment_group",
+            "cardinality": "exactly_one"
+          }
+        }
+      },
+      {
+        "requirement_id": "er-haulage-cycle-observation",
+        "requirement_key": "haulage_cycle_observation",
+        "node_key": "haulage_cycle_time",
+        "requirement_level": "required",
+        "capability_contract_ref": "haulage_operation_query",
+        "unit": "min",
+        "aggregation": "mean_over_production_day",
+        "instance_binding": {
+          "binding_language": "case-a-abox-binding/v1",
+          "resolution_priority": 1,
+          "expression": {
+            "op": "outbound_relation",
+            "from": "context.entity_id",
+            "relation_type_id": "has_subsystem",
+            "target_entity_type_id": "haulage_system",
+            "cardinality": "exactly_one"
+          }
+        }
+      },
+      {
+        "requirement_id": "er-haulage-queue-observation",
+        "requirement_key": "haulage_queue_observation",
+        "node_key": "haulage_queue_time",
+        "requirement_level": "optional",
+        "capability_contract_ref": "haulage_operation_query",
+        "unit": "min",
+        "aggregation": "mean_over_production_day",
+        "instance_binding": {
+          "binding_language": "case-a-abox-binding/v1",
+          "resolution_priority": 1,
+          "expression": {
+            "op": "outbound_relation",
+            "from": "context.entity_id",
+            "relation_type_id": "has_subsystem",
+            "target_entity_type_id": "haulage_system",
+            "cardinality": "exactly_one"
+          }
+        }
+      },
+      {
+        "requirement_id": "er-ore-quality-observation",
+        "requirement_key": "ore_quality_observation",
+        "node_key": "ore_quality",
+        "requirement_level": "optional",
+        "capability_contract_ref": "quality_metric_query",
+        "unit": "grade_index",
+        "aggregation": "mean_over_production_day",
+        "instance_binding": {
+          "binding_language": "case-a-abox-binding/v1",
+          "resolution_priority": 1,
+          "expression": {
+            "op": "context_entity",
+            "expected_entity_type_id": "mine",
+            "cardinality": "exactly_one"
+          }
+        }
+      }
+    ]
+  },
+  "model_content_hash": "3f7418d45f8c9ba92fd4a9a701f76127825383018cbcd3a02a7ea1c349f8aa16"
+}

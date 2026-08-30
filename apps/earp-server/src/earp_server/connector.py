@@ -167,6 +167,10 @@ class Connector:
             return await self._execute_capability_call(capability_call, ctx)
         if adapter_type == "tool.fetch":
             return await self._execute_tool_fetch(capability_call.get("input", {}), ctx)
+        if adapter_type == "reasoning.acquire":
+            return await self._execute_reasoning_acquire(capability_call.get("input", {}))
+        if adapter_type == "reasoning.evaluate":
+            return await self._execute_reasoning_evaluate(capability_call.get("input", {}))
         if adapter_type == "human.approval":
             return await self._execute_human_approval(capability_call.get("input", {}), ctx)
         if adapter_type == "answer.output":
@@ -506,6 +510,18 @@ class Connector:
         params = input_.get("params") if isinstance(input_.get("params"), dict) else {}
         rows = await data_fetch(cfg, params)
         return {"rows": rows, "count": len(rows), "domain_filtered": False}
+
+    async def _execute_reasoning_acquire(self, input_: dict[str, Any]) -> dict[str, Any]:
+        """Case A fixture adapter; business no-data remains a completed result."""
+        from earp_server.bmc.reasoning.runtime import FixtureReasoningRuntimeAdapter, default_case_a_fixture_dir
+
+        return await FixtureReasoningRuntimeAdapter(default_case_a_fixture_dir()).acquire(input_)
+
+    async def _execute_reasoning_evaluate(self, input_: dict[str, Any]) -> dict[str, Any]:
+        """Case A readiness gate; causal inference is owned by T11."""
+        from earp_server.bmc.reasoning.runtime import FixtureReasoningRuntimeAdapter, default_case_a_fixture_dir
+
+        return await FixtureReasoningRuntimeAdapter(default_case_a_fixture_dir()).evaluate(input_)
 
     async def _execute_answer_output(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
         """answer.output: 回答节点（Dify 式终点）。输入 text 已由模板引擎解析，

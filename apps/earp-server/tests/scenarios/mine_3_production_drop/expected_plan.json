@@ -1,0 +1,17 @@
+{
+  "schema_version": "case-a-expected-plan/v1",
+  "fixture_status": "provisional_pending_planner_confirmation",
+  "blueprint": {
+    "blueprint_key": "bp-production-drop-diagnosis",
+    "blueprint_version_match": {"source_model_id": "causal-production-drop-mine", "entry_point": "production_output", "objective": "diagnose"}
+  },
+  "tasks": [
+    {"task_key": "acquire-production-output", "kind": "evidence_acquisition", "requirement_id": "er-production-actual-and-baseline", "provider_key": "mock-production-metrics-v1", "target_entity_id": "mine-3", "depends_on": []},
+    {"task_key": "acquire-equipment-availability", "kind": "evidence_acquisition", "requirement_id": "er-critical-equipment-availability", "provider_key": "mock-equipment-health-v1", "target_entity_id": "critical-equipment-group-mine-3", "depends_on": []},
+    {"task_key": "acquire-haulage-cycle", "kind": "evidence_acquisition", "requirement_id": "er-haulage-cycle-observation", "provider_key": "mock-haulage-operations-v1", "target_entity_id": "haulage-system-mine-3", "depends_on": []},
+    {"task_key": "acquire-haulage-queue", "kind": "evidence_acquisition", "requirement_id": "er-haulage-queue-observation", "provider_key": "mock-haulage-operations-v1", "target_entity_id": "haulage-system-mine-3", "depends_on": []},
+    {"task_key": "acquire-ore-quality", "kind": "evidence_acquisition", "requirement_id": "er-ore-quality-observation", "provider_key": "mock-quality-metrics-v1", "target_entity_id": "mine-3", "depends_on": []},
+    {"task_key": "evaluate-causal-diagnosis", "kind": "reasoning_evaluate", "prepare_id_ref": "prepare-mine-3-production-drop-fixture", "depends_on": ["acquire-production-output", "acquire-equipment-availability", "acquire-haulage-cycle", "acquire-haulage-queue", "acquire-ore-quality"]},
+    {"task_key": "output-cause-ranking", "kind": "output", "output_contract_ref": "cause-ranking-output", "depends_on": ["evaluate-causal-diagnosis"]}
+  ]
+}

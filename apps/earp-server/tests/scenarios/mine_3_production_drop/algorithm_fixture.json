@@ -1,0 +1,26 @@
+{
+  "schema_version": "causal-algorithm-fixture/v1",
+  "fixture_status": "provisional_pending_reasoning_confirmation",
+  "algorithm": {
+    "algorithm_id": "sign_propagation",
+    "algorithm_version_id": "sign-propagation-v1-fixture",
+    "algorithm_version": "1.0.1-fixture",
+    "implementation_ref": "earp_server.reasoning.sign_propagation_v1",
+    "implementation_artifact": {
+      "status": "not_built",
+      "sha256": null,
+      "hash_scope": null,
+      "required_before_executable_evaluate": true,
+      "release_rule": "T11 must explicitly release a new executable fixture version with a reproducible artifact hash; T05 only verifies this fixture and must not synthesize or replace an artifact hash."
+    },
+    "profile_version": "sign-propagation-default-profile/v1",
+    "profile": {"graph_type": "dag", "max_depth": 3},
+    "params": {"node_aggregation": "max_path_score", "unchanged_support": 0.0},
+    "score_contract": {
+      "path_score": "product(edge.strength * edge.confidence) * observation_match(path)",
+      "node_aggregation": "max_path_score",
+      "tie_breaker": ["score_desc", "shorter_path_first", "node_key_asc"]
+    }
+  },
+  "algorithm_config_hash": "367bbd12231cf347ba0988ec2111396c55ff5d3b31cc358df5d8e05bdfd644e2"
+}

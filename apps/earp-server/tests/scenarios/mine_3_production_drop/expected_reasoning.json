@@ -1,0 +1,25 @@
+{
+  "schema_version": "case-a-expected-reasoning/v1",
+  "fixture_status": "provisional_pending_fde_and_reasoning_confirmation",
+  "expected_status": "COMPLETE",
+  "complete": true,
+  "missing_requirements": [],
+  "ranking": [
+    {
+      "rank": 1,
+      "node_key": "haulage_cycle_time",
+      "expected_path_score": 0.796005,
+      "evidence_chain": ["haulage_cycle_time", "effective_production_capacity", "production_output"],
+      "evidence_requirement_ids": ["er-haulage-cycle-observation", "er-production-actual-and-baseline"]
+    },
+    {
+      "rank": 2,
+      "node_key": "haulage_queue_time",
+      "expected_path_score": 0.70756,
+      "evidence_chain": ["haulage_queue_time", "effective_production_capacity", "production_output"],
+      "evidence_requirement_ids": ["er-haulage-queue-observation", "er-production-actual-and-baseline"]
+    }
+  ],
+  "required_version_fields": ["model_snapshot_id", "model_content_hash", "algorithm_version_id", "algorithm_config_hash", "prepare_id", "reasoning_trace_id"],
+  "score_tolerance": 0.000001
+}

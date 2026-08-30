@@ -89,6 +89,8 @@ from earp_server.knowledge.routing import build_routing_index, route_debug, rout
 from earp_server.knowledge.search_service import search_chunks
 from earp_server.ontology.eval_routes import router as eval_router
 from earp_server.ontology.routes import router as ontology_router
+from earp_server.planner.blueprint_discovery import BlueprintDiscoveryError
+from earp_server.planner.blueprint_entry import BlueprintEntryError, BlueprintPlanningEntry, PlanningEntryRequest
 from earp_server.planner.task_planner import SimpleTaskPlanner
 from earp_server.policy.app_access_service import is_is_admin
 from earp_server.runtime.invoke import router as invoke_router
@@ -102,6 +104,12 @@ logger = logging.getLogger(__name__)
 
 class PlanRequest(BaseModel):
     intent: str
+
+
+class BlueprintPlanningEntryRequest(BaseModel):
+    """T07's explicit Case A entry; it is intentionally not a ``/plan`` variant."""
+
+    text: str = Field(min_length=1, max_length=500)
 
 
 class DocUpload(BaseModel):
@@ -819,6 +827,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     # ── Planner ──
+    @app.post("/v1/ecmc/planning/entry", tags=["ecmc", "planner"])
+    async def blueprint_planning_entry_endpoint(
+        req_body: BlueprintPlanningEntryRequest, req: Request
+    ) -> dict[str, Any]:
+        """Resolve the fixed Case A request to one immutable Blueprint goal.
+
+        T07 intentionally stops before Prepare; no Provider/Evidence task is
+        created at this boundary.
+        """
+        try:
+            result = await BlueprintPlanningEntry(req.app.state.engine).resolve(
+                PlanningEntryRequest(
+                    text=req_body.text,
+                    tenant_id=req.state.tenant_id,
+                    role_id=req.state.role_id,
+                )
+            )
+        except (BlueprintEntryError, BlueprintDiscoveryError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return result.as_dict()
+
     @app.post("/plan", tags=["planner"])
     async def plan_endpoint(req_body: PlanRequest, req: Request) -> dict[str, Any]:
         # JWT middleware already validated tenant_id/role_id on req.state
