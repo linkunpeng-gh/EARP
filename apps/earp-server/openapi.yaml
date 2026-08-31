@@ -1,5 +1,45 @@
 components:
   schemas:
+    ActivateRequest:
+      additionalProperties: false
+      properties:
+        compile_record_id:
+          maxLength: 64
+          minLength: 1
+          title: Compile Record Id
+          type: string
+        expected_active_model_version_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expected Active Model Version Id
+        expected_active_snapshot_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expected Active Snapshot Id
+        model_version_id:
+          maxLength: 64
+          minLength: 1
+          title: Model Version Id
+          type: string
+      required:
+      - model_version_id
+      - compile_record_id
+      - expected_active_model_version_id
+      - expected_active_snapshot_id
+      title: ActivateRequest
+      type: object
+    AggregationContract:
+      additionalProperties: false
+      properties:
+        operator:
+          title: Operator
+          type: string
+      required:
+      - operator
+      title: AggregationContract
+      type: object
     ApiKeyCreate:
       properties:
         name:
@@ -25,6 +65,31 @@ components:
       required:
       - mode
       title: AppAccessIn
+      type: object
+    BindingTemplateContract:
+      additionalProperties: false
+      properties:
+        params_schema_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        resolver_identity:
+          title: Resolver Identity
+          type: string
+        source_entity_type_refs:
+          items:
+            $ref: '#/components/schemas/CatalogRef'
+          title: Source Entity Type Refs
+          type: array
+        target_entity_type_refs:
+          items:
+            $ref: '#/components/schemas/CatalogRef'
+          title: Target Entity Type Refs
+          type: array
+      required:
+      - params_schema_ref
+      - source_entity_type_refs
+      - target_entity_type_refs
+      - resolver_identity
+      title: BindingTemplateContract
       type: object
     BlueprintPlanningEntryRequest:
       description: T07's explicit Case A entry; it is intentionally not a ``/plan``
@@ -80,6 +145,23 @@ components:
       - file
       - knowledge_base_id
       title: Body_upload_document_file_knowledge_documents_upload_post
+      type: object
+    CapabilityContract:
+      additionalProperties: false
+      properties:
+        input_schema_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        output_schema_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        read_only:
+          const: true
+          title: Read Only
+          type: boolean
+      required:
+      - read_only
+      - input_schema_ref
+      - output_schema_ref
+      title: CapabilityContract
       type: object
     CapabilityCreate:
       description: '能力注册（tech-debt #14）。capability_id 可省（自动生成 cap-{domain}-{name}）；
@@ -211,6 +293,39 @@ components:
           - type: 'null'
           title: Visible Roles
       title: CapabilityUpdate
+      type: object
+    CatalogRef:
+      additionalProperties: false
+      properties:
+        kind:
+          enum:
+          - data_domain
+          - entity_type
+          - relation_type
+          - metric
+          - unit
+          - aggregation
+          - time_window_schema
+          - binding_template
+          - capability_contract
+          - rule_schema
+          title: Kind
+          type: string
+        stable_id:
+          maxLength: 128
+          minLength: 1
+          title: Stable Id
+          type: string
+        version:
+          maxLength: 128
+          minLength: 1
+          title: Version
+          type: string
+      required:
+      - kind
+      - stable_id
+      - version
+      title: CatalogRef
       type: object
     CategoryIn:
       properties:
@@ -401,6 +516,18 @@ components:
       - content
       title: ChunkPreviewRequest
       type: object
+    CompileRequest:
+      additionalProperties: false
+      properties:
+        retry_of_compile_id:
+          anyOf:
+          - maxLength: 64
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Retry Of Compile Id
+      title: CompileRequest
+      type: object
     ConnectorIn:
       properties:
         adapter_type:
@@ -474,6 +601,85 @@ components:
       - page_id
       - query
       title: CopilotAssistRequest
+      type: object
+    CreateCatalogChangeRequest:
+      additionalProperties: false
+      properties:
+        proposed_definition:
+          $ref: '#/components/schemas/ProposedCatalogDefinition'
+        rationale:
+          maxLength: 4000
+          minLength: 1
+          title: Rationale
+          type: string
+        request_type:
+          enum:
+          - data_domain
+          - entity_type
+          - relation_type
+          - metric
+          - unit
+          - aggregation
+          - time_window_schema
+          - binding_template
+          - capability_contract
+          - rule_schema
+          title: Request Type
+          type: string
+        target_data_domain_ref:
+          $ref: '#/components/schemas/CatalogRef'
+      required:
+      - request_type
+      - target_data_domain_ref
+      - rationale
+      - proposed_definition
+      title: CreateCatalogChangeRequest
+      type: object
+    CreateModelRequest:
+      additionalProperties: false
+      properties:
+        data_domain_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        description:
+          anyOf:
+          - maxLength: 4000
+            type: string
+          - type: 'null'
+          title: Description
+        diagnostic_target:
+          $ref: '#/components/schemas/DiagnosticTarget'
+        name:
+          maxLength: 128
+          minLength: 1
+          title: Name
+          type: string
+      required:
+      - name
+      - data_domain_ref
+      - diagnostic_target
+      title: CreateModelRequest
+      type: object
+    CreateVersionRequest:
+      additionalProperties: false
+      properties:
+        clone_from_version_id:
+          anyOf:
+          - maxLength: 64
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Clone From Version Id
+      title: CreateVersionRequest
+      type: object
+    DataDomainContract:
+      additionalProperties: false
+      properties:
+        domain_code:
+          title: Domain Code
+          type: string
+      required:
+      - domain_code
+      title: DataDomainContract
       type: object
     DataDomainCreate:
       properties:
@@ -558,6 +764,45 @@ components:
       - source_mode
       - field_mapping
       title: DataSourceIn
+      type: object
+    DiagnosticTarget:
+      additionalProperties: false
+      properties:
+        direction:
+          enum:
+          - up
+          - down
+          - change
+          - neutral
+          - any
+          title: Direction
+          type: string
+        domain:
+          maxLength: 128
+          minLength: 1
+          title: Domain
+          type: string
+        entry_point:
+          maxLength: 128
+          minLength: 1
+          title: Entry Point
+          type: string
+        objective:
+          const: diagnose
+          title: Objective
+          type: string
+        target_entity_type_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        time_window_schema_ref:
+          $ref: '#/components/schemas/CatalogRef'
+      required:
+      - objective
+      - entry_point
+      - direction
+      - domain
+      - target_entity_type_ref
+      - time_window_schema_ref
+      title: DiagnosticTarget
       type: object
     DocClassUpdate:
       properties:
@@ -687,6 +932,16 @@ components:
       - name
       title: EntityIn
       type: object
+    EntityTypeContract:
+      additionalProperties: false
+      properties:
+        semantic_class:
+          title: Semantic Class
+          type: string
+      required:
+      - semantic_class
+      title: EntityTypeContract
+      type: object
     EntityTypeIn:
       properties:
         attributes:
@@ -723,6 +978,38 @@ components:
       - entity_type_id
       - name
       title: EntityTypeIn
+      type: object
+    ErrorDetail:
+      additionalProperties: false
+      properties:
+        code:
+          title: Code
+          type: string
+        correlation_id:
+          title: Correlation Id
+          type: string
+        details:
+          additionalProperties: true
+          default: {}
+          title: Details
+          type: object
+        message:
+          title: Message
+          type: string
+      required:
+      - code
+      - message
+      - correlation_id
+      title: ErrorDetail
+      type: object
+    ErrorResponse:
+      additionalProperties: false
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+      required:
+      - error
+      title: ErrorResponse
       type: object
     EvalCaseIn:
       properties:
@@ -1038,6 +1325,37 @@ components:
       - metadata
       title: MetadataUpdate
       type: object
+    MetricContract:
+      additionalProperties: false
+      properties:
+        allowed_aggregation_refs:
+          items:
+            $ref: '#/components/schemas/CatalogRef'
+          title: Allowed Aggregation Refs
+          type: array
+        allowed_unit_refs:
+          items:
+            $ref: '#/components/schemas/CatalogRef'
+          title: Allowed Unit Refs
+          type: array
+        time_semantics:
+          title: Time Semantics
+          type: string
+        value_type:
+          enum:
+          - decimal
+          - integer
+          - string
+          - boolean
+          title: Value Type
+          type: string
+      required:
+      - value_type
+      - time_semantics
+      - allowed_unit_refs
+      - allowed_aggregation_refs
+      title: MetricContract
+      type: object
     ModelConfigIn:
       properties:
         credentials:
@@ -1093,6 +1411,33 @@ components:
       - content
       title: MsgAdd
       type: object
+    PatchCatalogChangeRequest:
+      additionalProperties: false
+      properties:
+        proposed_definition:
+          anyOf:
+          - $ref: '#/components/schemas/ProposedCatalogDefinition'
+          - type: 'null'
+        rationale:
+          anyOf:
+          - maxLength: 4000
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Rationale
+      title: PatchCatalogChangeRequest
+      type: object
+    PatchVersionRequest:
+      additionalProperties: false
+      properties:
+        applicability:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Applicability
+      title: PatchVersionRequest
+      type: object
     PlanRequest:
       properties:
         intent:
@@ -1101,6 +1446,58 @@ components:
       required:
       - intent
       title: PlanRequest
+      type: object
+    ProposedCatalogDefinition:
+      additionalProperties: false
+      properties:
+        contract:
+          anyOf:
+          - $ref: '#/components/schemas/DataDomainContract'
+          - $ref: '#/components/schemas/EntityTypeContract'
+          - $ref: '#/components/schemas/RelationTypeContract'
+          - $ref: '#/components/schemas/MetricContract'
+          - $ref: '#/components/schemas/UnitContract'
+          - $ref: '#/components/schemas/AggregationContract'
+          - $ref: '#/components/schemas/TimeWindowContract'
+          - $ref: '#/components/schemas/BindingTemplateContract'
+          - $ref: '#/components/schemas/CapabilityContract'
+          - $ref: '#/components/schemas/RuleSchemaContract'
+          title: Contract
+        display_name:
+          maxLength: 128
+          minLength: 1
+          title: Display Name
+          type: string
+        kind:
+          enum:
+          - data_domain
+          - entity_type
+          - relation_type
+          - metric
+          - unit
+          - aggregation
+          - time_window_schema
+          - binding_template
+          - capability_contract
+          - rule_schema
+          title: Kind
+          type: string
+        schema_version:
+          const: catalog-change-request/v1
+          title: Schema Version
+          type: string
+        semantic_definition:
+          maxLength: 4000
+          minLength: 1
+          title: Semantic Definition
+          type: string
+      required:
+      - schema_version
+      - kind
+      - display_name
+      - semantic_definition
+      - contract
+      title: ProposedCatalogDefinition
       type: object
     PublishBody:
       properties:
@@ -1117,6 +1514,174 @@ components:
           - type: 'null'
           title: Tags
       title: PublishBody
+      type: object
+    PutEdgeRequest:
+      additionalProperties: false
+      properties:
+        confidence:
+          title: Confidence
+          type: string
+        effect:
+          enum:
+          - +
+          - '-'
+          title: Effect
+          type: string
+        from_node_key:
+          maxLength: 64
+          minLength: 1
+          title: From Node Key
+          type: string
+        lag:
+          title: Lag
+          type: string
+        relation_type_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        strength:
+          title: Strength
+          type: string
+        to_node_key:
+          maxLength: 64
+          minLength: 1
+          title: To Node Key
+          type: string
+      required:
+      - from_node_key
+      - to_node_key
+      - relation_type_ref
+      - effect
+      - strength
+      - confidence
+      - lag
+      title: PutEdgeRequest
+      type: object
+    PutEvidenceRequirementRequest:
+      additionalProperties: false
+      properties:
+        aggregation_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        binding_params:
+          additionalProperties: true
+          title: Binding Params
+          type: object
+        binding_template_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        business_description:
+          anyOf:
+          - maxLength: 4000
+            type: string
+          - type: 'null'
+          title: Business Description
+        metric_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        primary_contract_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        required:
+          title: Required
+          type: boolean
+        supporting_contract_refs:
+          items:
+            $ref: '#/components/schemas/CatalogRef'
+          title: Supporting Contract Refs
+          type: array
+        time_window_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        unit_ref:
+          $ref: '#/components/schemas/CatalogRef'
+      required:
+      - metric_ref
+      - unit_ref
+      - aggregation_ref
+      - time_window_ref
+      - binding_template_ref
+      - binding_params
+      - required
+      - primary_contract_ref
+      - supporting_contract_refs
+      title: PutEvidenceRequirementRequest
+      type: object
+    PutNodeRequest:
+      additionalProperties: false
+      properties:
+        business_name:
+          anyOf:
+          - maxLength: 128
+            type: string
+          - type: 'null'
+          title: Business Name
+        entity_type_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        entry_point:
+          title: Entry Point
+          type: boolean
+        notes:
+          anyOf:
+          - maxLength: 4000
+            type: string
+          - type: 'null'
+          title: Notes
+        observability:
+          enum:
+          - observable
+          - indirectly_observable
+          - latent_hypothesis
+          title: Observability
+          type: string
+      required:
+      - entity_type_ref
+      - observability
+      - entry_point
+      title: PutNodeRequest
+      type: object
+    PutRuleRequest:
+      additionalProperties: false
+      properties:
+        rationale:
+          anyOf:
+          - maxLength: 4000
+            type: string
+          - type: 'null'
+          title: Rationale
+        rule_schema_ref:
+          $ref: '#/components/schemas/CatalogRef'
+        rule_spec:
+          additionalProperties: true
+          title: Rule Spec
+          type: object
+      required:
+      - rule_schema_ref
+      - rule_spec
+      title: PutRuleRequest
+      type: object
+    ReasonRequest:
+      additionalProperties: false
+      properties:
+        reason:
+          maxLength: 4000
+          minLength: 1
+          title: Reason
+          type: string
+      required:
+      - reason
+      title: ReasonRequest
+      type: object
+    RelationTypeContract:
+      additionalProperties: false
+      properties:
+        source_entity_type_refs:
+          items:
+            $ref: '#/components/schemas/CatalogRef'
+          title: Source Entity Type Refs
+          type: array
+        target_entity_type_refs:
+          items:
+            $ref: '#/components/schemas/CatalogRef'
+          title: Target Entity Type Refs
+          type: array
+      required:
+      - source_entity_type_refs
+      - target_entity_type_refs
+      title: RelationTypeContract
       type: object
     RelationTypeIn:
       properties:
@@ -1246,6 +1811,23 @@ components:
           - type: 'null'
           title: Knowledge Base Ids
       title: RoutingRebuildRequest
+      type: object
+    RuleSchemaContract:
+      additionalProperties: false
+      properties:
+        rule_kind:
+          enum:
+          - predicate
+          - threshold
+          - direction_rule
+          title: Rule Kind
+          type: string
+        spec_schema_ref:
+          $ref: '#/components/schemas/CatalogRef'
+      required:
+      - rule_kind
+      - spec_schema_ref
+      title: RuleSchemaContract
       type: object
     SearchQuery:
       properties:
@@ -1411,6 +1993,15 @@ components:
       - reason
       title: TboxRejectIn
       type: object
+    TimeWindowContract:
+      additionalProperties: false
+      properties:
+        input_schema_ref:
+          $ref: '#/components/schemas/CatalogRef'
+      required:
+      - input_schema_ref
+      title: TimeWindowContract
+      type: object
     UnderstandingDebugIn:
       properties:
         context:
@@ -1430,6 +2021,32 @@ components:
       required:
       - query
       title: UnderstandingDebugIn
+      type: object
+    UnitContract:
+      additionalProperties: false
+      properties:
+        quantity_kind:
+          title: Quantity Kind
+          type: string
+        symbol:
+          title: Symbol
+          type: string
+      required:
+      - quantity_kind
+      - symbol
+      title: UnitContract
+      type: object
+    ValidateRequest:
+      additionalProperties: false
+      properties:
+        mode:
+          default: full
+          enum:
+          - incremental
+          - full
+          title: Mode
+          type: string
+      title: ValidateRequest
       type: object
     ValidationError:
       properties:
@@ -1456,6 +2073,86 @@ components:
       - msg
       - type
       title: ValidationError
+      type: object
+    ValidationIssue:
+      additionalProperties: false
+      properties:
+        actual:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Actual
+        catalog_ref:
+          anyOf:
+          - $ref: '#/components/schemas/CatalogRef'
+          - type: 'null'
+        code:
+          title: Code
+          type: string
+        expected:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Expected
+        location:
+          additionalProperties: true
+          title: Location
+          type: object
+        message:
+          title: Message
+          type: string
+        severity:
+          enum:
+          - error
+          - warning
+          title: Severity
+          type: string
+        suggested_action:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Suggested Action
+      required:
+      - code
+      - severity
+      - location
+      - message
+      title: ValidationIssue
+      type: object
+    ValidationResult:
+      additionalProperties: false
+      properties:
+        draft_revision:
+          title: Draft Revision
+          type: integer
+        input_hash:
+          title: Input Hash
+          type: string
+        issues:
+          items:
+            $ref: '#/components/schemas/ValidationIssue'
+          title: Issues
+          type: array
+        model_version_id:
+          title: Model Version Id
+          type: string
+        result:
+          enum:
+          - passed
+          - failed
+          title: Result
+          type: string
+        validation_run_id:
+          title: Validation Run Id
+          type: string
+      required:
+      - validation_run_id
+      - model_version_id
+      - draft_revision
+      - input_hash
+      - result
+      - issues
+      title: ValidationResult
       type: object
 info:
   title: EARP Server
@@ -3888,6 +4585,2094 @@ paths:
       summary: Stream Invoke
       tags:
       - streaming
+  /v1/ecmc/_dev/complete-compile/{compile_id}:
+    post:
+      operationId: dev_complete_compile_v1_ecmc__dev_complete_compile__compile_id__post
+      parameters:
+      - in: path
+        name: compile_id
+        required: true
+        schema:
+          title: Compile Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Dev Complete Compile V1 Ecmc  Dev Complete Compile  Compile
+                  Id  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Dev Complete Compile
+      tags:
+      - ecmc-causal-model-management
+      - ecmc-dev
+  /v1/ecmc/catalog-change-requests:
+    get:
+      operationId: list_catalog_requests_v1_ecmc_catalog_change_requests_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Catalog Requests V1 Ecmc Catalog Change Requests
+                  Get
+                type: array
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: List Catalog Requests
+      tags:
+      - ecmc-causal-model-management
+    post:
+      operationId: create_catalog_request_v1_ecmc_catalog_change_requests_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCatalogChangeRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Catalog Request V1 Ecmc Catalog Change Requests
+                  Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Create Catalog Request
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/catalog-change-requests/{request_id}:
+    get:
+      operationId: get_catalog_request_v1_ecmc_catalog_change_requests__request_id__get
+      parameters:
+      - in: path
+        name: request_id
+        required: true
+        schema:
+          title: Request Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Catalog Request V1 Ecmc Catalog Change Requests  Request
+                  Id  Get
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Get Catalog Request
+      tags:
+      - ecmc-causal-model-management
+    patch:
+      operationId: patch_catalog_request_v1_ecmc_catalog_change_requests__request_id__patch
+      parameters:
+      - in: path
+        name: request_id
+        required: true
+        schema:
+          title: Request Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchCatalogChangeRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Patch Catalog Request V1 Ecmc Catalog Change Requests  Request
+                  Id  Patch
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Patch Catalog Request
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/catalog-change-requests/{request_id}/approve:
+    post:
+      operationId: approve_catalog_request_v1_ecmc_catalog_change_requests__request_id__approve_post
+      parameters:
+      - in: path
+        name: request_id
+        required: true
+        schema:
+          title: Request Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Approve Catalog Request V1 Ecmc Catalog Change Requests  Request
+                  Id  Approve Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Approve Catalog Request
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/catalog-change-requests/{request_id}/cancel:
+    post:
+      operationId: cancel_catalog_request_v1_ecmc_catalog_change_requests__request_id__cancel_post
+      parameters:
+      - in: path
+        name: request_id
+        required: true
+        schema:
+          title: Request Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Cancel Catalog Request V1 Ecmc Catalog Change Requests  Request
+                  Id  Cancel Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Cancel Catalog Request
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/catalog-change-requests/{request_id}/reject:
+    post:
+      operationId: reject_catalog_request_v1_ecmc_catalog_change_requests__request_id__reject_post
+      parameters:
+      - in: path
+        name: request_id
+        required: true
+        schema:
+          title: Request Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Reject Catalog Request V1 Ecmc Catalog Change Requests  Request
+                  Id  Reject Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Reject Catalog Request
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/catalog-change-requests/{request_id}/retry-fulfillment:
+    post:
+      operationId: retry_catalog_fulfillment_v1_ecmc_catalog_change_requests__request_id__retry_fulfillment_post
+      parameters:
+      - in: path
+        name: request_id
+        required: true
+        schema:
+          title: Request Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Retry Catalog Fulfillment V1 Ecmc Catalog Change Requests  Request
+                  Id  Retry Fulfillment Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Retry Catalog Fulfillment
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/catalog-change-requests/{request_id}/submit:
+    post:
+      operationId: submit_catalog_request_v1_ecmc_catalog_change_requests__request_id__submit_post
+      parameters:
+      - in: path
+        name: request_id
+        required: true
+        schema:
+          title: Request Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Submit Catalog Request V1 Ecmc Catalog Change Requests  Request
+                  Id  Submit Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Submit Catalog Request
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models:
+    get:
+      operationId: list_models_v1_ecmc_causal_models_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Models V1 Ecmc Causal Models Get
+                type: array
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: List Models
+      tags:
+      - ecmc-causal-model-management
+    post:
+      operationId: create_model_v1_ecmc_causal_models_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateModelRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Model V1 Ecmc Causal Models Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Create Model
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}:
+    get:
+      operationId: get_model_v1_ecmc_causal_models__model_id__get
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Model V1 Ecmc Causal Models  Model Id  Get
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Get Model
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/activate:
+    post:
+      operationId: activate_v1_ecmc_causal_models__model_id__activate_post
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivateRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Activate V1 Ecmc Causal Models  Model Id  Activate
+                  Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Activate
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions:
+    get:
+      operationId: list_versions_v1_ecmc_causal_models__model_id__versions_get
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  additionalProperties: true
+                  type: object
+                title: Response List Versions V1 Ecmc Causal Models  Model Id  Versions
+                  Get
+                type: array
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: List Versions
+      tags:
+      - ecmc-causal-model-management
+    post:
+      operationId: create_version_v1_ecmc_causal_models__model_id__versions_post
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVersionRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Version V1 Ecmc Causal Models  Model Id  Versions
+                  Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Create Version
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}:
+    get:
+      operationId: get_version_v1_ecmc_causal_models__model_id__versions__version_id__get
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Version V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Get
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Get Version
+      tags:
+      - ecmc-causal-model-management
+    patch:
+      operationId: patch_version_v1_ecmc_causal_models__model_id__versions__version_id__patch
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchVersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Patch Version V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Patch
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Patch Version
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/archive:
+    post:
+      operationId: archive_v1_ecmc_causal_models__model_id__versions__version_id__archive_post
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Archive V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Archive Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Archive
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/compile:
+    post:
+      operationId: compile_model_v1_ecmc_causal_models__model_id__versions__version_id__compile_post
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompileRequest'
+        required: true
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Compile Model V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Compile Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Compile Model
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/compile-records/{compile_record_id}/artifact:
+    get:
+      operationId: artifact_v1_ecmc_causal_models__model_id__versions__version_id__compile_records__compile_record_id__artifact_get
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: path
+        name: compile_record_id
+        required: true
+        schema:
+          title: Compile Record Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Artifact V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Compile Records  Compile Record Id  Artifact Get
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Artifact
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/edges/{edge_key}:
+    delete:
+      operationId: delete_edge_v1_ecmc_causal_models__model_id__versions__version_id__edges__edge_key__delete
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: path
+        name: edge_key
+        required: true
+        schema:
+          title: Edge Key
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Delete Edge V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Edges  Edge Key  Delete
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Delete Edge
+      tags:
+      - ecmc-causal-model-management
+    put:
+      operationId: put_edge_v1_ecmc_causal_models__model_id__versions__version_id__edges__edge_key__put
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: path
+        name: edge_key
+        required: true
+        schema:
+          title: Edge Key
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutEdgeRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Put Edge V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Edges  Edge Key  Put
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Put Edge
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/evidence-requirements/{node_key}/{requirement_key}:
+    delete:
+      operationId: delete_evidence_v1_ecmc_causal_models__model_id__versions__version_id__evidence_requirements__node_key___requirement_key__delete
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: path
+        name: node_key
+        required: true
+        schema:
+          title: Node Key
+          type: string
+      - in: path
+        name: requirement_key
+        required: true
+        schema:
+          title: Requirement Key
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Delete Evidence V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Evidence Requirements  Node Key   Requirement Key  Delete
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Delete Evidence
+      tags:
+      - ecmc-causal-model-management
+    put:
+      operationId: put_evidence_v1_ecmc_causal_models__model_id__versions__version_id__evidence_requirements__node_key___requirement_key__put
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: path
+        name: node_key
+        required: true
+        schema:
+          title: Node Key
+          type: string
+      - in: path
+        name: requirement_key
+        required: true
+        schema:
+          title: Requirement Key
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutEvidenceRequirementRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Put Evidence V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Evidence Requirements  Node Key   Requirement Key  Put
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Put Evidence
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/governance:
+    get:
+      operationId: governance_v1_ecmc_causal_models__model_id__versions__version_id__governance_get
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Governance V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Governance Get
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Governance
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/nodes/{node_key}:
+    delete:
+      operationId: delete_node_v1_ecmc_causal_models__model_id__versions__version_id__nodes__node_key__delete
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: path
+        name: node_key
+        required: true
+        schema:
+          title: Node Key
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Delete Node V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Nodes  Node Key  Delete
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Delete Node
+      tags:
+      - ecmc-causal-model-management
+    put:
+      operationId: put_node_v1_ecmc_causal_models__model_id__versions__version_id__nodes__node_key__put
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: path
+        name: node_key
+        required: true
+        schema:
+          title: Node Key
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutNodeRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Put Node V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Nodes  Node Key  Put
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Put Node
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/publish:
+    post:
+      operationId: publish_v1_ecmc_causal_models__model_id__versions__version_id__publish_post
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Publish V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Publish Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Publish
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/reject:
+    post:
+      operationId: reject_review_v1_ecmc_causal_models__model_id__versions__version_id__reject_post
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Reject Review V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Reject Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Reject Review
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/rules/{rule_key}:
+    delete:
+      operationId: delete_rule_v1_ecmc_causal_models__model_id__versions__version_id__rules__rule_key__delete
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: path
+        name: rule_key
+        required: true
+        schema:
+          title: Rule Key
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Delete Rule V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Rules  Rule Key  Delete
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Delete Rule
+      tags:
+      - ecmc-causal-model-management
+    put:
+      operationId: put_rule_v1_ecmc_causal_models__model_id__versions__version_id__rules__rule_key__put
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: path
+        name: rule_key
+        required: true
+        schema:
+          title: Rule Key
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutRuleRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Put Rule V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Rules  Rule Key  Put
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Put Rule
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/submit-review:
+    post:
+      operationId: submit_review_v1_ecmc_causal_models__model_id__versions__version_id__submit_review_post
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: header
+        name: If-Match
+        required: true
+        schema:
+          title: If-Match
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Submit Review V1 Ecmc Causal Models  Model Id  Versions  Version
+                  Id  Submit Review Post
+                type: object
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Submit Review
+      tags:
+      - ecmc-causal-model-management
+  /v1/ecmc/causal-models/{model_id}/versions/{version_id}/validate:
+    post:
+      operationId: validate_model_v1_ecmc_causal_models__model_id__versions__version_id__validate_post
+      parameters:
+      - in: path
+        name: model_id
+        required: true
+        schema:
+          title: Model Id
+          type: string
+      - in: path
+        name: version_id
+        required: true
+        schema:
+          title: Version Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
+          description: Successful Response
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Permission or data-domain access denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Resource is absent or not visible.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, revision, idempotency, content or active CAS conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Request schema or causal model validation failed.
+      summary: Validate Model
+      tags:
+      - ecmc-causal-model-management
   /v1/ecmc/planning/entry:
     post:
       description: 'Resolve the fixed Case A request to one immutable Blueprint goal.
