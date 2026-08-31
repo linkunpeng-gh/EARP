@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import pathlib
 from collections.abc import Iterator
@@ -17,6 +18,31 @@ from alembic.config import Config
 from testcontainers.postgres import PostgresContainer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+class _TestEmbeddingProvider:
+    """Deterministic, network-free provider that preserves the vector contract."""
+
+    name = "pytest-deterministic"
+    dim = 1024
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        vectors: list[list[float]] = []
+        for item in texts:
+            vector = [0.0] * self.dim
+            vector[hashlib.sha256(item.encode("utf-8")).digest()[0] % self.dim] = 1.0
+            vectors.append(vector)
+        return vectors
+
+
+@pytest.fixture(autouse=True)
+def _reset_embedding_provider() -> Iterator[None]:
+    """Prevent TestClient startup from leaking a real Ollama provider to later tests."""
+    from earp_server.infra.ext import ext_embedding
+
+    ext_embedding._provider = _TestEmbeddingProvider()
+    yield
+    ext_embedding._provider = _TestEmbeddingProvider()
 
 
 @pytest.fixture(scope="session")

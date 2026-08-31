@@ -397,6 +397,9 @@ class TestChatEndpoint202:
         )
         app = create_app(Settings(database_url=app_url, app_env="test"))
         with TestClient(app) as client:
+            # The endpoint's normal composition root uses an LLMConnector.  The
+            # flow behavior is already covered by this test; keep it hermetic.
+            app.state.llm = FakeLLM(text="endpoint-answer")
             resp = client.post(
                 "/chat_apps",
                 json={"name": "f4-202", "orchestration": "flow", "flow_schema": _approval_flow()},
