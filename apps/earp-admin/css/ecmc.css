@@ -130,10 +130,10 @@ body.ecmc-editor-page { overflow: hidden; }
 .ecmc-struct-actions .btn svg { width: 0.9em; height: 0.9em; }
 
 /* 中央画布 */
-.ecmc-canvas-wrap { flex: 1; min-width: 720px; position: relative; background-color: #fbfcff; background-image: linear-gradient(#edf0fa 1px, transparent 1px), linear-gradient(90deg, #edf0fa 1px, transparent 1px); background-size: 24px 24px; }
+.ecmc-canvas-wrap { flex: 1; min-width: 720px; position: relative; overflow: hidden; background-color: #fbfcff; background-image: linear-gradient(#edf0fa 1px, transparent 1px), linear-gradient(90deg, #edf0fa 1px, transparent 1px); background-size: 24px 24px; }
 .ecmc-canvas { position: absolute; inset: 0; overflow: hidden; }
 .ecmc-canvas-viewport { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
-.ecmc-canvas-edges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+.ecmc-canvas-edges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; transform-origin: 0 0; }
 .ecmc-canvas-edges path { pointer-events: stroke; cursor: pointer; }
 .ecmc-canvas-edges path:hover { filter: brightness(0.85); }
 .ecmc-canvas-tools { position: absolute; top: 0.6rem; right: 0.6rem; display: flex; gap: 0.3rem; z-index: 5; }
@@ -193,7 +193,7 @@ body.ecmc-editor-page { overflow: hidden; }
 .ecmc-field input, .ecmc-field select, .ecmc-field textarea { width: 100%; font-size: 0.78rem; padding: 0.4rem 0.55rem; }
 .ecmc-field textarea { resize: vertical; min-height: 54px; font-family: inherit; }
 .ecmc-field .field-hint { font-size: 0.68rem; color: var(--text-quaternary); margin-top: 0.2rem; }
-.ecmc-field.readonly input, .ecmc-field.readonly textarea { background: var(--bg-surface); color: var(--text-tertiary); }
+.ecmc-field.readonly input, .ecmc-field.readonly textarea, .ecmc-field.readonly select { background: var(--bg-surface); color: var(--text-tertiary); }
 .ecmc-field .field-error { font-size: 0.7rem; color: var(--red); margin-top: 0.2rem; }
 .ecmc-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 

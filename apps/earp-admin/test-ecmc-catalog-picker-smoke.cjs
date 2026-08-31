@@ -30,8 +30,8 @@ check('按 kind 过滤：entity_type 只返回 entity_type', () => {
 });
 
 check('按数据域过滤（data_domain_id）：equipment 域不返回 production 条目', () => {
-  const prod = adapter.search({ kind: 'metric', domain: 'production_data' });
-  const eq = adapter.search({ kind: 'metric', domain: 'equipment_data' });
+  const prod = adapter.search({ kind: 'metric', domain: 'production' });
+  const eq = adapter.search({ kind: 'metric', domain: 'equipment' });
   assert.ok(prod.some((m) => m.stable_id === 'metric.production_output'));
   assert.ok(eq.some((m) => m.stable_id === 'metric.equipment_availability'));
   assert.ok(!eq.some((m) => m.stable_id === 'metric.production_output'), 'production metric must not leak into equipment domain');
@@ -63,7 +63,7 @@ check('搜索按业务名称与 stable_id', () => {
 
 check('无结果（kind 不存在/搜索不到）→ 空列表（前端应展示“申请新增目录项”）', () => {
   assert.deepStrictEqual(adapter.search({ kind: 'rule_schema', q: '不存在的规则' }), []);
-  assert.deepStrictEqual(adapter.search({ kind: 'metric', domain: 'equipment_data', q: '运输' }), []);
+  assert.deepStrictEqual(adapter.search({ kind: 'metric', domain: 'equipment', q: '运输' }), []);
 });
 
 check('生产默认 adapter 为 null（不假设真实目录存在）', () => {

@@ -16,6 +16,7 @@
   var api = window.ECMC.api;
   var common = window.ECMC.common;
   var esc = common.esc;
+  var fmtDecimal = common.fmtDecimal;
 
   var S = {
     model: null, version: null, governance: null,
@@ -154,6 +155,8 @@
       renderStruct();
       renderCanvas();
       renderValidationSummary();
+      // 状态可能变化（如 draft -> in_review），按当前只读态重渲染当前选中资源的属性面板
+      if (S.selected) renderInspector(S.selected);
     } catch (e) { common.toast('重新加载失败：' + e.message, 'error'); }
   }
 
@@ -195,8 +198,10 @@
       if (act === 'compile') {
         var rec = await ECMC.governance.requestCompile(S.client, model, version, null);
         var cr = rec.compile_record || rec;
-        common.toast('已请求编译：' + cr.compile_record_id + '（' + (cr.status || 'running') + '）', 'success');
+        common.toast('已请求编译：' + cr.compile_record_id + '（' + (cr.status || 'running') + '）', 'success', 4000);
         await loadGovernance();
+        // 轮询 governance：running → success/failed 后自动更新（无需手动刷新）
+        pollCompile(cr.compile_record_id || cr.id);
         return;
       }
       if (act === 'artifact') return viewArtifact();
@@ -228,6 +233,35 @@
       renderReadOnlyPanel();
       renderActions();
     } catch (_) {}
+  }
+
+  /* 编译轮询：CompileRecord 是异步 Attempt（无消费进程时需 dev 路由驱动）。
+   * 每 2s 查一次 governance，最长约 30s；状态变化后自动刷新命令栏（出现「激活」）。 */
+  var _compileTimer = null;
+  function pollCompile(compileId, attemptsLeft) {
+    if (_compileTimer) clearInterval(_compileTimer);
+    if (attemptsLeft === undefined) attemptsLeft = 15;
+    _compileTimer = setInterval(async function () {
+      attemptsLeft--;
+      if (attemptsLeft <= 0) {
+        clearInterval(_compileTimer);
+        _compileTimer = null;
+        common.toast('编译仍在进行中：' + compileId + '。dev 环境可调用 _dev/complete-compile 驱动：POST /v1/ecmc/_dev/complete-compile/' + compileId, 'warn', 6000);
+        return;
+      }
+      try {
+        var g = await api.get(ECMC.governance.vUrl(S.model.model_id, S.version.model_version_id) + '/governance');
+        S.governance = g.body;
+        renderReadOnlyPanel();
+        renderActions();
+        var st = g.body.compile_record && g.body.compile_record.status;
+        if (st === 'success' || st === 'failed') {
+          clearInterval(_compileTimer);
+          _compileTimer = null;
+          common.toast(st === 'success' ? '编译成功，可以激活' : '编译失败，可重试', st === 'success' ? 'success' : 'error', 4000);
+        }
+      } catch (_) { /* 网络瞬时错误忽略，继续轮询 */ }
+    }, 2000);
   }
 
   /* 激活：Candidate If-Match + active-pointer CAS（§11.5） */
@@ -382,13 +416,14 @@
   }
 
   /* ═══════════════ 画布 ═══════════════ */
-  var NODE_W = 168, NODE_H = 74, GAP_X = 90, GAP_Y = 40;
+  // NODE_H 取节点实际渲染高度（含名称/key/类型/脚注，约 92px），用于拖拽钳制与端口定位
+  var NODE_W = 168, NODE_H = 96, GAP_X = 90, GAP_Y = 40;
 
   function renderCanvas() {
     var wrap = $('canvas-wrap');
     if (!S.canvas) {
       S.canvas = new GraphCanvas(wrap, {
-        onSelect: function (sel) { selectResource(sel); },
+        onSelect: function (sel) { selectResource(sel, true); },
         onMutate: saveView,
         onRequestEdge: requestCreateEdge,
         onRequestDelete: requestDeleteResource,
@@ -456,8 +491,10 @@
     this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     this.svg.setAttribute('class', 'ecmc-canvas-edges');
     this.svg.style.overflow = 'visible';
-    this.viewport.appendChild(this.svg);
+    // svg 与 viewport 同级、各自应用同一变换：避免嵌套在 scale 变换容器内的 SVG
+    // 在部分浏览器（如 Safari）初次绘制不刷新、只有拖动时才显示的已知问题
     container.appendChild(this.viewport);
+    container.appendChild(this.svg);
 
     this._bindDocumentDrag();
     this._bindPan();
@@ -469,8 +506,16 @@
     document.addEventListener('mousemove', function (e) {
       if (self._nodeDrag) {
         var d = self._nodeDrag;
-        d.pos.x = d.ox + (e.clientX - d.sx) / self.zoom;
-        d.pos.y = d.oy + (e.clientY - d.sy) / self.zoom;
+        var z = self.zoom;
+        // 拖拽钳制在可见画布内：避免节点拖出画布覆盖右侧属性面板
+        var minX = -self.pan.x / z;
+        var minY = -self.pan.y / z;
+        var maxX = minX + self.container.clientWidth / z - NODE_W;
+        var maxY = minY + self.container.clientHeight / z - NODE_H;
+        if (maxX < minX) maxX = minX;
+        if (maxY < minY) maxY = minY;
+        d.pos.x = Math.max(minX, Math.min(maxX, d.ox + (e.clientX - d.sx) / z));
+        d.pos.y = Math.max(minY, Math.min(maxY, d.oy + (e.clientY - d.sy) / z));
         d.el.style.left = d.pos.x + 'px';
         d.el.style.top = d.pos.y + 'px';
         self._renderEdges();
@@ -644,33 +689,55 @@
       var to = self._portPos(e.to_node_key, 'in');
       var dx = Math.max(70, (to.x - from.x) / 2);
       var d = 'M' + from.x + ',' + from.y + ' C' + (from.x + dx) + ',' + from.y + ' ' + (to.x - dx) + ',' + to.y + ' ' + to.x + ',' + to.y;
+      var selected = self.selected && self.selected.type === 'edge' && self.selected.key === e.edge_key;
+      var mainColor = selected ? 'var(--accent)' : '#64748b';
+      // 白色光晕底衬 + 主路径（加粗加深，静止时也清晰可见）
+      var halo = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      halo.setAttribute('d', d);
+      halo.setAttribute('fill', 'none');
+      halo.setAttribute('stroke', '#ffffff');
+      halo.setAttribute('stroke-width', '7');
+      halo.setAttribute('stroke-linecap', 'round');
+      halo.setAttribute('opacity', '0.85');
+      halo.setAttribute('data-edge', e.edge_key);
+      // 线上点击也选中边（halo 较粗更易命中；标签 pill 同样可选）
+      var selectEdge = function () { self.select({ type: 'edge', key: e.edge_key }); };
+      halo.addEventListener('click', selectEdge);
       var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('d', d);
       path.setAttribute('fill', 'none');
-      path.setAttribute('stroke', 'var(--border-standard)');
-      path.setAttribute('stroke-width', '2');
+      path.setAttribute('stroke', mainColor);
+      path.setAttribute('stroke-width', selected ? '3' : '2.5');
+      path.setAttribute('stroke-linecap', 'round');
       path.setAttribute('data-edge', e.edge_key);
-      var selected = self.selected && self.selected.type === 'edge' && self.selected.key === e.edge_key;
-      if (selected) path.setAttribute('stroke', 'var(--accent)');
-      path.setAttribute('stroke-width', selected ? '2.5' : '2');
-      // 箭头
+      path.addEventListener('click', selectEdge);
+      // 箭头（放大）
       var marker = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      var ang = Math.atan2(to.y - from.y, to.x - from.x);
-      var ax = to.x - 8, ay = to.y - 8 * Math.tan(ang) * 0;
-      marker.setAttribute('d', 'M' + (to.x - 10) + ',' + (to.y - 5) + ' L' + to.x + ',' + to.y + ' L' + (to.x - 10) + ',' + (to.y + 5));
-      marker.setAttribute('fill', selected ? 'var(--accent)' : 'var(--border-standard)');
+      marker.setAttribute('d', 'M' + (to.x - 13) + ',' + (to.y - 6) + ' L' + to.x + ',' + to.y + ' L' + (to.x - 13) + ',' + (to.y + 6));
+      marker.setAttribute('fill', selected ? 'var(--accent)' : '#64748b');
+      self.svg.appendChild(halo);
       self.svg.appendChild(path);
       self.svg.appendChild(marker);
-      // 标签 effect/strength/confidence/lag
-      var midX = (from.x + to.x) / 2, midY = (from.y + to.y) / 2 - 8;
+      // 标签 effect/strength/confidence/lag（白底胶囊，避免被浅色背景吞掉）
+      var midX = (from.x + to.x) / 2, midY = (from.y + to.y) / 2 - 14;
       var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      var label = (e.effect || '') + ' ' + (fmtDecimal(e.strength) || '') + ' · c' + (fmtDecimal(e.confidence) || '') + (e.lag && e.lag !== 'PT0S' ? ' · ' + e.lag : '');
+      var box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      box.setAttribute('x', midX - label.length * 3.2 - 6);
+      box.setAttribute('y', midY - 10);
+      box.setAttribute('width', label.length * 6.4 + 12);
+      box.setAttribute('height', 16);
+      box.setAttribute('rx', 8);
+      box.setAttribute('fill', '#ffffff');
+      box.setAttribute('stroke', '#cbd5e0');
+      box.setAttribute('stroke-width', '0.8');
       var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      var label = (e.effect || '') + ' ' + (e.strength || '') + ' · c' + (e.confidence || '') + (e.lag && e.lag !== 'PT0S' ? ' · ' + e.lag : '');
       text.setAttribute('x', midX);
-      text.setAttribute('y', midY);
+      text.setAttribute('y', midY + 3);
       text.setAttribute('text-anchor', 'middle');
       text.setAttribute('class', 'ecmc-edge-label ' + (e.effect === '-' ? 'negative' : 'positive'));
       text.textContent = label;
+      g.appendChild(box);
       g.appendChild(text);
       g.addEventListener('click', function () { self.select({ type: 'edge', key: e.edge_key }); });
       self.svg.appendChild(g);
@@ -708,7 +775,9 @@
   };
 
   GraphCanvas.prototype._applyTransform = function () {
-    this.viewport.style.transform = 'translate(' + this.pan.x + 'px,' + this.pan.y + 'px) scale(' + this.zoom + ')';
+    var t = 'translate(' + this.pan.x + 'px,' + this.pan.y + 'px) scale(' + this.zoom + ')';
+    this.viewport.style.transform = t;
+    this.svg.style.transform = t;
     $('canvas-zoom-value').textContent = Math.round(this.zoom * 100) + '%';
   };
 
@@ -754,14 +823,16 @@
   };
 
   /* ═══════════════ 资源选择与属性面板 ═══════════════ */
-  function selectResource(sel) {
+  /* 资源选择入口：fromCanvas=true 表示调用来自画布自身的 onSelect 回调，
+   * 避免 canvas.select -> onSelect -> selectResource -> canvas.select 无限递归 */
+  function selectResource(sel, fromCanvas) {
     if (typeof sel === 'string') {
       var parts = sel.split(':');
       if (parts[0] === 'evidence') sel = { type: 'evidence', nodeKey: parts[1], key: parts[2] };
       else sel = { type: parts[0], key: parts[1] };
     }
     S.selected = sel;
-    if (S.canvas) S.canvas.select(sel);
+    if (!fromCanvas && S.canvas) S.canvas.select(sel);
     renderStructActive(sel);
     renderInspector(sel);
   }
@@ -776,6 +847,15 @@
     if (el) el.classList.add('active');
   }
 
+  /* 只读模式（in_review/published/superseded/archived，§5.3）：禁用全部表单控件，
+   * 不只加样式类——select/checkbox/textarea/输入框/按钮一律 disabled */
+  function disableReadonlyControls(root) {
+    if (!root || !S.readOnly) return;
+    Array.prototype.forEach.call(root.querySelectorAll('input, select, textarea, button'), function (el) {
+      el.disabled = true;
+    });
+  }
+
   function renderInspector(sel) {
     var box = $('inspector-body');
     var head = $('inspector-head');
@@ -788,6 +868,7 @@
     else if (sel.type === 'edge') renderEdgeInspector(box, head, sel);
     else if (sel.type === 'evidence') renderEvidenceInspector(box, head, sel);
     else if (sel.type === 'rule') renderRuleInspector(box, head, sel);
+    disableReadonlyControls(box);
   }
 
   function field(name, html) {
@@ -814,7 +895,7 @@
       + '<div class="ecmc-inspector-actions">'
       + (S.readOnly ? '' : '<button class="btn" id="n-save">应用</button>')
       + (S.readOnly ? '' : '<button class="btn secondary" id="n-del">删除节点</button>')
-      + '<button class="btn secondary" id="n-ev">+ 证据需求</button>'
+      + (S.readOnly ? '' : '<button class="btn secondary" id="n-ev">+ 证据需求</button>')
       + '</div>';
 
     var entityPicker = ECMC.catalog.Picker(box.querySelector('#n-entity'), {
@@ -850,8 +931,8 @@
       + field('RelationType CatalogRef', '<div id="e-relation"></div>')
       + field('effect', '<select id="e-effect"><option value="+"' + (e.effect === '+' ? ' selected' : '') + '>+ 正向</option><option value="-"' + (e.effect === '-' ? ' selected' : '') + '>- 负向</option></select>')
       + '<div class="ecmc-field-row">'
-      + field('strength [0,1]', '<input id="e-strength" value="' + esc(e.strength || '0.80') + '">')
-      + field('confidence [0,1]', '<input id="e-confidence" value="' + esc(e.confidence || '0.90') + '">')
+      + field('strength [0,1]', '<input id="e-strength" value="' + esc(fmtDecimal(e.strength) || '0.80') + '">')
+      + field('confidence [0,1]', '<input id="e-confidence" value="' + esc(fmtDecimal(e.confidence) || '0.90') + '">')
       + '</div>'
       + field('lag（ISO-8601）', '<input id="e-lag" value="' + esc(e.lag || 'PT0S') + '" placeholder="PT0S">')
       + '<div class="ecmc-inspector-actions">'
@@ -950,7 +1031,7 @@
     box.innerHTML =
       field('rule key（创建后只读）', '<input readonly value="' + esc(r.rule_key) + '">')
       + field('RuleSchema CatalogRef', '<div id="r-schema"></div>')
-      + field('rule spec（结构化 JSON）', '<textarea id="r-spec" rows="4">' + esc(JSON.stringify(r.rule_spec || {}, null, 2)) + '</textarea>')
+      + field('rule spec（结构化 JSON）', '<textarea id="r-spec" rows="4">' + esc(JSON.stringify(r.rule_spec || {}, null, 2)) + '</textarea>')  // tech-debt #19：rule_spec 参数写法对非技术用户不透明，待 spec_schema 可解析后按 schema 渲染表单
       + field('rationale', '<textarea id="r-rationale" rows="2">' + esc(r.rationale || '') + '</textarea>')
       + '<div class="ecmc-inspector-actions">'
       + (S.readOnly ? '' : '<button class="btn" id="r-save">应用</button>')
@@ -1021,9 +1102,13 @@
     if (S.readOnly) { common.toast('已发布内容只读', 'warn'); return; }
     if (!ECMC.catalog.getAdapter()) { catalogUnavailableDialog('节点实体类型'); return; }
     var domain = S.model.data_domain_id;
+    var target = S.version.diagnostic_target || {};
+    var generatedKey = newKey('n-', (S.version.nodes || []).map(function (n) { return n.node_key; }));
     var d = common.dialog(
       '<div class="ecmc-dialog-head"><h3>新增节点</h3><button class="ecmc-dialog-close" data-close>×</button></div>'
       + '<div class="ecmc-dialog-body">'
+      + '<div class="ecmc-field"><label>node key（创建后只读）</label><input id="n-key2" value="' + esc(generatedKey) + '">'
+      + '<div class="field-hint">入口节点的 key 必须等于诊断目标入口（' + esc(target.entry_point || '?') + '），例如 ' + esc(target.entry_point || 'production_output') + '</div></div>'
       + '<div class="ecmc-field"><label>EntityType CatalogRef（受控选择）</label><div id="n-entity-pick"></div></div>'
       + '<div class="ecmc-field"><label>业务名称</label><input id="n-name2" placeholder="例如：运输系统"></div>'
       + '<div class="ecmc-field"><label>observability</label><select id="n-obs2">'
@@ -1034,6 +1119,10 @@
       + '</div>'
       + '<div class="ecmc-dialog-foot"><button class="btn secondary" data-cancel>取消</button><button class="btn" data-ok>创建节点</button></div>'
     );
+    // 勾选「入口节点」时，key 自动对齐诊断目标入口（避免 CAUSAL_TARGET_MISMATCH）
+    d.el.querySelector('#n-entry2').addEventListener('change', function () {
+      if (this.checked && target.entry_point) d.el.querySelector('#n-key2').value = target.entry_point;
+    });
     var picker = ECMC.catalog.Picker(d.el.querySelector('#n-entity-pick'), {
       kind: 'entity_type', domain: domain, emptyLabel: '选择实体类型', onChange: function () {},
     });
@@ -1041,7 +1130,18 @@
       var ref = picker.getValue();
       var errEl = d.el.querySelector('#n-err2');
       if (!ref) { errEl.textContent = '请先从受控目录选择实体类型。'; errEl.style.display = 'block'; return; }
-      var key = newKey('n-', (S.version.nodes || []).map(function (n) { return n.node_key; }));
+      var key = (d.el.querySelector('#n-key2').value || '').trim();
+      if (!key) { errEl.textContent = '请填写节点 key。'; errEl.style.display = 'block'; return; }
+      if ((S.version.nodes || []).some(function (n) { return n.node_key === key; })) {
+        errEl.textContent = '节点 key 已存在：' + key + '（node key 不能重复）。';
+        errEl.style.display = 'block';
+        return;
+      }
+      if (d.el.querySelector('#n-entry2').checked && key !== target.entry_point) {
+        errEl.textContent = '入口节点 key 必须等于诊断目标入口「' + target.entry_point + '」，否则校验报 CAUSAL_TARGET_MISMATCH。';
+        errEl.style.display = 'block';
+        return;
+      }
       var body = {
         entity_type_ref: ref,
         observability: d.el.querySelector('#n-obs2').value,
@@ -1151,7 +1251,9 @@
         return;
       }
       var node = d.el.querySelector('#ev-node2').value;
-      var reqKey = newKey(node + '_req_', (S.version.evidence_requirements || []).filter(function (e) { return e.node_key === node; }).map(function (e) { return e.requirement_key; }));
+      // requirement key 用短前缀 req_<n>（同一节点内唯一），避免长 node_key 拼出超长
+      // operation 触发 idempotency_records.operation VARCHAR(96) 溢出（0041 已扩列，这里防御）
+      var reqKey = newKey('req_', (S.version.evidence_requirements || []).filter(function (e) { return e.node_key === node; }).map(function (e) { return e.requirement_key; }));
       var body = {
         metric_ref: picks.metric.getValue(),
         unit_ref: picks.unit.getValue(),

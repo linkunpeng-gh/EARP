@@ -491,6 +491,20 @@ function stubFetch(routes) {
     reviewLinks.forEach((a) => assert.ok(a.getAttribute('href').includes('catalog=fake'), 'drawer reviews link carries fake'));
   });
 
+  await check('fmtDecimal：服务端 NUMERIC 长尾零归一化显示', async () => {
+    setupDom();
+    loadModule('ecmc-api.js');
+    loadModule('ecmc-common.js');
+    const f = ECMC.common.fmtDecimal;
+    assert.strictEqual(f('0.800000000000000000'), '0.8', 'trailing zeros trimmed');
+    assert.strictEqual(f('0.600000000000000000'), '0.6');
+    assert.strictEqual(f('0.80'), '0.8');
+    assert.strictEqual(f('1.000000000000000000'), '1');
+    assert.strictEqual(f('0.5'), '0.5', 'no trailing zeros untouched');
+    assert.strictEqual(f('PT0S'), 'PT0S', 'non-decimal returned as-is');
+    assert.strictEqual(f(0.8), '0.8', 'number input handled');
+  });
+
   await check('BindingTemplate ref 参数按数据域过滤（domain 透传）', async () => {
     setupDom();
     loadModule('ecmc-api.js');

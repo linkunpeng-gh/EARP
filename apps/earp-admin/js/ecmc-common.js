@@ -38,6 +38,15 @@
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
   }
 
+  /* 小数归一化显示：服务端 NUMERIC(…,18) 可能返回 "0.800000000000000000"，
+   * 展示/编辑时去掉尾零（"0.800000000000000000" -> "0.8"）。非小数原样返回。 */
+  function fmtDecimal(v) {
+    if (v === null || v === undefined || v === '') return v;
+    var s = String(v);
+    if (!/^\d+\.\d+$/.test(s)) return s;
+    return s.replace(/\.?0+$/, '');
+  }
+
   function fmtHash(hash) {
     if (!hash) return '—';
     return String(hash).length > 12 ? String(hash).slice(0, 6) + '…' + String(hash).slice(-6) : esc(String(hash));
@@ -344,6 +353,7 @@
   window.ECMC.common = {
     esc: esc,
     fmtTime: fmtTime,
+    fmtDecimal: fmtDecimal,
     fmtHash: fmtHash,
     governanceBadge: governanceBadge,
     compileBadge: compileBadge,

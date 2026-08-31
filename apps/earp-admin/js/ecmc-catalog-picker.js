@@ -25,25 +25,27 @@
 
   function fakeAdapter() {
     var E = function (kind, stable_id, version, display_name, data_domain_id) {
-      return { kind: kind, stable_id: stable_id, version: version, display_name: display_name, status: 'active', data_domain_id: data_domain_id || 'production_data' };
+      // 数据域采用 stable-id 约定（production/equipment），与后端 dev fake catalog
+      // （main.py _dev_ecmc_catalog_entries）对齐，保证 ?catalog=fake 全流程可写。
+      return { kind: kind, stable_id: stable_id, version: version, display_name: display_name, status: 'active', data_domain_id: data_domain_id || 'production' };
     };
     var entries = [
       // data domains
-      E('data_domain', 'production', 'v1', '生产数据'),
-      E('data_domain', 'equipment', 'v1', '设备数据'),
+      E('data_domain', 'production', 'v1', '生产数据', 'production'),
+      E('data_domain', 'equipment', 'v1', '设备数据', 'equipment'),
       // entity types
       E('entity_type', 'entity.mine', 'v1', '矿山'),
       E('entity_type', 'entity.haulage_system', 'v1', '运输系统'),
-      E('entity_type', 'entity.equipment_group', 'v1', '设备组'),
+      E('entity_type', 'entity.equipment_group', 'v1', '设备组', 'equipment'),
       // relation types
       E('relation_type', 'relation.affects', 'v1', '影响'),
       E('relation_type', 'relation.has_subsystem', 'v1', '拥有子系统'),
       E('relation_type', 'relation.has_equipment_group', 'v1', '拥有设备组'),
       // metrics
-      E('metric', 'metric.production_output', 'v1', '产量', 'production_data'),
+      E('metric', 'metric.production_output', 'v1', '产量'),
       E('metric', 'metric.haulage_cycle_time', 'v1', '运输周期'),
       E('metric', 'metric.haulage_queue_time', 'v1', '排队时间'),
-      E('metric', 'metric.equipment_availability', 'v1', '设备可用率', 'equipment_data'),
+      E('metric', 'metric.equipment_availability', 'v1', '设备可用率', 'equipment'),
       // units
       E('unit', 'minute', 'v1', '分钟'),
       E('unit', 'ton', 'v1', '吨'),
@@ -55,9 +57,9 @@
       // time window schemas
       E('time_window_schema', 'daily_window', 'v1', '日窗口'),
       // binding templates（含 params schema，供 binding_params 结构化渲染）
-      { kind: 'binding_template', stable_id: 'context_entity', version: 'v1', display_name: '上下文实体', status: 'active', data_domain_id: 'production_data',
+      { kind: 'binding_template', stable_id: 'context_entity', version: 'v1', display_name: '上下文实体', status: 'active', data_domain_id: 'production',
         params_schema: { properties: [{ name: 'entity_type_ref', label: '目标实体类型', type: 'ref', kind: 'entity_type' }] } },
-      { kind: 'binding_template', stable_id: 'outbound_relation', version: 'v1', display_name: '出向关系', status: 'active', data_domain_id: 'production_data',
+      { kind: 'binding_template', stable_id: 'outbound_relation', version: 'v1', display_name: '出向关系', status: 'active', data_domain_id: 'production',
         params_schema: { properties: [
           { name: 'relation_type_ref', label: '关系类型', type: 'ref', kind: 'relation_type' },
           { name: 'target_entity_type_ref', label: '目标实体类型', type: 'ref', kind: 'entity_type' },
@@ -66,7 +68,7 @@
       E('capability_contract', 'contract.read_production_output', 'v1', '读取产量'),
       E('capability_contract', 'contract.read_haulage_cycle', 'v1', '读取运输周期'),
       E('capability_contract', 'contract.read_haulage_quality', 'v1', '读取运输质量'),
-      E('capability_contract', 'contract.read_equipment_health', 'v1', '读取设备健康'),
+      E('capability_contract', 'contract.read_equipment_health', 'v1', '读取设备健康', 'equipment'),
       // rule schemas
       E('rule_schema', 'direction_rule', 'v1', '方向规则'),
       E('rule_schema', 'threshold_rule', 'v1', '阈值规则'),
