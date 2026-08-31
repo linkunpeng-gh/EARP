@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import pathlib
 import time
 import uuid
@@ -488,6 +489,60 @@ def _elapsed_ms(started_at: float) -> int:
     return max(0, int((time.monotonic() - started_at) * 1000))
 
 
+def _dev_ecmc_catalog_entries() -> list[Any]:
+    """Dev/test-only fake catalog entries for ECMC page testing.
+
+    Mirrors the frontend `?catalog=fake` adapter (same stable_ids / domains) so the
+    full N01B page flow can be exercised against a real server.  Data domain uses
+    the stable-id convention (`production` / `equipment`) which the service stores
+    as `causal_models.data_domain_id`.  Never registered when the env flag is off;
+    production keeps the fail-closed `UnavailableCatalogResolver`.
+    """
+    from earp_server.causal_model_management.catalog import ResolvedCatalogRef
+
+    rows: list[tuple[str, str, str]] = [
+        ("data_domain", "production", "production"),
+        ("data_domain", "equipment", "equipment"),
+        ("entity_type", "entity.mine", "production"),
+        ("entity_type", "entity.haulage_system", "production"),
+        ("entity_type", "entity.equipment_group", "equipment"),
+        ("relation_type", "relation.affects", "production"),
+        ("relation_type", "relation.has_subsystem", "production"),
+        ("relation_type", "relation.has_equipment_group", "production"),
+        ("metric", "metric.production_output", "production"),
+        ("metric", "metric.haulage_cycle_time", "production"),
+        ("metric", "metric.haulage_queue_time", "production"),
+        ("metric", "metric.equipment_availability", "equipment"),
+        ("unit", "minute", "production"),
+        ("unit", "ton", "production"),
+        ("unit", "ratio", "production"),
+        ("aggregation", "mean", "production"),
+        ("aggregation", "sum_over_production_day", "production"),
+        ("aggregation", "availability_over_production_day", "production"),
+        ("time_window_schema", "daily_window", "production"),
+        ("binding_template", "context_entity", "production"),
+        ("binding_template", "outbound_relation", "production"),
+        ("capability_contract", "contract.read_production_output", "production"),
+        ("capability_contract", "contract.read_haulage_cycle", "production"),
+        ("capability_contract", "contract.read_haulage_quality", "production"),
+        ("capability_contract", "contract.read_equipment_health", "equipment"),
+        ("rule_schema", "direction_rule", "production"),
+        ("rule_schema", "threshold_rule", "production"),
+    ]
+    return [
+        ResolvedCatalogRef(
+            kind=kind,
+            stable_id=stable_id,
+            version="v1",
+            content_hash=(stable_id.encode().hex() + "0" * 64)[:64],
+            status="active",
+            data_domain_id=domain,
+            semantic_schema_version=f"{kind}/v1",
+        )
+        for kind, stable_id, domain in rows
+    ]
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings()
     init_all(cfg)
@@ -498,7 +553,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = build_engine(cfg)
         # The real catalog manifest/owner is intentionally unsigned.  Production
         # fails closed; contract tests explicitly replace this with the fake.
+        # Dev/test page testing: EARP_ECMC_TEST_CATALOG=1 registers the fake
+        # catalog (mirrors the frontend ?catalog=fake adapter) so N01B writes work.
         app.state.n01a_catalog_resolver = UnavailableCatalogResolver()
+        if cfg.app_env in ("dev", "test") and os.environ.get("EARP_ECMC_TEST_CATALOG") == "1":
+            try:
+                from earp_server.causal_model_management.catalog import FakeCatalogResolver
+
+                app.state.n01a_catalog_resolver = FakeCatalogResolver(_dev_ecmc_catalog_entries())
+                # Compiler requires active StepType pins (knowledge_query/output)。
+                # step_types 平台表仅授予 earp_app SELECT，需用 migration 超管连接种子（幂等）。
+                from sqlalchemy.ext.asyncio import create_async_engine
+                from sqlalchemy import text as _text
+
+                mgr_engine = create_async_engine(cfg.migration_database_url)
+                try:
+                    async with mgr_engine.begin() as conn:
+                        await conn.execute(
+                            _text(
+                                "INSERT INTO step_types (type_id, type_name, is_core) VALUES "
+                                "('step-knowledge-query','knowledge_query',true),('step-output','output',true) "
+                                "ON CONFLICT (type_id) DO NOTHING"
+                            )
+                        )
+                        await conn.execute(
+                            _text(
+                                "INSERT INTO step_type_versions "
+                                "(step_type_version_id,type_id,version,handler_version,handler_hash,params_schema,"
+                                "semantic_contract_version,status) VALUES "
+                                "('stv-knowledge-query-v1','step-knowledge-query','v1','h-v1',:h1,'{}'::jsonb,'v1','active'),"
+                                "('stv-output-v1','step-output','v1','h-v1',:h2,'{}'::jsonb,'v1','active') "
+                                "ON CONFLICT (step_type_version_id) DO NOTHING"
+                            ),
+                            {"h1": "a" * 64, "h2": "b" * 64},
+                        )
+                finally:
+                    await mgr_engine.dispose()
+                logger.info("EARP_ECMC_TEST_CATALOG=1: fake ECMC catalog enabled (dev/test only)")
+            except Exception:  # noqa: BLE001
+                logger.warning("ECMC fake catalog init failed — keeping fail-closed resolver", exc_info=True)
         # T1: 任务队列 — API 进程只 enqueue（worker 进程消费 eval.run 等）。
         # 连接失败不阻塞启动（/ready 语义：DB 不可达时 503，AC-01）；
         # enqueue 时连接错误会在请求层暴露。
@@ -799,6 +892,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(roles_router)
     app.include_router(app_center_router)
     app.include_router(causal_model_management_router)
+
+    # ── ECMC dev-only compile driver（N01B 页面测试）──
+    # 真实架构中 compile running→success 由 outbox 消费进程完成；本仓库尚无该
+    # 消费进程，页面测试时编译会停在 running。此路由仅在 dev/test +
+    # EARP_ECMC_TEST_CATALOG=1 下启用，等价于测试里直接调用 complete_attempt，
+    # 生产保持 404。
+    @app.post(
+        "/v1/ecmc/_dev/complete-compile/{compile_id}",
+        tags=["ecmc-causal-model-management", "ecmc-dev"],
+    )
+    async def dev_complete_compile(compile_id: str, request: Request) -> dict[str, Any]:
+        if request.app.state.settings.app_env not in ("dev", "test") or os.environ.get("EARP_ECMC_TEST_CATALOG") != "1":
+            raise HTTPException(status_code=404, detail="dev compile driver is disabled")
+        from earp_server.causal_model_management.compiler import CandidateCompileService
+        from earp_server.causal_model_management.service import ActorContext
+
+        actor = ActorContext(
+            tenant_id=request.state.tenant_id,
+            actor_id=request.state.user_id,
+            role_id=request.state.role_id,
+            correlation_id=request.state.n01a_correlation_id,
+        )
+        result = await CandidateCompileService(
+            request.app.state.engine, request.app.state.n01a_catalog_resolver
+        ).complete_attempt(actor, compile_id)
+        return result
 
     # ── Capability Registry ──
     @app.post("/capabilities", status_code=201, tags=["capabilities"])

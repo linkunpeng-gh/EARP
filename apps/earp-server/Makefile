@@ -5,7 +5,9 @@ export EARP_MIGRATION_DATABASE_URL ?= postgresql+psycopg://postgres:postgres@loc
 .PHONY: db-up db-down migrate api dev test lint openapi spike squawk e2e audit-worker plugin-daemon
 
 db-up:
-	docker compose up -d --wait
+	# langfuse:3 需要 ClickHouse，本仓库 compose 未提供；它是可选可观测性服务，
+	# 不参与核心 dev 栈，故这里只等待 pg/valkey/minio（langfuse 单独需要时再拉）。
+	docker compose up -d --wait pg valkey minio
 
 db-down:
 	docker compose down -v
