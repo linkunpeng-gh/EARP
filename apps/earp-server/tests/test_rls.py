@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.infra.db import build_session_factory, tenant_session
 
-TENANT_TABLE_COUNT = 70  # + T04: 23 tenant-owned causal/Blueprint/reasoning tables
+TENANT_TABLE_COUNT = 78  # + N01A: 8 tenant-owned governance/Blueprint/catalog/outbox tables
 
 
 @pytest.fixture(scope="module")
@@ -141,6 +141,14 @@ async def test_full_table_rls_matrix(app_engine: AsyncEngine) -> None:
         "blueprint_step_sources",
         "reasoning_contexts",
         "reasoning_traces",
+        "causal_model_reviews",
+        "causal_model_validation_runs",
+        "blueprint_capability_requirements",
+        "catalog_change_requests",
+        "catalog_fulfillment_attempts",
+        "idempotency_records",
+        "outbox_events",
+        "outbox_deliveries",
     ]
     async with tenant_session(app_engine, "rls-t1") as session:
         for table in tables:

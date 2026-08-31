@@ -729,7 +729,7 @@ async def _import_causal_snapshot(
                 "requirement_key, capability_role, capability_contract_ref) "
                 "VALUES (:tenant_id, :cap_binding_row_id, :model_version_id, :node_key, :requirement_key, "
                 "'primary', :capability_contract_ref) "
-                "ON CONFLICT (tenant_id, model_version_id, node_key, requirement_key, capability_role) DO NOTHING"
+                "ON CONFLICT (tenant_id, cap_binding_row_id) DO NOTHING"
             ),
             {
                 **base,

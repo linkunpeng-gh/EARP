@@ -7,11 +7,14 @@ import json
 import logging
 import pathlib
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +33,9 @@ from earp_server.capability.service import (
     get_capability,
     update_capability,
 )
+from earp_server.causal_model_management.catalog import CatalogResolutionError, UnavailableCatalogResolver
+from earp_server.causal_model_management.errors import N01AError
+from earp_server.causal_model_management.routes import router as causal_model_management_router
 from earp_server.config import Settings
 from earp_server.connector import LLMConnector
 from earp_server.conversation.chat_app_service import (
@@ -490,6 +496,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.settings = cfg
         app.state.engine = build_engine(cfg)
+        # The real catalog manifest/owner is intentionally unsigned.  Production
+        # fails closed; contract tests explicitly replace this with the fake.
+        app.state.n01a_catalog_resolver = UnavailableCatalogResolver()
         # T1: 任务队列 — API 进程只 enqueue（worker 进程消费 eval.run 等）。
         # 连接失败不阻塞启动（/ready 语义：DB 不可达时 503，AC-01）；
         # enqueue 时连接错误会在请求层暴露。
@@ -601,6 +610,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await app.state.engine.dispose()
 
     app = FastAPI(title=APP_TITLE, version=APP_VERSION, lifespan=lifespan)
+
+    @app.exception_handler(N01AError)
+    async def n01a_error_handler(request: Request, error: N01AError) -> JSONResponse:
+        correlation_id = getattr(request.state, "n01a_correlation_id", f"corr-{uuid.uuid4().hex}")
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "error": {
+                    "code": error.code,
+                    "message": error.message,
+                    "correlation_id": correlation_id,
+                    "details": error.details,
+                }
+            },
+            headers={"X-Correlation-Id": correlation_id},
+        )
+
+    @app.exception_handler(CatalogResolutionError)
+    async def n01a_catalog_error_handler(request: Request, error: CatalogResolutionError) -> JSONResponse:
+        correlation_id = getattr(request.state, "n01a_correlation_id", f"corr-{uuid.uuid4().hex}")
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": error.code,
+                    "message": error.message,
+                    "correlation_id": correlation_id,
+                    "details": {"catalog_ref": error.ref.model_dump(mode="json")},
+                }
+            },
+            headers={"X-Correlation-Id": correlation_id},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def n01a_request_validation_handler(request: Request, error: RequestValidationError):
+        if not request.url.path.startswith("/v1/ecmc/causal-models") and not request.url.path.startswith(
+            "/v1/ecmc/catalog-change-requests"
+        ):
+            return await request_validation_exception_handler(request, error)
+        correlation_id = getattr(request.state, "n01a_correlation_id", f"corr-{uuid.uuid4().hex}")
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "REQUEST_SCHEMA_INVALID",
+                    "message": "The request does not match the N01A API contract.",
+                    "correlation_id": correlation_id,
+                    "details": {"errors": error.errors()},
+                }
+            },
+            headers={"X-Correlation-Id": correlation_id},
+        )
     # CORS must be added AFTER JWTMiddleware so it wraps it (Starlette LIFO) and
     # handles preflight OPTIONS before JWT auth — otherwise cross-origin admin
     # dashboard calls fail with "Failed to fetch" (no Access-Control-Allow-* headers).
@@ -619,6 +680,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _admin_dir = pathlib.Path(__file__).resolve().parents[3] / "earp-admin"
     if _admin_dir.exists():
         app.mount("/admin", StaticFiles(directory=str(_admin_dir), html=True), name="admin")
+
+    @app.middleware("http")
+    async def correlation_id_header(request: Request, call_next):
+        correlation_id = request.headers.get("X-Correlation-Id") or f"corr-{uuid.uuid4().hex}"
+        request.state.n01a_correlation_id = correlation_id
+        response = await call_next(request)
+        response.headers["X-Correlation-Id"] = correlation_id
+        return response
 
     @app.middleware("http")
     async def no_cache_admin_html(request: Request, call_next):
@@ -729,6 +798,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_routes_router)
     app.include_router(roles_router)
     app.include_router(app_center_router)
+    app.include_router(causal_model_management_router)
 
     # ── Capability Registry ──
     @app.post("/capabilities", status_code=201, tags=["capabilities"])
