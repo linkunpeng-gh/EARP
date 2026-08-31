@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="ECMC 模型资产 — 因果模型管理">
+<title>模型资产 · ECMC — EARP</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="stylesheet" href="../css/admin.css"><link rel="stylesheet" href="../css/ecmc.css"></head>
+<body data-base=".." data-section="ecmc" data-sub="ecmc-models">
+<header id="app-header"></header>
+<main>
+  <div class="page-title">
+    <div>
+      <h2>模型资产</h2>
+      <p class="page-subtitle">N01B · 模型版本治理 / 受控目录引用 / 发布与激活分离 · <code>FE-ECMC-2026-0830</code></p>
+    </div>
+    <button class="btn-sm primary" id="ecmc-new-model">+ 新建模型</button>
+  </div>
+
+  <div id="ecmc-errorbar" class="ecmc-errorbar"></div>
+
+  <div class="ecmc-tabs">
+    <button class="ecmc-tab" data-type="all">全部模型</button>
+    <button class="ecmc-tab" data-type="causal">因果模型</button>
+    <button class="ecmc-tab" data-type="decision" data-planned="1">决策模型<span class="planned-tag">规划中</span></button>
+    <button class="ecmc-tab" data-type="task" data-planned="1">任务模型<span class="planned-tag">规划中</span></button>
+  </div>
+
+  <div class="ecmc-toolbar">
+    <input type="search" id="ecmc-model-search" placeholder="搜索模型名称 / ID">
+    <select id="ecmc-model-domain"><option value="">全部数据域</option></select>
+    <select id="ecmc-model-status"><option value="">全部状态</option></select>
+    <span id="ecmc-model-count" style="font-size:0.76rem;color:var(--text-tertiary)"></span>
+  </div>
+
+  <div class="ecmc-table-wrap">
+    <table class="ecmc-table">
+      <thead><tr>
+        <th>模型名称</th><th>类型</th><th>诊断目标</th><th>数据域</th>
+        <th>最新版本</th><th>Active Version</th><th>最近更新</th><th>操作</th>
+      </tr></thead>
+      <tbody id="ecmc-model-rows"></tbody>
+    </table>
+    <div class="ecmc-empty-state" id="ecmc-model-empty" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      <p>暂无匹配的模型</p>
+      <small>点击右上角「新建模型」创建第一个因果模型草稿；决策/任务模型规划中。</small>
+    </div>
+  </div>
+
+  <p class="ecmc-pagination" style="color:var(--text-quaternary);font-size:0.72rem;margin-top:0.75rem">
+    状态筛选使用后端治理枚举（draft / in_review / published / superseded / archived）；API 不可用时明确展示连接失败，不回退伪造数据。
+  </p>
+</main>
+<script src="../js/app.js"></script><script src="../js/nav.js"></script><script src="../js/ecmc-api.js"></script><script src="../js/ecmc-common.js"></script><script src="../js/ecmc-catalog-picker.js"></script><script src="../js/ecmc-models.js"></script>
+</body></html>

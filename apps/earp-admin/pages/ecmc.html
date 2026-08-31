@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="企业认知模型中心 ECMC — 概览">
+<title>企业认知模型中心 ECMC — EARP</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="stylesheet" href="../css/admin.css"><link rel="stylesheet" href="../css/ecmc.css"></head>
+<body data-base=".." data-section="ecmc" data-sub="ecmc">
+<header id="app-header"></header>
+<main>
+  <div class="page-title">
+    <div>
+      <div class="ecmc-brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg><div><strong>企业认知模型中心 ECMC</strong><small>企业认知模型的治理与运行时衔接</small></div></div>
+      <p class="page-subtitle">管理可版本化、可审核、可编译、可激活的企业认知模型；已发布内容只读，发布与激活分离。</p>
+    </div>
+    <button class="btn-sm primary" onclick="location.href='ecmc-models.html?type=causal'">+ 新建因果模型</button>
+  </div>
+
+  <div id="ecmc-errorbar" class="ecmc-errorbar"></div>
+
+  <!-- 状态卡片 -->
+  <div class="ecmc-overview-grid" id="ecmc-stats">
+    <div class="ecmc-stat-card"><div class="num" id="st-total">–</div><div class="label">模型总数</div></div>
+    <div class="ecmc-stat-card"><div class="num" id="st-draft">–</div><div class="label">Draft 数量</div></div>
+    <div class="ecmc-stat-card"><div class="num" id="st-review">–</div><div class="label">待审核</div></div>
+    <div class="ecmc-stat-card"><div class="num" id="st-compile-failed">–</div><div class="label">编译失败</div></div>
+    <div class="ecmc-stat-card"><div class="num" id="st-active">–</div><div class="label">当前 Active 模型</div></div>
+  </div>
+
+  <div class="ecmc-cols">
+    <!-- 工作队列 -->
+    <div class="ecmc-queue">
+      <h3>工作队列</h3>
+      <div id="ecmc-queue"></div>
+    </div>
+
+    <!-- 模型族展示 -->
+    <div class="ecmc-queue">
+      <h3>模型族</h3>
+      <div class="ecmc-queue-item" onclick="location.href='ecmc-models.html?type=causal'">
+        <div class="qi-main"><div class="qi-title"><span class="ecmc-type-badge causal">因果模型</span> 解释「为什么发生」</div>
+        <div class="qi-meta">诊断结果 · 证据 · 置信度 → 决策模型 → 任务模型</div></div>
+        <span class="ecmc-badge success">可用</span>
+      </div>
+      <div class="ecmc-queue-item" style="cursor:default">
+        <div class="qi-main"><div class="qi-title"><span class="ecmc-type-badge decision">决策模型</span> 判断「应该做什么」</div>
+        <div class="qi-meta">推荐措施 · 约束 · 审批点</div></div>
+        <span class="ecmc-badge planned">规划中</span>
+      </div>
+      <div class="ecmc-queue-item" style="cursor:default">
+        <div class="qi-main"><div class="qi-title"><span class="ecmc-type-badge task">任务模型</span> 定义「如何执行」</div>
+        <div class="qi-meta">步骤 · 依赖 · 能力需求</div></div>
+        <span class="ecmc-badge planned">规划中</span>
+      </div>
+      <div class="ecmc-queue-item" style="cursor:default">
+        <div class="qi-main"><div class="qi-title">模型依赖</div>
+        <div class="qi-meta">跨模型引用固定到已发布 Version/Snapshot</div></div>
+        <span class="ecmc-badge planned">后续</span>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="../js/app.js"></script><script src="../js/nav.js"></script><script src="../js/ecmc-api.js"></script><script src="../js/ecmc-common.js"></script><script src="../js/ecmc-overview.js"></script>
+</body></html>

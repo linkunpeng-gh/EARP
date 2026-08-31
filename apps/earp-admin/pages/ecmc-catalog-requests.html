@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="ECMC 目录扩展申请">
+<title>目录扩展申请 · ECMC — EARP</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="stylesheet" href="../css/admin.css"><link rel="stylesheet" href="../css/ecmc.css"></head>
+<body data-base=".." data-section="ecmc" data-sub="ecmc-catalog-requests">
+<header id="app-header"></header>
+<main>
+  <div class="page-title">
+    <div><h2>目录扩展申请</h2>
+    <p class="page-subtitle">受控目录缺项申请 · 批准 ≠ 已创建目录项 · 履约完成前模型不可引用 · 禁止 SQL/凭据/endpoint/自由 DSL</p></div>
+    <button class="btn-sm primary" id="ecmc-new-request">+ 新建申请</button>
+  </div>
+  <div id="ecmc-errorbar" class="ecmc-errorbar"></div>
+
+  <div class="ecmc-toolbar">
+    <input type="search" id="ecmc-req-search" placeholder="搜索业务名称 / stable_id">
+    <select id="ecmc-req-status">
+      <option value="">全部状态</option>
+      <option value="draft">draft</option>
+      <option value="submitted">submitted</option>
+      <option value="approved_pending_fulfillment">approved_pending_fulfillment</option>
+      <option value="fulfilled">fulfilled</option>
+      <option value="rejected">rejected</option>
+      <option value="cancelled">cancelled</option>
+      <option value="fulfillment_failed">fulfillment_failed</option>
+    </select>
+    <span id="ecmc-req-count" style="font-size:0.76rem;color:var(--text-tertiary)"></span>
+  </div>
+
+  <div id="ecmc-request-list"></div>
+  <div class="ecmc-empty-state" id="ecmc-req-empty" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    <p>暂无目录扩展申请</p>
+    <small>申请状态机：draft → submitted → approved_pending_fulfillment → fulfilled（或 rejected / cancelled / fulfillment_failed）。</small>
+  </div>
+
+  <p class="ecmc-pagination" style="color:var(--text-quaternary);font-size:0.72rem;margin-top:0.75rem">
+    生产 Catalog browse/search API 未签署：选择器使用 test-only 适配器（?catalog=fake）或走申请流程，不假设真实目录存在（§9.3）。
+  </p>
+</main>
+<script src="../js/app.js"></script><script src="../js/nav.js"></script><script src="../js/ecmc-api.js"></script><script src="../js/ecmc-common.js"></script><script src="../js/ecmc-catalog-picker.js"></script><script src="../js/ecmc-governance.js"></script><script src="../js/ecmc-catalog-requests.js"></script>
+</body></html>

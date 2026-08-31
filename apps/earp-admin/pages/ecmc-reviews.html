@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="ECMC 审核发布">
+<title>审核发布 · ECMC — EARP</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="stylesheet" href="../css/admin.css"><link rel="stylesheet" href="../css/ecmc.css"></head>
+<body data-base=".." data-section="ecmc" data-sub="ecmc-reviews-mine">
+<header id="app-header"></header>
+<main>
+  <div class="page-title">
+    <div><h2>审核发布</h2>
+    <p class="page-subtitle">只读审核 · 驳回必须填写原因 · 发布生成不可变 Snapshot（不切换 runtime active）</p></div>
+  </div>
+  <div id="ecmc-errorbar" class="ecmc-errorbar"></div>
+
+  <div class="ecmc-tabs">
+    <button class="ecmc-tab" data-filter="mine">待审核</button>
+    <button class="ecmc-tab" data-filter="published">发布记录</button>
+    <button class="ecmc-tab" data-filter="rejected">驳回记录</button>
+  </div>
+
+  <div class="ecmc-table-wrap">
+    <table class="ecmc-table">
+      <thead><tr><th>模型</th><th>Version</th><th>状态</th><th>Active</th><th>最近更新</th><th>操作</th></tr></thead>
+      <tbody id="ecmc-review-rows"></tbody>
+    </table>
+    <div class="ecmc-empty-state" id="ecmc-review-empty" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <p id="ecmc-review-empty-text">暂无待审核版本</p>
+      <small>审核页为只读：可查看内容、定位校验问题、驳回（必须填写原因）或治理发布。</small>
+    </div>
+  </div>
+
+  <p class="ecmc-pagination" style="color:var(--text-quaternary);font-size:0.72rem;margin-top:0.75rem">
+    审核与发布必须使用不同文案和不同权限（§8.1）；系统错误（403/404/409/请求 schema）通过全局错误条展示，不进入校验列表。
+  </p>
+</main>
+<script src="../js/app.js"></script><script src="../js/nav.js"></script><script src="../js/ecmc-api.js"></script><script src="../js/ecmc-common.js"></script><script src="../js/ecmc-reviews.js"></script>
+</body></html>

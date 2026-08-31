@@ -159,4 +159,44 @@ allOk = runScenario('monitor-audit.html', { base: '..', section: 'monitor', sub:
   if (drawer.innerHTML.includes('审计')) fail('monitor drawer should NOT contain 审计');
 });
 
+// ── ECMC（FE-ECMC-2026-0830 §2.1 / §4.1）──
+allOk = runScenario('ecmc.html', { base: '..', section: 'ecmc', sub: 'ecmc' }, '', ({ h, drawer, fail, nav }) => {
+  if (!h.includes('data-nav-section="ecmc"')) fail('ecmc section not in top nav');
+  if (!h.includes('>认知模型<')) fail('top nav missing 认知模型');
+  if (h.includes('data-nav-section="plugins"')) fail('插件中心 should be merged out of top nav (FE-ECMC-2026-0830 §2.1)');
+  const d = drawer.innerHTML;
+  ['概览', '全部模型', '因果模型', '决策模型', '任务模型', '待审核', '发布记录', '驳回记录',
+   '最新编译状态', 'Candidate Artifacts', 'Active Versions', '模型依赖', '目录扩展申请'].forEach((t) => {
+    if (!d.includes(t)) fail('ECMC drawer missing ' + t);
+  });
+  if (!d.includes('ecmc-models.html')) fail('ECMC drawer 全部模型 link wrong');
+  if (!d.includes('ecmc-models.html?type=causal')) fail('ECMC drawer 因果模型 link wrong');
+  if (!d.includes('ecmc-reviews.html')) fail('ECMC drawer 审核发布 link wrong');
+  if (!d.includes('ecmc-compiles.html')) fail('ECMC drawer 编译与激活 link wrong');
+  if (!d.includes('ecmc-catalog-requests.html')) fail('ECMC drawer 目录申请 link wrong');
+  if (!d.includes('class="drawer-item active"')) fail('ECMC 概览 not active');
+  if (!d.includes('planned-tag')) fail('ECMC drawer should contain planned tags');
+  if (!d.includes('planned.html?section=ecmc&item=ecmc-decision')) fail('ECMC 决策模型 planned link wrong');
+  if (!d.includes('planned.html?section=ecmc&item=ecmc-task')) fail('ECMC 任务模型 planned link wrong');
+  if (!d.includes('planned.html?section=ecmc&item=ecmc-dependencies')) fail('ECMC 模型依赖 planned link wrong');
+  if (!nav.PLANNED['ecmc/decision-models']) fail('PLANNED data missing for decision models');
+  if (!nav.PLANNED['ecmc/task-models']) fail('PLANNED data missing for task models');
+  if (!nav.PLANNED['ecmc/model-dependencies']) fail('PLANNED data missing for model dependencies');
+  if (!nav.PLANNED['capability/plugins-manage']) fail('PLANNED data missing for plugins-manage (merged into capability)');
+});
+
+allOk = runScenario('ecmc-models.html?type=causal', { base: '..', section: 'ecmc', sub: 'ecmc-models-causal' }, '', ({ drawer, fail }) => {
+  if (!drawer.innerHTML.includes('class="drawer-item active"')) fail('因果模型 drawer item not active');
+});
+
+allOk = runScenario('ecmc-causal-edit.html', { base: '..', section: 'ecmc', nav: 'editor' }, '?model_id=cm-1&version_id=cmv-1', ({ h, shell, main, fail }) => {
+  if (!h.includes('data-nav-section="ecmc"')) fail('editor should keep top nav section');
+  if (shell) fail('editor should NOT wrap main in .app-shell (no drawer)');
+});
+
+allOk = runScenario('capability-plugins.html', { base: '..', section: 'capability', sub: 'plugins-manage' }, '', ({ drawer, fail }) => {
+  if (!drawer.innerHTML.includes('插件管理') || !drawer.innerHTML.includes('planned-tag')) fail('插件管理 should be planned under capability');
+  if (!drawer.innerHTML.includes('planned.html?section=capability&item=plugins-manage')) fail('插件管理 planned link wrong');
+});
+
 process.exit(allOk ? 0 : 1);

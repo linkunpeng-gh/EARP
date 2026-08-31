@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="ECMC 因果模型编辑器 — 全屏 DAG 建模">
+<title>因果模型编辑器 · ECMC — EARP</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="stylesheet" href="../css/admin.css"><link rel="stylesheet" href="../css/ecmc.css"></head>
+<body data-base=".." data-section="ecmc" data-nav="editor">
+<header id="app-header"></header>
+<main>
+  <div class="ecmc-editor">
+    <!-- 顶部命令栏 52px -->
+    <div class="ecmc-commandbar">
+      <button class="cb-back" id="cb-back">← 返回模型资产</button>
+      <span class="cb-name" id="cb-name">加载中…</span>
+      <span class="cb-version"><select id="cb-version" title="Version 选择器"></select></span>
+      <span id="cb-status"></span>
+      <span id="cb-active"></span>
+      <span class="cb-revision" id="cb-revision"></span>
+      <span class="cb-spacer"></span>
+      <button class="btn-sm secondary" id="cb-toggle-left" title="折叠/展开左侧结构面板">☰</button>
+      <button class="btn-sm secondary" id="cb-toggle-right" title="折叠/展开右侧属性面板">▤</button>
+      <span class="cb-save-state" id="cb-save-state"></span>
+      <span id="cb-actions"></span>
+    </div>
+
+    <div id="ecmc-errorbar" class="ecmc-errorbar" style="margin:0.5rem 0.75rem 0"></div>
+
+    <!-- 三栏主体 -->
+    <div class="ecmc-editor-body" id="ecmc-editor-body">
+      <!-- 左侧结构面板 -->
+      <aside class="ecmc-struct">
+        <div class="ecmc-struct-tabs">
+          <button class="ecmc-struct-tab active" data-mode="outline">图结构</button>
+          <button class="ecmc-struct-tab" data-mode="components">组件</button>
+        </div>
+        <div id="struct-outline">
+          <div class="ecmc-struct-search"><input type="search" id="struct-search" placeholder="搜索 key / 业务名称"></div>
+          <div class="ecmc-struct-body" id="struct-body"></div>
+        </div>
+        <div id="struct-components" style="display:none">
+          <div class="ecmc-struct-body" style="padding:0.6rem">
+            <div class="ecmc-field" style="margin-bottom:0.5rem"><label>新增资源</label></div>
+            <div class="ecmc-struct-actions">
+              <button class="btn" id="add-node">+ 新增节点</button>
+              <button class="btn secondary" id="add-edge">+ 新增边</button>
+              <button class="btn secondary" id="add-evidence">+ 证据需求</button>
+              <button class="btn secondary" id="add-rule">+ 规则</button>
+            </div>
+            <div class="info-box" style="margin-top:0.6rem;font-size:0.72rem">可执行字段（实体/关系/指标/合同等）只能从受控目录选择；缺失目录项请走目录扩展申请。</div>
+          </div>
+        </div>
+        <div style="padding:0.55rem 0.7rem;border-top:1px solid var(--border-subtle);font-size:0.72rem;color:var(--text-quaternary)" id="struct-count"></div>
+      </aside>
+
+      <!-- 中央画布（≥720px） -->
+      <div class="ecmc-canvas-wrap" id="canvas-wrap">
+        <div class="ecmc-canvas" id="canvas"></div>
+        <div class="ecmc-canvas-tools">
+          <button id="canvas-layout" title="自动布局（确定性，不进入模型 hash）">⇶</button>
+          <button id="canvas-fit" title="适配屏幕">⛶</button>
+        </div>
+        <div class="ecmc-canvas-zoom">
+          <button id="canvas-zoom-out" title="缩小">−</button>
+          <span id="canvas-zoom-value">100%</span>
+          <button id="canvas-zoom-in" title="放大">+</button>
+        </div>
+        <div class="ecmc-canvas-empty" id="ecmc-loading" style="display:none">加载中…</div>
+      </div>
+
+      <!-- 右侧属性面板 -->
+      <aside class="ecmc-inspector">
+        <div class="ecmc-inspector-head" id="inspector-head"><h4>属性</h4><span class="ih-type">RESOURCE</span></div>
+        <div style="flex:1;overflow-y:auto;min-height:0">
+          <div id="review-panel" class="ecmc-review-panel" style="display:none;margin:0.6rem"></div>
+          <div id="inspector-body" class="ecmc-inspector-body"></div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 底部校验抽屉：收起 40px / 展开 240–320px -->
+    <div class="ecmc-validation-drawer" id="validation-drawer">
+      <div class="ecmc-validation-bar" id="validation-bar">
+        <span class="vb-title">校验结果</span>
+        <span class="vb-count" id="vb-count"></span>
+        <span class="vb-spacer"></span>
+        <span class="vb-count" id="vb-summary"></span>
+        <span class="vb-toggle">▴</span>
+      </div>
+      <div class="ecmc-validation-body" id="validation-list"><div class="ecmc-validation-empty">尚未运行校验（草稿可点击命令栏「校验」）。</div></div>
+    </div>
+  </div>
+</main>
+<script src="../js/app.js"></script><script src="../js/nav.js"></script><script src="../js/ecmc-api.js"></script><script src="../js/ecmc-common.js"></script><script src="../js/ecmc-catalog-picker.js"></script><script src="../js/ecmc-validation.js"></script><script src="../js/ecmc-governance.js"></script><script src="../js/ecmc-causal-editor.js"></script>
+</body></html>

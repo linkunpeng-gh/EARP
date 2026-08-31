@@ -4,9 +4,10 @@
  *
  * Pages declare their context on <body>:
  *   data-base     path prefix back to the repo root ("." for index.html, ".." for pages/)
- *   data-section  active top-level menu id (home|workspace|knowledge|capability|apps|plugins|governance|monitor)
+ *   data-section  active top-level menu id (home|workspace|knowledge|ecmc|capability|apps|governance|monitor)
  *   data-sub      active drawer item id (see DRAWERS below; planned.html passes ?section=&item= instead)
  *   data-nav      "none" → minimal header (brand + meta only, no menu/drawer, e.g. login.html)
+ *                 "editor" → brand + top menu + meta, no drawer (fullscreen editor, e.g. ecmc-causal-edit.html)
  *
  * The header content and the left drawer are rendered at DOMContentLoaded, so a
  * page only needs <header></header> + <main>…</main>; the drawer element and the
@@ -17,13 +18,15 @@
   'use strict';
 
   // ── Top-level menu (一级菜单) ──
+  // FE-ECMC-2026-0830 §2.1: 首页｜工作台｜知识中心｜认知模型｜能力中心｜应用中心｜治理中心｜运行监控
+  // 插件中心已合并入能力中心（规划中），避免 1280px 视口下导航拥挤；归属以导航专项评审为准。
   var SECTIONS = [
     { id: 'home',        label: '首页',     path: '{b}/index.html' },
     { id: 'workspace',   label: '工作台',   path: '{b}/pages/planned.html?section=workspace' },
     { id: 'knowledge',   label: '知识中心', path: '{b}/pages/knowledge.html' },
+    { id: 'ecmc',        label: '认知模型', path: '{b}/pages/ecmc.html' },
     { id: 'capability',  label: '能力中心', path: '{b}/pages/capabilities.html' },
     { id: 'apps',        label: '应用中心', path: '{b}/pages/planned.html?section=apps' },
-    { id: 'plugins',     label: '插件中心', path: '{b}/pages/planned.html?section=plugins' },
     { id: 'governance',  label: '治理中心', path: '{b}/pages/audit.html' },
     { id: 'monitor',     label: '运行监控', path: '{b}/pages/sessions.html' },
   ];
@@ -59,14 +62,28 @@
       { label: '推理测试', sub: 'plan', path: '{b}/pages/plan.html' },
       { label: '流式推理', sub: 'stream', path: '{b}/pages/stream.html' },
       { label: '连接器', sub: 'connector', planned: 'capability/connector' },
+      { label: '插件管理', sub: 'plugins-manage', planned: 'capability/plugins-manage' },
       { label: '模型配置', sub: 'models', path: '{b}/pages/models.html' },
+    ],
+    // FE-ECMC-2026-0830 §4.1 — ECMC 左侧二级导航；编辑器页折叠抽屉（data-nav="editor"）
+    ecmc: [
+      { label: '概览', sub: 'ecmc', path: '{b}/pages/ecmc.html' },
+      { label: '全部模型', sub: 'ecmc-models', path: '{b}/pages/ecmc-models.html', group: '模型资产' },
+      { label: '因果模型', sub: 'ecmc-models-causal', path: '{b}/pages/ecmc-models.html?type=causal&sub=ecmc-models-causal', group: '模型资产' },
+      { label: '决策模型', sub: 'ecmc-decision', planned: 'ecmc/decision-models', group: '模型资产' },
+      { label: '任务模型', sub: 'ecmc-task', planned: 'ecmc/task-models', group: '模型资产' },
+      { label: '待审核', sub: 'ecmc-reviews-mine', path: '{b}/pages/ecmc-reviews.html?filter=mine&sub=ecmc-reviews-mine', group: '审核发布' },
+      { label: '发布记录', sub: 'ecmc-reviews-published', path: '{b}/pages/ecmc-reviews.html?filter=published&sub=ecmc-reviews-published', group: '审核发布' },
+      { label: '驳回记录', sub: 'ecmc-reviews-rejected', path: '{b}/pages/ecmc-reviews.html?filter=rejected&sub=ecmc-reviews-rejected', group: '审核发布' },
+      { label: '最新编译状态', sub: 'ecmc-compiles', path: '{b}/pages/ecmc-compiles.html', group: '编译与激活' },
+      { label: 'Candidate Artifacts', sub: 'ecmc-artifacts', path: '{b}/pages/ecmc-compiles.html?view=artifacts&sub=ecmc-artifacts', group: '编译与激活' },
+      { label: 'Active Versions', sub: 'ecmc-active', path: '{b}/pages/ecmc-compiles.html?view=active&sub=ecmc-active', group: '编译与激活' },
+      { label: '模型依赖', sub: 'ecmc-dependencies', planned: 'ecmc/model-dependencies', group: '后续' },
+      { label: '目录扩展申请', sub: 'ecmc-catalog-requests', path: '{b}/pages/ecmc-catalog-requests.html' },
     ],
     apps: [
       { label: '智能体', sub: 'overview', path: '{b}/pages/apps.html' },
       { label: '我的应用', sub: 'mine', path: '{b}/pages/my-apps.html' },
-    ],
-    plugins: [
-      { label: '插件管理', sub: 'manage', planned: 'plugins/manage' },
     ],
     governance: [
       { label: 'Audit', sub: 'audit', path: '{b}/pages/audit.html' },
@@ -110,10 +127,25 @@
       desc: '连接器配置页。连接器（MCP / REST / DB 三类）是 capability 的执行后端，归能力中心（架构一致、配置闭环）；首期实现 MCP，REST/DB 占位。',
       related: [['能力注册', '{b}/pages/capabilities.html'], ['模型配置', '{b}/pages/models.html']],
     },
-    'plugins/manage': {
-      label: '插件管理', section: 'plugins', phase: '规划中', priority: '—',
-      desc: '插件生命周期管理（安装 / 启停 / 版本），随 roadmap 点亮。',
-      related: [],
+    'capability/plugins-manage': {
+      label: '插件管理', section: 'capability', phase: '规划中', priority: '—',
+      desc: '插件生命周期管理（安装 / 启停 / 版本）。按 FE-ECMC-2026-0830 §2.1 插件中心并入能力中心，归属以导航专项评审为准。',
+      related: [['能力注册', '{b}/pages/capabilities.html']],
+    },
+    'ecmc/decision-models': {
+      label: '决策模型', section: 'ecmc', phase: '规划中', priority: '—',
+      desc: '决策模型编辑器（N01B 范围外）。决策模型 API/元模型尚未冻结，不得复用因果模型 API 伪造功能。',
+      related: [['认知模型概览', '{b}/pages/ecmc.html'], ['因果模型', '{b}/pages/ecmc-models.html?type=causal']],
+    },
+    'ecmc/task-models': {
+      label: '任务模型', section: 'ecmc', phase: '规划中', priority: '—',
+      desc: '任务模型编辑器（N01B 范围外）。任务模型 API/元模型尚未冻结，仅保留导航占位。',
+      related: [['认知模型概览', '{b}/pages/ecmc.html']],
+    },
+    'ecmc/model-dependencies': {
+      label: '模型依赖', section: 'ecmc', phase: '后续', priority: '—',
+      desc: '跨模型引用必须固定到已发布 Version/Snapshot；决策/任务模型合同冻结前仅保留设计，不进入 N01B 实施。',
+      related: [['认知模型概览', '{b}/pages/ecmc.html']],
     },
     'governance/org': {
       label: 'Org', section: 'governance', phase: '规划中', priority: '—',
@@ -161,13 +193,23 @@
     return '<span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg><a href="' + href(base, '{b}/index.html') + '" style="color:inherit;text-decoration:none">EARP</a></span>';
   }
 
-  function renderTopNav(base, sectionId) {
+  function renderTopNav(base, sectionId, ecmcFake) {
     var items = SECTIONS.map(function (s) {
       var active = s.id === sectionId ? ' class="active" aria-current="page"' : '';
-      return '<a href="' + href(base, s.path) + '" data-nav-section="' + s.id + '"' + active + '>'
+      var p = href(base, s.path);
+      // test-only Catalog 模式：ECMC 顶栏入口透传 catalog=fake（§9.3）
+      if (ecmcFake && s.id === 'ecmc') p = appendFake(p, true);
+      return '<a href="' + p + '" data-nav-section="' + s.id + '"' + active + '>'
         + icon(s.id) + '<span>' + esc(s.label) + '</span></a>';
     }).join('');
     return '<nav>' + items + '</nav>';
+  }
+
+  // 透传 test-only Catalog 参数，避免重复
+  function appendFake(href, fake) {
+    if (!fake) return href;
+    if (/[?&]catalog=fake(?:&|$)/.test(href)) return href;
+    return href + (href.indexOf('?') === -1 ? '?' : '&') + 'catalog=fake';
   }
 
   function jwtMeta() {
@@ -194,7 +236,7 @@
     return '<div class="meta">' + label + ' · <a href="' + href(base, '{b}/pages/login.html') + '">' + (tenant ? '切换' : '登录') + '</a></div>';
   }
 
-  function renderDrawer(base, sectionId, subId) {
+  function renderDrawer(base, sectionId, subId, ecmcFake) {
     var items = DRAWERS[sectionId] || [];
     if (!items.length) return '';
     var html = '';
@@ -209,11 +251,16 @@
       var cls = 'drawer-item' + (isActive ? ' active' : '');
       var aria = isActive ? ' aria-current="page"' : '';
       if (it.planned) {
-        html += '<a class="' + cls + '" href="' + href(base, '{b}/pages/planned.html?section=' + sectionId + '&item=' + it.sub) + '"' + aria + '>'
+        var plannedHref = href(base, '{b}/pages/planned.html?section=' + sectionId + '&item=' + it.sub);
+        // test-only Catalog 模式：ECMC 抽屉导航透传 catalog=fake（§9.3）
+        if (ecmcFake) plannedHref = appendFake(plannedHref, true);
+        html += '<a class="' + cls + '" href="' + plannedHref + '"' + aria + '>'
           + '<span>' + esc(it.label) + '</span><span class="planned-tag">规划中</span></a>';
         return;
       }
-      html += '<a class="' + cls + '" href="' + href(base, it.path) + '"' + aria + '><span>' + esc(it.label) + '</span></a>';
+      var p = href(base, it.path);
+      if (ecmcFake) p = appendFake(p, true);
+      html += '<a class="' + cls + '" href="' + p + '"' + aria + '><span>' + esc(it.label) + '</span></a>';
     });
     var section = SECTIONS.filter(function (s) { return s.id === sectionId; })[0];
     return '<div class="drawer-section-title">' + esc(section ? section.label : '') + '</div>' + html;
@@ -226,17 +273,26 @@
     var base = body.dataset.base || '.';
     var navMode = body.dataset.nav || 'full';
     var q = new URLSearchParams(location.search);
-    // planned.html passes ?section=&item= in the URL; regular pages declare on <body>
+    // planned.html passes ?section=&item= in the URL; regular pages declare on <body>;
+    // ecmc pages may pass ?sub= to select a drawer item that differs from body.dataset.sub
     var sectionId = q.get('section') || body.dataset.section || '';
-    var subId = q.get('item') || body.dataset.sub || '';
+    var subId = q.get('item') || q.get('sub') || body.dataset.sub || '';
 
     var header = document.querySelector('header');
     if (header) {
+      // test-only Catalog 模式：ECMC 内部导航透传（仅当前为 ECMC 页面且 URL 显式带参时）
+      var ecmcFake = q.get('catalog') === 'fake' && sectionId === 'ecmc';
       header.innerHTML = renderBrand(base)
-        + (navMode === 'none' ? '' : renderTopNav(base, sectionId))
+        + (navMode === 'none' ? '' : renderTopNav(base, sectionId, ecmcFake))
         + renderMeta(base);
     }
     if (navMode === 'none') return;
+
+    if (navMode === 'editor') {
+      // Fullscreen editor (FE-ECMC-2026-0830 §5.2): keep the top nav, skip the drawer
+      body.classList.add('ecmc-editor-page');
+      return;
+    }
 
     var main = document.querySelector('main');
     if (!main) return;
@@ -253,7 +309,7 @@
       shell.appendChild(main);
     }
     var drawerEl = document.getElementById('app-drawer');
-    if (drawerEl) drawerEl.innerHTML = renderDrawer(base, sectionId, subId);
+    if (drawerEl) drawerEl.innerHTML = renderDrawer(base, sectionId, subId, q.get('catalog') === 'fake' && sectionId === 'ecmc');
     if (sectionId) body.classList.add('section-' + sectionId);
   }
 
