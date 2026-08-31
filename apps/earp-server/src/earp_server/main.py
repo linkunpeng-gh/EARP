@@ -563,8 +563,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 app.state.n01a_catalog_resolver = FakeCatalogResolver(_dev_ecmc_catalog_entries())
                 # Compiler requires active StepType pins (knowledge_query/output)。
                 # step_types 平台表仅授予 earp_app SELECT，需用 migration 超管连接种子（幂等）。
-                from sqlalchemy.ext.asyncio import create_async_engine
                 from sqlalchemy import text as _text
+                from sqlalchemy.ext.asyncio import create_async_engine
 
                 mgr_engine = create_async_engine(cfg.migration_database_url)
                 try:
@@ -755,6 +755,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
             headers={"X-Correlation-Id": correlation_id},
         )
+
     # CORS must be added AFTER JWTMiddleware so it wraps it (Starlette LIFO) and
     # handles preflight OPTIONS before JWT auth — otherwise cross-origin admin
     # dashboard calls fail with "Failed to fetch" (no Access-Control-Allow-* headers).

@@ -41,14 +41,18 @@ class CandidateCompileService(CausalModelService):
                 raise conflict("INVALID_STATE_TRANSITION", "Only a published immutable Snapshot can be compiled.")
             if retry_of_compile_id is not None:
                 parent = (
-                    await session.execute(
-                        text(
-                            "SELECT status,model_version_id FROM blueprint_compile_records "
-                            "WHERE compile_id=:compile AND n01a_attempt=true"
-                        ),
-                        {"compile": retry_of_compile_id},
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT status,model_version_id FROM blueprint_compile_records "
+                                "WHERE compile_id=:compile AND n01a_attempt=true"
+                            ),
+                            {"compile": retry_of_compile_id},
+                        )
                     )
-                ).mappings().first()
+                    .mappings()
+                    .first()
+                )
                 if parent is None or parent["status"] != "failed" or parent["model_version_id"] != version_id:
                     raise conflict("INVALID_RETRY_PARENT", "Retry parent must be a failed Attempt for this Version.")
             passed = await session.execute(
@@ -123,14 +127,18 @@ class CandidateCompileService(CausalModelService):
         result: dict[str, Any] | None = None
         async with tenant_session(self.engine, actor.tenant_id) as session:
             record = (
-                await session.execute(
-                    text(
-                        "SELECT * FROM blueprint_compile_records WHERE compile_id=:compile "
-                        "AND n01a_attempt=true FOR UPDATE"
-                    ),
-                    {"compile": compile_id},
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM blueprint_compile_records WHERE compile_id=:compile "
+                            "AND n01a_attempt=true FOR UPDATE"
+                        ),
+                        {"compile": compile_id},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if record is None:
                 raise N01AError("MODEL_VERSION_NOT_FOUND", "Compile Attempt was not found.", 404)
             if record["status"] == "success":
@@ -188,22 +196,24 @@ class CandidateCompileService(CausalModelService):
         assert result is not None
         return result
 
-    async def _build_artifact(
-        self, session, actor: ActorContext, record: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _build_artifact(self, session, actor: ActorContext, record: dict[str, Any]) -> dict[str, Any]:
         source = (
-            await session.execute(
-                text(
-                    "SELECT s.snapshot_id,s.content_hash,s.canonical_payload::text AS canonical_payload_text,"
-                    "s.catalog_resolutions,"
-                    "v.version AS model_version,v.status,v.model_id "
-                    "FROM causal_model_snapshots s JOIN causal_model_versions v "
-                    "ON v.tenant_id=s.tenant_id AND v.model_version_id=s.model_version_id "
-                    "WHERE s.snapshot_id=:snapshot AND v.model_version_id=:version"
-                ),
-                {"snapshot": record["snapshot_id"], "version": record["model_version_id"]},
+            (
+                await session.execute(
+                    text(
+                        "SELECT s.snapshot_id,s.content_hash,s.canonical_payload::text AS canonical_payload_text,"
+                        "s.catalog_resolutions,"
+                        "v.version AS model_version,v.status,v.model_id "
+                        "FROM causal_model_snapshots s JOIN causal_model_versions v "
+                        "ON v.tenant_id=s.tenant_id AND v.model_version_id=s.model_version_id "
+                        "WHERE s.snapshot_id=:snapshot AND v.model_version_id=:version"
+                    ),
+                    {"snapshot": record["snapshot_id"], "version": record["model_version_id"]},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         if source["status"] != "published" or source["canonical_payload_text"] is None:
             raise ValueError("compiler input is not an immutable N01A published Snapshot")
         snapshot = json.loads(source["canonical_payload_text"], parse_float=Decimal)

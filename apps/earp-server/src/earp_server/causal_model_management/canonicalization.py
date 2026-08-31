@@ -119,7 +119,7 @@ def _encode(value: Any) -> str:
     if isinstance(value, dict):
         if not all(isinstance(key, str) for key in value):
             raise CanonicalizationError("object keys must be strings")
-        normalized = [(_nfc(key), item) for key, item in value.items()]
+        normalized: list[tuple[str, Any]] = [(_nfc(key), item) for key, item in value.items() if isinstance(key, str)]
         if len({key for key, _ in normalized}) != len(normalized):
             raise CanonicalizationError("Unicode normalization produced duplicate object keys")
         normalized.sort(key=lambda item: item[0])
@@ -137,14 +137,17 @@ def _key(*fields: str) -> Callable[[dict[str, Any]], tuple[str, ...]]:
     return select
 
 
-def _sort_list(payload: dict[str, Any], field: str, selector: Callable[[dict[str, Any]], Any]) -> None:
+def _sort_list(payload: dict[str, Any], field: str, selector: Callable[[dict[str, Any]], tuple[str, ...]]) -> None:
     value = payload.get(field)
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise CanonicalizationError(f"{field} must be an array of objects")
-    keys = [selector(item) for item in value]
+    items: list[dict[str, Any]] = [item for item in value if isinstance(item, dict)]
+    keys = [selector(item) for item in items]
     if len(set(keys)) != len(keys):
         raise CanonicalizationError(f"{field} contains duplicate stable keys")
-    payload[field] = [item for _, item in sorted(zip(keys, value, strict=True), key=lambda pair: pair[0])]
+    pairs: list[tuple[tuple[str, ...], dict[str, Any]]] = list(zip(keys, items, strict=True))
+    pairs.sort(key=lambda pair: pair[0])
+    payload[field] = [item for _, item in pairs]
 
 
 def _copy(value: Any) -> Any:
@@ -177,9 +180,7 @@ def normalize_causal_snapshot(value: dict[str, Any]) -> dict[str, Any]:
         supporting = requirement.get("supporting_contract_refs", [])
         if not isinstance(supporting, list) or not all(isinstance(item, dict) for item in supporting):
             raise CanonicalizationError("supporting_contract_refs must be an array of objects")
-        requirement["supporting_contract_refs"] = sorted(
-            supporting, key=_key("kind", "stable_id", "version")
-        )
+        requirement["supporting_contract_refs"] = sorted(supporting, key=_key("kind", "stable_id", "version"))
     return payload
 
 

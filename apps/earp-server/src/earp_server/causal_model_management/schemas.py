@@ -286,6 +286,10 @@ CatalogContract = Annotated[
 ]
 
 
+def _matches_contract_kind(value: object, expected: type[BaseModel]) -> bool:
+    return isinstance(value, expected)
+
+
 class ProposedCatalogDefinition(StrictModel):
     schema_version: Literal["catalog-change-request/v1"]
     kind: CatalogKind
@@ -295,7 +299,7 @@ class ProposedCatalogDefinition(StrictModel):
 
     @model_validator(mode="after")
     def contract_matches_kind(self) -> ProposedCatalogDefinition:
-        expected = {
+        expected: type[BaseModel] = {
             "data_domain": DataDomainContract,
             "entity_type": EntityTypeContract,
             "relation_type": RelationTypeContract,
@@ -307,7 +311,7 @@ class ProposedCatalogDefinition(StrictModel):
             "capability_contract": CapabilityContract,
             "rule_schema": RuleSchemaContract,
         }[self.kind]
-        if not isinstance(self.contract, expected):
+        if not _matches_contract_kind(self.contract, expected):
             raise ValueError(f"contract shape does not match kind={self.kind}")
         return self
 

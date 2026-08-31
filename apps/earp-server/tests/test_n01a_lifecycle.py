@@ -79,7 +79,7 @@ async def seed_security(engine: AsyncEngine) -> None:
                 "(:writer,:tenant,'N01A writer',ARRAY['ecmc.causal_model.read','ecmc.causal_model.write_draft'],"
                 "'all','[{\"data_domain_id\":\"production\"}]',false),"
                 "(:other,:tenant,'N01A other',ARRAY['ecmc.causal_model.read'],'all',"
-                "'[{\"data_domain_id\":\"finance\"}]',false) ON CONFLICT (role_id) DO NOTHING"
+                '\'[{"data_domain_id":"finance"}]\',false) ON CONFLICT (role_id) DO NOTHING'
             ),
             {"tenant": TENANT, "admin": ADMIN_ROLE, "writer": WRITER_ROLE, "other": OTHER_ROLE},
         )
@@ -103,9 +103,7 @@ def evidence(metric: str) -> PutEvidenceRequirementRequest:
     )
 
 
-async def build_published_model(
-    engine: AsyncEngine, catalog: FakeCatalogResolver
-) -> tuple[str, str, str, int]:
+async def build_published_model(engine: AsyncEngine, catalog: FakeCatalogResolver) -> tuple[str, str, str, int]:
     service = CausalModelService(engine, catalog)
     admin = actor(ADMIN_ROLE)
     created = await service.create_model(
@@ -284,9 +282,7 @@ async def test_full_lifecycle_candidate_is_inactive_until_explicit_activation_an
         }
     assert after == before
 
-    archived = await coordinator.archive(
-        admin, model_id, version_id, activated["body"]["revision"], "archive-active"
-    )
+    archived = await coordinator.archive(admin, model_id, version_id, activated["body"]["revision"], "archive-active")
     assert archived["body"]["active_pointer"] == {"model_version_id": None, "snapshot_id": None}
     async with tenant_session(app_engine, TENANT) as session:
         assert (

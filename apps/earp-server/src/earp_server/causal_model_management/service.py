@@ -78,7 +78,7 @@ def parse_if_match(value: str | None) -> int:
     except ValueError as error:
         raise N01AError("MISSING_IF_MATCH", 'If-Match must use the form "v<revision>".', 422) from error
     if revision < 1:
-        raise N01AError("MISSING_IF_MATCH", 'If-Match must use a positive revision.', 422)
+        raise N01AError("MISSING_IF_MATCH", "If-Match must use a positive revision.", 422)
     return revision
 
 
@@ -93,14 +93,18 @@ class _CausalModelServiceBase:
 
     async def _role_scope(self, session: AsyncSession, actor: ActorContext) -> _RoleScope:
         row = (
-            await session.execute(
-                text(
-                    "SELECT is_admin, permissions, data_domain_access FROM roles "
-                    "WHERE tenant_id=:tenant AND role_id=:role"
-                ),
-                {"tenant": actor.tenant_id, "role": actor.role_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT is_admin, permissions, data_domain_access FROM roles "
+                        "WHERE tenant_id=:tenant AND role_id=:role"
+                    ),
+                    {"tenant": actor.tenant_id, "role": actor.role_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if row is None:
             return _RoleScope(False, False, frozenset(), frozenset())
         domains = frozenset(
@@ -127,15 +131,19 @@ class _CausalModelServiceBase:
     ) -> dict[str, Any]:
         suffix = " FOR UPDATE" if for_update else ""
         row = (
-            await session.execute(
-                text(
-                    "SELECT tenant_id,model_id,data_domain_id,name,description,diagnostic_target_signature,"
-                    "active_model_version_id,active_snapshot_id,revision,created_at,updated_at "
-                    "FROM causal_models WHERE tenant_id=:tenant AND model_id=:model" + suffix
-                ),
-                {"tenant": actor.tenant_id, "model": model_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT tenant_id,model_id,data_domain_id,name,description,diagnostic_target_signature,"
+                        "active_model_version_id,active_snapshot_id,revision,created_at,updated_at "
+                        "FROM causal_models WHERE tenant_id=:tenant AND model_id=:model" + suffix
+                    ),
+                    {"tenant": actor.tenant_id, "model": model_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if row is None:
             raise not_found("CAUSAL_MODEL_NOT_FOUND", "Causal model was not found.")
         result = dict(row)
@@ -155,14 +163,18 @@ class _CausalModelServiceBase:
         await self._model(session, actor, model_id, for_update=for_update)
         suffix = " FOR UPDATE" if for_update else ""
         row = (
-            await session.execute(
-                text(
-                    "SELECT * FROM causal_model_versions WHERE tenant_id=:tenant AND model_id=:model "
-                    "AND model_version_id=:version" + suffix
-                ),
-                {"tenant": actor.tenant_id, "model": model_id, "version": version_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT * FROM causal_model_versions WHERE tenant_id=:tenant AND model_id=:model "
+                        "AND model_version_id=:version" + suffix
+                    ),
+                    {"tenant": actor.tenant_id, "model": model_id, "version": version_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if row is None or row["status"] in {"testing", "deprecated"}:
             raise not_found("MODEL_VERSION_NOT_FOUND", "Causal model version was not found.")
         return dict(row)
@@ -188,19 +200,23 @@ class _CausalModelServiceBase:
             raise N01AError("REQUEST_SCHEMA_INVALID", "Idempotency-Key is required.", 422)
         request_hash = _request_hash(request)
         row = (
-            await session.execute(
-                text(
-                    "SELECT request_hash,response_status,response_body FROM idempotency_records "
-                    "WHERE tenant_id=:tenant AND actor_id=:actor AND operation=:operation AND idempotency_key=:key"
-                ),
-                {
-                    "tenant": actor.tenant_id,
-                    "actor": actor.actor_id,
-                    "operation": operation,
-                    "key": idempotency_key,
-                },
+            (
+                await session.execute(
+                    text(
+                        "SELECT request_hash,response_status,response_body FROM idempotency_records "
+                        "WHERE tenant_id=:tenant AND actor_id=:actor AND operation=:operation AND idempotency_key=:key"
+                    ),
+                    {
+                        "tenant": actor.tenant_id,
+                        "actor": actor.actor_id,
+                        "operation": operation,
+                        "key": idempotency_key,
+                    },
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if row is None:
             return None
         if row["request_hash"] != request_hash:
@@ -317,7 +333,9 @@ class _CausalModelServiceBase:
                 request.data_domain_ref,
                 "data_domain",
                 context=CatalogValidationContext(
-                    actor.tenant_id, request.data_domain_ref.stable_id, {"resource_type": "model", "field": "data_domain_ref"}
+                    actor.tenant_id,
+                    request.data_domain_ref.stable_id,
+                    {"resource_type": "model", "field": "data_domain_ref"},
                 ),
             )
             self._require_domain(scope, domain.data_domain_id)
@@ -487,7 +505,7 @@ class _CausalModelServiceBase:
                     "applicability": _json(source["applicability"] if source else {}),
                 },
             )
-            if source:
+            if clone_from_version_id is not None:
                 await self._clone_children(session, actor.tenant_id, clone_from_version_id, version_id)
             body = {"model_version_id": version_id, "version": str(next_number), "status": "draft", "revision": 1}
             await self._audit(session, actor, "ecmc.causal_version.created", "causal_model_version", version_id, body)
@@ -794,11 +812,17 @@ class _CausalModelServiceBase:
             await self._draft_for_write(session, actor, model_id, version_id, expected_revision)
             model = await self._model(session, actor, model_id)
             node = (
-                await session.execute(
-                    text("SELECT entity_type_catalog_ref FROM causal_nodes WHERE model_version_id=:version AND node_key=:node"),
-                    {"version": version_id, "node": node_key},
+                (
+                    await session.execute(
+                        text(
+                            "SELECT entity_type_catalog_ref FROM causal_nodes WHERE model_version_id=:version AND node_key=:node"
+                        ),
+                        {"version": version_id, "node": node_key},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if node is None:
                 raise N01AError("REQUEST_SCHEMA_INVALID", "Evidence node does not exist.", 422)
             context = CatalogValidationContext(
@@ -859,7 +883,10 @@ class _CausalModelServiceBase:
                 ),
                 {"version": version_id, "node": node_key, "requirement": requirement_key},
             )
-            contracts = [("primary", request.primary_contract_ref), *[("supporting", r) for r in request.supporting_contract_refs]]
+            contracts = [
+                ("primary", request.primary_contract_ref),
+                *[("supporting", r) for r in request.supporting_contract_refs],
+            ]
             for role, ref in contracts:
                 await session.execute(
                     text(
@@ -961,7 +988,7 @@ class _CausalModelServiceBase:
                 )
             else:
                 raise N01AError("REQUEST_SCHEMA_INVALID", "Unknown draft resource type.", 422)
-            if result.rowcount == 0:
+            if getattr(result, "rowcount", 0) == 0:
                 raise not_found("MODEL_VERSION_NOT_FOUND", "Draft resource was not found.")
             revision = await self._finish_draft_write(
                 session,
@@ -1056,7 +1083,9 @@ class _CausalModelServiceBase:
                     )
                 ).mappings()
             ]
-            primary = [item["capability_contract_catalog_ref"] for item in contracts if item["capability_role"] == "primary"]
+            primary = [
+                item["capability_contract_catalog_ref"] for item in contracts if item["capability_role"] == "primary"
+            ]
             supporting = [
                 item["capability_contract_catalog_ref"] for item in contracts if item["capability_role"] == "supporting"
             ]
@@ -1095,60 +1124,173 @@ class _CausalModelServiceBase:
         node_map = {node["node_key"]: node for node in nodes}
         entries = [node for node in nodes if node["entry_point"]]
         if len(entries) != 1:
-            issues.append(self._issue("CAUSAL_ENTRY_POINT_COUNT", "error", {"resource_type": "version", "field": "nodes"}, "Exactly one entry point is required."))
+            issues.append(
+                self._issue(
+                    "CAUSAL_ENTRY_POINT_COUNT",
+                    "error",
+                    {"resource_type": "version", "field": "nodes"},
+                    "Exactly one entry point is required.",
+                )
+            )
         elif entries[0]["node_key"] != target["entry_point"]:
-            issues.append(self._issue("CAUSAL_TARGET_MISMATCH", "error", {"resource_type": "node", "node_key": entries[0]["node_key"], "field": "entry_point"}, "Entry point does not match the diagnostic target."))
+            issues.append(
+                self._issue(
+                    "CAUSAL_TARGET_MISMATCH",
+                    "error",
+                    {"resource_type": "node", "node_key": entries[0]["node_key"], "field": "entry_point"},
+                    "Entry point does not match the diagnostic target.",
+                )
+            )
         elif entries[0]["observability"] != "observable":
-            issues.append(self._issue("CAUSAL_ENTRY_NOT_OBSERVABLE", "error", {"resource_type": "node", "node_key": entries[0]["node_key"], "field": "observability"}, "The entry point must be observable."))
+            issues.append(
+                self._issue(
+                    "CAUSAL_ENTRY_NOT_OBSERVABLE",
+                    "error",
+                    {"resource_type": "node", "node_key": entries[0]["node_key"], "field": "observability"},
+                    "The entry point must be observable.",
+                )
+            )
 
         adjacency = {key: [] for key in node_map}
         for edge in edges:
             source, destination = edge["from_node_key"], edge["to_node_key"]
             if source == destination:
-                issues.append(self._issue("CAUSAL_SELF_LOOP", "error", {"resource_type": "edge", "edge_key": edge["edge_key"]}, "Self loops are not allowed."))
+                issues.append(
+                    self._issue(
+                        "CAUSAL_SELF_LOOP",
+                        "error",
+                        {"resource_type": "edge", "edge_key": edge["edge_key"]},
+                        "Self loops are not allowed.",
+                    )
+                )
             if source not in node_map or destination not in node_map:
-                issues.append(self._issue("CAUSAL_DANGLING_EDGE", "error", {"resource_type": "edge", "edge_key": edge["edge_key"]}, "Edge endpoint is missing."))
+                issues.append(
+                    self._issue(
+                        "CAUSAL_DANGLING_EDGE",
+                        "error",
+                        {"resource_type": "edge", "edge_key": edge["edge_key"]},
+                        "Edge endpoint is missing.",
+                    )
+                )
             elif source != destination:
                 adjacency[source].append(destination)
             if Decimal(edge["confidence"]) < Decimal("0.2"):
-                issues.append(self._issue("CAUSAL_LOW_CONFIDENCE", "warning", {"resource_type": "edge", "edge_key": edge["edge_key"], "field": "confidence"}, "Edge confidence is low."))
+                issues.append(
+                    self._issue(
+                        "CAUSAL_LOW_CONFIDENCE",
+                        "warning",
+                        {"resource_type": "edge", "edge_key": edge["edge_key"], "field": "confidence"},
+                        "Edge confidence is low.",
+                    )
+                )
         if self._has_cycle(adjacency):
-            issues.append(self._issue("CAUSAL_DAG_CYCLE", "error", {"resource_type": "version", "field": "edges"}, "The Phase 1 authoring profile requires a DAG."))
+            issues.append(
+                self._issue(
+                    "CAUSAL_DAG_CYCLE",
+                    "error",
+                    {"resource_type": "version", "field": "edges"},
+                    "The Phase 1 authoring profile requires a DAG.",
+                )
+            )
         if len(entries) == 1:
             entry_key = entries[0]["node_key"]
             for key in node_map:
                 if key != entry_key and not self._reachable(adjacency, key, entry_key):
-                    issues.append(self._issue("CAUSAL_NODE_CANNOT_REACH_ENTRY", "error", {"resource_type": "node", "node_key": key}, "Node cannot reach the diagnostic entry point."))
+                    issues.append(
+                        self._issue(
+                            "CAUSAL_NODE_CANNOT_REACH_ENTRY",
+                            "error",
+                            {"resource_type": "node", "node_key": key},
+                            "Node cannot reach the diagnostic entry point.",
+                        )
+                    )
 
         requirement_nodes = {item["node_key"] for item in requirements if item["required"]}
         for node in nodes:
             if node["observability"] == "observable" and node["node_key"] not in requirement_nodes:
-                issues.append(self._issue("CAUSAL_REQUIRED_EVIDENCE_MISSING", "error", {"resource_type": "node", "node_key": node["node_key"]}, "Observable nodes require evidence under sign_propagation_v1."))
+                issues.append(
+                    self._issue(
+                        "CAUSAL_REQUIRED_EVIDENCE_MISSING",
+                        "error",
+                        {"resource_type": "node", "node_key": node["node_key"]},
+                        "Observable nodes require evidence under sign_propagation_v1.",
+                    )
+                )
         for requirement in requirements:
             if requirement["primary_contract_ref"] is None:
-                issues.append(self._issue("CAUSAL_PRIMARY_CONTRACT_MISSING", "error", {"resource_type": "evidence", "node_key": requirement["node_key"], "requirement_key": requirement["requirement_key"], "field": "primary_contract_ref"}, "Exactly one primary capability contract is required."))
+                issues.append(
+                    self._issue(
+                        "CAUSAL_PRIMARY_CONTRACT_MISSING",
+                        "error",
+                        {
+                            "resource_type": "evidence",
+                            "node_key": requirement["node_key"],
+                            "requirement_key": requirement["requirement_key"],
+                            "field": "primary_contract_ref",
+                        },
+                        "Exactly one primary capability contract is required.",
+                    )
+                )
 
         resolutions: dict[tuple[str, str, str], ResolvedCatalogRef] = {}
         refs: list[tuple[dict[str, Any] | None, str, dict[str, Any]]] = [
-            (target["target_entity_type_ref"], "entity_type", {"resource_type": "version", "field": "diagnostic_target.target_entity_type_ref"}),
-            (target["time_window_schema_ref"], "time_window_schema", {"resource_type": "version", "field": "diagnostic_target.time_window_schema_ref"}),
+            (
+                target["target_entity_type_ref"],
+                "entity_type",
+                {"resource_type": "version", "field": "diagnostic_target.target_entity_type_ref"},
+            ),
+            (
+                target["time_window_schema_ref"],
+                "time_window_schema",
+                {"resource_type": "version", "field": "diagnostic_target.time_window_schema_ref"},
+            ),
         ]
         for node in nodes:
-            refs.append((node["entity_type_ref"], "entity_type", {"resource_type": "node", "node_key": node["node_key"], "field": "entity_type_ref"}))
+            refs.append(
+                (
+                    node["entity_type_ref"],
+                    "entity_type",
+                    {"resource_type": "node", "node_key": node["node_key"], "field": "entity_type_ref"},
+                )
+            )
         for edge in edges:
-            refs.append((edge["relation_type_ref"], "relation_type", {"resource_type": "edge", "edge_key": edge["edge_key"], "field": "relation_type_ref"}))
+            refs.append(
+                (
+                    edge["relation_type_ref"],
+                    "relation_type",
+                    {"resource_type": "edge", "edge_key": edge["edge_key"], "field": "relation_type_ref"},
+                )
+            )
         for rule in content["rules"]:
-            refs.append((rule["rule_schema_ref"], "rule_schema", {"resource_type": "rule", "rule_key": rule["rule_key"], "field": "rule_schema_ref"}))
+            refs.append(
+                (
+                    rule["rule_schema_ref"],
+                    "rule_schema",
+                    {"resource_type": "rule", "rule_key": rule["rule_key"], "field": "rule_schema_ref"},
+                )
+            )
         for requirement in requirements:
-            location = {"resource_type": "evidence", "node_key": requirement["node_key"], "requirement_key": requirement["requirement_key"]}
+            location = {
+                "resource_type": "evidence",
+                "node_key": requirement["node_key"],
+                "requirement_key": requirement["requirement_key"],
+            }
             refs.extend(
                 [
                     (requirement["metric_ref"], "metric", {**location, "field": "metric_ref"}),
                     (requirement["unit_ref"], "unit", {**location, "field": "unit_ref"}),
                     (requirement["aggregation_ref"], "aggregation", {**location, "field": "aggregation_ref"}),
                     (requirement["time_window_ref"], "time_window_schema", {**location, "field": "time_window_ref"}),
-                    (requirement["binding_template_ref"], "binding_template", {**location, "field": "binding_template_ref"}),
-                    (requirement["primary_contract_ref"], "capability_contract", {**location, "field": "primary_contract_ref"}),
+                    (
+                        requirement["binding_template_ref"],
+                        "binding_template",
+                        {**location, "field": "binding_template_ref"},
+                    ),
+                    (
+                        requirement["primary_contract_ref"],
+                        "capability_contract",
+                        {**location, "field": "primary_contract_ref"},
+                    ),
                     *[
                         (ref, "capability_contract", {**location, "field": "supporting_contract_refs"})
                         for ref in requirement["supporting_contract_refs"]
@@ -1168,9 +1310,18 @@ class _CausalModelServiceBase:
                 )
                 resolutions[(resolved.kind, resolved.stable_id, resolved.version)] = resolved
             except CatalogResolutionError as error:
-                issues.append({**self._issue(error.code, "error", location, error.message), "catalog_ref": error.ref.model_dump(mode="json")})
+                issues.append(
+                    {
+                        **self._issue(error.code, "error", location, error.message),
+                        "catalog_ref": error.ref.model_dump(mode="json"),
+                    }
+                )
             except ValueError:
-                issues.append(self._issue("CATALOG_REF_SCHEMA_INCOMPATIBLE", "error", location, "CatalogRef payload is malformed."))
+                issues.append(
+                    self._issue(
+                        "CATALOG_REF_SCHEMA_INCOMPATIBLE", "error", location, "CatalogRef payload is malformed."
+                    )
+                )
 
         run_id = _id("cvr")
         draft_input = {"diagnostic_target": target, **content, "applicability": version["applicability"]}
@@ -1214,7 +1365,9 @@ class _CausalModelServiceBase:
                     for node in nodes
                 ],
                 "edges": edges,
-                "rules": [{key: value for key, value in rule.items() if key != "rationale"} for rule in content["rules"]],
+                "rules": [
+                    {key: value for key, value in rule.items() if key != "rationale"} for rule in content["rules"]
+                ],
                 "evidence_requirements": [
                     {key: value for key, value in requirement.items() if key != "business_description"}
                     for requirement in requirements
@@ -1282,9 +1435,18 @@ class _CausalModelServiceBase:
             model = await self._model(session, actor, model_id)
             version = await self._version(session, actor, model_id, version_id)
             if version["status"] != "draft":
-                raise conflict("INVALID_STATE_TRANSITION", "Only draft versions can be validated from the authoring API.")
+                raise conflict(
+                    "INVALID_STATE_TRANSITION", "Only draft versions can be validated from the authoring API."
+                )
             result, _ = await self._analyze(session, actor, model, version, mode)
-            await self._audit(session, actor, "ecmc.causal_model.validated", "causal_model_version", version_id, {"validation_run_id": result["validation_run_id"], "result": result["result"]})
+            await self._audit(
+                session,
+                actor,
+                "ecmc.causal_model.validated",
+                "causal_model_version",
+                version_id,
+                {"validation_run_id": result["validation_run_id"], "result": result["result"]},
+            )
             await self._remember(session, actor, operation, idempotency_key, payload, 200, result)
             return {"status_code": 200, "body": result, "replayed": False}
 
@@ -1320,9 +1482,11 @@ class _CausalModelServiceBase:
                     ),
                     {"revision": revision, "actor": actor.actor_id, "version": version_id},
                 )
-                await self._review(session, actor, model_id, version_id, "submit", "submitted", None)
+                await CausalModelService._review(session, actor, model_id, version_id, "submit", "submitted", None)
                 response = {"model_version_id": version_id, "status": "in_review", "revision": revision}
-                await self._audit(session, actor, "ecmc.causal_model.submitted", "causal_model_version", version_id, response)
+                await self._audit(
+                    session, actor, "ecmc.causal_model.submitted", "causal_model_version", version_id, response
+                )
                 await self._remember(session, actor, operation, idempotency_key, payload, 200, response)
         if blocked is not None:
             raise validation_failed(blocked)
@@ -1371,7 +1535,9 @@ class CausalModelService(_CausalModelServiceBase):
                 },
             )
             body = {"request_id": request_id, "status": "draft", "revision": 1, **payload}
-            await self._audit(session, actor, "ecmc.catalog_request.created", "catalog_change_request", request_id, body)
+            await self._audit(
+                session, actor, "ecmc.catalog_request.created", "catalog_change_request", request_id, body
+            )
             await self._remember(session, actor, operation, idempotency_key, payload, 201, body)
             return {"status_code": 201, "body": body, "replayed": False}
 
@@ -1380,15 +1546,12 @@ class CausalModelService(_CausalModelServiceBase):
             scope = await self._role_scope(session, actor)
             self._require_permission(scope, "ecmc.catalog.read")
             rows = (
-                await session.execute(
-                    text("SELECT * FROM catalog_change_requests ORDER BY created_at DESC")
-                )
+                await session.execute(text("SELECT * FROM catalog_change_requests ORDER BY created_at DESC"))
             ).mappings()
             return [
                 dict(row)
                 for row in rows
-                if scope.is_admin
-                or (row["target_data_domain_ref"] or {}).get("stable_id") in scope.domains
+                if scope.is_admin or (row["target_data_domain_ref"] or {}).get("stable_id") in scope.domains
             ]
 
     async def _request(
@@ -1398,11 +1561,15 @@ class CausalModelService(_CausalModelServiceBase):
         self._require_permission(scope, "ecmc.catalog.read")
         suffix = " FOR UPDATE" if for_update else ""
         row = (
-            await session.execute(
-                text("SELECT * FROM catalog_change_requests WHERE request_id=:request" + suffix),
-                {"request": request_id},
+            (
+                await session.execute(
+                    text("SELECT * FROM catalog_change_requests WHERE request_id=:request" + suffix),
+                    {"request": request_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if row is None:
             raise not_found("CATALOG_CHANGE_REQUEST_NOT_FOUND", "Catalog change request was not found.")
         result = dict(row)
@@ -1428,9 +1595,7 @@ class CausalModelService(_CausalModelServiceBase):
             ]
             return {**request, "fulfillment_attempts": attempts}
 
-    async def submit_request(
-        self, actor: ActorContext, request_id: str, idempotency_key: str
-    ) -> dict[str, Any]:
+    async def submit_request(self, actor: ActorContext, request_id: str, idempotency_key: str) -> dict[str, Any]:
         return await self._request_transition(
             actor,
             request_id,
@@ -1442,9 +1607,7 @@ class CausalModelService(_CausalModelServiceBase):
             owner_only=True,
         )
 
-    async def approve_request(
-        self, actor: ActorContext, request_id: str, idempotency_key: str
-    ) -> dict[str, Any]:
+    async def approve_request(self, actor: ActorContext, request_id: str, idempotency_key: str) -> dict[str, Any]:
         return await self._request_transition(
             actor,
             request_id,
@@ -1470,9 +1633,7 @@ class CausalModelService(_CausalModelServiceBase):
             reason=reason,
         )
 
-    async def cancel_request(
-        self, actor: ActorContext, request_id: str, idempotency_key: str
-    ) -> dict[str, Any]:
+    async def cancel_request(self, actor: ActorContext, request_id: str, idempotency_key: str) -> dict[str, Any]:
         return await self._request_transition(
             actor,
             request_id,
@@ -1484,9 +1645,7 @@ class CausalModelService(_CausalModelServiceBase):
             owner_only=True,
         )
 
-    async def retry_fulfillment(
-        self, actor: ActorContext, request_id: str, idempotency_key: str
-    ) -> dict[str, Any]:
+    async def retry_fulfillment(self, actor: ActorContext, request_id: str, idempotency_key: str) -> dict[str, Any]:
         return await self._request_transition(
             actor,
             request_id,
@@ -1576,7 +1735,12 @@ class CausalModelService(_CausalModelServiceBase):
                     idempotency_key,
                     f"catalog-owner:{request['request_type']}",
                 )
-            body = {"request_id": request_id, "status": result, "revision": revision, "fulfillment_attempt_id": attempt_id}
+            body = {
+                "request_id": request_id,
+                "status": result,
+                "revision": revision,
+                "fulfillment_attempt_id": attempt_id,
+            }
             await self._audit(
                 session,
                 actor,
@@ -1604,14 +1768,18 @@ class CausalModelService(_CausalModelServiceBase):
             if request["status"] != "approved_pending_fulfillment":
                 raise conflict("INVALID_STATE_TRANSITION", "Request is not awaiting fulfillment.")
             attempt = (
-                await session.execute(
-                    text(
-                        "SELECT * FROM catalog_fulfillment_attempts WHERE request_id=:request "
-                        "AND attempt_id=:attempt FOR UPDATE"
-                    ),
-                    {"request": request_id, "attempt": attempt_id},
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM catalog_fulfillment_attempts WHERE request_id=:request "
+                            "AND attempt_id=:attempt FOR UPDATE"
+                        ),
+                        {"request": request_id, "attempt": attempt_id},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if attempt is None or attempt["status"] != "pending":
                 raise conflict("INVALID_STATE_TRANSITION", "Fulfillment attempt is not pending.")
             if resolved_ref is not None:
@@ -1833,8 +2001,15 @@ class CausalModelService(_CausalModelServiceBase):
                     idempotency_key,
                     "causal-compiler",
                 )
-                response = {**event_payload, "status": "published", "revision": revision, "activation_status": "inactive"}
-                await self._audit(session, actor, "ecmc.causal_model.published", "causal_model_version", version_id, response)
+                response = {
+                    **event_payload,
+                    "status": "published",
+                    "revision": revision,
+                    "activation_status": "inactive",
+                }
+                await self._audit(
+                    session, actor, "ecmc.causal_model.published", "causal_model_version", version_id, response
+                )
                 await self._remember(session, actor, operation, idempotency_key, payload, 200, response)
         if blocked is not None:
             raise validation_failed(blocked)
@@ -1875,15 +2050,19 @@ class CausalModelService(_CausalModelServiceBase):
             model = await self._model(session, actor, model_id)
             version = await self._version(session, actor, model_id, version_id)
             compile_record = (
-                await session.execute(
-                    text(
-                        "SELECT compile_id,status,retry_of_compile_id,artifact_schema_version,compiled_artifact_hash "
-                        "FROM blueprint_compile_records WHERE model_version_id=:version AND n01a_attempt=true "
-                        "ORDER BY started_at DESC LIMIT 1"
-                    ),
-                    {"version": version_id},
+                (
+                    await session.execute(
+                        text(
+                            "SELECT compile_id,status,retry_of_compile_id,artifact_schema_version,compiled_artifact_hash "
+                            "FROM blueprint_compile_records WHERE model_version_id=:version AND n01a_attempt=true "
+                            "ORDER BY started_at DESC LIMIT 1"
+                        ),
+                        {"version": version_id},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             delivery_status = None
             if compile_record is not None:
                 delivery_status = (
@@ -1939,15 +2118,19 @@ class CausalModelService(_CausalModelServiceBase):
             self._require_permission(scope, "ecmc.causal_model.audit.read")
             await self._version(session, actor, model_id, version_id)
             row = (
-                await session.execute(
-                    text(
-                        "SELECT compiled_artifact_json,compiled_artifact_hash,artifact_schema_version,status "
-                        "FROM blueprint_compile_records WHERE compile_id=:compile AND model_version_id=:version "
-                        "AND n01a_attempt=true"
-                    ),
-                    {"compile": compile_id, "version": version_id},
+                (
+                    await session.execute(
+                        text(
+                            "SELECT compiled_artifact_json,compiled_artifact_hash,artifact_schema_version,status "
+                            "FROM blueprint_compile_records WHERE compile_id=:compile AND model_version_id=:version "
+                            "AND n01a_attempt=true"
+                        ),
+                        {"compile": compile_id, "version": version_id},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if row is None:
                 raise not_found("MODEL_VERSION_NOT_FOUND", "Compile Artifact was not found.")
             if row["status"] != "success":

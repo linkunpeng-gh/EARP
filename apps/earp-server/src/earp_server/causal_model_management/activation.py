@@ -34,21 +34,23 @@ class ActivationCoordinator(CausalModelService):
             scope = await self._role_scope(session, actor)
             self._require_permission(scope, "ecmc.causal_model.activate")
             model = await self._model(session, actor, model_id, for_update=True)
-            version = await self._version(
-                session, actor, model_id, request.model_version_id, for_update=True
-            )
+            version = await self._version(session, actor, model_id, request.model_version_id, for_update=True)
             self._revision(version, expected_revision)
             if version["status"] != "published" or version["published_snapshot_id"] is None:
                 raise conflict("INVALID_STATE_TRANSITION", "Activation requires a published candidate Version.")
             record = (
-                await session.execute(
-                    text(
-                        "SELECT * FROM blueprint_compile_records WHERE compile_id=:compile "
-                        "AND n01a_attempt=true FOR UPDATE"
-                    ),
-                    {"compile": request.compile_record_id},
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM blueprint_compile_records WHERE compile_id=:compile "
+                            "AND n01a_attempt=true FOR UPDATE"
+                        ),
+                        {"compile": request.compile_record_id},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if (
                 record is None
                 or record["status"] != "success"
@@ -110,8 +112,7 @@ class ActivationCoordinator(CausalModelService):
                 old_blueprint_version_id = old_rows[0]["blueprint_version_id"]
                 await session.execute(
                     text(
-                        "UPDATE planning_blueprint_versions SET status='superseded' "
-                        "WHERE blueprint_version_id=:version"
+                        "UPDATE planning_blueprint_versions SET status='superseded' WHERE blueprint_version_id=:version"
                     ),
                     {"version": old_blueprint_version_id},
                 )
@@ -194,14 +195,18 @@ class ActivationCoordinator(CausalModelService):
 
     async def _revalidate_catalog(self, session, actor: ActorContext, snapshot_id: str) -> None:
         row = (
-            await session.execute(
-                text(
-                    "SELECT catalog_resolutions,diagnostic_target FROM causal_model_snapshots "
-                    "WHERE snapshot_id=:snapshot"
-                ),
-                {"snapshot": snapshot_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT catalog_resolutions,diagnostic_target FROM causal_model_snapshots "
+                        "WHERE snapshot_id=:snapshot"
+                    ),
+                    {"snapshot": snapshot_id},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         domain = row["diagnostic_target"]["domain"]
         for pin in row["catalog_resolutions"]:
             ref = CatalogRef(kind=pin["kind"], stable_id=pin["stable_id"], version=pin["version"])
@@ -225,9 +230,7 @@ class ActivationCoordinator(CausalModelService):
         artifact: dict[str, Any],
         artifact_hash: str,
     ) -> tuple[str, str]:
-        blueprint_id = "bp-" + hashlib.sha256(
-            f"{actor.tenant_id}:{model['model_id']}".encode()
-        ).hexdigest()[:61]
+        blueprint_id = "bp-" + hashlib.sha256(f"{actor.tenant_id}:{model['model_id']}".encode()).hexdigest()[:61]
         await session.execute(
             text(
                 "INSERT INTO planning_blueprints "
@@ -471,21 +474,22 @@ class ActivationCoordinator(CausalModelService):
     @staticmethod
     async def project_blueprint(session, blueprint_version_id: str) -> dict[str, Any]:
         version = (
-            await session.execute(
-                text(
-                    "SELECT fallback_policy,artifact_schema_version FROM planning_blueprint_versions "
-                    "WHERE blueprint_version_id=:version"
-                ),
-                {"version": blueprint_version_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT fallback_policy,artifact_schema_version FROM planning_blueprint_versions "
+                        "WHERE blueprint_version_id=:version"
+                    ),
+                    {"version": blueprint_version_id},
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
 
         async def rows(query: str) -> list[dict[str, Any]]:
             return [
-                dict(row)
-                for row in (
-                    await session.execute(text(query), {"version": blueprint_version_id})
-                ).mappings()
+                dict(row) for row in (await session.execute(text(query), {"version": blueprint_version_id})).mappings()
             ]
 
         sources = await rows(
@@ -609,8 +613,7 @@ class ActivationCoordinator(CausalModelService):
                 blueprint_version_id = rows[0]["blueprint_version_id"]
                 await session.execute(
                     text(
-                        "UPDATE planning_blueprint_versions SET status='withdrawn' "
-                        "WHERE blueprint_version_id=:version"
+                        "UPDATE planning_blueprint_versions SET status='withdrawn' WHERE blueprint_version_id=:version"
                     ),
                     {"version": blueprint_version_id},
                 )

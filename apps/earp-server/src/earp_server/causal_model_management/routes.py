@@ -46,7 +46,7 @@ class ErrorResponse(BaseModel):
     error: ErrorDetail
 
 
-ERROR_RESPONSES = {
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     403: {"model": ErrorResponse, "description": "Permission or data-domain access denied."},
     404: {"model": ErrorResponse, "description": "Resource is absent or not visible."},
     409: {"model": ErrorResponse, "description": "State, revision, idempotency, content or active CAS conflict."},

@@ -44,16 +44,12 @@ def test_n01a_write_operations_export_idempotency_and_version_if_match_headers()
         assert "Idempotency-Key" in parameters
         assert "If-Match" in parameters
 
-    validate_operation = spec["paths"][
-        "/v1/ecmc/causal-models/{model_id}/versions/{version_id}/validate"
-    ]["post"]
+    validate_operation = spec["paths"]["/v1/ecmc/causal-models/{model_id}/versions/{version_id}/validate"]["post"]
     validate_parameters = {p["name"] for p in validate_operation["parameters"]}
     assert {"Idempotency-Key"} <= validate_parameters
     assert "If-Match" not in validate_parameters
 
-    compile_operation = spec["paths"][
-        "/v1/ecmc/causal-models/{model_id}/versions/{version_id}/compile"
-    ]["post"]
+    compile_operation = spec["paths"]["/v1/ecmc/causal-models/{model_id}/versions/{version_id}/compile"]["post"]
     assert "Idempotency-Key" in {p["name"] for p in compile_operation["parameters"]}
     assert "If-Match" not in {p["name"] for p in compile_operation["parameters"]}
 

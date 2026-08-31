@@ -113,10 +113,7 @@ async def test_compile_attempt_terminal_artifact_and_retry_lineage(app_engine: A
             {"tenant": TENANT},
         )
         await session.execute(
-            text(
-                "UPDATE blueprint_compile_records SET status='failed', finished_at=now() "
-                "WHERE compile_id='cr-failed'"
-            )
+            text("UPDATE blueprint_compile_records SET status='failed', finished_at=now() WHERE compile_id='cr-failed'")
         )
         await session.execute(
             text(
