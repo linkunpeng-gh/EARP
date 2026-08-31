@@ -35,8 +35,11 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES
 
-    # 0040 removes its eight new tables.  0039/0038 are column-only; the
-    # preceding runtime-state leaf removes two tables.
+    # 0041 only widens an N01A idempotency column.  0040 removes its eight
+    # new tables; 0039/0038 are column-only; the preceding runtime-state leaf
+    # removes two tables.
+    command.downgrade(cfg, "-1")
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES
     command.downgrade(cfg, "-1")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES - 8
     command.downgrade(cfg, "-1")
