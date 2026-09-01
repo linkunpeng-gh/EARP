@@ -3,9 +3,21 @@
 **template_contract_version：** `n01a-catalog-phase0-signoff/v1`
 **模板说明：** 本模板只含 FROZEN 契约语义与填写规则，不含任何项目配置。项目配置由 Catalog Profile（`profiles/<profile_id>.yaml`）提供；签署实例绑定 `template_contract_version + profile_hash + manifest hash + resolver contract version`。
 
-> 使用方式：复制本模板为 `signoffs/<profile_id>-<date>-r<n>.md`，将 `{{...}}` 占位符替换为对应 Profile 的值；签署前先校验 Profile 通过 `schemas/catalog-profile.schema.json`，并计算 `profile_hash`。
+> 使用方式：用 `scripts/render_signoff.py --template 本文件 --profile profiles/<profile_id>.yaml --decisions decisions/<profile_id>-<date>-r<n>.json --out signoffs/<profile_id>-<date>-r<n>.md` 渲染；随后用 `scripts/validate_catalog.py` 校验 FROZEN 块一致、profile_hash 一致、无残留占位符。禁止仅凭 `template_contract_version` 判断模板未改变——模板内容变更必须校验 FROZEN 锚点与模板 hash/tag。
 
-## 0. 填写规则与状态标签
+## 0. 绑定块（渲染时由 render_signoff.py 填充）
+
+| 绑定字段 | 值 |
+|---|---|
+| template_contract_version | `n01a-catalog-phase0-signoff/v1` |
+| profile_id | `{{profile_id}}` |
+| profile_hash（SHA-256） | `{{profile_hash}}` |
+| manifest hash | `{{manifest_hash}}` |
+| resolver contract version | `{{resolver_contract_version}}` |
+| 签署日期 | `{{sign_date}}` |
+| 签署基线 tag | `{{signoff_tag}}` |
+
+**填写规则与状态标签**
 
 - **[FROZEN-CONFIRM]**：仅确认遵守现有契约，不能改成另一种语义。
 - **[PROPOSAL-DECIDE]**：配套计划中的建议，必须选择、记录理由并签署后才可实施。

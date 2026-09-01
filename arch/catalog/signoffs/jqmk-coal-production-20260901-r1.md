@@ -2,8 +2,8 @@
 
 **记录编号：** SIGNOFF-ECMC-N01A-CATALOG-PHASE0-20260901
 **状态：** `SIGNED`（2026-09-01 签署完成）
-**签署 commit：** `127c742e55d3108d49b72269e725903ea9b82d35`（本实例所在不可变提交）
-**模板契约：** `n01a-catalog-phase0-signoff/v1`
+**签署基线 tag：** `catalog-phase0-jqmk-coal-r1`（annotated tag 指向签署基线 commit；tag 与 attestation 见下）
+**模板契约：** `n01a-catalog-phase0-signoff/v1`（模板不可变证据：`arch/catalog/attestations/`，勿仅凭版本号判断模板未变）
 **Profile 绑定：**
 - profile_id: `jqmk-coal-production`
 - profile 路径: `profiles/jqmk-coal-production.yaml`
@@ -13,6 +13,18 @@
 **配套计划：** [N01A 生产 Catalog 契约签署与接入计划](../../design/2026-08-31-production-catalog-contract-signing-and-onboarding-plan-n01a.md)
 
 > 本实例由模板 `templates/n01a-catalog-phase0-signoff-template.md` + Profile `profiles/jqmk-coal-production.yaml` 渲染生成。FROZEN 语义来自模板（不可改）；人名/scope/编号来自 Profile（可配置）。本记录不代表任何未决项已被批准；未填写项按 `HOLD` 处理。
+
+## 0. 绑定块（模板 + Profile + 决策输入渲染结果）
+
+| 绑定字段 | 值 |
+|---|---|
+| template_contract_version | `n01a-catalog-phase0-signoff/v1` |
+| profile_id | `jqmk-coal-production` |
+| profile_hash（SHA-256） | `d4dbf84b1d32ca5d0ac51cb3304c40edb1acc1b8829337ab2cb65b9ad946c253` |
+| manifest hash | `HOLD`（待生成，见 D-03） |
+| resolver contract version | `HOLD`（Phase 1 落定，见 D-03） |
+| 签署日期 | `2026-09-01` |
+| 签署基线 tag | `catalog-phase0-jqmk-coal-r1` |
 
 ## 1. 记录元数据（来自 Profile）
 
@@ -109,6 +121,14 @@ manifest_id + manifest_schema_version + manifest_hash
 
 ### 3.3 manifest 最小 entry 一致性 [FROZEN + SIGN-OFF]
 
+对每个 exact ref，manifest 和 Resolver 投影中适用的字段必须一致（**模板固定**）：
+
+```text
+kind, stable_id, version, content_hash, status, data_domain_id,
+semantic_schema_version, input_schema, output_schema,
+compatibility_metadata
+```
+
 | 检查项 | 结果/证据 |
 |---|---|
 | 每个 entry 的 `(kind,stable_id,version)` 唯一性已验证 | HOLD（Phase 1 contract vectors） |
@@ -139,6 +159,8 @@ manifest_id + manifest_schema_version + manifest_hash
 ## 4. 重签、修订与撤销
 
 ### 4.1 触发条件 [FROZEN-CONFIRM]
+
+以下任一变化必须产生新的不可变 manifest 修订和新的签署记录：entry 新增、语义/compatibility/schema/version/hash/status 变化、scope/owner 变化、Resolver adapter identity 或 contract version 变化。旧修订只归档，不覆盖或删除。**模板固定。**
 
 | 触发/规则 | 决定/值 | 责任人 | 证据 |
 |---|---|---|---|
