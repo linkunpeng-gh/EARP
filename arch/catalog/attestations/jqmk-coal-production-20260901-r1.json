@@ -1,0 +1,42 @@
+{
+  "schema": "earp/catalog/signoff-attestation/v1",
+  "kind": "signoff-attestation",
+  "profile_id": "jqmk-coal-production",
+  "template_contract_version": "n01a-catalog-phase0-signoff/v1",
+  "signoff_tag": "catalog-phase0-jqmk-coal-r1",
+  "sign_date": "2026-09-01",
+  "attested_by": "EARP 平台治理（林鲲鹏/隋昕航/梁桂岭，见签署实例 §2/§11）",
+  "blob_hashes": {
+    "signoff": {
+      "path": "arch/catalog/signoffs/jqmk-coal-production-20260901-r1.md",
+      "sha256": "c36d651d583344334b283f06db160c4493f50a1d8538279c7796e200d4266cb9"
+    },
+    "profile": {
+      "path": "arch/catalog/profiles/jqmk-coal-production.yaml",
+      "sha256": "d4dbf84b1d32ca5d0ac51cb3304c40edb1acc1b8829337ab2cb65b9ad946c253"
+    },
+    "template": {
+      "path": "arch/catalog/templates/n01a-catalog-phase0-signoff-template.md",
+      "sha256": "2e3ea32591565e46e2cbcd3f100e465a90386e852ad1d3508be4a2f0ddc122be"
+    },
+    "schema": {
+      "path": "arch/catalog/schemas/catalog-profile.schema.json",
+      "sha256": "cbd942defebd882f018fbffe2a3eb741d7e03c3bf7c499a2d0a9897aab80a657"
+    }
+  },
+  "bindings": {
+    "manifest_hash": "HOLD（待生成，见 D-03）",
+    "resolver_contract_version": "HOLD（Phase 1 落定，见 D-03）"
+  },
+  "baseline_commit": "9f69e37c0e642bb2a4bc35992cc24a667e77550e（签署基线 commit；tag catalog-phase0-jqmk-coal-r1 指向）",
+  "verification": {
+    "frozen_anchors_matched": true,
+    "no_residual_placeholders": true,
+    "profile_schema_valid": true,
+    "dangerous_keys_rejected": ["allow_inactive", "disable_fail_closed", "disable_rbac", "bypass_resolver"],
+    "validator": "arch/catalog/scripts/validate_catalog.py",
+    "renderer": "arch/catalog/scripts/render_signoff.py",
+    "check_command": ".venv/bin/python arch/catalog/scripts/validate_catalog.py"
+  },
+  "notes": "模板与 schema 不得在签署后修改；任何变更须新建 profile/signoff 修订并重签。禁止仅凭 template_contract_version 判断模板未变，应校验 template blob sha256 与 FROZEN 锚点。"
+}
