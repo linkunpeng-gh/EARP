@@ -2,6 +2,7 @@
 
 **记录编号：** SIGNOFF-ECMC-N01A-CATALOG-PHASE0-20260901
 **状态：** `SIGNED`（2026-09-01 签署完成）
+**签署 commit：** `127c742e55d3108d49b72269e725903ea9b82d35`（本实例所在不可变提交）
 **模板契约：** `n01a-catalog-phase0-signoff/v1`
 **Profile 绑定：**
 - profile_id: `jqmk-coal-production`
