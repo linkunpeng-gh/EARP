@@ -151,6 +151,18 @@ def check_attestation(attestation: Path, failures: list[str]) -> None:
             print(f"[OK] attestation {key} blob hash 与文件一致: {real[:16]}…")
 
 
+def check_readiness(profile: Path) -> None:
+    """readiness 检查：区分'格式合法'与'具备签署/上线条件'。不判非法，仅提示。"""
+    import yaml
+    prof = yaml.safe_load(profile.read_text())
+    packs = prof.get("pack_lock") or []
+    missing = [p for p in packs if not (p.get("version") and p.get("content_hash"))]
+    if missing:
+        print(f"[READINESS] pack_lock 未就绪（{len(missing)}/{len(packs)} 项 version/hash 为空）→ 具备签署/上线条件前需补全，见 D-13")
+    if not (prof.get("roles", {}).get("product_owner", {}).get("contact")):
+        print("[READINESS] 产品负责人联系方式 TBD → §9.1 RACI entry gate 保持 HOLD")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     for key, dflt in DEFAULT.items():
@@ -164,6 +176,7 @@ def main() -> int:
     check_no_placeholders(args.signoff, failures)
     check_frozen_blocks(args.signoff, args.template, failures)
     check_attestation(args.attestation, failures)
+    check_readiness(args.profile)
 
     if failures:
         print("\n=== 失败项 ===")

@@ -38,9 +38,11 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def resolve_placeholder(token: str, profile: dict, decisions: dict) -> str:
-    """解析 {{...}}。优先级：Profile > 决策输入。未命中抛错。"""
+def resolve_placeholder(token: str, profile: dict, decisions: dict, profile_hash: str) -> str:
+    """解析 {{...}}。优先级：profile_hash(自动计算) > Profile > 决策输入。"""
     body = token[2:-2].strip()
+    if body == "profile_hash":
+        return profile_hash
     # 决策输入优先处理带点路径
     if body in decisions:
         val = decisions[body]
@@ -58,13 +60,13 @@ def resolve_placeholder(token: str, profile: dict, decisions: dict) -> str:
     return str(cur)
 
 
-def render(template_text: str, profile: dict, decisions: dict) -> str:
+def render(template_text: str, profile: dict, decisions: dict, profile_hash: str) -> str:
     missing = set()
 
     def repl(m: re.Match) -> str:
         token = m.group(0)
         try:
-            return resolve_placeholder(token, profile, decisions)
+            return resolve_placeholder(token, profile, decisions, profile_hash)
         except KeyError as e:
             missing.add(str(e))
             return token
@@ -85,7 +87,8 @@ def main() -> int:
 
     profile = yaml.safe_load(args.profile.read_text())
     decisions = json.loads(args.decisions.read_text())
-    rendered = render(args.template.read_text(), profile, decisions)
+    profile_hash = sha256_file(args.profile)
+    rendered = render(args.template.read_text(), profile, decisions, profile_hash)
 
     # 校验无残留占位符
     left = re.findall(r"\{\{[a-zA-Z_.]+\}\}", rendered)
