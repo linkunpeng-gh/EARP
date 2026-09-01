@@ -1,0 +1,56 @@
+# EARP Catalog Profile —— 项目级配置（值层）
+# schema: catalog-profile/v1 —— 禁止加入 allow_inactive / disable_fail_closed 等语义开关
+profile_id: jqmk-coal-production
+schema_version: catalog-profile/v1
+template_contract_version: n01a-catalog-phase0-signoff/v1
+
+# scope（仅值，不定义语义）
+industry_scope: coal_mining
+enterprise_scope: SDRH
+tenant_id: JQMK
+data_domains:
+  - 生产域
+
+catalog_profile_id: coal.sdrh.jqmk.production
+
+# pack_lock：pack 尚未形成，version/hash 待填（null=待签署，对应 D-13）
+pack_lock:
+  - pack_id: platform-base
+    layer: platform
+    version: null
+    content_hash: null
+  - pack_id: coal-mining-industry
+    layer: industry
+    version: null
+    content_hash: null
+  - pack_id: jqmk-enterprise
+    layer: enterprise
+    version: null
+    content_hash: null
+
+# 角色 -> 项目人员绑定（签署实例固化人名，来源在此）
+roles:
+  product_owner:
+    name: 林鲲鹏
+    team: EARP 项目
+  platform_architect:
+    name: 隋昕航
+    team: EARP 项目
+  data_domain_owner:
+    name: 隋昕航
+    team: EARP 项目
+  security_rbac_owner:
+    name: 林鲲鹏
+    team: EARP 项目
+  audit_compliance_owner:
+    name: 梁桂岭
+    team: EARP 项目
+  ops_platform_owner:
+    name: 梁桂岭
+    team: EARP 项目
+
+change_orders:
+  change: JQMK-BG-20260901-001
+  release: JQMK-FB-20260901-001
+
+record_keeper: 林鲲鹏

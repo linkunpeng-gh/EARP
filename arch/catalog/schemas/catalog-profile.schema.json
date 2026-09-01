@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "earp:catalog-profile:schema:v1",
+  "title": "EARP Catalog Profile Schema",
+  "description": "项目级 Catalog 治理配置（值层）。只承载 scope/owner/编号/变更单等可配置值，不承载任何 FROZEN 语义。禁止加入 allow_inactive、disable_fail_closed 等危险语义开关——本 schema 采用 additionalProperties:false，未列出的字段一律拒绝。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile_id",
+    "schema_version",
+    "template_contract_version",
+    "industry_scope",
+    "enterprise_scope",
+    "tenant_id",
+    "data_domains",
+    "catalog_profile_id",
+    "pack_lock",
+    "roles",
+    "change_orders",
+    "record_keeper"
+  ],
+  "properties": {
+    "profile_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "schema_version": {
+      "const": "catalog-profile/v1"
+    },
+    "template_contract_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "所采用的签署模板契约版本，如 n01a-catalog-phase0-signoff/v1"
+    },
+    "industry_scope": {
+      "type": "string",
+      "minLength": 1
+    },
+    "enterprise_scope": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "data_domains": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "catalog_profile_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "有效 catalog profile 标识（对应 effective manifest 绑定）"
+    },
+    "pack_lock": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pack_id", "layer", "version"],
+        "properties": {
+          "pack_id": { "type": "string", "minLength": 1 },
+          "layer": { "enum": ["platform", "industry", "enterprise"] },
+          "version": { "type": ["string", "null"] },
+          "content_hash": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "角色 -> 项目人员绑定；正式签署实例固化具名人员，但来源必须是此处",
+      "required": [
+        "product_owner",
+        "platform_architect",
+        "data_domain_owner",
+        "security_rbac_owner",
+        "audit_compliance_owner",
+        "ops_platform_owner"
+      ],
+      "properties": {
+        "product_owner": { "$ref": "#/$defs/role_binding" },
+        "platform_architect": { "$ref": "#/$defs/role_binding" },
+        "data_domain_owner": { "$ref": "#/$defs/role_binding" },
+        "security_rbac_owner": { "$ref": "#/$defs/role_binding" },
+        "audit_compliance_owner": { "$ref": "#/$defs/role_binding" },
+        "ops_platform_owner": { "$ref": "#/$defs/role_binding" }
+      }
+    },
+    "change_orders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change", "release"],
+      "properties": {
+        "change": { "type": "string", "minLength": 1 },
+        "release": { "type": "string", "minLength": 1 }
+      }
+    },
+    "record_keeper": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "role_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "team"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "team": { "type": "string", "minLength": 1 },
+        "contact": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
