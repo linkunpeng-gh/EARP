@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -151,6 +152,51 @@ def check_attestation(attestation: Path, failures: list[str]) -> None:
             print(f"[OK] attestation {key} blob hash 与文件一致: {real[:16]}…")
 
 
+def check_tag(attestation: Path, failures: list[str]) -> None:
+    """校验签署基线 tag：存在、annotated、指向 attestation 声明的 baseline_commit。"""
+    if not attestation.exists():
+        return  # attestation 不存在的错误已由 check_attestation 报
+    data = json.loads(attestation.read_text())
+    tag = data.get("signoff_tag")
+    baseline = data.get("baseline_commit", "")
+    # baseline_commit 字段含注释文字，提取前 40 位 hash
+    m = re.search(r"([0-9a-f]{40})", baseline)
+    baseline_hash = m.group(1) if m else None
+
+    if not tag:
+        failures.append("attestation 缺少 signoff_tag 字段")
+        return
+
+    def git(*args: str) -> tuple[int, str]:
+        r = subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True, text=True)
+        return r.returncode, r.stdout.strip()
+
+    # 1. tag 存在
+    rc, _ = git("rev-parse", "--verify", tag)
+    if rc != 0:
+        failures.append(f"签署基线 tag 不存在: {tag}")
+        return
+    print(f"[OK] 签署基线 tag 存在: {tag}")
+
+    # 2. tag 是 annotated（git cat-file -t 返回 "tag"）
+    rc, obj_type = git("cat-file", "-t", tag)
+    if obj_type != "tag":
+        failures.append(f"tag {tag} 不是 annotated tag（类型为 {obj_type}），应为 annotated tag")
+    else:
+        print(f"[OK] tag {tag} 为 annotated tag")
+
+    # 3. tag 指向的 commit == attestation baseline_commit
+    rc, pointed = git("rev-list", "-n1", tag)
+    if rc != 0 or not pointed:
+        failures.append(f"无法解析 tag {tag} 指向的 commit")
+    elif baseline_hash and pointed != baseline_hash:
+        failures.append(f"tag {tag} 指向 {pointed[:12]}…，与 attestation baseline_commit {baseline_hash[:12]}… 不一致")
+    elif not baseline_hash:
+        failures.append("attestation baseline_commit 字段未包含有效 commit hash")
+    else:
+        print(f"[OK] tag {tag} 指向 commit 与 attestation baseline_commit 一致: {pointed[:12]}…")
+
+
 def check_readiness(profile: Path) -> None:
     """readiness 检查：区分'格式合法'与'具备签署/上线条件'。不判非法，仅提示。"""
     import yaml
@@ -176,6 +222,7 @@ def main() -> int:
     check_no_placeholders(args.signoff, failures)
     check_frozen_blocks(args.signoff, args.template, failures)
     check_attestation(args.attestation, failures)
+    check_tag(args.attestation, failures)
     check_readiness(args.profile)
 
     if failures:

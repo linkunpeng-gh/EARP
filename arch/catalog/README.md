@@ -71,6 +71,12 @@ shasum -a 256 arch/catalog/profiles/jqmk-coal-production.yaml
 
 校验器退出码 0 = 全部通过；非 0 = 存在失败项（详见输出）。
 
+## 下一次修订 backlog（非阻塞，已记录）
+
+1. **渲染器逐字复现签署实例**：当前渲染产物的标题、签署勾选（☑/□）、少量展示格式仍来自人工编辑。下一次修订应把签署结论纳入 decisions 输入，或明确"渲染产物 + 人工签署附录"的边界，并在校验器中增加"仅允许修改附录区域"的检查。
+2. **联系方式补全**：当前所有角色 contact 为 TBD，§9.1 RACI entry gate 保持 HOLD；补全后 readiness 检查应通过。
+3. **pack_lock 填实**：3 个 pack 的 version/hash 为 null（D-13），填实后需重算 profile_hash 并重签实例。
+
 ## 签署证据链（如何证明这份签署不可变）
 
 1. `git tag -a catalog-phase0-jqmk-coal-r1` 冻结基线 commit（含全部被签署资产）。
