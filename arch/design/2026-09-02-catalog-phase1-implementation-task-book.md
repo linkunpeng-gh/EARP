@@ -1,9 +1,24 @@
 # EARP Catalog Phase 1 实施任务书
 
-> 状态：待执行
+> 状态：实现完成（Mock/Test Adapter）/ PASS WITH HOLD
 > 编制日期：2026-09-02
 > 依据：Catalog Phase 1 技术设计、产品页面设计及十一轮设计评审结论
 > 适用范围：EARP Catalog Phase 1 开发、联调、验收与上线准备
+
+### 当前实施状态（2026-09-03）
+
+| 工作包 | 当前状态 | 说明 |
+|:--|:---|:---|
+| M0 | 已完成 | 设计、schema、fixture、golden、校验脚本和 CI 基线已固化；冻结算法为 `sha256/canonical-json/v1`。 |
+| M1 | 已完成 | 数据模型、0042–0045 migration、schema/hash 组件及迁移/契约测试已交付。 |
+| M2 | 已完成 | Ref、三层 Pack、Manifest、激活/撤销/回滚、审计和 OpenAPI 已交付。 |
+| M3 | 已完成（保留债务） | Resolver exact resolve/validate、批量校验、fail-closed 和缓存失效已交付；缓存边界列入 `CAT-05`。 |
+| M4 | Mock 闭环完成 / 生产 HOLD | Source Adapter 接口、pull/webhook、签名/幂等/LKG 基础能力已交付；真实源、调度、重试和 suspected-missing 闭环列入 `CAT-01`、`CAT-02`、`CAT-08` 及 `CAT-HOLD-04`。 |
+| M5 | 基础治理完成（保留债务） | RBAC、SoD、Pack 导出权限、租户隔离和审计基础已交付；Ref 审批、候补审批、break-glass、过期及审计运维增强列入 `CAT-06`、`CAT-07`、`CAT-10`、`CAT-12`。 |
+| M6 | 核心页面与 API 联调完成（保留债务） | 5 个 Catalog 页面和核心操作入口已交付；真实合同驱动的数据闭环及完整差异/冲突/回滚验收列入 `CAT-11`。 |
+| M7 | CI/校验/手册完成，待上线门禁 | CI、schema/golden/fixture、OpenAPI、迁移检查和运行手册已完成；真实 pack/owner/source 依赖及演练证据仍为 `CAT-HOLD-01`～`CAT-HOLD-04`。 |
+
+本状态表示 Phase 1 的可工作纵向闭环已完成，不表示 readiness HOLD 已清零。Review 发现的未关闭项统一登记在 [`arch/tech-debt.md`](../tech-debt.md)；详细任务复选框保留为退出标准和后续验收依据。
 
 ## 1. 目标
 
