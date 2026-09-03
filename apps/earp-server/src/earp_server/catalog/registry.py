@@ -226,27 +226,35 @@ class CatalogRefRegistry:
         ).hexdigest()
         async with tenant_session(self._engine, tenant_id) as session:
             replay = (
-                await session.execute(
-                    text(
-                        "SELECT request_hash,response_body FROM idempotency_records WHERE tenant_id=:tenant "
-                        "AND actor_id=:actor AND operation='catalog-ref.revoke' AND idempotency_key=:key"
-                    ),
-                    {"tenant": tenant_id, "actor": actor_id, "key": idempotency_key},
+                (
+                    await session.execute(
+                        text(
+                            "SELECT request_hash,response_body FROM idempotency_records WHERE tenant_id=:tenant "
+                            "AND actor_id=:actor AND operation='catalog-ref.revoke' AND idempotency_key=:key"
+                        ),
+                        {"tenant": tenant_id, "actor": actor_id, "key": idempotency_key},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if replay is not None:
                 if replay["request_hash"] != request_hash:
                     raise CatalogRegistrationError("Idempotency-Key was reused with a different request")
                 return {**replay["response_body"], "replayed": True}
             row = (
-                await session.execute(
-                    text(
-                        "SELECT * FROM catalog_refs WHERE tenant_id=:tenant AND kind=:kind "
-                        "AND stable_id=:stable_id AND version=:version AND deleted_at IS NULL FOR UPDATE"
-                    ),
-                    {"tenant": tenant_id, "kind": kind, "stable_id": stable_id, "version": version},
+                (
+                    await session.execute(
+                        text(
+                            "SELECT * FROM catalog_refs WHERE tenant_id=:tenant AND kind=:kind "
+                            "AND stable_id=:stable_id AND version=:version AND deleted_at IS NULL FOR UPDATE"
+                        ),
+                        {"tenant": tenant_id, "kind": kind, "stable_id": stable_id, "version": version},
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if row is None:
                 raise CatalogRegistrationError("exact CatalogRef is not registered")
             await session.execute(
@@ -256,7 +264,7 @@ class CatalogRefRegistry:
                 ),
                 {"tenant": tenant_id, "ref": row["ref_id"]},
             )
-            body = {
+            body: dict[str, object] = {
                 "ref_id": row["ref_id"],
                 "kind": kind,
                 "stable_id": stable_id,

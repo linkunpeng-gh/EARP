@@ -231,9 +231,7 @@ async def refresh_ref(body: RefreshRefRequest, request: Request) -> dict[str, ob
 
 
 @router.post("/refs/revoke")
-async def revoke_ref(
-    body: RevokeRefRequest, request: Request, idempotency_key: IdempotencyKey
-) -> dict[str, object]:
+async def revoke_ref(body: RevokeRefRequest, request: Request, idempotency_key: IdempotencyKey) -> dict[str, object]:
     await _require_catalog_permission(request, "ecmc.catalog.request")
     try:
         return await CatalogRefRegistry(request.app.state.engine).revoke(
