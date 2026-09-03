@@ -1,8 +1,8 @@
 # ECMC 前端信息架构与页面开发模板
 
 - **文档编号：** FE-ECMC-2026-0830
-- **状态：** Draft v0.1（产品布局讨论已确认，待前端评审）
-- **日期：** 2026-08-30
+- **状态：** Draft v0.2（产品布局讨论已确认，待前端评审）
+- **日期：** 2026-09-01
 - **适用应用：** `apps/earp-admin`
 - **当前实施范围：** N01B 因果模型可视化管理
 - **未来扩展范围：** 决策模型、任务模型
@@ -350,7 +350,15 @@ DiagnosticTarget 创建后不可修改；需要改变目标时创建新模型，
 
 ## 9. CatalogRefPicker
 
-### 9.1 展示格式
+### 9.1 有效 Catalog 范围
+
+Catalog 选择器只展示当前认证上下文对应的 effective Catalog profile。该 profile 由平台基础包、行业包、企业扩展包和数据域授权显式组合；例如煤矿 tenant 不得看到金融行业条目。
+
+页面应在选择器附近只读展示当前行业、企业/tenant 和数据域范围。用户不能通过手写 scope、stable ID 或切换 URL 参数扩大范围。`CatalogRef` 仍只提交 `{kind,stable_id,version}`；行业和 tenant 权限由 Resolver 上下文与已签署 manifest 决定。
+
+若不同 pack 提供相同 exact ref 但 hash/schema/语义不一致，选择器必须显示“目录组合冲突/不可用”，不能按企业优先、最后加载优先等隐式规则选一个结果。具体 profile/browse API 尚未冻结，签署前只实现只读占位和 fake contract test。
+
+### 9.2 展示格式
 
 ```text
 业务名称
@@ -359,11 +367,11 @@ metric.haulage_cycle_time · v1
 
 选择器按 `kind`、数据域和 active 状态过滤，只返回精确版本。
 
-### 9.2 缺项流程
+### 9.3 缺项流程
 
 搜索无结果时展示“申请新增目录项”，打开 CatalogChangeRequest 侧边抽屉。申请通过并履约前，该引用不能进入模型内容。
 
-### 9.3 禁止行为
+### 9.4 禁止行为
 
 - 不提供任意 stable ID 输入框。
 - 不接受 `latest`、`*` 或 display name 代替版本。

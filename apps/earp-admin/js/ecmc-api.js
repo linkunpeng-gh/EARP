@@ -15,6 +15,7 @@
   'use strict';
 
   var BASE = '/v1/ecmc';
+  var CATALOG_BASE = '/v1/catalog';
 
   /* ── 稳定错误 ── */
   function EcmcApiError(status, code, message, correlationId, details) {
@@ -42,7 +43,7 @@
     return { raw: text };
   }
 
-  async function request(method, path, options) {
+  async function request(method, path, options, base) {
     options = options || {};
     var headers = Object.assign({}, EARP.headers(), options.headers || {});
     if (options.body !== undefined && options.body !== null) {
@@ -56,7 +57,7 @@
       fetchOpts.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
     }
 
-    var res = await fetch(EARP.apiBase + BASE + path, fetchOpts);
+    var res = await fetch(EARP.apiBase + (base || BASE) + path, fetchOpts);
     var text = await res.text().catch(function () { return ''; });
     var payload = parsePayload(res, text);
     var etag = res.headers.get('ETag') || '';
@@ -132,18 +133,23 @@
     });
   };
 
+  function apiFor(base) {
+    return {
+      BASE: base,
+      EcmcApiError: EcmcApiError,
+      idempotencyKey: newIdempotencyKey,
+      parseEtag: parseEtag,
+      get: function (path, options) { return request('GET', path, options, base); },
+      post: function (path, body, options) { return request('POST', path, Object.assign({ body: body }, options), base); },
+      put: function (path, body, options) { return request('PUT', path, Object.assign({ body: body }, options), base); },
+      patch: function (path, body, options) { return request('PATCH', path, Object.assign({ body: body }, options), base); },
+      del: function (path, options) { return request('DELETE', path, options, base); }
+    };
+  }
+
   /* ── 对外 API ── */
   window.ECMC = window.ECMC || {};
-  window.ECMC.api = {
-    BASE: BASE,
-    EcmcApiError: EcmcApiError,
-    idempotencyKey: newIdempotencyKey,
-    parseEtag: parseEtag,
-    get: function (path, options) { return request('GET', path, options); },
-    post: function (path, body, options) { return request('POST', path, Object.assign({ body: body }, options)); },
-    put: function (path, body, options) { return request('PUT', path, Object.assign({ body: body }, options)); },
-    patch: function (path, body, options) { return request('PATCH', path, Object.assign({ body: body }, options)); },
-    del: function (path, options) { return request('DELETE', path, options); },
-    VersionClient: VersionClient,
-  };
+  window.ECMC.api = apiFor(BASE);
+  window.ECMC.api.VersionClient = VersionClient;
+  window.ECMC.catalogApi = apiFor(CATALOG_BASE);
 })();

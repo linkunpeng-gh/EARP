@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "earp:catalog-attestation:schema:v1",
+  "title": "EARP Catalog Manifest Attestation Schema",
+  "description": "manifest 签署证据。绑定 manifest_hash、envelope_hash（含生效窗口）、签署人、变更单和基线 commit。envelope_hash 确保生效窗口不可篡改。additionalProperties:false。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attestation_schema_version",
+    "manifest_id",
+    "manifest_revision",
+    "manifest_hash",
+    "envelope_hash",
+    "signoff_tag",
+    "change_order",
+    "signers",
+    "signed_at",
+    "effective_from",
+    "baseline_commit"
+  ],
+  "properties": {
+    "attestation_schema_version": { "const": "catalog-attestation/v1" },
+    "manifest_id": { "type": "string", "minLength": 1 },
+    "manifest_revision": { "type": "integer", "minimum": 1 },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "对 manifest 内容投影（排除 signoff/generated_at）的 SHA-256"
+    },
+    "envelope_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256(canonical({manifest_hash, signoff_tag, change_order, signed_at, effective_from, effective_until, signers}))。绑定生效窗口，篡改 effective_from/until 会使 envelope_hash 失效。"
+    },
+    "signoff_tag": { "type": "string", "minLength": 1 },
+    "change_order": { "type": "string", "minLength": 1 },
+    "release_order": { "type": ["string", "null"] },
+    "signers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role_key", "name"],
+        "properties": {
+          "role_key": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "signed_at": { "type": "string", "format": "date-time" },
+          "approval_id": { "type": "string" }
+        }
+      }
+    },
+    "signed_at": { "type": "string", "format": "date-time" },
+    "effective_from": { "type": "string", "format": "date-time" },
+    "effective_until": { "type": ["string", "null"], "format": "date-time" },
+    "baseline_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "签署基线 commit hash（annotated tag 指向的 commit）"
+    },
+    "blob_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signoff": { "$ref": "#/$defs/blob_hash" },
+        "profile": { "$ref": "#/$defs/blob_hash" },
+        "template": { "$ref": "#/$defs/blob_hash" },
+        "schema": { "$ref": "#/$defs/blob_hash" }
+      }
+    },
+    "notes": { "type": "string" }
+  },
+  "$defs": {
+    "blob_hash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

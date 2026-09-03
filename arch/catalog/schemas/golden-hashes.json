@@ -1,0 +1,72 @@
+{
+  "data_domain": {
+    "stable_id": "jqmk.production",
+    "version": "1.0.0",
+    "schema_version": "catalog-domain/v1",
+    "canonical_json": "{\"description\":\"煤矿生产数据域\",\"domain_id\":\"production\",\"kind\":\"data_domain\",\"name\":\"生产域\",\"semantic_schema_version\":\"catalog-domain/v1\",\"stable_id\":\"jqmk.production\",\"version\":\"1.0.0\"}",
+    "content_hash": "fa7ceb1b6615e67e00058438070df50fbf04f6e9c9d31b95d6d8934cc93d7954"
+  },
+  "entity_type": {
+    "stable_id": "coal.mine",
+    "version": "1.0.0",
+    "schema_version": "catalog-entity/v1",
+    "canonical_json": "{\"attributes\":[{\"name\":\"capacity\",\"required\":false,\"type\":\"number\"},{\"name\":\"mine_code\",\"required\":true,\"type\":\"string\"}],\"data_domain_id\":\"production\",\"description\":\"煤矿矿井实体\",\"entity_type_id\":\"coal.mine\",\"kind\":\"entity_type\",\"kind_type\":\"object\",\"name\":\"矿井\",\"semantic_schema_version\":\"catalog-entity/v1\",\"stable_id\":\"coal.mine\",\"version\":\"1.0.0\"}",
+    "content_hash": "7761861bea3349343afd03f4e77231f0e02028feec87556b2797bb16376bde4c"
+  },
+  "relation_type": {
+    "stable_id": "coal.mines",
+    "version": "1.0.0",
+    "schema_version": "catalog-relation/v1",
+    "canonical_json": "{\"cardinality\":\"one_to_many\",\"description\":\"矿井拥有多个工作面\",\"kind\":\"relation_type\",\"name\":\"拥有工作面\",\"relation_type_id\":\"coal.mines\",\"semantic_schema_version\":\"catalog-relation/v1\",\"source_type\":\"coal.mine\",\"stable_id\":\"coal.mines\",\"target_type\":\"coal.working_face\",\"version\":\"1.0.0\"}",
+    "content_hash": "0776760a62cdf95636039a45612f2c5e2709c7c39b31b42d5c7e472a481cbe14"
+  },
+  "metric": {
+    "stable_id": "coal.raw_coal_output",
+    "version": "1.0.0",
+    "schema_version": "catalog-metric/v1",
+    "canonical_json": "{\"data_domain_id\":\"production\",\"description\":\"工作面原煤产量\",\"kind\":\"metric\",\"metric_id\":\"coal.raw_coal_output\",\"name\":\"原煤产量\",\"semantic_schema_version\":\"catalog-metric/v1\",\"stable_id\":\"coal.raw_coal_output\",\"value_semantics\":{\"aggregation_ref\":{\"kind\":\"aggregation\",\"stable_id\":\"common.agg.daily_total\",\"version\":\"1.0.0\"},\"measurement_type\":\"continuous_flow\",\"time_window_ref\":{\"kind\":\"time_window_schema\",\"stable_id\":\"common.time.shift\",\"version\":\"1.0.0\"},\"unit_ref\":{\"kind\":\"unit\",\"stable_id\":\"common.mass.tonne\",\"version\":\"1.0.0\"}},\"version\":\"1.0.0\"}",
+    "content_hash": "7962d8041450c20cb1a58e1e5ffcc3337e94a17aa25b081abe25fc8e7d3ed48b"
+  },
+  "unit": {
+    "stable_id": "common.mass.tonne",
+    "version": "1.0.0",
+    "schema_version": "catalog-unit/v1",
+    "canonical_json": "{\"description\":\"公吨\",\"dimension\":\"mass\",\"kind\":\"unit\",\"name\":\"吨\",\"stable_id\":\"common.mass.tonne\",\"symbol\":\"t\",\"unit_id\":\"common.mass.tonne\",\"version\":\"1.0.0\"}",
+    "content_hash": "dec4a1bbb7569f891da14c63a378aa021680a228361cce29460bde1c31d1d8f3"
+  },
+  "aggregation": {
+    "stable_id": "common.agg.daily_total",
+    "version": "1.0.0",
+    "schema_version": "catalog-aggregation/v1",
+    "canonical_json": "{\"aggregation_id\":\"common.agg.daily_total\",\"description\":\"按自然日求和\",\"formula_type\":\"sum\",\"kind\":\"aggregation\",\"name\":\"日累计\",\"stable_id\":\"common.agg.daily_total\",\"version\":\"1.0.0\"}",
+    "content_hash": "6814cbc245fb9bb44b9936f87ff8788174294624b9296a2542e1f92079bf04a6"
+  },
+  "time_window_schema": {
+    "stable_id": "common.time.shift",
+    "version": "1.0.0",
+    "schema_version": "catalog-time-window/v1",
+    "canonical_json": "{\"alignment\":\"shift\",\"description\":\"三八制班次\",\"duration\":\"8h\",\"kind\":\"time_window_schema\",\"name\":\"班次\",\"shift_definition\":\"早班 00-08, 中班 08-16, 夜班 16-24\",\"stable_id\":\"common.time.shift\",\"version\":\"1.0.0\",\"window_id\":\"common.time.shift\"}",
+    "content_hash": "974151f831b086383dc9814d8169c91eee15dba82eb1e10ab8f03cf209330f4c"
+  },
+  "binding_template": {
+    "stable_id": "coal.equipment_binding",
+    "version": "1.0.0",
+    "schema_version": "catalog-binding-template/v1",
+    "canonical_json": "{\"description\":\"将设备绑定到工作面\",\"kind\":\"binding_template\",\"name\":\"设备→工作面绑定\",\"params_schema\":{\"properties\":{\"equipment_type_ref\":{\"kind\":\"entity_type\",\"label\":\"设备类型\",\"type\":\"ref\"},\"working_face_ref\":{\"kind\":\"entity_type\",\"label\":\"工作面\",\"type\":\"ref\"}},\"required\":[\"equipment_type_ref\",\"working_face_ref\"],\"type\":\"object\"},\"stable_id\":\"coal.equipment_binding\",\"template_id\":\"coal.equipment_binding\",\"version\":\"1.0.0\"}",
+    "content_hash": "704895245e72ad1783f584d149ff71ff761d59c9a53dd1b39789ea56eec37bec"
+  },
+  "capability_contract": {
+    "stable_id": "coal.production_forecast",
+    "version": "1.0.0",
+    "schema_version": "catalog-capability/v1",
+    "canonical_json": "{\"capability_id\":\"coal.production_forecast\",\"description\":\"工作面产量预测能力\",\"input_schema\":{\"properties\":{\"face_id\":{\"type\":\"string\"}},\"type\":\"object\"},\"kind\":\"capability_contract\",\"name\":\"产量预测\",\"output_schema\":{\"properties\":{\"forecast_tonnage\":{\"type\":\"number\"}},\"type\":\"object\"},\"role\":\"primary\",\"stable_id\":\"coal.production_forecast\",\"version\":\"1.0.0\"}",
+    "content_hash": "6852ce68db61a68a26e8cf6ea47c04ce2055bdd4eb08c49f4e1c6411453473b7"
+  },
+  "rule_schema": {
+    "stable_id": "common.rule.sign_propagation_v1",
+    "version": "1.0.0",
+    "schema_version": "catalog-rule/v1",
+    "canonical_json": "{\"algorithm_profile\":\"sign-propagation/v1\",\"description\":\"因果符号传播算法\",\"kind\":\"rule_schema\",\"name\":\"符号传播 v1\",\"params_schema\":{\"properties\":{\"damping\":{\"type\":\"number\"}},\"type\":\"object\"},\"rule_id\":\"common.rule.sign_propagation_v1\",\"stable_id\":\"common.rule.sign_propagation_v1\",\"version\":\"1.0.0\"}",
+    "content_hash": "e7f058cede65885da8e7b095e404c13662d1d2a2fff48008c9d1b76ba55c1759"
+  }
+}

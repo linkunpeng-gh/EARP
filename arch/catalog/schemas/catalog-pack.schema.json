@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "earp:catalog-pack:schema:v1",
+  "title": "EARP Catalog Pack Schema",
+  "description": "Catalog Pack：引用的集合。已发布 version 不可变。additionalProperties:false。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pack_schema_version", "pack_id", "layer", "version", "name", "entries", "content_hash"],
+  "properties": {
+    "pack_schema_version": { "const": "catalog-pack/v1" },
+    "pack_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "layer": { "enum": ["platform", "industry", "enterprise"] },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "owner_role": { "type": "string", "minLength": 1 },
+    "entry_kinds": {
+      "type": "array",
+      "items": {
+        "enum": ["data_domain", "entity_type", "relation_type", "metric", "unit", "aggregation", "time_window_schema", "binding_template", "capability_contract", "rule_schema"]
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 0,
+      "description": "pack 包含的引用，按 (kind, stable_id, version) 排序",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "stable_id", "version", "content_hash"],
+        "properties": {
+          "kind": {
+            "enum": ["data_domain", "entity_type", "relation_type", "metric", "unit", "aggregation", "time_window_schema", "binding_template", "capability_contract", "rule_schema"]
+          },
+          "stable_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" },
+          "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "canonical_input_ref": {
+            "type": "string",
+            "description": "canonical input 文件路径（pack entries/ 目录下），供 hash 校验和审计"
+          }
+        }
+      }
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "对 entries 按 (kind, stable_id, version) 排序后规范化 JSON 的 SHA-256"
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": { "type": "string" }
+  }
+}

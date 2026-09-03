@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "earp:catalog-kinds:schema:v1",
+  "title": "EARP Catalog 10 Kinds Schema",
+  "description": "10 种 kind 的 canonical input schema。每种 kind 的 content_hash = 对 canonical input 规范化 JSON 后的 SHA-256。additionalProperties:false。根节点使用 oneOf + kind 判别器，直接校验时必须匹配其中一种 kind。",
+  "$defs": {
+    "data_domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "domain_id", "semantic_schema_version", "name"],
+      "properties": {
+        "kind": { "const": "data_domain" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "domain_id": { "type": "string" },
+        "semantic_schema_version": { "const": "catalog-domain/v1" },
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "entity_type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "entity_type_id", "name", "kind_type", "data_domain_id", "semantic_schema_version"],
+      "properties": {
+        "kind": { "const": "entity_type" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "entity_type_id": { "type": "string" },
+        "name": { "type": "string" },
+        "kind_type": { "type": "string", "enum": ["concept", "event", "object", "actor"] },
+        "data_domain_id": { "type": "string" },
+        "semantic_schema_version": { "const": "catalog-entity/v1" },
+        "description": { "type": "string" },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": "string" },
+              "required": { "type": "boolean" }
+            }
+          }
+        }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "relation_type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "relation_type_id", "name", "source_type", "target_type", "semantic_schema_version"],
+      "properties": {
+        "kind": { "const": "relation_type" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "relation_type_id": { "type": "string" },
+        "name": { "type": "string" },
+        "source_type": { "type": "string" },
+        "target_type": { "type": "string" },
+        "cardinality": { "type": "string", "enum": ["one_to_one", "one_to_many", "many_to_one", "many_to_many"] },
+        "semantic_schema_version": { "const": "catalog-relation/v1" },
+        "description": { "type": "string" }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "metric_id", "name", "data_domain_id", "value_semantics", "semantic_schema_version"],
+      "properties": {
+        "kind": { "const": "metric" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "metric_id": { "type": "string" },
+        "name": { "type": "string" },
+        "data_domain_id": { "type": "string" },
+        "semantic_schema_version": { "const": "catalog-metric/v1" },
+        "description": { "type": "string" },
+        "value_semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["measurement_type", "unit_ref", "aggregation_ref", "time_window_ref"],
+          "properties": {
+            "measurement_type": { "type": "string" },
+            "unit_ref": { "$ref": "#/$defs/catalog_ref" },
+            "aggregation_ref": { "$ref": "#/$defs/catalog_ref" },
+            "time_window_ref": { "$ref": "#/$defs/catalog_ref" }
+          }
+        }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "unit_id", "name", "dimension"],
+      "properties": {
+        "kind": { "const": "unit" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "unit_id": { "type": "string" },
+        "name": { "type": "string" },
+        "symbol": { "type": "string" },
+        "dimension": { "type": "string", "enum": ["mass", "time", "ratio", "length", "volume", "dimensionless", "other"] },
+        "description": { "type": "string" }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "aggregation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "aggregation_id", "name", "formula_type"],
+      "properties": {
+        "kind": { "const": "aggregation" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "aggregation_id": { "type": "string" },
+        "name": { "type": "string" },
+        "formula_type": { "type": "string", "enum": ["sum", "avg", "max", "min", "count", "first", "last", "custom"] },
+        "custom_formula": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "time_window_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "window_id", "name", "duration", "alignment"],
+      "properties": {
+        "kind": { "const": "time_window_schema" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "window_id": { "type": "string" },
+        "name": { "type": "string" },
+        "duration": { "type": "string" },
+        "alignment": { "type": "string", "enum": ["natural", "shift", "fiscal", "custom"] },
+        "shift_definition": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "binding_template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "template_id", "name", "params_schema"],
+      "properties": {
+        "kind": { "const": "binding_template" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "template_id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "params_schema": { "type": "object" }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "capability_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "capability_id", "name", "role", "input_schema", "output_schema"],
+      "properties": {
+        "kind": { "const": "capability_contract" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "capability_id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["primary", "supporting", "auxiliary"] },
+        "input_schema": { "type": "object" },
+        "output_schema": { "type": "object" },
+        "description": { "type": "string" }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "rule_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version", "rule_id", "name", "algorithm_profile"],
+      "properties": {
+        "kind": { "const": "rule_schema" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" },
+        "rule_id": { "type": "string" },
+        "name": { "type": "string" },
+        "algorithm_profile": { "type": "string" },
+        "params_schema": { "type": "object" },
+        "description": { "type": "string" }
+      },
+      "sort_keys": ["kind", "stable_id", "version"]
+    },
+    "catalog_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "stable_id", "version"],
+      "properties": {
+        "kind": { "type": "string" },
+        "stable_id": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    }
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/data_domain"},
+    {"$ref": "#/$defs/entity_type"},
+    {"$ref": "#/$defs/relation_type"},
+    {"$ref": "#/$defs/metric"},
+    {"$ref": "#/$defs/unit"},
+    {"$ref": "#/$defs/aggregation"},
+    {"$ref": "#/$defs/time_window_schema"},
+    {"$ref": "#/$defs/binding_template"},
+    {"$ref": "#/$defs/capability_contract"},
+    {"$ref": "#/$defs/rule_schema"}
+  ]
+}

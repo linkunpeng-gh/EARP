@@ -1,0 +1,27 @@
+{
+  "attestation_schema_version": "catalog-attestation/v1",
+  "manifest_id": "coal.sdrh.jqmk.production",
+  "manifest_revision": 1,
+  "manifest_hash": "6b0097b4184bd2cc12022361b67a0b1840f4a3209f5bbc7ef7683b1e84c50e70",
+  "envelope_hash": "0045ecdba9ca36530a90d29ba357185d83a8b7bd91a138d6a5be13ea1908446e",
+  "signoff_tag": "catalog-phase1-jqmk-coal-r1-test",
+  "change_order": "JQMK-BG-20260901-001",
+  "release_order": "JQMK-FB-20260901-001",
+  "signers": [
+    {
+      "role_key": "platform_architect",
+      "name": "隋昕航",
+      "signed_at": "2026-09-01T00:00:00+08:00"
+    },
+    {
+      "role_key": "product_owner",
+      "name": "林鲲鹏",
+      "signed_at": "2026-09-01T00:00:00+08:00"
+    }
+  ],
+  "signed_at": "2026-09-01T00:00:00+08:00",
+  "effective_from": "2026-09-01T00:00:00+08:00",
+  "effective_until": null,
+  "baseline_commit": "9f69e37c0e642bb2a4bc35992cc24a667e77550e",
+  "notes": "Test fixture for Phase 1 manifest attestation. envelope_hash binds effective window."
+}

@@ -67,6 +67,73 @@ jobs:
       - name: Cross-reference validation
         run: python3 scripts/validate-cross-refs.py
 
+  catalog-validation:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install pyyaml jsonschema
+      - name: Golden hash check (10 kinds + self-tests)
+        run: python3 arch/catalog/scripts/generate_golden_hashes.py --check
+      - name: Manifest + attestation fixture validation
+        run: python3 arch/catalog/scripts/validate_fixtures.py
+      - name: Phase 0 r1/v1 signoff asset validation
+        run: python3 arch/catalog/scripts/validate_catalog.py
+      - name: Profile v2 semantic validation
+        run: python3 arch/catalog/scripts/validate_catalog.py --v2
+
+  catalog-server-contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/earp-server
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - name: Sync dependencies
+        run: uv sync
+      - name: Catalog hash, Pack, Resolver, sync and governance contracts
+        run: |
+          uv run pytest -q \
+            tests/test_catalog_hashing.py \
+            tests/test_catalog_mock_adapter.py \
+            tests/test_catalog_registration.py \
+            tests/test_catalog_registry.py \
+            tests/test_catalog_packs.py \
+            tests/test_catalog_export.py \
+            tests/test_catalog_sync.py \
+            tests/test_catalog_webhooks.py \
+            tests/test_catalog_queries.py \
+            tests/test_catalog_domain.py \
+            tests/test_catalog_resolver.py \
+            tests/test_catalog_security_and_sync.py \
+            tests/test_openapi_export.py \
+            tests/test_migrations.py::test_upgrade_idempotent_downgrade_and_seed
+
+  catalog-page-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Catalog page navigation and JavaScript
+        run: |
+          node --check apps/earp-admin/js/catalog-pages.js
+          node --check apps/earp-admin/js/nav.js
+          for page in catalog-admin.html profiles.html metrics.html catalog-basics.html binding-templates.html; do
+            test "$(grep -c '<html' "apps/earp-admin/pages/$page")" -eq 1
+            test "$(grep -c '</html>' "apps/earp-admin/pages/$page")" -eq 1
+          done
+
   server:
     runs-on: ubuntu-latest
     defaults:

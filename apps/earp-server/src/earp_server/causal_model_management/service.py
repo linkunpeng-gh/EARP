@@ -20,6 +20,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from earp_server.catalog.domain import CatalogCompositionError, pack_content_hash
+from earp_server.catalog.governance import assert_approval_separation
 from earp_server.infra.db import tenant_session
 
 from .canonicalization import (
@@ -1546,13 +1548,34 @@ class CausalModelService(_CausalModelServiceBase):
             scope = await self._role_scope(session, actor)
             self._require_permission(scope, "ecmc.catalog.read")
             rows = (
-                await session.execute(text("SELECT * FROM catalog_change_requests ORDER BY created_at DESC"))
+                await session.execute(
+                    text(
+                        "SELECT r.*, (SELECT a.attempt_id FROM catalog_fulfillment_attempts a "
+                        "WHERE a.tenant_id=r.tenant_id AND a.request_id=r.request_id "
+                        "ORDER BY a.attempt_no DESC LIMIT 1) AS fulfillment_attempt_id "
+                        "FROM catalog_change_requests r ORDER BY r.created_at DESC"
+                    )
+                )
             ).mappings()
-            return [
-                dict(row)
-                for row in rows
-                if scope.is_admin or (row["target_data_domain_ref"] or {}).get("stable_id") in scope.domains
-            ]
+            visible: list[dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                if scope.is_admin or (item["target_data_domain_ref"] or {}).get("stable_id") in scope.domains:
+                    visible.append(item)
+                    continue
+                if item["request_type"] == "pack_publish":
+                    pack = (
+                        await session.execute(
+                            text(
+                                "SELECT owner_role FROM catalog_packs "
+                                "WHERE tenant_id=:tenant AND pack_id || '@' || version=:resource"
+                            ),
+                            {"tenant": actor.tenant_id, "resource": item["resource_id"]},
+                        )
+                    ).scalar_one_or_none()
+                    if item["requester_id"] == actor.actor_id or actor.role_id == pack:
+                        visible.append(item)
+            return visible
 
     async def _request(
         self, session: AsyncSession, actor: ActorContext, request_id: str, *, for_update: bool = False
@@ -1573,6 +1596,19 @@ class CausalModelService(_CausalModelServiceBase):
         if row is None:
             raise not_found("CATALOG_CHANGE_REQUEST_NOT_FOUND", "Catalog change request was not found.")
         result = dict(row)
+        if result["request_type"] == "pack_publish" and not scope.is_admin:
+            owner_role = (
+                await session.execute(
+                    text(
+                        "SELECT owner_role FROM catalog_packs "
+                        "WHERE tenant_id=:tenant AND pack_id || '@' || version=:resource"
+                    ),
+                    {"tenant": actor.tenant_id, "resource": result["resource_id"]},
+                )
+            ).scalar_one_or_none()
+            if result["requester_id"] != actor.actor_id and actor.role_id != owner_role:
+                raise not_found("CATALOG_CHANGE_REQUEST_NOT_FOUND", "Catalog change request was not found.")
+            return result, scope
         domain = (result["target_data_domain_ref"] or {}).get("stable_id")
         if not scope.is_admin and domain not in scope.domains:
             raise not_found("CATALOG_CHANGE_REQUEST_NOT_FOUND", "Catalog change request was not found.")
@@ -1679,6 +1715,8 @@ class CausalModelService(_CausalModelServiceBase):
                 return replay
             request, scope = await self._request(session, actor, request_id, for_update=True)
             self._require_permission(scope, permission)
+            if command == "approve":
+                assert_approval_separation(requester_id=request["requester_id"], approver_id=actor.actor_id)
             if owner_only and request["requester_id"] != actor.actor_id:
                 raise forbidden()
             if request["status"] not in allowed:
@@ -1697,6 +1735,22 @@ class CausalModelService(_CausalModelServiceBase):
                     "request": request_id,
                 },
             )
+            if command in {"approve", "reject"}:
+                await session.execute(
+                    text(
+                        "INSERT INTO catalog_approvals "
+                        "(tenant_id,approval_id,request_id,approver_id,decision,reason) VALUES "
+                        "(:tenant,:approval,:request,:approver,:decision,:reason)"
+                    ),
+                    {
+                        "tenant": actor.tenant_id,
+                        "approval": _id("approval"),
+                        "request": request_id,
+                        "approver": actor.actor_id,
+                        "decision": "approved" if command == "approve" else "rejected",
+                        "reason": reason,
+                    },
+                )
             attempt_id = None
             if create_attempt:
                 attempt_no = int(
@@ -1833,6 +1887,143 @@ class CausalModelService(_CausalModelServiceBase):
                 {"attempt_id": attempt_id, "status": status},
             )
             return {"request_id": request_id, "attempt_id": attempt_id, "status": status}
+
+    async def fulfill_pack_publish(
+        self,
+        actor: ActorContext,
+        request_id: str,
+        attempt_id: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Fulfill an approved Pack request without accepting client content or hash."""
+        operation = f"catalog-pack.publish.fulfill:{request_id}"
+        payload = {"request_id": request_id, "attempt_id": attempt_id}
+        async with tenant_session(self.engine, actor.tenant_id) as session:
+            replay = await self._replay(session, actor, operation, idempotency_key, payload)
+            if replay:
+                return replay
+            request, scope = await self._request(session, actor, request_id, for_update=True)
+            self._require_permission(scope, "ecmc.catalog.approve")
+            if request["request_type"] != "pack_publish":
+                raise conflict("REQUEST_TYPE_MISMATCH", "Request is not a Pack publication request.")
+            if request["status"] != "approved_pending_fulfillment":
+                raise conflict("INVALID_STATE_TRANSITION", "Pack request is not awaiting fulfillment.")
+            attempt = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT status FROM catalog_fulfillment_attempts "
+                            "WHERE tenant_id=:tenant AND request_id=:request AND attempt_id=:attempt FOR UPDATE"
+                        ),
+                        {"tenant": actor.tenant_id, "request": request_id, "attempt": attempt_id},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if attempt is None or attempt["status"] != "pending":
+                raise conflict("INVALID_STATE_TRANSITION", "Pack fulfillment attempt is not pending.")
+            pack = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT p.pack_id,p.version,p.layer,p.status FROM catalog_packs p "
+                            "WHERE p.tenant_id=:tenant AND p.pack_id || '@' || p.version=:resource FOR UPDATE"
+                        ),
+                        {"tenant": actor.tenant_id, "resource": request["resource_id"]},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if pack is None:
+                raise not_found("CATALOG_PACK_NOT_FOUND", "Pack was not found.")
+            if pack["status"] != "draft":
+                raise conflict("INVALID_STATE_TRANSITION", "Only a draft Pack can be fulfilled.")
+            entries = (
+                await session.execute(
+                    text(
+                        "SELECT kind,stable_id,version,content_hash FROM catalog_pack_entries "
+                        "WHERE tenant_id=:tenant AND pack_id=:pack_id AND pack_version=:version"
+                    ),
+                    {"tenant": actor.tenant_id, "pack_id": pack["pack_id"], "version": pack["version"]},
+                )
+            ).mappings()
+            try:
+                digest = pack_content_hash(
+                    pack["pack_id"], pack["layer"], pack["version"], [dict(item) for item in entries]
+                )
+            except CatalogCompositionError as error:
+                raise conflict("PACK_HASH_INVALID", str(error)) from error
+            updated = await session.execute(
+                text(
+                    "UPDATE catalog_packs SET content_hash=:hash,status='published',published_at=now() "
+                    "WHERE tenant_id=:tenant AND pack_id=:pack_id AND version=:version AND status='draft'"
+                ),
+                {
+                    "tenant": actor.tenant_id,
+                    "pack_id": pack["pack_id"],
+                    "version": pack["version"],
+                    "hash": digest,
+                },
+            )
+            if getattr(updated, "rowcount", 0) != 1:
+                raise conflict("PACK_PUBLICATION_CONFLICT", "Pack publication conflicted; retry from current state.")
+            resolved = {
+                "resource_type": "catalog_pack",
+                "pack_id": pack["pack_id"],
+                "version": pack["version"],
+                "content_hash": digest,
+            }
+            await session.execute(
+                text(
+                    "UPDATE catalog_fulfillment_attempts SET status='success',resolved_ref=:resolved,finished_at=now() "
+                    "WHERE tenant_id=:tenant AND request_id=:request AND attempt_id=:attempt"
+                ),
+                {
+                    "tenant": actor.tenant_id,
+                    "request": request_id,
+                    "attempt": attempt_id,
+                    "resolved": _json(resolved),
+                },
+            )
+            await session.execute(
+                text(
+                    "UPDATE catalog_change_requests SET status='fulfilled',resolved_ref=:resolved,"
+                    "fulfillment_error=NULL,revision=revision+1,updated_at=now() "
+                    "WHERE tenant_id=:tenant AND request_id=:request"
+                ),
+                {"tenant": actor.tenant_id, "request": request_id, "resolved": _json(resolved)},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO catalog_audit_logs "
+                    "(tenant_id,audit_id,actor_id,resource_type,resource_id,operation,after_hash,status,"
+                    "correlation_id,detail) VALUES "
+                    "(:tenant,:audit,:actor,'catalog_pack',:resource,'publish',:hash,'succeeded',:correlation,"
+                    "CAST(:detail AS jsonb))"
+                ),
+                {
+                    "tenant": actor.tenant_id,
+                    "audit": _id("caud"),
+                    "actor": actor.actor_id,
+                    "resource": request["resource_id"],
+                    "hash": digest,
+                    "correlation": actor.correlation_id,
+                    "detail": _json({"request_id": request_id, "attempt_id": attempt_id}),
+                },
+            )
+            body = {
+                "request_id": request_id,
+                "attempt_id": attempt_id,
+                "status": "fulfilled",
+                **resolved,
+            }
+            await self._audit(
+                session, actor, "ecmc.catalog_pack.published", "catalog_pack", request["resource_id"], body
+            )
+            await self._remember(session, actor, operation, idempotency_key, payload, 200, body)
+            return {"status_code": 200, "body": body, "replayed": False}
 
     @staticmethod
     async def _review(

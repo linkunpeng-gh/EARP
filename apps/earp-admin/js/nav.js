@@ -56,6 +56,11 @@
       { label: '召回测试', sub: 'test-retrieval', path: '{b}/pages/test-retrieval.html', group: '探索验证' },
       { label: 'QU 调试', sub: 'understanding-debug', path: '{b}/pages/understanding-debug.html', group: '探索验证' },
       { label: '评估管理', sub: 'eval-sets', path: '{b}/pages/eval-sets.html', group: '探索验证' },
+      { label: 'Catalog 治理', sub: 'catalog-admin', path: '{b}/pages/catalog-admin.html', group: '目录管理' },
+      { label: '项目配置', sub: 'catalog-profiles', path: '{b}/pages/profiles.html', group: '目录管理' },
+      { label: '指标管理', sub: 'catalog-metrics', path: '{b}/pages/metrics.html', group: '目录管理' },
+      { label: '基础配置', sub: 'catalog-basics', path: '{b}/pages/catalog-basics.html', group: '目录管理' },
+      { label: '绑定模板', sub: 'binding-templates', path: '{b}/pages/binding-templates.html', group: '目录管理' },
     ],
     capability: [
       { label: '能力注册', sub: 'capabilities', path: '{b}/pages/capabilities.html' },

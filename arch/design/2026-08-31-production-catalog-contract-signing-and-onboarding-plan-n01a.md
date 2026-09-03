@@ -3,7 +3,7 @@
 **文档编号：** PLAN-ECMC-N01A-CATALOG-PRODUCTION-20260831
 **日期：** 2026-08-31
 **状态：** Draft / for Product, Platform and Data-owner signature
-**适用范围：** N01A 因果模型管理的生产受控 Catalog 接入、目录扩展申请履约与上线门禁
+**适用范围：** N01A 因果模型管理的生产受控 Catalog 接入、行业/企业 Catalog Pack、目录扩展申请履约与上线门禁
 **不包含：** 真实 Provider、凭据、端点或 N03 数据接入实现
 
 本文件是生产 Catalog 的签署包和接入顺序，不是 Provider 实现，也不是新的 HTTP/OpenAPI 冻结。凡标注 **[FROZEN]** 的内容来自现有契约；凡标注 **[PROPOSAL]** 的字段、查询能力或运营规则，必须由责任人签署后才能进入实现合同。
@@ -84,10 +84,15 @@
   "manifest_schema_version": "catalog-manifest/v1",
   "manifest_id": "<stable manifest identity>",
   "scope": {
+    "catalog_profile_id": "<signed effective catalog profile>",
+    "industry_scope": "<for example coal_mining or finance>",
     "tenant_mode": "tenant_scoped|global",
     "tenant_id": "<only when tenant_scoped>",
     "data_domain_ids": ["<signed domain identities>"]
   },
+  "pack_lock": [
+    {"pack_id": "<platform|industry|enterprise pack>", "layer": "platform|industry|enterprise", "version": "<exact>", "content_hash": "<64 lowercase hex>"}
+  ],
   "entries": [
     {
       "kind": "<CatalogKind>",
@@ -126,6 +131,7 @@
 | `input_schema/output_schema` | 仅对需要输入/输出合同的 kind 提供受控投影；不放执行配置。 | **[FROZEN]** 可返回；具体 schema 待签署。 |
 | `compatibility_metadata` | 仅放类型、单位、关系端点等语义兼容信息。 | **[FROZEN]** 可返回；字段白名单待签署。 |
 | `owners/resolver_adapter` | 记录治理责任与适配器身份，便于审计和回滚。 | **[PROPOSAL]** 不进入模型 `CatalogRef` 或 Snapshot hash，是否入 manifest 待签署。 |
+| `catalog_profile_id/industry_scope/pack_lock` | 记录本 manifest 对哪个行业、企业及数据域有效，以及由哪些 exact Catalog Pack 修订组合而成。 | **[PROPOSAL]** 属于治理与 adapter 输入，不新增或改变冻结的 `CatalogRef`。 |
 | manifest envelope | schema/version、scope、entry 唯一性、签署人、生成/生效时间、manifest hash、撤销记录。 | **[PROPOSAL]** 不得直接当作 public API。 |
 
 manifest 不得包含 `provider_id`、endpoint、URL、credential、token、SQL、query text、执行代码、数据库 row ID 或运行时 observation。`display_name` 只能作为非权威展示字段；显示名变化不能改变已发布 Snapshot 的语义 hash。
@@ -154,6 +160,25 @@ manifest entry 的签署投影是 Resolver 输出的一致性基准：`kind/stab
 3. `manifest_id` 是每次修订产生新值，还是使用稳定 ID + 单调 `manifest_revision`，属于待签署标识规则；无论采用哪种方式，运行时必须能从 adapter deployment 追溯到唯一 manifest hash、签署记录和生效时间。
 4. composition root 只加载已签署且处于生效窗口的修订。加载失败、签名/manifest hash 不匹配、修订撤销或 adapter identity 不一致时保持 `UnavailableCatalogResolver`/fail closed，不回退到 fake 或未签署旧稿。
 5. 权威存储位置、签署人及责任角色、签署时间、生效时间、关联变更单、manifest hash、修订关系、撤销原因和部署关联号必须进入审批/审计证据；这些治理元数据可以位于受控审批系统或变更记录中，不要求全部进入公开 manifest JSON，也不进入模型 Snapshot/Artifact hash。
+
+### 4.5 行业、企业与数据域分层 [PROPOSAL/待签署]
+
+Catalog 的业务语义与 EARP 服务的行业和企业直接相关，签署不得默认对所有行业、企业和数据域永久有效。建议采用四层结构：
+
+| 层级 | 内容 | 示例 | 签署边界 |
+|---|---|---|---|
+| 平台基础包 | 跨行业且语义确实一致的基础定义 | 吨、元、小时、日均、月累计 | 平台 owner 签署；不能因名称相同就宣称可跨行业复用。 |
+| 行业包 | 某行业共享的实体、关系、指标和规则 | 煤矿的矿井/工作面/原煤产量；金融的账户/贷款/净息差 | 每个 `industry_scope` 独立 owner、版本、hash 和签署。 |
+| 企业扩展包 | 某企业特有的组织、设备分类、指标口径和规则 | 某矿业集团的“有效生产时长” | 绑定 tenant/enterprise；不得静默覆盖行业包。 |
+| 数据域授权 | 控制企业内部哪些角色可见、可引用哪些条目 | 生产、安全、设备、财务、风控 | 负责可见性和授权，不改变 entry 的已签语义。 |
+
+一个生效 Catalog 应表现为已签署的 `catalog_profile`，其有效范围至少绑定 `industry_scope + tenant_scope + data_domain_scope + manifest revision/hash + resolver contract version`。例如“煤矿行业 + A 集团 + 生产域”的签署不能授权“金融行业 + B 银行 + 风控域”。
+
+`CatalogRef` 继续严格保持冻结的 `{kind,stable_id,version}`，tenant 和行业权限由 Resolver 的认证上下文与 effective manifest 决定，不把 scope 或权限字段塞进 public ref。为降低跨行业重名风险，`stable_id` 建议采用治理命名空间，例如 `common.mass.tonne`、`coal.raw_coal_output`、`finance.net_interest_margin`、`enterprise_acme.effective_production_hours`；具体命名规则仍待 owner 签署。
+
+effective manifest 类似依赖锁定文件：显式列出平台、行业和企业 pack 的 exact version/hash。禁止“企业包自动覆盖行业包”的隐式优先级；同一 effective scope 中出现相同 exact ref 但语义、schema 或 hash 不同，组合必须 fail closed。需要改变行业定义时发布新 version 或新 stable ID，并生成新的 effective manifest hash 和签署记录。
+
+新增行业时不修改 N01A 模型治理契约：新增行业 pack、指定 owner、生成该行业/tenant/data-domain 的 effective manifest、执行 Resolver contract vectors 并独立签署。只有语义与 hash 都一致的基础条目才允许跨行业复用。
 
 ## 5. browse / search / resolve / fulfillment 责任边界
 

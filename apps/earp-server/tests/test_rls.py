@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.infra.db import build_session_factory, tenant_session
 
-TENANT_TABLE_COUNT = 78  # + N01A: 8 tenant-owned governance/Blueprint/catalog/outbox tables
+TENANT_TABLE_COUNT = 92  # + Catalog Phase 1 Profile/governance/outbox/cursor/webhook tables
 
 
 @pytest.fixture(scope="module")

@@ -1315,6 +1315,149 @@ components:
       - role_id
       title: LoginRequest
       type: object
+    ManifestActivateRequest:
+      additionalProperties: false
+      properties:
+        attestation:
+          additionalProperties: true
+          title: Attestation
+          type: object
+        expected_active_revision:
+          anyOf:
+          - minimum: 1.0
+            type: integer
+          - type: 'null'
+          title: Expected Active Revision
+        manifest_id:
+          maxLength: 128
+          minLength: 1
+          title: Manifest Id
+          type: string
+        manifest_revision:
+          minimum: 1.0
+          title: Manifest Revision
+          type: integer
+        packs:
+          items:
+            $ref: '#/components/schemas/ManifestPackSelection'
+          maxItems: 3
+          minItems: 1
+          title: Packs
+          type: array
+        profile_id:
+          maxLength: 128
+          minLength: 1
+          title: Profile Id
+          type: string
+      required:
+      - profile_id
+      - manifest_id
+      - manifest_revision
+      - packs
+      - attestation
+      title: ManifestActivateRequest
+      type: object
+    ManifestPackSelection:
+      additionalProperties: false
+      properties:
+        pack_id:
+          maxLength: 128
+          minLength: 1
+          title: Pack Id
+          type: string
+        version:
+          maxLength: 32
+          minLength: 1
+          pattern: ^\d+\.\d+\.\d+$
+          title: Version
+          type: string
+      required:
+      - pack_id
+      - version
+      title: ManifestPackSelection
+      type: object
+    ManifestPreviewRequest:
+      additionalProperties: false
+      properties:
+        manifest_id:
+          maxLength: 128
+          minLength: 1
+          title: Manifest Id
+          type: string
+        manifest_revision:
+          minimum: 1.0
+          title: Manifest Revision
+          type: integer
+        packs:
+          items:
+            $ref: '#/components/schemas/ManifestPackSelection'
+          maxItems: 3
+          minItems: 1
+          title: Packs
+          type: array
+        profile_id:
+          maxLength: 128
+          minLength: 1
+          title: Profile Id
+          type: string
+      required:
+      - profile_id
+      - manifest_id
+      - manifest_revision
+      - packs
+      title: ManifestPreviewRequest
+      type: object
+    ManifestRevokeRequest:
+      additionalProperties: false
+      properties:
+        profile_id:
+          maxLength: 128
+          minLength: 1
+          title: Profile Id
+          type: string
+        reason:
+          maxLength: 4000
+          minLength: 1
+          title: Reason
+          type: string
+      required:
+      - profile_id
+      - reason
+      title: ManifestRevokeRequest
+      type: object
+    ManifestRollbackRequest:
+      additionalProperties: false
+      properties:
+        attestation:
+          additionalProperties: true
+          title: Attestation
+          type: object
+        new_manifest_id:
+          maxLength: 128
+          minLength: 1
+          title: New Manifest Id
+          type: string
+        new_revision:
+          minimum: 1.0
+          title: New Revision
+          type: integer
+        profile_id:
+          maxLength: 128
+          minLength: 1
+          title: Profile Id
+          type: string
+        target_revision:
+          minimum: 1.0
+          title: Target Revision
+          type: integer
+      required:
+      - profile_id
+      - target_revision
+      - new_manifest_id
+      - new_revision
+      - attestation
+      title: ManifestRollbackRequest
+      type: object
     MetadataUpdate:
       properties:
         metadata:
@@ -1411,6 +1554,114 @@ components:
       - content
       title: MsgAdd
       type: object
+    PackCreateRequest:
+      additionalProperties: false
+      properties:
+        layer:
+          pattern: ^(platform|industry|enterprise)$
+          title: Layer
+          type: string
+        name:
+          maxLength: 256
+          minLength: 1
+          title: Name
+          type: string
+        owner_role:
+          maxLength: 128
+          minLength: 1
+          title: Owner Role
+          type: string
+        pack_id:
+          maxLength: 128
+          minLength: 1
+          title: Pack Id
+          type: string
+        version:
+          default: 1.0.0
+          pattern: ^\d+\.\d+\.\d+$
+          title: Version
+          type: string
+      required:
+      - pack_id
+      - layer
+      - name
+      - owner_role
+      title: PackCreateRequest
+      type: object
+    PackEntryRequest:
+      additionalProperties: false
+      properties:
+        kind:
+          maxLength: 32
+          minLength: 1
+          title: Kind
+          type: string
+        pack_id:
+          maxLength: 128
+          minLength: 1
+          title: Pack Id
+          type: string
+        pack_version:
+          maxLength: 32
+          minLength: 1
+          pattern: ^\d+\.\d+\.\d+$
+          title: Pack Version
+          type: string
+        ref_version:
+          maxLength: 128
+          minLength: 1
+          title: Ref Version
+          type: string
+        stable_id:
+          maxLength: 128
+          minLength: 1
+          title: Stable Id
+          type: string
+      required:
+      - pack_id
+      - pack_version
+      - kind
+      - stable_id
+      - ref_version
+      title: PackEntryRequest
+      type: object
+    PackFulfillRequest:
+      additionalProperties: false
+      properties:
+        attempt_id:
+          maxLength: 64
+          minLength: 1
+          title: Attempt Id
+          type: string
+      required:
+      - attempt_id
+      title: PackFulfillRequest
+      type: object
+    PackPublishRequest:
+      additionalProperties: false
+      properties:
+        pack_id:
+          maxLength: 128
+          minLength: 1
+          title: Pack Id
+          type: string
+        rationale:
+          maxLength: 4000
+          minLength: 1
+          title: Rationale
+          type: string
+        version:
+          maxLength: 32
+          minLength: 1
+          pattern: ^\d+\.\d+\.\d+$
+          title: Version
+          type: string
+      required:
+      - pack_id
+      - version
+      - rationale
+      title: PackPublishRequest
+      type: object
     PatchCatalogChangeRequest:
       additionalProperties: false
       properties:
@@ -1446,6 +1697,57 @@ components:
       required:
       - intent
       title: PlanRequest
+      type: object
+    ProfileCreateRequest:
+      additionalProperties: false
+      properties:
+        backup_approver:
+          maxLength: 128
+          minLength: 1
+          title: Backup Approver
+          type: string
+        catalog_profile_id:
+          maxLength: 128
+          minLength: 1
+          title: Catalog Profile Id
+          type: string
+        data_domain_id:
+          maxLength: 64
+          minLength: 1
+          title: Data Domain Id
+          type: string
+        enterprise_scope:
+          maxLength: 128
+          minLength: 1
+          title: Enterprise Scope
+          type: string
+        industry_scope:
+          maxLength: 128
+          minLength: 1
+          title: Industry Scope
+          type: string
+        profile_id:
+          maxLength: 128
+          minLength: 1
+          title: Profile Id
+          type: string
+        roles:
+          items:
+            additionalProperties: true
+            type: object
+          maxItems: 32
+          minItems: 1
+          title: Roles
+          type: array
+      required:
+      - profile_id
+      - catalog_profile_id
+      - industry_scope
+      - enterprise_scope
+      - data_domain_id
+      - roles
+      - backup_approver
+      title: ProfileCreateRequest
       type: object
     ProposedCatalogDefinition:
       additionalProperties: false
@@ -1665,6 +1967,66 @@ components:
       - reason
       title: ReasonRequest
       type: object
+    RefreshRefRequest:
+      additionalProperties: false
+      properties:
+        kind:
+          maxLength: 32
+          minLength: 1
+          title: Kind
+          type: string
+        source_system:
+          maxLength: 64
+          minLength: 1
+          title: Source System
+          type: string
+        stable_id:
+          maxLength: 128
+          minLength: 1
+          title: Stable Id
+          type: string
+        version:
+          maxLength: 128
+          minLength: 1
+          title: Version
+          type: string
+      required:
+      - source_system
+      - kind
+      - stable_id
+      - version
+      title: RefreshRefRequest
+      type: object
+    RegisterRefRequest:
+      additionalProperties: false
+      properties:
+        kind:
+          maxLength: 32
+          minLength: 1
+          title: Kind
+          type: string
+        source_system:
+          maxLength: 64
+          minLength: 1
+          title: Source System
+          type: string
+        stable_id:
+          maxLength: 128
+          minLength: 1
+          title: Stable Id
+          type: string
+        version:
+          maxLength: 128
+          minLength: 1
+          title: Version
+          type: string
+      required:
+      - source_system
+      - kind
+      - stable_id
+      - version
+      title: RegisterRefRequest
+      type: object
     RelationTypeContract:
       additionalProperties: false
       properties:
@@ -1707,6 +2069,69 @@ components:
       - target_type
       - cardinality
       title: RelationTypeIn
+      type: object
+    ResolveRequest:
+      additionalProperties: false
+      properties:
+        data_domain_id:
+          maxLength: 64
+          minLength: 1
+          title: Data Domain Id
+          type: string
+        expected_kind:
+          maxLength: 32
+          minLength: 1
+          title: Expected Kind
+          type: string
+        profile_id:
+          maxLength: 128
+          minLength: 1
+          title: Profile Id
+          type: string
+        ref:
+          $ref: '#/components/schemas/CatalogRef'
+      required:
+      - profile_id
+      - data_domain_id
+      - ref
+      - expected_kind
+      title: ResolveRequest
+      type: object
+    RevokeRefRequest:
+      additionalProperties: false
+      properties:
+        kind:
+          maxLength: 32
+          minLength: 1
+          title: Kind
+          type: string
+        reason:
+          maxLength: 4000
+          minLength: 1
+          title: Reason
+          type: string
+        source_system:
+          maxLength: 64
+          minLength: 1
+          title: Source System
+          type: string
+        stable_id:
+          maxLength: 128
+          minLength: 1
+          title: Stable Id
+          type: string
+        version:
+          maxLength: 128
+          minLength: 1
+          title: Version
+          type: string
+      required:
+      - source_system
+      - kind
+      - stable_id
+      - version
+      - reason
+      title: RevokeRefRequest
       type: object
     RoleIn:
       properties:
@@ -2035,6 +2460,47 @@ components:
       - quantity_kind
       - symbol
       title: UnitContract
+      type: object
+    ValidateCatalogRequest:
+      additionalProperties: false
+      properties:
+        data_domain_id:
+          maxLength: 64
+          minLength: 1
+          title: Data Domain Id
+          type: string
+        profile_id:
+          maxLength: 128
+          minLength: 1
+          title: Profile Id
+          type: string
+        refs:
+          items:
+            $ref: '#/components/schemas/ValidateItem'
+          maxItems: 100
+          minItems: 1
+          title: Refs
+          type: array
+      required:
+      - profile_id
+      - data_domain_id
+      - refs
+      title: ValidateCatalogRequest
+      type: object
+    ValidateItem:
+      additionalProperties: false
+      properties:
+        expected_kind:
+          maxLength: 32
+          minLength: 1
+          title: Expected Kind
+          type: string
+        ref:
+          $ref: '#/components/schemas/CatalogRef'
+      required:
+      - ref
+      - expected_kind
+      title: ValidateItem
       type: object
     ValidateRequest:
       additionalProperties: false
@@ -4585,6 +5051,676 @@ paths:
       summary: Stream Invoke
       tags:
       - streaming
+  /v1/catalog/approvals:
+    get:
+      operationId: approvals_v1_catalog_approvals_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  items:
+                    additionalProperties: true
+                    type: object
+                  type: array
+                title: Response Approvals V1 Catalog Approvals Get
+                type: object
+          description: Successful Response
+      summary: Approvals
+      tags:
+      - catalog
+  /v1/catalog/manifests:
+    get:
+      operationId: manifests_v1_catalog_manifests_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  items:
+                    additionalProperties: true
+                    type: object
+                  type: array
+                title: Response Manifests V1 Catalog Manifests Get
+                type: object
+          description: Successful Response
+      summary: Manifests
+      tags:
+      - catalog
+  /v1/catalog/manifests/activate:
+    post:
+      operationId: activate_manifest_v1_catalog_manifests_activate_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManifestActivateRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Activate Manifest V1 Catalog Manifests Activate Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Activate Manifest
+      tags:
+      - catalog
+  /v1/catalog/manifests/preview:
+    post:
+      operationId: preview_manifest_v1_catalog_manifests_preview_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManifestPreviewRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Preview Manifest V1 Catalog Manifests Preview Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Preview Manifest
+      tags:
+      - catalog
+  /v1/catalog/manifests/revoke:
+    post:
+      operationId: revoke_manifest_v1_catalog_manifests_revoke_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManifestRevokeRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Revoke Manifest V1 Catalog Manifests Revoke Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Revoke Manifest
+      tags:
+      - catalog
+  /v1/catalog/manifests/rollback:
+    post:
+      operationId: rollback_manifest_v1_catalog_manifests_rollback_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManifestRollbackRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Rollback Manifest V1 Catalog Manifests Rollback Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Rollback Manifest
+      tags:
+      - catalog
+  /v1/catalog/metrics:
+    get:
+      operationId: metrics_v1_catalog_metrics_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Metrics V1 Catalog Metrics Get
+                type: object
+          description: Successful Response
+      summary: Metrics
+      tags:
+      - catalog
+  /v1/catalog/packs:
+    get:
+      operationId: packs_v1_catalog_packs_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  items:
+                    additionalProperties: true
+                    type: object
+                  type: array
+                title: Response Packs V1 Catalog Packs Get
+                type: object
+          description: Successful Response
+      summary: Packs
+      tags:
+      - catalog
+    post:
+      operationId: create_pack_draft_v1_catalog_packs_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackCreateRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Pack Draft V1 Catalog Packs Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Pack Draft
+      tags:
+      - catalog
+  /v1/catalog/packs/entries:
+    post:
+      operationId: add_pack_entry_v1_catalog_packs_entries_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackEntryRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Add Pack Entry V1 Catalog Packs Entries Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Add Pack Entry
+      tags:
+      - catalog
+  /v1/catalog/packs/publish-requests:
+    post:
+      operationId: create_pack_publish_request_v1_catalog_packs_publish_requests_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackPublishRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Pack Publish Request V1 Catalog Packs Publish
+                  Requests Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Pack Publish Request
+      tags:
+      - catalog
+  /v1/catalog/packs/publish-requests/{request_id}/fulfill:
+    post:
+      operationId: fulfill_pack_publish_v1_catalog_packs_publish_requests__request_id__fulfill_post
+      parameters:
+      - in: path
+        name: request_id
+        required: true
+        schema:
+          title: Request Id
+          type: string
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackFulfillRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Fulfill Pack Publish V1 Catalog Packs Publish Requests  Request
+                  Id  Fulfill Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Fulfill Pack Publish
+      tags:
+      - catalog
+  /v1/catalog/packs/{pack_id}/{version}/export:
+    get:
+      operationId: export_pack_v1_catalog_packs__pack_id___version__export_get
+      parameters:
+      - in: path
+        name: pack_id
+        required: true
+        schema:
+          title: Pack Id
+          type: string
+      - in: path
+        name: version
+        required: true
+        schema:
+          title: Version
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Export Pack
+      tags:
+      - catalog
+  /v1/catalog/profiles:
+    get:
+      operationId: profiles_v1_catalog_profiles_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  items:
+                    additionalProperties: true
+                    type: object
+                  type: array
+                title: Response Profiles V1 Catalog Profiles Get
+                type: object
+          description: Successful Response
+      summary: Profiles
+      tags:
+      - catalog
+    post:
+      operationId: create_profile_v1_catalog_profiles_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileCreateRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Create Profile V1 Catalog Profiles Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Create Profile
+      tags:
+      - catalog
+  /v1/catalog/refs:
+    get:
+      operationId: refs_v1_catalog_refs_get
+      parameters:
+      - in: query
+        name: kind
+        required: false
+        schema:
+          anyOf:
+          - maxLength: 32
+            type: string
+          - type: 'null'
+          title: Kind
+      - in: query
+        name: status
+        required: false
+        schema:
+          anyOf:
+          - maxLength: 24
+            type: string
+          - type: 'null'
+          title: Status
+      - in: query
+        name: q
+        required: false
+        schema:
+          anyOf:
+          - maxLength: 128
+            type: string
+          - type: 'null'
+          title: Q
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  items:
+                    additionalProperties: true
+                    type: object
+                  type: array
+                title: Response Refs V1 Catalog Refs Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Refs
+      tags:
+      - catalog
+  /v1/catalog/refs/refresh:
+    post:
+      operationId: refresh_ref_v1_catalog_refs_refresh_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRefRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Refresh Ref V1 Catalog Refs Refresh Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Refresh Ref
+      tags:
+      - catalog
+  /v1/catalog/refs/register:
+    post:
+      operationId: register_ref_v1_catalog_refs_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRefRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Register Ref V1 Catalog Refs Register Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Register Ref
+      tags:
+      - catalog
+  /v1/catalog/refs/revoke:
+    post:
+      operationId: revoke_ref_v1_catalog_refs_revoke_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          title: Idempotency-Key
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeRefRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Revoke Ref V1 Catalog Refs Revoke Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Revoke Ref
+      tags:
+      - catalog
+  /v1/catalog/resolve:
+    post:
+      operationId: resolve_v1_catalog_resolve_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Resolve V1 Catalog Resolve Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Resolve
+      tags:
+      - catalog
+  /v1/catalog/validate:
+    post:
+      operationId: validate_v1_catalog_validate_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateCatalogRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Validate V1 Catalog Validate Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Validate
+      tags:
+      - catalog
+  /v1/catalog/webhooks/{source_system}:
+    post:
+      description: Receive a signed source event; content is always re-read from the
+        source.
+      operationId: catalog_webhook_v1_catalog_webhooks__source_system__post
+      parameters:
+      - in: path
+        name: source_system
+        required: true
+        schema:
+          title: Source System
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Catalog Webhook V1 Catalog Webhooks  Source System  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Catalog Webhook
+      tags:
+      - catalog
   /v1/ecmc/_dev/complete-compile/{compile_id}:
     post:
       operationId: dev_complete_compile_v1_ecmc__dev_complete_compile__compile_id__post

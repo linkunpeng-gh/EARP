@@ -8,7 +8,7 @@ from alembic import command
 
 from tests.conftest import alembic_config
 
-EXPECTED_TABLES = 83  # + N01A: 8 governance/Blueprint/catalog/idempotency/outbox tables in 0040.
+EXPECTED_TABLES = 97  # + Catalog webhook replay/order evidence.
 
 
 @pytest.fixture(scope="module")
@@ -35,19 +35,27 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES
 
-    # 0041 only widens an N01A idempotency column.  0040 removes its eight
+    # 0045 removes webhook evidence; 0044 removes three Catalog governance tables; 0043 removes the runtime Profile;
+    # 0042 removes the nine Catalog tables; 0041 only widens an N01A
+    # idempotency column.  0040 removes its eight
     # new tables; 0039/0038 are column-only; the preceding runtime-state leaf
     # removes two tables.
     command.downgrade(cfg, "-1")
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 1
     command.downgrade(cfg, "-1")
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 8
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 4
     command.downgrade(cfg, "-1")
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 8
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 5
     command.downgrade(cfg, "-1")
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 8
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 14
     command.downgrade(cfg, "-1")
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 10
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 14
+    command.downgrade(cfg, "-1")
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 22
+    command.downgrade(cfg, "-1")
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 22
+    command.downgrade(cfg, "-1")
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 22
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES
 
@@ -71,8 +79,8 @@ def test_upgrade_idempotent_downgrade_and_seed(fresh_db_url: str) -> None:
     # + 0022(列) + 0021(列) + 0020(CHECK) + 0019(eval 4 表) + 0018(tbox_changes 表) + 0017(加列)
     # + 0016(纯 UPDATE) + 0015(加列) → 0014；表被回退
     # (agent 3 + flow_runs 1 + import_rules 1 + tbox_changes 1 + eval 4) = 10
-    # N01A 8 + T04 27 + 0015..0034 范围内 10 表均应回退。
-    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 45
+    # Phase 1 Catalog 11 + N01A 8 + T04 27 + 0015..0034 范围内 10 表均应回退。
+    assert _table_count(fresh_db_url) == EXPECTED_TABLES - 59
 
     command.upgrade(cfg, "head")
     assert _table_count(fresh_db_url) == EXPECTED_TABLES

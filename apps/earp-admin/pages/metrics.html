@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>指标管理 · EARP</title><link rel="stylesheet" href="../css/admin.css"><link rel="stylesheet" href="../css/ecmc.css"></head>
+<body data-base=".." data-section="knowledge" data-sub="catalog-metrics" data-catalog-page="metrics">
+<header id="app-header"></header><main><div class="page-title"><div><h2>指标管理</h2><p class="page-subtitle">Metric 语义定义 · 单位 / 聚合 / 时间窗口绑定</p></div><button class="btn-sm primary" data-catalog-disabled>+ 新建指标</button></div>
+<div id="catalog-readiness" class="ecmc-errorbar"></div><p id="catalog-metrics-summary" class="page-subtitle">加载 Catalog 运行指标中…</p><div class="ecmc-toolbar"><input type="search" placeholder="metric_id / 名称" disabled><select disabled><option>全部数据域</option></select><select disabled><option>全部状态</option></select></div><section class="ecmc-empty-state" style="text-align:left"><p>同步运行记录</p><pre id="catalog-sync-runs" aria-live="polite"></pre><p>运行时指标</p><pre id="catalog-runtime-metrics" aria-live="polite"></pre></section>
+<div class="ecmc-empty-state"><p>暂无指标</p><small>Metric 的语义编辑权属于独立 Metrics 服务；Catalog 只同步并注册引用，不在此页面复制第二套编辑源。</small></div></main>
+<script src="../js/app.js"></script><script src="../js/nav.js"></script><script src="../js/ecmc-api.js"></script><script src="../js/ecmc-common.js"></script><script src="../js/catalog-pages.js"></script></body></html>

@@ -29,6 +29,36 @@
 | 18 | chat / chatflow 对外 API 服务（Dify API Access 对标） | **当前应用只能走 JWT（登录用户）在平台内用，无法作为「服务」暴露给外部系统**（企业微信/钉钉/网页/业务系统集成无路）。Dify 有 API Access：应用发布后生成 `app-xxx` 密钥 → 外部 `POST /v1/chat-messages`（Bearer app-key，非用户 JWT）→ SSE/阻塞/续聊（conversation_id）/inputs/调用日志。EARP 现状：`api_keys`/`service_accounts` 表 0001 已建但 0 行未用（预留底座）、`access_mode`（open/restricted）是应用可见性非 API 鉴权、发布状态机已有。**评估结论（2026-08-24）：有用但后置**——依赖「流程被真实使用」（当前 mock 演示），且与 chat 二期应用可见范围（C5/C6）共享应用模型改造，建议一起立项。最小闭环：应用详情「API 访问」页签生成/吊销密钥 → gateway 加 `Bearer app-xxx` 鉴权分支（查 api_keys 映射 tenant+app，跳过 JWT）→ `POST /api/v1/chat-apps/{id}/chat` 复用 flow_chat/chat_sse → `earp.api.*` 审计。一期不做 SDK/webhook/消息平台绑定 | P2 | **已立任务书（2026-08-25）：`tasks/chat-app-api-access-task-breakdown.md`，可开工** |
 | 19 | ECMC 规则参数配置 UX（`apps/earp-admin/js/ecmc-causal-editor.js` 规则属性面板 + 受控 `rule_schema` 目录） | **rule_spec 需要手写结构化 JSON，参数写法/要求对非技术用户不透明**：如 direction_rule 要写 `{"operator":"matches_direction","expected":"down"}`，哪些 operator/字段合法、必填项完全由 `rule_schema` 的 spec_schema 决定，当前页面只有 JSON 文本框 + 无 schema 驱动的表单/提示，业务建模人员容易填错（FDE 2026-08-31 反馈）。**优化方向（按序）**：① 随生产 Catalog 合同暴露 `rule_schema` 的 spec_schema，前端按 schema 渲染结构化表单（operator 下拉、字段输入、必填/枚举提示），复用 binding_params 的 schema 驱动渲染模式；② 合同签署前先做「常见规则模板 + 内联 JSON 校验提示」缓解。**記 2026-08-31：写入待办，不实施** | P3 | 业务建模人员配置规则时 / 生产 Catalog 合同签署后可解析 spec_schema 时 |
 
+### Catalog Phase 1（2026-09-03）
+
+以下条目来自两份独立 Review 记录。它们不改变 Phase 1 的冻结契约；在关闭前，相关能力保持现有的 fail-closed、Mock/Test Adapter 或 readiness HOLD 语义。
+
+| ID | 位置 | 内容 | 严重度 | 关闭条件 |
+|:--|:---|:---|:---|:---|
+| CAT-01 | `catalog/webhooks.py`、`catalog_webhook_events` | 已标记 `failed` 的 webhook 以相同 `event_id` 重放时会被当作永久 duplicate，缺少可审计的重试/退避/告警路径。 | P2 | 同 payload 可安全重试，状态转移、次数、最后错误和告警均可审计；冲突 payload 仍拒绝。 |
+| CAT-02 | webhook 顺序游标 | 当前顺序判断按 `(tenant, source)` 全局序列，可能把不同对象的合法事件误判为乱序。 | P2 | 顺序游标按 source object（或等价冻结键）隔离，并补充跨对象乱序负向测试。 |
+| CAT-03 | Manifest 激活幂等 | 激活重放目前主要依据 outbox 幂等键，未比较请求内容/manifest hash；同一幂等键携带不同请求不够显式拒绝。 | P2 | 同键同内容返回原结果；同键不同内容返回明确冲突错误且不产生副作用。 |
+| CAT-04 | 生产 hash 与 schema | 运行时尚未对生产 Profile/Manifest 全量执行对应 JSON Schema 校验，且 profile/manifest ID 自动生成规则未完整落地。 | P2 | 所有生产入口显式携带 schema version，未知版本 fail closed；运行时 schema、ID 生成与文档契约一致并有负向测试。 |
+| CAT-05 | Resolver / outbox | `DatabaseCatalogResolver` 缓存没有明确的 TTL/容量上限；`catalog_outbox` 尚无消费端，变更后的缓存失效/通知依赖主动刷新。 | P2 | 缓存边界与失效策略可观测、可测试；outbox 有可靠消费、重试和死信/告警语义。 |
+| CAT-06 | Ref 生命周期 | Ref register/revoke/refresh 尚未全部接入 `CatalogChangeRequest` 审批状态机。 | P2 | 受治理的生命周期变更均经过申请、审批、履约和审计；未审批或自审批请求 fail closed。 |
+| CAT-07 | 治理审批 | `backup_approver` 运行时路由、break-glass/emergency 审计接线、审批 `expires_at` 到期处理尚未闭环。 | P2 | 候补审批、紧急路径、权限限制、过期状态和审计证据均有端到端测试。 |
+| CAT-08 | Catalog 同步 | M4 的生产 Source Adapter、pull 调度、webhook daemon、`suspected_missing` → 人工确认/墓碑/LKG 告警闭环尚未接入；当前仅保留 Mock/Test Adapter。 | P2 | 真实源接入配置齐备后完成 pull/webhook 调度、失败重试、缺失确认、tombstone、LKG 和告警演练；未具备真实依赖前保持 HOLD。 |
+| CAT-09 | 数据库与 Resolver 负向覆盖 | DB 不可变触发器、已撤销 Manifest 激活/解析、inactive Ref、suspected_missing 激活、webhook event_id payload 冲突等关键负向路径仍需补齐集成测试。 | P2 | 在 PostgreSQL/Testcontainers 门禁中覆盖应用层与 DB 兜底，并验证错误码、无副作用和审计结果。 |
+| CAT-10 | 错误语义 | 自审批拒绝路径的领域异常需统一映射为 HTTP 403，而不是未处理异常导致的 500。 | P2 | API 层返回冻结的授权错误语义，并有端到端回归测试。 |
+| CAT-11 | M6 产品页 | 5 个产品页面已提供 Catalog 集成壳和可验收的治理入口，但真实源驱动的基础项/绑定模板数据、差异/冲突/审批 SoD 展示与完整回滚操作仍待真实合同。 | P2 | 在真实签署 Catalog 合同和权限矩阵具备后完成页面数据闭环、空态/错误态/冲突态/回滚验收。 |
+| CAT-12 | RLS 与运行运维 | RLS 详细矩阵、变更审计 retention/redaction/integrity、运行指标导出和 LKG 恢复演练尚未达到生产运维完整度。 | P2 | 完成矩阵与 DB 负向测试、审计保留/脱敏策略、指标告警及恢复演练证据。 |
+
+### Catalog Phase 1 readiness HOLD（外部依赖，不等同代码缺陷）
+
+| ID | HOLD | 解除条件 |
+|:--|:---|:---|
+| CAT-HOLD-01 | 3 个 `pack_lock` 尚未填入真实 version/content hash。 | 产品/架构 owner 提供 exact pack 版本和 hash，重算 Profile hash 并重新签署。 |
+| CAT-HOLD-02 | 产品负责人及 10 kind owner 的真实联系方式/责任确认尚未补齐。 | 由真实 owner 完成 RACI 和联系方式确认；不得用 mock 联系方式冒充生产证据。 |
+| CAT-HOLD-03 | JQMK 初始引用清单仍缺真实 stable ID、version、content hash；当前使用 Mock/Test Adapter。 | 外部源提供稳定引用与权威 hash，并完成 manifest/Resolver contract vectors。 |
+| CAT-HOLD-04 | 生产 Source Adapter、webhook secret、调度器和告警通道未配置。 | 真实源系统完成安全配置与演练；配置缺失时继续 fail closed。 |
+
+> 以上 Catalog 条目是 Phase 1 的工程债务和上线前 HOLD 记录，不是对 canonicalization、hash、schema version、Resolver 错误语义、fail-closed 或三层 Pack 冲突规则的放宽。需要改变这些冻结契约时，必须新建 schema/canonicalizer version 并走重新签署流程。
+
 ## 已清偿
 
 | # | 原始位置 | 内容 | 清偿于 |

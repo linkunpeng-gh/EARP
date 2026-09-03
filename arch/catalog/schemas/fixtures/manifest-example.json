@@ -1,0 +1,223 @@
+{
+  "manifest_schema_version": "catalog-manifest/v1",
+  "manifest_id": "coal.sdrh.jqmk.production",
+  "manifest_revision": 1,
+  "scope": {
+    "industry_scope": "coal_mining",
+    "enterprise_scope": "SDRH",
+    "tenant_id": "JQMK",
+    "data_domains": [
+      "production"
+    ],
+    "global_enabled": false
+  },
+  "pack_lock": [
+    {
+      "pack_id": "jqmk-enterprise",
+      "layer": "enterprise",
+      "version": "1.0.0",
+      "content_hash": "0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    {
+      "pack_id": "coal-mining-industry",
+      "layer": "industry",
+      "version": "1.0.0",
+      "content_hash": "0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "pack_id": "platform-base",
+      "layer": "platform",
+      "version": "1.0.0",
+      "content_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "entries": [
+    {
+      "kind": "aggregation",
+      "stable_id": "common.agg.daily_total",
+      "version": "1.0.0",
+      "content_hash": "6814cbc245fb9bb44b9936f87ff8788174294624b9296a2542e1f92079bf04a6",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-aggregation/v1",
+      "source_pack_id": "platform-base"
+    },
+    {
+      "kind": "binding_template",
+      "stable_id": "coal.equipment_binding",
+      "version": "1.0.0",
+      "content_hash": "704895245e72ad1783f584d149ff71ff761d59c9a53dd1b39789ea56eec37bec",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-binding-template/v1",
+      "source_pack_id": "coal-mining-industry",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "equipment_type_ref": {
+            "type": "ref",
+            "kind": "entity_type",
+            "label": "设备类型"
+          },
+          "working_face_ref": {
+            "type": "ref",
+            "kind": "entity_type",
+            "label": "工作面"
+          }
+        },
+        "required": [
+          "equipment_type_ref",
+          "working_face_ref"
+        ]
+      }
+    },
+    {
+      "kind": "capability_contract",
+      "stable_id": "coal.production_forecast",
+      "version": "1.0.0",
+      "content_hash": "6852ce68db61a68a26e8cf6ea47c04ce2055bdd4eb08c49f4e1c6411453473b7",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-capability/v1",
+      "source_pack_id": "coal-mining-industry",
+      "role": "primary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "face_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "forecast_tonnage": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "kind": "data_domain",
+      "stable_id": "jqmk.production",
+      "version": "1.0.0",
+      "content_hash": "fa7ceb1b6615e67e00058438070df50fbf04f6e9c9d31b95d6d8934cc93d7954",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-domain/v1",
+      "source_pack_id": "jqmk-enterprise"
+    },
+    {
+      "kind": "entity_type",
+      "stable_id": "coal.mine",
+      "version": "1.0.0",
+      "content_hash": "7761861bea3349343afd03f4e77231f0e02028feec87556b2797bb16376bde4c",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-entity/v1",
+      "source_pack_id": "coal-mining-industry"
+    },
+    {
+      "kind": "metric",
+      "stable_id": "coal.raw_coal_output",
+      "version": "1.0.0",
+      "content_hash": "7962d8041450c20cb1a58e1e5ffcc3337e94a17aa25b081abe25fc8e7d3ed48b",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-metric/v1",
+      "source_pack_id": "coal-mining-industry",
+      "compatibility_metadata": {
+        "coal_seam_type": "all"
+      },
+      "value_semantics": {
+        "measurement_type": "continuous_flow",
+        "unit_ref": {
+          "kind": "unit",
+          "stable_id": "common.mass.tonne",
+          "version": "1.0.0"
+        },
+        "aggregation_ref": {
+          "kind": "aggregation",
+          "stable_id": "common.agg.daily_total",
+          "version": "1.0.0"
+        },
+        "time_window_ref": {
+          "kind": "time_window_schema",
+          "stable_id": "common.time.shift",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "kind": "relation_type",
+      "stable_id": "coal.mines",
+      "version": "1.0.0",
+      "content_hash": "0776760a62cdf95636039a45612f2c5e2709c7c39b31b42d5c7e472a481cbe14",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-relation/v1",
+      "source_pack_id": "coal-mining-industry"
+    },
+    {
+      "kind": "rule_schema",
+      "stable_id": "common.rule.sign_propagation_v1",
+      "version": "1.0.0",
+      "content_hash": "e7f058cede65885da8e7b095e404c13662d1d2a2fff48008c9d1b76ba55c1759",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-rule/v1",
+      "source_pack_id": "platform-base",
+      "params_schema": {
+        "type": "object",
+        "properties": {
+          "damping": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "kind": "time_window_schema",
+      "stable_id": "common.time.shift",
+      "version": "1.0.0",
+      "content_hash": "974151f831b086383dc9814d8169c91eee15dba82eb1e10ab8f03cf209330f4c",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-time-window/v1",
+      "source_pack_id": "platform-base"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.mass.tonne",
+      "version": "1.0.0",
+      "content_hash": "dec4a1bbb7569f891da14c63a378aa021680a228361cce29460bde1c31d1d8f3",
+      "status": "active",
+      "data_domain_id": "production",
+      "semantic_schema_version": "catalog-unit/v1",
+      "source_pack_id": "platform-base"
+    }
+  ],
+  "owners": [
+    {
+      "role_key": "platform_architect",
+      "name": "隋昕航",
+      "team": "EARP 项目",
+      "contact": null
+    }
+  ],
+  "resolver_adapter": {
+    "identity": "earp.catalog.resolver.api/v1",
+    "contract_version": "catalog-resolver/v1.0"
+  },
+  "manifest_hash": "6b0097b4184bd2cc12022361b67a0b1840f4a3209f5bbc7ef7683b1e84c50e70",
+  "signoff": {
+    "signoff_tag": "catalog-phase1-jqmk-coal-r1-test",
+    "change_order": "JQMK-BG-20260901-001",
+    "attestation": "arch/catalog/schemas/fixtures/attestation-example.json",
+    "signed_at": "2026-09-01T00:00:00+08:00",
+    "effective_from": "2026-09-01T00:00:00+08:00",
+    "effective_until": null
+  },
+  "generated_at": "2026-09-01T00:00:00+08:00"
+}

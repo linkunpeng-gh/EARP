@@ -1,0 +1,66 @@
+# EARP Catalog Profile v2 —— 项目级配置（值层）
+# schema: catalog-profile/v2 —— 一 Profile 一 domain，roles 可配置数组，backup_approver 必填
+# 禁止加入 allow_inactive / disable_fail_closed 等语义开关
+# 本文件为 Phase 1 开发使用的 v2 配置，r1 签署实例仍绑定 v1（jqmk-coal-production.yaml）
+profile_id: jqmk-coal-production
+schema_version: catalog-profile/v2
+template_contract_version: n01a-catalog-phase0-signoff/v1
+
+# scope（仅值，不定义语义）
+industry_scope: coal_mining
+enterprise_scope: SDRH
+tenant_id: JQMK
+data_domain: production
+
+catalog_profile_id: coal.sdrh.jqmk.production
+
+# pack_lock：pack 尚未形成，version/hash 待填（null=待签署，对应 D-13）
+pack_lock:
+  - pack_id: platform-base
+    layer: platform
+    version: null
+    content_hash: null
+  - pack_id: coal-mining-industry
+    layer: industry
+    version: null
+    content_hash: null
+  - pack_id: jqmk-enterprise
+    layer: enterprise
+    version: null
+    content_hash: null
+
+# 可配置角色列表（不硬编码角色数量和名称，一人可兼任多角色）
+roles:
+  - role_key: product_owner
+    name: 林鲲鹏
+    team: EARP 项目
+    contact: null
+  - role_key: platform_architect
+    name: 隋昕航
+    team: EARP 项目
+    contact: null
+  - role_key: data_domain_owner
+    name: 隋昕航
+    team: EARP 项目
+    contact: null
+  - role_key: security_rbac_owner
+    name: 林鲲鹏
+    team: EARP 项目
+    contact: null
+  - role_key: audit_compliance_owner
+    name: 梁桂岭
+    team: EARP 项目
+    contact: null
+  - role_key: ops_platform_owner
+    name: 梁桂岭
+    team: EARP 项目
+    contact: null
+
+# 候补审批人角色 key（当唯一审批人也是申请人时，自动路由到此角色）
+backup_approver: audit_compliance_owner
+
+change_orders:
+  change: JQMK-BG-20260901-001
+  release: JQMK-FB-20260901-001
+
+record_keeper: 林鲲鹏

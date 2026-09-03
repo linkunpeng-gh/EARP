@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "earp:catalog-manifest:schema:v1",
+  "title": "EARP Catalog Manifest Schema",
+  "description": "生效的 Catalog manifest。由 pack 组合生成，不可变，签署后激活。additionalProperties:false 禁止未声明字段。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_schema_version",
+    "manifest_id",
+    "manifest_revision",
+    "scope",
+    "pack_lock",
+    "entries",
+    "owners",
+    "resolver_adapter",
+    "manifest_hash",
+    "signoff"
+  ],
+  "properties": {
+    "manifest_schema_version": {
+      "const": "catalog-manifest/v1"
+    },
+    "manifest_id": {
+      "type": "string",
+      "pattern": "^[a-z]+\\.[a-z]+\\.[a-z]+\\.[a-z]+$",
+      "description": "格式：{industry}.{enterprise}.{tenant}.{domain}"
+    },
+    "manifest_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "单调递增整数，每次变更产生新 revision"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["industry_scope", "enterprise_scope", "tenant_id", "data_domains"],
+      "properties": {
+        "industry_scope": { "type": "string", "minLength": 1 },
+        "enterprise_scope": { "type": "string", "minLength": 1 },
+        "tenant_id": { "type": "string", "minLength": 1 },
+        "data_domains": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "global_enabled": {
+          "const": false,
+          "description": "Phase 1 固定为 false（FROZEN），global scope DEFERRED。Phase 2 评估启用后改为 boolean。"
+        }
+      }
+    },
+    "pack_lock": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pack_id", "layer", "version", "content_hash"],
+        "properties": {
+          "pack_id": { "type": "string", "minLength": 1 },
+          "layer": { "enum": ["platform", "industry", "enterprise"] },
+          "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "description": "effective manifest 去重后的引用列表，按 (kind, stable_id, version) 排序。每条 entry 包含引用标识 + content_hash + status + Resolver 投影快照（生成 manifest 时从权威服务获取，用于一致性校验）。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "stable_id", "version", "content_hash", "status", "data_domain_id", "semantic_schema_version"],
+        "properties": {
+          "kind": {
+            "enum": ["data_domain", "entity_type", "relation_type", "metric", "unit", "aggregation", "time_window_schema", "binding_template", "capability_contract", "rule_schema"]
+          },
+          "stable_id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" },
+          "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "content_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "status": { "enum": ["active", "deprecated", "inactive"], "description": "正式 manifest 只允许 active/deprecated/inactive。suspected_missing 是同步索引运行状态，不得进入 manifest（生成时拒绝）" },
+          "data_domain_id": { "type": "string", "minLength": 1 },
+          "semantic_schema_version": { "type": "string", "minLength": 1 },
+          "source_pack_id": { "type": "string", "minLength": 1 },
+          "compatibility_metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "kind 特定的兼容性元数据，如 metric 的 coal_seam_type"
+          },
+          "role": {
+            "type": "string",
+            "description": "capability_contract 专用：primary/supporting/auxiliary"
+          },
+          "input_schema": {
+            "type": "object",
+            "description": "capability_contract 专用：输入 Schema"
+          },
+          "output_schema": {
+            "type": "object",
+            "description": "capability_contract 专用：输出 Schema"
+          },
+          "params_schema": {
+            "type": "object",
+            "description": "binding_template / rule_schema 专用：参数 Schema"
+          },
+          "value_semantics": {
+            "type": "object",
+            "description": "metric 专用：measurement_type + unit_ref + aggregation_ref + time_window_ref"
+          }
+        }
+      }
+    },
+    "owners": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role_key", "name", "team"],
+        "properties": {
+          "role_key": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "team": { "type": "string", "minLength": 1 },
+          "contact": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "resolver_adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "contract_version"],
+      "properties": {
+        "identity": { "const": "earp.catalog.resolver.api/v1" },
+        "contract_version": { "const": "catalog-resolver/v1.0" }
+      }
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "对投影白名单字段规范化 JSON 后的 SHA-256"
+    },
+    "signoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signoff_tag", "change_order", "attestation"],
+      "properties": {
+        "signoff_tag": { "type": "string", "minLength": 1 },
+        "change_order": { "type": "string", "minLength": 1 },
+        "attestation": { "type": "string", "minLength": 1 },
+        "signed_at": { "type": "string", "format": "date-time" },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_until": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "生成时间，不参与 manifest_hash 计算"
+    }
+  },
+  "x_hash_projection_whitelist": [
+    "manifest_schema_version",
+    "manifest_id",
+    "manifest_revision",
+    "scope",
+    "pack_lock",
+    "entries",
+    "owners",
+    "resolver_adapter"
+  ]
+}

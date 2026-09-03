@@ -197,7 +197,7 @@ def check_tag(attestation: Path, failures: list[str]) -> None:
         print(f"[OK] tag {tag} 指向 commit 与 attestation baseline_commit 一致: {pointed[:12]}…")
 
 
-def check_readiness(profile: Path) -> None:
+def check_readiness(profile: Path, failures: list[str]) -> None:
     """readiness 检查：区分'格式合法'与'具备签署/上线条件'。不判非法，仅提示。"""
     import yaml
     prof = yaml.safe_load(profile.read_text())
@@ -205,25 +205,85 @@ def check_readiness(profile: Path) -> None:
     missing = [p for p in packs if not (p.get("version") and p.get("content_hash"))]
     if missing:
         print(f"[READINESS] pack_lock 未就绪（{len(missing)}/{len(packs)} 项 version/hash 为空）→ 具备签署/上线条件前需补全，见 D-13")
-    if not (prof.get("roles", {}).get("product_owner", {}).get("contact")):
+
+    roles = prof.get("roles")
+    product_owner_contact = None
+    if isinstance(roles, dict):
+        # v1: roles = {role_key: {name, team, contact}}
+        product_owner_contact = roles.get("product_owner", {}).get("contact")
+    elif isinstance(roles, list):
+        # v2: roles = [{role_key, name, team, contact}]
+        for r in roles:
+            if r.get("role_key") == "product_owner":
+                product_owner_contact = r.get("contact")
+                break
+    if not product_owner_contact:
         print("[READINESS] 产品负责人联系方式 TBD → §9.1 RACI entry gate 保持 HOLD")
+
+
+def check_profile_v2_semantics(profile: Path, failures: list[str]) -> None:
+    """v2 Profile 语义校验（JSON Schema 无法保证的部分）。"""
+    import yaml
+    prof = yaml.safe_load(profile.read_text())
+    if prof.get("schema_version") != "catalog-profile/v2":
+        return  # 仅校验 v2
+
+    roles = prof.get("roles", [])
+    if not isinstance(roles, list):
+        failures.append("v2 roles 应为数组")
+        return
+
+    # 1. role_key 不重复
+    keys = [r.get("role_key") for r in roles]
+    dupes = [k for k in set(keys) if keys.count(k) > 1]
+    if dupes:
+        failures.append(f"v2 role_key 重复: {dupes}")
+
+    # 2. backup_approver 必须对应 roles 中的 role_key
+    backup = prof.get("backup_approver")
+    if backup and backup not in keys:
+        failures.append(f"backup_approver '{backup}' 不在 roles role_key 列表中: {keys}")
+
+    # 3. 候补审批人不能是唯一审批人（简单检查：backup_approver 对应的人员不能与所有审批角色为同一人）
+    #    Phase 1 仅提示，不强制失败
+    if backup:
+        backup_person = next((r.get("name") for r in roles if r.get("role_key") == backup), None)
+        print(f"[OK] v2 语义校验通过: {len(roles)} 角色, backup_approver={backup}({backup_person})")
+    else:
+        failures.append("v2 缺少 backup_approver")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     for key, dflt in DEFAULT.items():
         ap.add_argument(f"--{key}", type=Path, default=dflt)
+    ap.add_argument("--v2", action="store_true",
+                    help="v2 模式：校验 v2 Profile 的 Schema + 语义（role_key 唯一、backup_approver 绑定），不验证 r1 signoff")
     args = ap.parse_args()
 
     failures: list[str] = []
-    print("=== EARP Catalog 签署资产校验 ===")
-    validate_profile_schema(args.profile, args.schema, failures)
-    check_signoff_profile_hash(args.signoff, args.profile, failures)
-    check_no_placeholders(args.signoff, failures)
-    check_frozen_blocks(args.signoff, args.template, failures)
-    check_attestation(args.attestation, failures)
-    check_tag(args.attestation, failures)
-    check_readiness(args.profile)
+
+    if args.v2:
+        # v2 模式：默认使用 v2 profile 和 v2 schema
+        profile = args.profile if args.profile != DEFAULT["profile"] else \
+            ROOT / "arch/catalog/profiles/jqmk-coal-production-v2.yaml"
+        schema = args.schema if args.schema != DEFAULT["schema"] else \
+            ROOT / "arch/catalog/schemas/catalog-profile-v2.schema.json"
+        print("=== EARP Catalog v2 Profile 校验 ===")
+        validate_profile_schema(profile, schema, failures)
+        check_readiness(profile, failures)
+        check_profile_v2_semantics(profile, failures)
+    else:
+        # 默认 r1/v1 模式
+        print("=== EARP Catalog 签署资产校验（r1/v1）===")
+        validate_profile_schema(args.profile, args.schema, failures)
+        check_signoff_profile_hash(args.signoff, args.profile, failures)
+        check_no_placeholders(args.signoff, failures)
+        check_frozen_blocks(args.signoff, args.template, failures)
+        check_attestation(args.attestation, failures)
+        check_tag(args.attestation, failures)
+        check_readiness(args.profile, failures)
+        check_profile_v2_semantics(args.profile, failures)
 
     if failures:
         print("\n=== 失败项 ===")

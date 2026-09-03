@@ -34,7 +34,9 @@ from earp_server.capability.service import (
     get_capability,
     update_capability,
 )
-from earp_server.causal_model_management.catalog import CatalogResolutionError, UnavailableCatalogResolver
+from earp_server.catalog.database_resolver import DatabaseCatalogResolver
+from earp_server.catalog.routes import router as catalog_router
+from earp_server.causal_model_management.catalog import CatalogResolutionError
 from earp_server.causal_model_management.errors import N01AError
 from earp_server.causal_model_management.routes import router as causal_model_management_router
 from earp_server.config import Settings
@@ -551,11 +553,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.settings = cfg
         app.state.engine = build_engine(cfg)
+        # Source adapters are injected by deployment/test wiring.  An empty
+        # registry is intentional: without a real or test adapter, registration
+        # remains unavailable and fails closed.
+        app.state.catalog_source_adapters = {}
         # The real catalog manifest/owner is intentionally unsigned.  Production
         # fails closed; contract tests explicitly replace this with the fake.
         # Dev/test page testing: EARP_ECMC_TEST_CATALOG=1 registers the fake
         # catalog (mirrors the frontend ?catalog=fake adapter) so N01B writes work.
-        app.state.n01a_catalog_resolver = UnavailableCatalogResolver()
+        app.state.n01a_catalog_resolver = DatabaseCatalogResolver(app.state.engine)
         if cfg.app_env in ("dev", "test") and os.environ.get("EARP_ECMC_TEST_CATALOG") == "1":
             try:
                 from earp_server.causal_model_management.catalog import FakeCatalogResolver
@@ -893,6 +899,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(roles_router)
     app.include_router(app_center_router)
     app.include_router(causal_model_management_router)
+    app.include_router(catalog_router)
 
     # ── ECMC dev-only compile driver（N01B 页面测试）──
     # 真实架构中 compile running→success 由 outbox 消费进程完成；本仓库尚无该
