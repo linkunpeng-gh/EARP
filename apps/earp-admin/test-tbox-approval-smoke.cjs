@@ -31,6 +31,10 @@ const pendingRows = [
   // 数据域变更请求（action=update，2026-09）
   { change_id: 'tc-5', requested_by: 'u2', change_type: 'entity_type', action: 'update',
     target_id: 'equipment', payload: { data_domain_id: 'finance_data' }, created_at: '2026-08-17T10:04:00+00:00', can_approve: true, can_reject: true, own: false },
+  // 关系类型编辑请求（action=update + change_type=relation_type，2026-09）
+  { change_id: 'tc-6', requested_by: 'u2', change_type: 'relation_type', action: 'update',
+    target_id: 'located_in', payload: { name: '位于（含矿山）', source_type: 'equipment,sensor,employee', target_type: 'plant,mine' },
+    created_at: '2026-08-17T10:05:00+00:00', can_approve: true, can_reject: true, own: false },
 ];
 const calls = [];
 global.document = {
@@ -70,15 +74,18 @@ try {
       ['请求人渲染', out.includes('u1')],
       ['动作标签（新增/停用）', out.includes('新增') && out.includes('停用')],
       ['目标+名称', out.includes('new_equip') && out.includes('新设备')],
-      ['批准按钮（can_approve=true）', out.includes('approveChange')],
-      ['拒绝按钮（can_approve=true）', out.includes('rejectChange')],
+      ['批准按钮（can_approve=true）', out.includes('data-action="change-approve"')],
+      ['拒绝按钮（can_approve=true）', out.includes('data-action="change-reject"')],
       // tech-debt #9 审批人角色门禁：can_approve=false → 隐藏按钮 + 提示
-      ['无权限行提示（can_approve=false）', out.includes('无审批权限') && !out.includes("approveChange('tc-3'")],
+      ['无权限行提示（can_approve=false）', out.includes('无审批权限') && !out.includes('data-id="tc-3"')],
       // 2026-09 修复：自己提交行不显示批准（提交者不能自审 403）——「自己提交」提示 + 仅保留拒绝/撤回
-      ['自己提交行：提示 + 无批准 + 可拒绝', out.includes('自己提交') && !out.includes("approveChange('tc-4'") && out.includes("rejectChange('tc-4'")],
+      ['自己提交行：提示 + 无批准 + 可拒绝', out.includes('自己提交') && !out.includes('data-action="change-approve" data-id="tc-4"') && out.includes('data-action="change-reject" data-id="tc-4"')],
       // 2026-09：update（迁移数据域）动作标签 + 目标列展示新域
       ['update 行动作标签（迁移数据域）', out.includes('迁移数据域')],
       ['update 行目标列显示新域', out.includes('→ finance_data')],
+      // 2026-09：关系类型编辑（action=update + relation_type）标签与集合摘要
+      ['关系编辑动作标签（编辑关系）', out.includes('编辑关系')],
+      ['关系编辑目标列集合摘要（源 3 类/目标 2 类）', out.includes('源 3 类') && out.includes('目标 2 类')],
     ];
     let fail = 0;
     checks.forEach(([name, ok]) => { console.log((ok ? 'PASS' : 'FAIL') + '  ' + name); if (!ok) fail++; });
@@ -120,6 +127,22 @@ try {
     if (!upSub) fail++;
     console.log((okMsg ? 'PASS' : 'FAIL') + '  saveDomainChange 成功提示含随迁数量（entity_count=5）');
     if (!okMsg) fail++;
+
+    // saveRtEdit 提交关系编辑（action=update + change_type=relation_type）
+    ['rt-e-name', 'rt-e-card', 'rt-edit-modal', 'rt-e-src', 'rt-e-tgt'].forEach(function (id) { if (!els[id]) els[id] = mkEl(); });
+    els['rt-e-name'].value = '位于（含矿山）';
+    els['rt-e-src'].selectedOptions = [{ value: 'equipment' }, { value: 'sensor' }, { value: 'employee' }];
+    els['rt-e-tgt'].selectedOptions = [{ value: 'plant' }, { value: 'mine' }];
+    els['rt-e-card'].value = 'N:M';
+    global.RT_EDIT = { id: 'located_in', name: '位于' };
+    const before3 = calls.length;
+    await global.saveRtEdit();
+    const relSub = calls.slice(before3).find(c => c.includes('/tbox/changes') && c.includes('POST'));
+    const relOk = calls.slice(before3).some(c => c.includes('alert: 已提交变更请求'));
+    console.log((relSub ? 'PASS' : 'FAIL') + '  saveRtEdit 提交 /tbox/changes (POST, change_type=relation_type)' + (relSub ? ' (' + relSub + ')' : ''));
+    if (!relSub) fail++;
+    console.log((relOk ? 'PASS' : 'FAIL') + '  saveRtEdit 成功提示');
+    if (!relOk) fail++;
     process.exit(fail ? 1 : 0);
 } catch (e) {
   console.log('SMOKE ERROR:', e.message);

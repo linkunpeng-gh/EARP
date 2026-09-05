@@ -389,7 +389,9 @@ async def test_update_change_submit_prechecks(migrated: str, app_url: str) -> No
     await _seed(engine, migrated, tid)
     await _seed_update_dds(engine, tid)
 
-    with pytest.raises(ValueError, match="仅支持实体类型"):
+    # 2026-09：relation_type 的 update 现为合法编辑动作（源/目标集合等）；
+    # data_domain_id 非关系字段 → 无字段变更被拒（数据域仍是 entity_type 专属）
+    with pytest.raises(ValueError, match="数据未变更"):
         await tbox_service.submit_change(
             engine,
             tid,
@@ -637,3 +639,197 @@ async def test_domain_migration_vs_concurrent_upsert_never_leaves_stale_instance
         assert instance_dds == {type_dd}, f"实例域 {instance_dds} 与类型域 {type_dd} 不一致（旧域被写回）"
     finally:
         await engine.dispose()
+
+
+# ── 2026-09：关系类型编辑（action='update' + relation_type，设计 2026-09-04 §3/§4）────────────
+
+
+async def test_relation_update_prechecks(migrated: str, app_url: str) -> None:
+    """关系编辑预检：类型不存在/deprecated/空集合/类型 id 不存在/非法基数/无变更。"""
+
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "tb-r1"
+    await _seed(engine, migrated, tid)
+
+    with pytest.raises(ValueError, match="关系类型不存在"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="relation_type",
+            action="update",
+            target_id="ghost_rel",
+            payload={"name": "X", "source_type": "equipment", "target_type": "plant", "cardinality": "N:1"},
+        )
+    # deprecated 关系不可编辑（先 reactivate）
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(
+            text("UPDATE relation_types SET status='deprecated' WHERE relation_type_id='manufactured_by'")
+        )
+        await conn.commit()
+    with pytest.raises(ValueError, match="已停用"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="relation_type",
+            action="update",
+            target_id="manufactured_by",
+            payload={"source_type": "equipment", "target_type": "supplier"},
+        )
+    await tbox_service.reactivate_relation_type(engine, tid, "manufactured_by")
+    # 空集合 / 未知类型 id / 非法基数 / 无变更
+    with pytest.raises(ValueError, match="source_type 集合不能为空"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="relation_type",
+            action="update",
+            target_id="manufactured_by",
+            payload={"source_type": "", "target_type": "supplier"},
+        )
+    with pytest.raises(ValueError, match="源/目标类型不存在"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="relation_type",
+            action="update",
+            target_id="manufactured_by",
+            payload={"source_type": "equipment", "target_type": "ghost_type"},
+        )
+    with pytest.raises(ValueError, match="cardinality"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="relation_type",
+            action="update",
+            target_id="manufactured_by",
+            payload={"source_type": "equipment", "target_type": "supplier", "cardinality": "1:2"},
+        )
+    with pytest.raises(ValueError, match="数据未变更"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="relation_type",
+            action="update",
+            target_id="manufactured_by",
+            payload={"name": "由…制造", "source_type": "equipment", "target_type": "supplier", "cardinality": "N:1"},
+        )
+    await engine.dispose()
+
+
+async def test_relation_update_narrow_guard(migrated: str, app_url: str) -> None:
+    """收窄守护（设计 §3.4）：移除仍有 active 事实的组合 → submit 与 apply 复检都拒绝。"""
+    from earp_server.ontology import abox_service
+
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "tb-r2"
+    await _seed(engine, migrated, tid)
+    await tbox_service.create_entity_type(engine, tid, "mine", "矿山", kind="object")
+
+    # 存量事实：equipment →located_in→ plant
+    e = await abox_service.upsert_entity(engine, tid, "equipment", "CNC-01", business_code="CNC-01")
+    p = await abox_service.upsert_entity(engine, tid, "plant", "华东一厂", business_code="PL-1")
+    await abox_service.add_fact(engine, tid, e["entity_id"], "located_in", p["entity_id"])
+
+    # 收窄（去掉 plant）→ submit 拒绝
+    with pytest.raises(ValueError, match="收窄被拒"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="relation_type",
+            action="update",
+            target_id="located_in",
+            payload={"source_type": "equipment,sensor,production_line", "target_type": "mine"},
+        )
+    # 扩集合（加 employee 源 + mine 目标）→ 通过
+    c = await tbox_service.submit_change(
+        engine,
+        tid,
+        "u1",
+        change_type="relation_type",
+        action="update",
+        target_id="located_in",
+        payload={"source_type": "equipment,sensor,production_line,employee", "target_type": "plant,mine"},
+    )
+    assert c["status"] == "pending"
+
+    # apply 复检路径（submit 通过、审批前事实出现）：located_in 源集合收窄去掉 production_line
+    # （当前无 production_line 源事实）→ submit 通过；批准前种一条 production_line→plant 事实 → apply 被拒
+    c2 = await tbox_service.submit_change(
+        engine,
+        tid,
+        "u1",
+        change_type="relation_type",
+        action="update",
+        target_id="located_in",
+        payload={"source_type": "equipment,sensor", "target_type": "plant"},
+    )
+    line = await abox_service.upsert_entity(engine, tid, "production_line", "A产线", business_code="LN-A")
+    f = await abox_service.add_fact(engine, tid, line["entity_id"], "located_in", p["entity_id"])
+    with pytest.raises(ValueError, match="收窄被拒"):
+        await tbox_service.approve_change(engine, tid, "u2", c2["change_id"], role_id="r-approver")
+    # 撤销该事实 → apply 通过（收窄生效，源集合去掉 production_line）
+    await abox_service.revoke_fact(engine, tid, f["fact_id"])
+    r = await tbox_service.approve_change(engine, tid, "u2", c2["change_id"], role_id="r-approver")
+    assert r["status"] == "applied"
+    assert set(r["fields_changed"]) == {"source_type"}
+
+
+async def test_relation_update_approve_applies_and_keeps_facts(migrated: str, app_url: str) -> None:
+    """批准链路：扩集合 + 改名 → 生效；存量 facts 保留；新组合可建事实。"""
+    from earp_server.ontology import abox_service
+
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "tb-r3"
+    await _seed(engine, migrated, tid)
+    await tbox_service.create_entity_type(engine, tid, "mine", "矿山", kind="object")
+
+    e = await abox_service.upsert_entity(engine, tid, "equipment", "CNC-01", business_code="CNC-01")
+    p = await abox_service.upsert_entity(engine, tid, "plant", "华东一厂", business_code="PL-1")
+    f1 = await abox_service.add_fact(engine, tid, e["entity_id"], "located_in", p["entity_id"])
+
+    c = await tbox_service.submit_change(
+        engine,
+        tid,
+        "u1",
+        change_type="relation_type",
+        action="update",
+        target_id="located_in",
+        payload={
+            "name": "位于（含矿山）",
+            "source_type": "equipment,sensor,production_line,employee",
+            "target_type": "plant,mine",
+            "cardinality": "N:M",
+        },
+    )
+    r = await tbox_service.approve_change(engine, tid, "u2", c["change_id"], role_id="r-approver")
+    assert r["status"] == "applied"
+    assert set(r["fields_changed"]) == {"name", "source_type", "target_type", "cardinality"}
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        row = (await conn.execute(text("SELECT * FROM relation_types WHERE relation_type_id='located_in'"))).fetchone()
+        assert row.name == "位于（含矿山）"
+        assert set(row.source_type.split(",")) == {"equipment", "sensor", "production_line", "employee"}
+        assert set(row.target_type.split(",")) == {"plant", "mine"}
+        assert row.cardinality == "N:M"
+        alive = (
+            await conn.execute(
+                text("SELECT count(*) FROM facts WHERE fact_id=:f AND status='active'"), {"f": f1["fact_id"]}
+            )
+        ).scalar()
+    assert alive == 1  # 存量事实保留
+
+    # 新组合可建事实：employee →located_in→ mine
+    emp = await abox_service.upsert_entity(engine, tid, "employee", "张工", business_code="EMP-1")
+    m = await abox_service.upsert_entity(engine, tid, "mine", "一号矿", business_code="M-1")
+    f2 = await abox_service.add_fact(engine, tid, emp["entity_id"], "located_in", m["entity_id"])
+    assert f2["fact_id"]
+    await engine.dispose()

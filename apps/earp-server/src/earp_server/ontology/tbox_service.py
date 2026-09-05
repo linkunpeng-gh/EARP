@@ -307,6 +307,92 @@ async def _get_tbox_row(engine: AsyncEngine, tenant_id: str, table: str, target_
         return dict(r._mapping) if r else None
 
 
+_REL_CARDINALITIES = ("1:1", "1:N", "N:1", "N:M")
+
+
+async def _plan_relation_update(conn, tenant_id: str, target_id: str, payload: dict) -> dict:
+    """关系类型编辑计划（设计 2026-09-04 §3；submit 预检与 approve apply 复检共用，conn 须已 SET LOCAL）。
+
+    校验：类型存在且 active；name 非空 / cardinality 枚举；集合非空且类型 id 存在（status 任意）；
+    **收窄守护**——被移除组合仍有 active 事实 → 拒绝；传入字段与现值全同 → 「数据未变更」。
+    返回 {old, new, changed: [字段…]}（new 为生效后的整行值）。
+    """
+    row = await conn.execute(
+        text("SELECT * FROM relation_types WHERE relation_type_id = :rid AND tenant_id = :tid"),
+        {"rid": target_id, "tid": tenant_id},
+    )
+    r = row.fetchone()
+    if r is None:
+        raise ValueError(f"关系类型不存在: {target_id}")
+    if r.status != "active":
+        raise ValueError(f"关系类型已停用: {target_id}（请先提交 reactivate 恢复后再编辑）")
+    old = dict(r._mapping)
+
+    name = payload.get("name")
+    if name is not None:
+        name = str(name).strip()
+        if not name:
+            raise ValueError("关系类型名称不能为空")
+    card = payload.get("cardinality")
+    if card is not None and card not in _REL_CARDINALITIES:
+        raise ValueError(f"非法 cardinality: {card}（可选 {'/'.join(_REL_CARDINALITIES)}）")
+
+    def _sets(value, current: str) -> list[str]:
+        if value is None:
+            return [x for x in (current or "").split(",") if x]
+        return [x.strip() for x in str(value).split(",") if x.strip()]
+
+    new_src = _sets(payload.get("source_type"), old["source_type"])
+    new_tgt = _sets(payload.get("target_type"), old["target_type"])
+    if not new_src:
+        raise ValueError("source_type 集合不能为空")
+    if not new_tgt:
+        raise ValueError("target_type 集合不能为空")
+    all_ids = sorted(set(new_src) | set(new_tgt))
+    rows = await conn.execute(
+        text("SELECT entity_type_id FROM entity_types WHERE tenant_id = :tid AND entity_type_id = ANY(:ids)"),
+        {"tid": tenant_id, "ids": all_ids},
+    )
+    known = {x.entity_type_id for x in rows.fetchall()}
+    missing = [i for i in all_ids if i not in known]
+    if missing:
+        raise ValueError(f"源/目标类型不存在: {missing}")
+
+    old_src = {x for x in (old["source_type"] or "").split(",") if x}
+    old_tgt = {x for x in (old["target_type"] or "").split(",") if x}
+    if old_src - set(new_src) or old_tgt - set(new_tgt):
+        cnt = await conn.execute(
+            text(
+                "SELECT count(*) AS n FROM facts f "
+                "JOIN entities s ON s.entity_id = f.source_entity_id "
+                "JOIN entities t ON t.entity_id = f.target_entity_id "
+                "WHERE f.tenant_id = :tid AND f.relation_type_id = :rid AND f.status = 'active' "
+                "AND (NOT (s.entity_type_id = ANY(:srcs)) OR NOT (t.entity_type_id = ANY(:tgts)))"
+            ),
+            {"tid": tenant_id, "rid": target_id, "srcs": list(new_src), "tgts": list(new_tgt)},
+        )
+        n = int(cnt.scalar() or 0)
+        if n:
+            raise ValueError(
+                f"收窄被拒：{n} 条 active 事实落在将被移除的组合（源或目标类型 ∉ 新集合），请先停用/清理这些事实后重试"
+            )
+
+    new = dict(old)
+    changed: list[str] = []
+    for field in ("name", "source_type", "target_type", "cardinality"):
+        v = payload.get(field)
+        if v is None:
+            continue
+        v = ",".join(_sets(v, old[field])) if field in ("source_type", "target_type") else str(v).strip()
+        if v == old.get(field):
+            continue
+        new[field] = v
+        changed.append(field)
+    if not changed:
+        raise ValueError(f"数据未变更: {target_id}")
+    return {"old": old, "new": new, "changed": changed}
+
+
 async def submit_change(
     engine: AsyncEngine,
     tenant_id: str,
@@ -318,7 +404,7 @@ async def submit_change(
     payload: dict | None = None,
 ) -> dict:
     """提交 TBox 变更请求（pending）。create 预检目标 id 冲突（active 拒绝；deprecated 提示走恢复）；
-    update（数据域变更，设计 2026-09-04）预检：实体类型/目标域合法性 + 随迁实例数。"""
+    update（2026-09 两线：entity_type 数据域迁移 / relation_type 编辑）预检见各 helper。"""
     if change_type not in ("entity_type", "relation_type"):
         raise ValueError(f"非法 change_type: {change_type}")
     if action not in ("create", "deprecate", "reactivate", "update"):
@@ -343,40 +429,44 @@ async def submit_change(
                 if not payload.get(k):
                     raise ValueError(f"create 关系类型缺少 {k}")
     elif action == "update":
-        # 数据域变更：仅实体类型（关系类型无数据域）；类型 active；新域≠当前域；
-        # 目标域存在且 active（与 roles_service._validate_domain_access 同口径）
-        if change_type != "entity_type":
-            raise ValueError("update 仅支持实体类型（关系类型无数据域）")
-        existing = await _get_tbox_row(engine, tenant_id, "entity_types", target_id)
-        if existing is None:
-            raise ValueError(f"实体类型不存在: {target_id}")
-        if existing["status"] != "active":
-            raise ValueError(f"实体类型已停用: {target_id}（请先提交 reactivate 恢复后再改域）")
-        new_dd = str(payload.get("data_domain_id") or "").strip()
-        if not new_dd:
-            raise ValueError("update 缺少 data_domain_id")
-        if new_dd == existing["data_domain_id"]:
-            raise ValueError(f"数据域未变更: {target_id}（当前已是 {new_dd}）")
-        domain_from = existing["data_domain_id"]
-        async with engine.connect() as conn:
-            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-            drow = await conn.execute(
-                text(
-                    "SELECT data_domain_id FROM data_domains "
-                    "WHERE tenant_id = :tid AND data_domain_id = :dd AND status = 'active'"
-                ),
-                {"tid": tenant_id, "dd": new_dd},
-            )
-            if drow.fetchone() is None:
-                raise ValueError(f"目标数据域不存在或未启用: {new_dd}")
-            crow = await conn.execute(
-                text(
-                    "SELECT count(*) AS n FROM entities WHERE tenant_id = :tid "
-                    "AND entity_type_id = :et AND status IN ('active','deprecated')"
-                ),
-                {"tid": tenant_id, "et": target_id},
-            )
-            entity_count = int(crow.scalar() or 0)
+        if change_type == "entity_type":
+            # 数据域变更：仅实体类型；类型 active；新域≠当前域；
+            # 目标域存在且 active（与 roles_service._validate_domain_access 同口径）
+            existing = await _get_tbox_row(engine, tenant_id, "entity_types", target_id)
+            if existing is None:
+                raise ValueError(f"实体类型不存在: {target_id}")
+            if existing["status"] != "active":
+                raise ValueError(f"实体类型已停用: {target_id}（请先提交 reactivate 恢复后再改域）")
+            new_dd = str(payload.get("data_domain_id") or "").strip()
+            if not new_dd:
+                raise ValueError("update 缺少 data_domain_id")
+            if new_dd == existing["data_domain_id"]:
+                raise ValueError(f"数据域未变更: {target_id}（当前已是 {new_dd}）")
+            domain_from = existing["data_domain_id"]
+            async with engine.connect() as conn:
+                await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+                drow = await conn.execute(
+                    text(
+                        "SELECT data_domain_id FROM data_domains "
+                        "WHERE tenant_id = :tid AND data_domain_id = :dd AND status = 'active'"
+                    ),
+                    {"tid": tenant_id, "dd": new_dd},
+                )
+                if drow.fetchone() is None:
+                    raise ValueError(f"目标数据域不存在或未启用: {new_dd}")
+                crow = await conn.execute(
+                    text(
+                        "SELECT count(*) AS n FROM entities WHERE tenant_id = :tid "
+                        "AND entity_type_id = :et AND status IN ('active','deprecated')"
+                    ),
+                    {"tid": tenant_id, "et": target_id},
+                )
+                entity_count = int(crow.scalar() or 0)
+        else:
+            # 关系类型编辑（设计 2026-09-04）：源/目标集合 + 名称 + 基数；收窄守护同预检复检
+            async with engine.connect() as conn:
+                await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+                await _plan_relation_update(conn, tenant_id, target_id, payload)
 
     cid = f"tc-{uuid.uuid4().hex[:12]}"
     async with engine.connect() as conn:
@@ -487,7 +577,9 @@ async def approve_change(
         else:
             await reactivate_relation_type(engine, tenant_id, r.target_id)
     elif r.action == "update":
-        return await _apply_domain_update(engine, tenant_id, reviewer, change_id, r)
+        if r.change_type == "entity_type":
+            return await _apply_domain_update(engine, tenant_id, reviewer, change_id, r)
+        return await _apply_relation_update(engine, tenant_id, reviewer, change_id, r)
     else:  # 理论不可达（submit 校验）
         raise ValueError(f"非法 action: {r.action}")
 
@@ -573,6 +665,42 @@ async def _apply_domain_update(
         "domain_to": new_dd,
         "entity_count": int(moved.rowcount or 0),
     }
+
+
+async def _apply_relation_update(
+    engine: AsyncEngine,
+    tenant_id: str,
+    reviewer: str,
+    change_id: str,
+    r: Any,
+) -> dict:
+    """apply 关系类型编辑（设计 2026-09-04 §4）：单事务 = UPDATE relation_types（传入字段）
+    + applied；收窄守护与 submit 同源（_plan_relation_update 复检，防并发窗口）。
+    存量 facts 天然保留（无实例级联）；审计留痕靠 tbox_changes 行 + approved 事件。
+    """
+    p = r.payload if isinstance(r.payload, dict) else {}
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        plan = await _plan_relation_update(conn, tenant_id, r.target_id, p)
+        if plan["changed"]:
+            sets: list[str] = []
+            params: dict[str, Any] = {"tid": tenant_id, "rid": r.target_id}
+            for f in plan["changed"]:
+                sets.append(f"{f} = :{f}")
+                params[f] = plan["new"][f]
+            await conn.execute(
+                text(f"UPDATE relation_types SET {', '.join(sets)} WHERE relation_type_id = :rid AND tenant_id = :tid"),
+                params,
+            )
+        await conn.execute(
+            text(
+                "UPDATE tbox_changes SET status = 'applied', reviewed_by = :r, reviewed_at = now() "
+                "WHERE change_id = :cid AND tenant_id = :tid"
+            ),
+            {"r": reviewer, "cid": change_id, "tid": tenant_id},
+        )
+        await conn.commit()
+    return {"change_id": change_id, "status": "applied", "fields_changed": plan["changed"]}
 
 
 async def reject_change(
