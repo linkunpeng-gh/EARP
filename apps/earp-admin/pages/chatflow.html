@@ -80,12 +80,12 @@ function cardHtml(a) {
   var badge = '<span class="cf-badge"><i>⛓</i>Chatflow</span>';
   var status = a.status === 'published'
     ? '<span class="tag tag-green">已发布</span>' : '<span class="tag tag-accent">草稿</span>';
-  return '<div class="cf-card" style="cursor:pointer" onclick="location.href=\'chatflow-edit.html?app=' + encodeURIComponent(a.chat_app_id) + '\'">'
+  return '<div class="cf-card" style="cursor:pointer" data-cf-nav="' + esc('chatflow-edit.html?app=' + encodeURIComponent(a.chat_app_id)) + '">'
     + '<div class="cc-top">' + badge + '<span class="cc-name">' + esc(a.name) + '</span></div>'
     + '<div class="cc-desc">' + esc(a.description || '暂无描述') + '</div>'
     + '<div class="cc-meta"><span>' + nodes + ' 节点</span><span class="cc-status">' + status + '</span>'
-    + '<button class="btn-sm btn-outline" style="margin-left:auto;font-size:0.68rem;" '
-    +   'onclick="event.stopPropagation();EARPRunHistory.open(\'' + a.chat_app_id + '\',\'' + esc(a.name) + '\')">📜 运行历史</button>'
+    + '<button class="btn-sm btn-outline" type="button" style="margin-left:auto;font-size:0.68rem;" '
+    +   'data-cf-hist="' + esc(a.chat_app_id) + '" data-cf-hist-name="' + esc(a.name) + '">📜 运行历史</button>'
     + '</div></div>';
 }
 
@@ -123,5 +123,20 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+
+// 行内动作委托（安全修复）：chat_app_id 为用户可控文本（此前直接裸拼进 inline onclick 的
+// JS 字符串字面量；且内联 handler 引用 cardHtml 闭包变量 a 本就不可达）。值经 esc() 进
+// HTML 属性（单上下文）后由 dataset 读取，点击时以纯文本传给 EARPRunHistory.open。
+document.addEventListener('click', function (e) {
+  var target = e.target;
+  if (!target || !target.closest) return;
+  var hist = target.closest('[data-cf-hist]');
+  if (hist) {
+    EARPRunHistory.open(hist.getAttribute('data-cf-hist') || '', hist.getAttribute('data-cf-hist-name') || '');
+    return;
+  }
+  var nav = target.closest('[data-cf-nav]');
+  if (nav && nav.getAttribute('data-cf-nav')) window.location.href = nav.getAttribute('data-cf-nav');
+});
 </script>
 </body></html>

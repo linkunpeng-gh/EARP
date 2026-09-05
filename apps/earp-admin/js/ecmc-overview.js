@@ -53,7 +53,7 @@
   }
 
   function queueItem(title, meta, href, badge) {
-    return '<div class="ecmc-queue-item" onclick="location.href=\'' + esc(href) + '\'">'
+    return '<div class="ecmc-queue-item" style="cursor:pointer" data-nav="' + esc(href) + '">'
       + '<div class="qi-main"><div class="qi-title">' + title + '</div><div class="qi-meta">' + meta + '</div></div>'
       + (badge || '') + '</div>';
   }
@@ -93,4 +93,11 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load);
   else load();
+
+  // 行内动作委托（安全修复）：不再把 href 拼进 inline onclick 的 JS 字符串字面量
+  // （esc 的 HTML 实体在属性解析时还原，含引号的 href 可逃逸出字符串）。
+  document.addEventListener('click', function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-nav]') : null;
+    if (el && el.getAttribute('data-nav')) window.location.href = el.getAttribute('data-nav');
+  });
 })();

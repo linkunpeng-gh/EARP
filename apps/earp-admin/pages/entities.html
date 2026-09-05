@@ -100,16 +100,16 @@ async function loadList() {
     tb.innerHTML = items.map(function (e) {
       var dep = e.status === 'deprecated';
       return '<tr style="' + (dep ? 'opacity:.55' : '') + '">'
-        + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle);font-weight:500"><a href="javascript:void(0)" onclick="showDetail(\'' + e.entity_id + '\')" style="color:var(--accent-text)">' + esc(e.name) + '</a></td>'
+        + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle);font-weight:500"><a href="javascript:void(0)" data-ent-action="detail" data-ent-id="' + esc(e.entity_id) + '" style="color:var(--accent-text)">' + esc(e.name) + '</a></td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.entity_type_id) + '</td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.business_code || '') + '</td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.data_domain_id || '') + '</td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + esc(e.source_mode || '') + '</td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle)">' + (dep ? '<span style="color:var(--red)">deprecated</span>' : 'active') + '</td>'
         + '<td style="padding:7px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
-        + '<a href="javascript:void(0)" onclick="showDetail(\'' + e.entity_id + '\')" style="margin-right:8px">详情</a>'
+        + '<a href="javascript:void(0)" data-ent-action="detail" data-ent-id="' + esc(e.entity_id) + '" style="margin-right:8px">详情</a>'
         + '<a href="entity-graph.html?entity=' + encodeURIComponent(e.entity_id) + '" style="margin-right:8px">图谱</a>'
-        + (dep ? '<span style="color:var(--text-quaternary)">已停用</span>' : '<a href="javascript:void(0)" onclick="deprecate(\'' + e.entity_id + '\',\'' + esc(e.name) + '\')" style="color:var(--red)">停用</a>')
+        + (dep ? '<span style="color:var(--text-quaternary)">已停用</span>' : '<a href="javascript:void(0)" data-ent-action="dep" data-ent-id="' + esc(e.entity_id) + '" data-ent-name="' + esc(e.name) + '" style="color:var(--red)">停用</a>')
         + '</td></tr>';
     }).join('');
   } catch (e) { document.getElementById('ent-tbody').innerHTML = '<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
@@ -203,11 +203,17 @@ async function showDetail(id) {
     }
     // facts（forward + backward）——graph 返回 fact_id，可真撤销
     var lines = [];
-    fwd.forEach(function (h) { lines.push('<div><span style="color:#16a34a">→</span> ' + esc(h.relation_type_id) + ' → <b>' + esc(h.target_name || h.target_entity_id) + '</b> <a href="javascript:void(0)" onclick="revokeFact(\'' + h.fact_id + '\',\'' + esc(h.relation_type_id) + ' → ' + esc(h.target_name || h.target_entity_id) + '\')" style="color:var(--red);font-size:0.7rem;margin-left:6px">撤销</a></div>'); });
-    back.forEach(function (h) { lines.push('<div><span style="color:#d97706">⇠</span> ' + esc(h.relation_type_id) + ' ← <b>' + esc(h.target_name || h.target_entity_id) + '</b> <a href="javascript:void(0)" onclick="revokeFact(\'' + h.fact_id + '\',\'' + esc(h.relation_type_id) + ' ← ' + esc(h.target_name || h.target_entity_id) + '\')" style="color:var(--red);font-size:0.7rem;margin-left:6px">撤销</a></div>'); });
+    fwd.forEach(function (h) {
+      var label = h.relation_type_id + ' → ' + (h.target_name || h.target_entity_id);
+      lines.push('<div><span style="color:#16a34a">→</span> ' + esc(h.relation_type_id) + ' → <b>' + esc(h.target_name || h.target_entity_id) + '</b> <a href="javascript:void(0)" data-fact-action="revoke" data-fact-id="' + esc(h.fact_id) + '" data-fact-label="' + esc(label) + '" style="color:var(--red);font-size:0.7rem;margin-left:6px">撤销</a></div>');
+    });
+    back.forEach(function (h) {
+      var label = h.relation_type_id + ' ← ' + (h.target_name || h.target_entity_id);
+      lines.push('<div><span style="color:#d97706">⇠</span> ' + esc(h.relation_type_id) + ' ← <b>' + esc(h.target_name || h.target_entity_id) + '</b> <a href="javascript:void(0)" data-fact-action="revoke" data-fact-id="' + esc(h.fact_id) + '" data-fact-label="' + esc(label) + '" style="color:var(--red);font-size:0.7rem;margin-left:6px">撤销</a></div>');
+    });
     html += '<h4 style="font-size:0.82rem;margin:10px 0 6px">🔗 关系（前向 ' + fwd.length + ' · 反向 ' + back.length + '）</h4>'
       + '<div style="font-size:0.78rem;line-height:1.8">' + (lines.length ? lines.join('') : '<span style="color:var(--text-tertiary)">无关系</span>') + '</div>';
-    html += '<div style="margin-top:10px;border-top:1px dashed var(--border-subtle);padding-top:10px"><button onclick="showFactModal(\'' + ent.entity_id + '\')">+ 添加关系</button></div>';
+    html += '<div style="margin-top:10px;border-top:1px dashed var(--border-subtle);padding-top:10px"><button type="button" data-ent-action="addfact" data-ent-id="' + esc(ent.entity_id) + '">+ 添加关系</button></div>';
     box.innerHTML = html;
     // 详情面板定位到视口（数据量大时避免滚动找）
     box.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -245,6 +251,21 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+
+// 行内动作委托（安全修复）：entity_id/fact_id/name 均为自由文本，不再拼进 inline onclick
+// 的 JS 字符串字面量（此前部分字段完全未转义、部分只做 HTML 转义——HTML 实体会被属性
+// 解析还原，构成双上下文 XSS）。值经 esc() 进入 HTML 属性（单上下文）后由 dataset 读取。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest ? e.target.closest('[data-ent-action], [data-fact-action]') : null;
+  if (!el) return;
+  var entAction = el.getAttribute('data-ent-action');
+  if (entAction === 'detail') showDetail(el.getAttribute('data-ent-id') || '');
+  else if (entAction === 'dep') deprecate(el.getAttribute('data-ent-id') || '', el.getAttribute('data-ent-name') || '');
+  else if (entAction === 'addfact') showFactModal(el.getAttribute('data-ent-id') || '');
+  else if (el.getAttribute('data-fact-action') === 'revoke') {
+    revokeFact(el.getAttribute('data-fact-id') || '', el.getAttribute('data-fact-label') || '');
+  }
+});
 
 init();
 </script>

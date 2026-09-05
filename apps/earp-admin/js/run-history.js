@@ -117,13 +117,13 @@ var EARPRunHistory = (function () {
         }
         return '<div class="rh-run" style="border:1px solid var(--border-standard);border-radius:var(--radius-md);margin:0.4rem 0;overflow:hidden;">' +
           '<div class="rh-run-head" style="display:flex;align-items:center;gap:0.6rem;padding:0.45rem 0.6rem;cursor:pointer;font-size:0.8rem;" ' +
-              'onclick="EARPRunHistory.toggle(\'' + r.execution_id + '\')">' +
+              'data-rh-toggle="' + esc(r.execution_id) + '">' +
             statusTag(r.status) +
             '<span style="color:var(--text-secondary);">' + fmt(r.created_at) + '</span>' +
             '<span style="color:var(--text-tertiary);font-size:0.72rem;">attempts ' + (r.attempts || 1) + '</span>' +
             '<span class="spacer" style="flex:1;"></span>' + dur +
           '</div>' +
-          '<div id="rh-trace-' + r.execution_id + '" style="display:none;padding:0.2rem 0.6rem 0.5rem;border-top:1px solid var(--border-standard);">' +
+          '<div id="rh-trace-' + esc(r.execution_id) + '" style="display:none;padding:0.2rem 0.6rem 0.5rem;border-top:1px solid var(--border-standard);">' +
             traceTable(r) + '</div>' +
         '</div>';
       }).join('');
@@ -136,6 +136,14 @@ var EARPRunHistory = (function () {
     var el = document.getElementById('rh-trace-' + execId);
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
   }
+
+  // 行内动作委托（安全修复）：execution_id 不再裸拼进 inline onclick 的 JS 字符串
+  // 字面量（esc 只做 HTML 转义，实体在属性解析时会还原，构成双上下文注入面）；
+  // div id 拼接处同样补 esc（HTML 属性单上下文）。
+  document.addEventListener('click', function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-rh-toggle]') : null;
+    if (el) toggle(el.getAttribute('data-rh-toggle') || '');
+  });
 
   return { open: open, close: close, toggle: toggle, loadRuns: loadRuns };
 })();

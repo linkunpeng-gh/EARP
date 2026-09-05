@@ -7,6 +7,21 @@
 
 <div class="page-title"><div><h2>中台对接</h2><p class="page-subtitle">连接数据中台：注册连接 → 注册数据源（synced 拷贝 / virtual 实时）→ 触发同步 · M3 · 对接规范见 arch/guides/earp-data-contract.md</p></div></div>
 
+<section style="margin-bottom:16px;background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+  <h3 style="margin:0 0 8px">📁 文件场景数据集</h3>
+  <p style="font-size:0.75rem;color:var(--text-tertiary);margin:0 0 10px">上传 manifest.yaml 和其引用的多个 CSV，校验后发布。发布会导入有效实体/关系，模型运行时按 dataset_id 选择指标数据。</p>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <label style="font-size:0.75rem">Manifest <input type="file" id="fd-manifest" accept=".yaml,.yml,.json"></label>
+    <label style="font-size:0.75rem">CSV 文件 <input type="file" id="fd-files" accept=".csv" multiple></label>
+    <button onclick="uploadFileDataset()">上传并校验</button>
+    <span id="fd-msg" style="font-size:0.75rem;color:var(--text-tertiary)"></span>
+  </div>
+  <details style="margin-top:8px"><summary style="font-size:0.75rem">从服务器配置根目录注册</summary>
+    <div style="display:flex;gap:8px;margin-top:6px"><input id="fd-directory" placeholder="相对 EARP_FILE_DATA_ROOT 的目录" style="flex:1"><button onclick="registerFileDirectory()">注册目录</button></div>
+  </details>
+  <div id="fd-list" style="margin-top:10px"><p style="color:var(--text-tertiary);font-size:0.75rem">加载中…</p></div>
+</section>
+
 <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
 
   <!-- ① 连接管理 -->
@@ -71,7 +86,7 @@
 <script src="../js/nav.js"></script>
 <script src="../js/app.js"></script>
 <script>
-var STATE = { connectors: [], entityTypes: [], relTypes: [], dataSources: [] };
+var STATE = { connectors: [], entityTypes: [], relTypes: [], dataSources: [], fileDatasets: [] };
 
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -90,13 +105,50 @@ function loadAll() {
     EARP.fetchJSON('/v1/ontology/entity-types'),
     EARP.fetchJSON('/v1/ontology/relation-types'),
     EARP.fetchJSON('/v1/ontology/data-sources'),
+    EARP.fetchJSON('/v1/file-datasets'),
   ]).then(function (r) {
     STATE.connectors = r[0].items || [];
     STATE.entityTypes = r[1] || [];
     STATE.relTypes = r[2] || [];
     STATE.dataSources = r[3].items || [];
-    renderConnectors(); renderDataSourceForm(); renderDataSourceList(); renderLivePanel();
+    STATE.fileDatasets = r[4].items || [];
+    renderConnectors(); renderDataSourceForm(); renderDataSourceList(); renderLivePanel(); renderFileDatasets();
   }).catch(function (e) { alert('加载失败: ' + e.message); });
+}
+
+function renderFileDatasets() {
+  var el = $('fd-list');
+  if (!STATE.fileDatasets.length) { el.innerHTML = '<p style="color:var(--text-tertiary);font-size:0.75rem">暂无文件数据集。</p>'; return; }
+  el.innerHTML = '<table class="data-table" style="width:100%;font-size:0.78rem;border-collapse:collapse"><tr style="text-align:left;color:var(--text-tertiary)"><th>数据集</th><th>状态</th><th>内容哈希</th><th>校验</th><th>操作</th></tr>' + STATE.fileDatasets.map(function (d) {
+    var validation = d.validation || {}, count = validation.warning_count || 0;
+    var warning = count ? '<details><summary style="color:#b26a00">⚠ ' + count + ' 条提示</summary><pre style="max-width:520px;white-space:pre-wrap;font-size:0.68rem">' + esc(JSON.stringify(validation.warnings || [], null, 1)) + '</pre></details>' : '<span style="color:#2e7d32">✓ 通过</span>';
+    return '<tr style="border-top:1px solid var(--border-subtle)"><td><b>' + esc(d.name) + '</b><div style="color:var(--text-tertiary)">' + esc(d.dataset_id) + '</div></td><td>' + esc(d.status) + '</td><td style="font-family:monospace">' + esc((d.latest_staged_hash || '').slice(0, 12)) + '</td><td>' + warning + '</td><td>' + (d.latest_staged_hash !== d.latest_published_hash ? '<button type="button" data-fd-action="publish" data-fd-id="' + esc(d.dataset_id) + '">发布</button>' : '已发布') + '</td></tr>';
+  }).join('') + '</table>';
+}
+
+async function uploadFileDataset() {
+  var manifest = $('fd-manifest').files[0], csvs = $('fd-files').files;
+  if (!manifest || !csvs.length) { alert('请选择 manifest 和至少一个 CSV'); return; }
+  var fd = new FormData(); fd.append('manifest', manifest);
+  Array.prototype.forEach.call(csvs, function (file) { fd.append('files', file); });
+  $('fd-msg').textContent = '上传校验中…';
+  try {
+    var headers = {}; if (EARP.token) headers.Authorization = 'Bearer ' + EARP.token;
+    var response = await fetch(EARP.apiBase + '/v1/file-datasets', { method: 'POST', headers: headers, body: fd });
+    var body = await response.json(); if (!response.ok) throw new Error(body.detail || '上传失败');
+    $('fd-msg').textContent = '✓ 已暂存，' + (body.validation.warning_count || 0) + ' 条提示'; await loadAll();
+  } catch (e) { $('fd-msg').textContent = ''; alert(e.message); }
+}
+
+function registerFileDirectory() {
+  var path = $('fd-directory').value.trim(); if (!path) return;
+  EARP.fetchJSON('/v1/file-datasets/from-directory', { method:'POST', body:JSON.stringify({relative_path:path}) })
+    .then(loadAll).catch(function (e) { alert('注册失败: ' + (e.detail || e.message)); });
+}
+
+function publishFileDataset(id) {
+  EARP.fetchJSON('/v1/file-datasets/' + encodeURIComponent(id) + '/publish', { method:'POST', body:'{}' })
+    .then(loadAll).catch(function (e) { alert('发布失败: ' + (e.detail || e.message)); });
 }
 
 function renderConnectors() {
@@ -106,7 +158,7 @@ function renderConnectors() {
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border-subtle)">' +
       '<div><div style="font-weight:600;font-size:0.8rem">' + esc(c.connector_id) + ' <span style="color:var(--text-tertiary);font-weight:400">(' + esc(c.adapter_type) + ')</span></div>' +
       '<div style="font-size:0.7rem;color:var(--text-tertiary)">' + esc(c.config.credential_masked ? '配置已加密（不显示明文）' : '') + (c.status === 'deprecated' ? ' · 已停用' : '') + '</div></div>' +
-      '<button onclick="deleteConnector(\'' + esc(c.connector_id) + '\')" style="font-size:0.7rem;background:none;border:1px solid var(--border-subtle);color:#c62828">删除</button></div>';
+      '<button type="button" data-cn-action="del" data-cn-id="' + esc(c.connector_id) + '" style="font-size:0.7rem;background:none;border:1px solid var(--border-subtle);color:#c62828">删除</button></div>';
   }).join('');
 }
 
@@ -133,8 +185,8 @@ function renderDataSourceList() {
         '<td>' + (d.source_mode === 'virtual' ? '🟢 virtual' : '🔵 synced') + '</td>' +
         '<td>' + statusBadge(d.last_sync_status) + '</td>' +
         '<td style="font-size:0.72rem;color:var(--text-tertiary)">' + esc((d.last_synced_at || '—').slice(0, 19)) + '</td>' +
-        '<td><button onclick="syncDS(\'' + esc(d.data_source_id) + '\')" style="font-size:0.72rem">🔄 同步</button> ' +
-        '<button onclick="toggleDSDetail(\'' + esc(d.data_source_id) + '\')" style="font-size:0.72rem;background:none;border:1px solid var(--border-subtle)">映射</button>' +
+        '<td><button type="button" data-ds-action="sync" data-ds-id="' + esc(d.data_source_id) + '" style="font-size:0.72rem">🔄 同步</button> ' +
+        '<button type="button" data-ds-action="detail" data-ds-id="' + esc(d.data_source_id) + '" style="font-size:0.72rem;background:none;border:1px solid var(--border-subtle)">映射</button>' +
         '<div id="detail-' + esc(d.data_source_id) + '" style="display:none;margin-top:6px;font-size:0.7rem;color:var(--text-tertiary);background:var(--bg-base);padding:6px;border-radius:4px"><pre style="margin:0;white-space:pre-wrap">' + esc(JSON.stringify(d.field_mapping, null, 1)) + '</pre></div></td></tr>';
     }).join('') + '</table>';
 }
@@ -146,7 +198,7 @@ function renderLivePanel() {
   el.innerHTML = virtual.map(function (d) {
     return '<div style="margin-bottom:10px"><div style="font-weight:600;font-size:0.8rem">' + esc(d.entity_type_id) + ' <span style="color:var(--text-tertiary);font-weight:400">' + esc(d.connector_id) + '</span></div>' +
       '<div id="live-ents-' + esc(d.data_source_id) + '" style="font-size:0.75rem">' +
-      '<button onclick="loadLiveEntities(\'' + esc(d.data_source_id) + '\', \'' + esc(d.entity_type_id) + '\')" style="font-size:0.72rem">📋 列出实体</button></div></div>';
+      '<button type="button" data-ds-action="live" data-ds-id="' + esc(d.data_source_id) + '" data-ds-etype="' + esc(d.entity_type_id) + '" style="font-size:0.72rem">📋 列出实体</button></div></div>';
   }).join('');
 }
 
@@ -249,7 +301,7 @@ function loadLiveEntities(dsId, etype) {
         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0">' +
           '<span>' + esc(e.name) + ' <span style="color:var(--text-tertiary);font-size:0.68rem">' + esc(e.business_code || '') + '</span></span>' +
           '<span style="display:flex;gap:6px;align-items:center"><span id="livev-' + esc(e.entity_id) + '" style="font-size:0.68rem;color:var(--text-tertiary)"></span>' +
-          '<button onclick="liveFetch(\'' + esc(e.entity_id) + '\')" style="font-size:0.7rem">⚡ 取数</button></span></div>';
+          '<button type="button" data-live-action="fetch" data-live-id="' + esc(e.entity_id) + '" style="font-size:0.7rem">⚡ 取数</button></span></div>';
       }).join('');
     })
     .catch(function (e) { el.innerHTML = '<span style="color:#c62828">加载实体失败: ' + esc(e.detail || e.message) + '</span>'; });
@@ -262,6 +314,23 @@ function liveFetch(entityId) {
     .then(function (r) { out.textContent = JSON.stringify(r.data); })
     .catch(function (e) { out.textContent = '✗ ' + (e.detail || e.message); });
 }
+
+// 行内动作委托（安全修复）：dataset/connector/data_source/entity id 均为用户可控自由文本，
+// 不再拼进 inline onclick 的 JS 字符串字面量（esc 的 HTML 实体在属性解析时还原成单引号，
+// 构成双上下文 XSS）。值经 esc() 进入 HTML 属性（单上下文）后由 dataset 读取并分发给 handler。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest
+    ? e.target.closest('[data-fd-action],[data-cn-action],[data-ds-action],[data-live-action]')
+    : null;
+  if (!el) return;
+  if (el.getAttribute('data-fd-action') === 'publish') { publishFileDataset(el.getAttribute('data-fd-id') || ''); return; }
+  if (el.getAttribute('data-cn-action') === 'del') { deleteConnector(el.getAttribute('data-cn-id') || ''); return; }
+  var ds = el.getAttribute('data-ds-action');
+  if (ds === 'sync') syncDS(el.getAttribute('data-ds-id') || '');
+  else if (ds === 'detail') toggleDSDetail(el.getAttribute('data-ds-id') || '');
+  else if (ds === 'live') loadLiveEntities(el.getAttribute('data-ds-id') || '', el.getAttribute('data-ds-etype') || '');
+  else if (el.getAttribute('data-live-action') === 'fetch') liveFetch(el.getAttribute('data-live-id') || '');
+});
 
 loadAll();
 </script>

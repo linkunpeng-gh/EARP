@@ -110,8 +110,8 @@ async function loadRoles() {
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + dds + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (perms || '<span style="color:var(--text-quaternary)">—</span>') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
-        + '<a href="javascript:void(0)" onclick="openRoleModal(\'' + esc(r.role_id) + '\')" style="color:var(--accent-text);margin-right:10px">编辑</a>'
-        + '<a href="javascript:void(0)" onclick="delRole(\'' + esc(r.role_id) + '\')" style="color:var(--red)">删除</a>'
+        + '<a href="javascript:void(0)" data-role-action="edit" data-role-id="' + esc(r.role_id) + '" style="color:var(--accent-text);margin-right:10px">编辑</a>'
+        + '<a href="javascript:void(0)" data-role-action="del" data-role-id="' + esc(r.role_id) + '" style="color:var(--red)">删除</a>'
         + '</td></tr>';
     }).join('');
   } catch (e) {
@@ -198,6 +198,17 @@ document.addEventListener('DOMContentLoaded', function() {
       };
     },
   });
+});
+
+// 行内动作委托（安全修复）：role_id 为用户可控文本，不再拼进 inline onclick 的
+// JS 字符串字面量（esc 的 HTML 实体在属性解析时还原为单引号，构成双上下文 XSS）。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest ? e.target.closest('[data-role-action]') : null;
+  if (!el || el.tagName !== 'A') return;
+  var id = el.getAttribute('data-role-id') || '';
+  var action = el.getAttribute('data-role-action');
+  if (action === 'edit') openRoleModal(id);
+  else if (action === 'del') delRole(id);
 });
 
 init();

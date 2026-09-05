@@ -121,6 +121,30 @@
   </div>
 </div>
 
+<!-- 编辑关系类型模态（2026-09：源/目标集合+名称+基数走审批，设计 2026-09-04） -->
+<div id="rt-edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
+  <div style="max-width:460px;margin:10vh auto;background:var(--bg-panel);border-radius:10px;padding:18px">
+    <h3 style="margin:0 0 12px">编辑关系类型</h3>
+    <div id="rt-e-meta" style="font-size:0.78rem;color:var(--text-tertiary);margin-bottom:10px"></div>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">名称 *
+      <input id="rt-e-name" style="display:block;width:100%;margin-top:4px" placeholder="如 位于"></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">源类型 *（多选）
+      <select id="rt-e-src" multiple size="4" style="display:block;width:100%;margin-top:4px"></select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">目标类型 *（多选）
+      <select id="rt-e-tgt" multiple size="4" style="display:block;width:100%;margin-top:4px"></select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">基数
+      <select id="rt-e-card" style="display:block;width:100%;margin-top:4px">
+        <option value="1:1">1:1</option><option value="1:N">1:N</option>
+        <option value="N:1">N:1</option><option value="N:M">N:M</option>
+      </select></label>
+    <div style="font-size:0.72rem;color:var(--text-quaternary);margin-bottom:6px">提交后需其他用户审批；提交内容为源/目标集合的全量新值。若收窄后仍有存量事实，系统将拒绝该变更。</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button onclick="document.getElementById('rt-edit-modal').style.display='none'">取消</button>
+      <button onclick="saveRtEdit()" style="background:var(--green);color:#fff">提交审批</button>
+    </div>
+  </div>
+</div>
+
 <!-- 数据域迁移模态（2026-09：类型改域走审批流，设计 2026-09-04） -->
 <div id="dd-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
   <div style="max-width:460px;margin:10vh auto;background:var(--bg-panel);border-radius:10px;padding:18px">
@@ -158,6 +182,46 @@ async function init() {
   } catch (e) { console.warn('init:', e.message); }
   loadEt();
   loadRt();
+}
+
+// ── 关系类型编辑（2026-09：源/目标集合+名称+基数走审批，设计 2026-09-04）──────
+var RT_EDIT = { id: '', name: '' };
+
+function fillTypeMultiSel(id) {
+  var sel = document.getElementById(id);
+  sel.innerHTML = TYPES.map(function (t) {
+    return '<option value="' + esc(t.entity_type_id) + '">' + esc(t.name) + ' (' + esc(t.entity_type_id) + ')</option>';
+  }).join('');
+}
+
+function showRtEditModal(r) {
+  RT_EDIT = { id: r.relation_type_id, name: r.name };
+  document.getElementById('rt-e-meta').textContent = '关系 ID：' + r.relation_type_id + '（不可修改）';
+  document.getElementById('rt-e-name').value = r.name || '';
+  fillTypeMultiSel('rt-e-src');
+  fillTypeMultiSel('rt-e-tgt');
+  document.getElementById('rt-e-src').value = r.source_type || '';
+  document.getElementById('rt-e-tgt').value = r.target_type || '';
+  document.getElementById('rt-e-card').value = r.cardinality || 'N:M';
+  document.getElementById('rt-edit-modal').style.display = 'block';
+}
+
+async function saveRtEdit() {
+  var name = document.getElementById('rt-e-name').value.trim();
+  var src = Array.from(document.getElementById('rt-e-src').selectedOptions).map(function (o) { return o.value; });
+  var tgt = Array.from(document.getElementById('rt-e-tgt').selectedOptions).map(function (o) { return o.value; });
+  if (!name) { alert('名称必填'); return; }
+  if (!src.length || !tgt.length) { alert('源/目标类型至少各选一个'); return; }
+  if (!confirm('确认提交「' + RT_EDIT.name + '」的编辑变更请求？审批通过后，名称/源·目标集合/基数将按提交值生效；若收窄后仍有存量事实，系统将拒绝。')) return;
+  try {
+    await EARP.fetchJSON('/v1/ontology/tbox/changes', { method: 'POST', body: JSON.stringify({
+      change_type: 'relation_type', action: 'update', target_id: RT_EDIT.id,
+      payload: { name: name, source_type: src.join(','), target_type: tgt.join(','), cardinality: document.getElementById('rt-e-card').value }
+    }) });
+    document.getElementById('rt-edit-modal').style.display = 'none';
+    alert('已提交变更请求，审批通过后生效');
+    loadPending(); loadRt();
+  } catch (e) { alert('提交失败: ' + e.message); }
 }
 
 // ── 数据域迁移（2026-09：类型改域走审批流，设计 2026-09-04）──────────────────
@@ -205,7 +269,10 @@ async function loadEt() {
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(t.data_domain_id || '') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (dep ? '<span style="color:var(--red)">deprecated</span>' : 'active') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right">'
-        + (dep ? '<a href="javascript:void(0)" onclick="reactEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--green,#166534)">恢复</a>' : '<a href="javascript:void(0)" onclick="showDomainModal({entity_type_id:\'' + esc(t.entity_type_id) + '\',name:\'' + esc(t.name) + '\',data_domain_id:\'' + esc(t.data_domain_id || '') + '\'})" style="color:var(--accent-text,#1d4ed8);margin-right:8px">改域</a><a href="javascript:void(0)" onclick="depEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--red)">停用</a>')
+        + (dep
+          ? '<a href="javascript:void(0)" data-action="et-react" data-id="' + esc(t.entity_type_id) + '" data-name="' + esc(t.name) + '" style="color:var(--green,#166534)">恢复</a>'
+          : '<a href="javascript:void(0)" data-action="et-domain" data-id="' + esc(t.entity_type_id) + '" data-name="' + esc(t.name) + '" data-domain="' + esc(t.data_domain_id || '') + '" style="color:var(--accent-text,#1d4ed8);margin-right:8px">改域</a>'
+            + '<a href="javascript:void(0)" data-action="et-dep" data-id="' + esc(t.entity_type_id) + '" data-name="' + esc(t.name) + '" style="color:var(--red)">停用</a>')
         + '</td></tr>';
     }).join('');
   } catch (e) { document.getElementById('et-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
@@ -276,7 +343,10 @@ async function loadRt() {
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(r.cardinality || '') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (dep ? '<span style="color:var(--red)">deprecated</span>' : 'active') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right">'
-        + (dep ? '<a href="javascript:void(0)" onclick="reactRt(\'' + esc(r.relation_type_id) + '\',\'' + esc(r.name) + '\')" style="color:var(--green,#166534)">恢复</a>' : '<a href="javascript:void(0)" onclick="depRt(\'' + esc(r.relation_type_id) + '\',\'' + esc(r.name) + '\')" style="color:var(--red)">停用</a>')
+        + (dep
+          ? '<a href="javascript:void(0)" data-action="rt-react" data-id="' + esc(r.relation_type_id) + '" data-name="' + esc(r.name) + '" style="color:var(--green,#166534)">恢复</a>'
+          : '<a href="javascript:void(0)" data-action="rt-edit" data-id="' + esc(r.relation_type_id) + '" data-name="' + esc(r.name) + '" data-source="' + esc(r.source_type || '') + '" data-target="' + esc(r.target_type || '') + '" data-card="' + esc(r.cardinality || '') + '" style="color:var(--accent-text,#1d4ed8);margin-right:8px">编辑</a>'
+            + '<a href="javascript:void(0)" data-action="rt-dep" data-id="' + esc(r.relation_type_id) + '" data-name="' + esc(r.name) + '" style="color:var(--red)">停用</a>')
         + '</td></tr>';
     }).join('');
   } catch (e) { document.getElementById('rt-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }}
@@ -336,8 +406,12 @@ async function loadPending() {
     var rows = await EARP.fetchJSON('/v1/ontology/tbox/changes?status=pending');
     document.getElementById('pc-count').textContent = rows.length;
     var tb = document.getElementById('pc-tbody');
-    var actLabel = { create: '新增', deprecate: '停用', reactivate: '恢复', update: '迁移数据域' };
+    var actLabel = { create: '新增', deprecate: '停用', reactivate: '恢复' };
     var typeLabel = { entity_type: '实体类型', relation_type: '关系类型' };
+    var actFor = function (c) {
+      if (c.action === 'update') return c.change_type === 'relation_type' ? '编辑关系' : '迁移数据域';
+      return actLabel[c.action] || c.action;
+    };
     if (!rows.length) {
       tb.innerHTML = '<tr><td colspan="6" style="padding:10px;text-align:center;color:var(--text-tertiary)">暂无待审批变更 — 新增/停用/恢复操作提交后在此审批</td></tr>';
       return;
@@ -346,16 +420,20 @@ async function loadPending() {
       return '<tr>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.requested_by) + '</td>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(typeLabel[c.change_type] || c.change_type) + '</td>'
-        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(actLabel[c.action] || c.action) + '</td>'
-        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.target_id) + (c.payload && c.payload.name ? '（' + esc(c.payload.name) + '）' : '') + (c.action === 'update' && c.payload && c.payload.data_domain_id ? ' → ' + esc(c.payload.data_domain_id) : '') + '</td>'
+        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(actFor(c)) + '</td>'
+        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.target_id)
+        + (c.action === 'update' && c.change_type === 'relation_type'
+          ? '（编辑 → 源 ' + (c.payload && c.payload.source_type ? String(c.payload.source_type).split(',').length : 0) + ' 类 / 目标 ' + (c.payload && c.payload.target_type ? String(c.payload.target_type).split(',').length : 0) + ' 类' + (c.payload && c.payload.name ? ' · 名→' + esc(c.payload.name) : '') + '）'
+          : (c.payload && c.payload.name ? '（' + esc(c.payload.name) + '）' : '') + (c.action === 'update' && c.payload && c.payload.data_domain_id ? ' → ' + esc(c.payload.data_domain_id) : ''))
+        + '</td>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle);color:var(--text-tertiary)">' + esc(String(c.created_at || '').slice(0, 19)) + '</td>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
         + (c.can_approve
-          ? '<a href="javascript:void(0)" onclick="approveChange(\'' + esc(c.change_id) + '\')" style="color:var(--green,#166534);margin-right:8px">批准</a>'
-            + '<a href="javascript:void(0)" onclick="rejectChange(\'' + esc(c.change_id) + '\')" style="color:var(--red)">拒绝</a>'
+          ? '<a href="javascript:void(0)" data-action="change-approve" data-id="' + esc(c.change_id) + '" style="color:var(--green,#166534);margin-right:8px">批准</a>'
+            + '<a href="javascript:void(0)" data-action="change-reject" data-id="' + esc(c.change_id) + '" style="color:var(--red)">拒绝</a>'
           : (c.can_reject && c.own
             ? '<span style="color:var(--text-tertiary)" title="不能审批自己提交的请求——需其他有 tbox.approve 权限的用户审批">自己提交</span>'
-              + '<a href="javascript:void(0)" onclick="rejectChange(\'' + esc(c.change_id) + '\')" style="color:var(--red);margin-left:8px">拒绝</a>'
+              + '<a href="javascript:void(0)" data-action="change-reject" data-id="' + esc(c.change_id) + '" style="color:var(--red);margin-left:8px">拒绝</a>'
             : '<span style="color:var(--text-quaternary)" title="当前角色无 tbox.approve 权限（或非 admin）">无审批权限</span>'))
         + '</td></tr>';
     }).join('');
@@ -388,6 +466,40 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+
+// 行内动作委托（安全修复）：不再把 DB 自由文本拼进 inline onclick 的 JS 字符串字面量。
+// esc() 只做 HTML 转义——单引号被编成 &#39; 后，HTML 解析器会在属性值里还原成字面量 '
+// （双上下文：HTML 属性 → JS 字符串），自由文本（如实体类型 name，服务端无字符集限制）
+// 即可闭合字符串注入脚本。改为 data-action/data-id 等属性 + 单一 click 委托，值经 esc()
+// 进入 HTML 属性上下文（单上下文，正确），点击后由 dataset 读取纯文本并交给既有 handler。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+  if (!el || el.tagName !== 'A') return;
+  var action = el.getAttribute('data-action');
+  var id = el.getAttribute('data-id') || '';
+  var name = el.getAttribute('data-name') || id;
+  if (action === 'et-dep') depEt(id, name);
+  else if (action === 'et-react') reactEt(id, name);
+  else if (action === 'et-domain') {
+    showDomainModal({
+      entity_type_id: id,
+      name: name,
+      data_domain_id: el.getAttribute('data-domain') || ''
+    });
+  } else if (action === 'rt-dep') depRt(id, name);
+  else if (action === 'rt-react') reactRt(id, name);
+  else if (action === 'rt-edit') {
+    showRtEditModal({
+      relation_type_id: id,
+      name: name,
+      source_type: el.getAttribute('data-source') || '',
+      target_type: el.getAttribute('data-target') || '',
+      cardinality: el.getAttribute('data-card') || ''
+    });
+  }
+  else if (action === 'change-approve') approveChange(id);
+  else if (action === 'change-reject') rejectChange(id);
+});
 
 init();
 </script>

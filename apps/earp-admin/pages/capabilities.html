@@ -130,9 +130,9 @@ async function loadCapabilities() {
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + exec + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + status + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
-        + '<a href="javascript:void(0)" onclick="showDetail(\'' + esc(c.capability_id) + '\')" style="color:var(--accent-text);margin-right:10px">详情</a>'
-        + '<a href="javascript:void(0)" onclick="openCapModal(\'' + esc(c.capability_id) + '\')" style="color:var(--accent-text);margin-right:10px">编辑</a>'
-        + (c.status === 'deprecated' ? '' : '<a href="javascript:void(0)" onclick="deprecateCap(\'' + esc(c.capability_id) + '\')" style="color:var(--red)">停用</a>')
+        + '<a href="javascript:void(0)" data-cap-action="detail" data-cap-id="' + esc(c.capability_id) + '" style="color:var(--accent-text);margin-right:10px">详情</a>'
+        + '<a href="javascript:void(0)" data-cap-action="edit" data-cap-id="' + esc(c.capability_id) + '" style="color:var(--accent-text);margin-right:10px">编辑</a>'
+        + (c.status === 'deprecated' ? '' : '<a href="javascript:void(0)" data-cap-action="dep" data-cap-id="' + esc(c.capability_id) + '" style="color:var(--red)">停用</a>')
         + '</td></tr>';
     }).join('');
   } catch (e) {
@@ -240,6 +240,19 @@ async function showDetail(capId) {
 }
 
 function closeCapDetail() { document.getElementById('cap-detail').style.display = 'none'; }
+
+// 行内动作委托（安全修复）：capability_id 为自由文本（服务端无字符集限制），
+// 不再拼进 inline onclick 的 JS 字符串字面量（esc 的 HTML 实体会被属性解析还原，
+// 构成双上下文 XSS）。值经 esc() 进入 HTML 属性（单上下文）后由 dataset 读取。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest ? e.target.closest('[data-cap-action]') : null;
+  if (!el || el.tagName !== 'A') return;
+  var id = el.getAttribute('data-cap-id') || '';
+  var action = el.getAttribute('data-cap-action');
+  if (action === 'detail') showDetail(id);
+  else if (action === 'edit') openCapModal(id);
+  else if (action === 'dep') deprecateCap(id);
+});
 
 loadCapabilities();
 </script>
