@@ -108,7 +108,7 @@ function renderResult(container, result) {
       + '<th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">行号</th>'
       + '<th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle)">原因</th></tr></thead><tbody>'
       + errors.map(function (e) {
-          return '<tr><td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + e.source + '</td>'
+          return '<tr><td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(e.source) + '</td>'
             + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + e.row + '</td>'
             + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--red)">' + esc(e.reason) + '</td></tr>';
         }).join('')

@@ -100,7 +100,7 @@ async function loadDoc() {
     var rm = pr.find(function(r){ return r.id === 'remove_extra_spaces'; });
     document.getElementById('ds-spaces').checked = rm ? !!rm.enabled : true;
     var meta = document.getElementById('ds-meta');
-    meta.innerHTML = '文档: ' + docId + '<br>状态: ' + (doc.status === 'active' ? '可用' : '不可用')
+    meta.innerHTML = '文档: ' + esc(docId) + '<br>状态: ' + (doc.status === 'active' ? '可用' : '不可用')
       + '<br>配置来源: ' + (doc.process_rule ? '文档自定义' : '继承 KB 默认');
     document.getElementById('ds-status').textContent = doc.process_rule ? '已有文档级配置（继承显示 KB 默认时以文档为准）' : '无文档级配置，当前显示 KB 默认值';
     loadSuggestion();
@@ -118,17 +118,17 @@ async function loadSuggestion() {
     });
     var display = (res.display || []).join(', ');
     box.innerHTML = '<div style="margin-bottom:0.3rem">💡 <strong>分隔符建议</strong>（基于文档结构分析）</div>'
-      + '<code>' + display + '</code>'
+      + '<code>' + esc(display) + '</code>'
       + ' <button class="btn-sm" onclick="applySuggestion()" style="margin-left:0.4rem">应用建议</button>'
       + '<div style="margin-top:0.25rem;color:var(--text-quaternary);font-size:0.68rem">' + describeSeps(res.separators) + '</div>';
   } catch (err) {
-    box.innerHTML = '<span style="color:var(--text-quaternary)">建议加载失败: ' + err.message + '</span>';
+    box.innerHTML = '<span style="color:var(--text-quaternary)">建议加载失败: ' + esc(err.message) + '</span>';
   }
 }
 
 function describeSeps(seps) {
   var names = { '\n\n': '段落', '\n': '行', '。': '句号', '；': '分号', '. ': '英文句号', ';': '英文分号' };
-  return (seps || []).map(function(s){ return (names[s] || JSON.stringify(s)); }).join(' → ');
+  return (seps || []).map(function(s){ return (names[s] || esc(JSON.stringify(s))); }).join(' → ');
 }
 
 function applySuggestion() {
@@ -140,7 +140,7 @@ function applySuggestion() {
     document.getElementById('ds-sep').value = (res.display || []).join(', ');
     box.innerHTML += '<div style="color:var(--green-fg,#166534);margin-top:0.3rem">✓ 已填入分段标识符，可点「分块预览」验证</div>';
   }).catch(function(err) {
-    box.innerHTML += '<div style="color:var(--red);margin-top:0.3rem">应用失败: ' + err.message + '</div>';
+    box.innerHTML += '<div style="color:var(--red);margin-top:0.3rem">应用失败: ' + esc(err.message) + '</div>';
   });
 }
 
@@ -190,7 +190,7 @@ async function doPreview() {
         + '</div>';
     }).join('');
   } catch (err) {
-    out.innerHTML = '<p style="color:var(--red)">预览失败: ' + err.message + '</p>';
+    out.innerHTML = '<p style="color:var(--red)">预览失败: ' + esc(err.message) + '</p>';
   }
 }
 
