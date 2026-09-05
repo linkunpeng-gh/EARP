@@ -18,7 +18,12 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from earp_server.capability.resolution import CapabilityResolutionError, FixtureCapabilityResolver
+from earp_server.capability.resolution import (
+    CapabilityResolutionError,
+    CapabilityResolver,
+    FileDatasetCapabilityResolver,
+    FixtureCapabilityResolver,
+)
 from earp_server.infra.db import tenant_session
 from earp_server.orchestrator.types import Step
 
@@ -115,7 +120,8 @@ def build_case_a_plan_fragment(
     output_step_id: str,
     output_contract_ref: str,
     requirements: Iterable[Mapping[str, Any]],
-    resolver: FixtureCapabilityResolver,
+    resolver: CapabilityResolver,
+    file_dataset: Mapping[str, Any] | None = None,
     max_graph_depth: int = 5,
 ) -> PlanFragment:
     """Project immutable Prepare requirements into Case A physical tasks."""
@@ -163,6 +169,8 @@ def build_case_a_plan_fragment(
             "measurement": {"unit": requirement.get("unit"), "aggregation": requirement.get("aggregation")},
             "blueprint": {"blueprint_version_id": blueprint_version_id, "step_id": knowledge_query_step_id},
         }
+        if file_dataset is not None:
+            acquisition_input["file_dataset"] = dict(file_dataset)
         acquisition_tasks.append(
             PlanTask(
                 task_key=task_key,
@@ -329,6 +337,13 @@ class KnowledgeQueryPlanFragmentHandler:
             goals = [row["output_contract_ref"] for row in goal_result.mappings()]
             if len(goals) != 1 or not isinstance(goals[0], str) or not goals[0]:
                 raise PlanFragmentError("pinned Blueprint has no unambiguous diagnose output contract")
+        dataset_pin = scope_meta.get("file_dataset")
+        resolver: CapabilityResolver = self._resolver
+        if isinstance(dataset_pin, Mapping):
+            manifest = dataset_pin.get("manifest")
+            if not isinstance(manifest, Mapping):
+                raise PlanFragmentError("pinned file dataset manifest is missing")
+            resolver = FileDatasetCapabilityResolver(manifest)
         return build_case_a_plan_fragment(
             prepare_id=prepare_id,
             blueprint_version_id=blueprint_version_id,
@@ -336,5 +351,6 @@ class KnowledgeQueryPlanFragmentHandler:
             output_step_id=step_ids["output"],
             output_contract_ref=goals[0],
             requirements=requirements,
-            resolver=self._resolver,
+            resolver=resolver,
+            file_dataset=dataset_pin if isinstance(dataset_pin, Mapping) else None,
         )

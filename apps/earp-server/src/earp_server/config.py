@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     # 该时长 → 下次触发前标 interrupted 再开始（同步是触发型，无需 worker 启动扫描）。
     sync_run_ttl: int = 1800  # seconds (EARP_SYNC_RUN_TTL)
 
+    # ── File scenario datasets ──
+    # All uploaded datasets and developer-registered directories must remain
+    # underneath this root.  Relative paths are resolved by the server process.
+    file_data_root: str = "./data/file-datasets"
+    file_dataset_max_files: int = 32
+    file_dataset_max_file_bytes: int = 10 * 1024 * 1024
+    file_dataset_max_total_bytes: int = 50 * 1024 * 1024
+
     # ── Observability (M15) ──
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""

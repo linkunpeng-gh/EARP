@@ -62,6 +62,7 @@ from earp_server.conversation.conversation_service import (
     list_conversations,
 )
 from earp_server.conversation.flow_runs import get_conversation_runs, list_runs
+from earp_server.file_dataset_routes import router as file_dataset_router
 from earp_server.gateway.api_keys import create_api_key, list_api_keys, revoke_api_key, touch_api_key
 from earp_server.gateway.auth import JWTMiddleware, create_token
 from earp_server.gateway.input_guard import sanitize_body
@@ -119,6 +120,7 @@ class BlueprintPlanningEntryRequest(BaseModel):
     """T07's explicit Case A entry; it is intentionally not a ``/plan`` variant."""
 
     text: str = Field(min_length=1, max_length=500)
+    dataset_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class DocUpload(BaseModel):
@@ -894,6 +896,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(invoke_router)
     app.include_router(ontology_router)
+    app.include_router(file_dataset_router)
     app.include_router(eval_router)
     app.include_router(model_routes_router)
     app.include_router(roles_router)
@@ -1039,6 +1042,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     text=req_body.text,
                     tenant_id=req.state.tenant_id,
                     role_id=req.state.role_id,
+                    dataset_id=req_body.dataset_id,
                 )
             )
         except (BlueprintEntryError, BlueprintDiscoveryError) as error:

@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from earp_server.bmc.metamodel import canonical_json_hash
+from earp_server.file_dataset import published_snapshot
 from earp_server.infra.db import tenant_session
 from earp_server.planner.blueprint_discovery import (
     DiscoveredBlueprint,
@@ -35,6 +36,7 @@ class PlanningEntryRequest:
     text: str
     tenant_id: str
     role_id: str
+    dataset_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,7 @@ class PlanningEntryResult:
     parsed_intent: dict[str, str]
     blueprint: DiscoveredBlueprint
     goal: dict[str, Any]
+    file_dataset: dict[str, Any] | None = None
     prepare_status: str = "not_prepared"
 
     def as_dict(self) -> dict[str, Any]:
@@ -65,6 +68,7 @@ class PlanningEntryResult:
                 "source_content_hash": self.blueprint.source_content_hash,
             },
             "goals": [self.goal],
+            "execution_profile": {"file_dataset": self.file_dataset},
             # T08 consumes this immutable selection + bindings as input.  It is
             # intentionally clear that Prepare and dynamic Evidence expansion
             # have not happened at the planning-entry boundary.
@@ -191,6 +195,16 @@ class BlueprintPlanningEntry:
             "bindings": {"entity_id": entity_id, "entity_type": entity_type, "time_window": time_window},
             "output_contract_ref": blueprint.output_contract_ref,
         }
+        dataset_pin = None
+        if request.dataset_id:
+            snapshot = await published_snapshot(self._engine, request.tenant_id, request.dataset_id)
+            if snapshot is None:
+                raise BlueprintEntryError("selected file dataset is not published or not visible to this tenant")
+            dataset_pin = {
+                "dataset_id": snapshot["dataset_id"],
+                "content_hash": snapshot["content_hash"],
+                "manifest": snapshot["manifest"],
+            }
         return PlanningEntryResult(
             fixture_hash=fixture.fixture_hash,
             prompt_version=fixture.prompt_version,
@@ -198,6 +212,7 @@ class BlueprintPlanningEntry:
             parsed_intent=fixture.parsed_intent,
             blueprint=blueprint,
             goal=goal,
+            file_dataset=dataset_pin,
         )
 
     async def _validate_role_and_target(

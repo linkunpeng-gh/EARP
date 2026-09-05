@@ -168,7 +168,7 @@ class Connector:
         if adapter_type == "tool.fetch":
             return await self._execute_tool_fetch(capability_call.get("input", {}), ctx)
         if adapter_type == "reasoning.acquire":
-            return await self._execute_reasoning_acquire(capability_call.get("input", {}))
+            return await self._execute_reasoning_acquire(capability_call.get("input", {}), ctx)
         if adapter_type == "reasoning.evaluate":
             return await self._execute_reasoning_evaluate(capability_call.get("input", {}))
         if adapter_type == "human.approval":
@@ -511,8 +511,30 @@ class Connector:
         rows = await data_fetch(cfg, params)
         return {"rows": rows, "count": len(rows), "domain_filtered": False}
 
-    async def _execute_reasoning_acquire(self, input_: dict[str, Any]) -> dict[str, Any]:
-        """Case A fixture adapter; business no-data remains a completed result."""
+    async def _execute_reasoning_acquire(self, input_: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """Acquire causal evidence from a pinned file dataset or legacy fixture."""
+        if "file_dataset" in input_:
+            if self._engine is None or ctx is None or self._settings is None:
+                raise ConnectorError("file reasoning.acquire requires engine, settings and tenant context")
+            from earp_server.file_dataset import (
+                FileDatasetError,
+                FileDatasetInfrastructureError,
+                acquire_observation,
+            )
+
+            try:
+                return await acquire_observation(
+                    self._engine,
+                    ctx.tenant_id,
+                    self._settings.file_data_root,
+                    input_,
+                )
+            except FileDatasetInfrastructureError as error:
+                raise ConnectorError(str(error), code="connection") from error
+            except FileDatasetError as error:
+                raise ConnectorError(str(error), code="validation") from error
+        if self._settings is not None and self._settings.app_env != "test":
+            raise ConnectorError("reasoning.acquire requires an explicitly selected published file dataset")
         from earp_server.bmc.reasoning.runtime import FixtureReasoningRuntimeAdapter, default_case_a_fixture_dir
 
         return await FixtureReasoningRuntimeAdapter(default_case_a_fixture_dir()).acquire(input_)

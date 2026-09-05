@@ -16,7 +16,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 
 class CapabilityResolutionError(ValueError):
@@ -31,6 +31,48 @@ class ResolvedCapability:
     provider_key: str | None
     status: str
     required: bool
+
+
+class CapabilityResolver(Protocol):
+    """Runtime-pluggable logical contract to physical provider resolver."""
+
+    def resolve(self, requirement: Mapping[str, Any]) -> ResolvedCapability: ...
+
+
+class FileDatasetCapabilityResolver:
+    """Resolve providers from a pinned ``earp-file-dataset/v1`` manifest."""
+
+    def __init__(self, manifest: Mapping[str, Any]) -> None:
+        if manifest.get("schema_version") != "earp-file-dataset/v1":
+            raise CapabilityResolutionError("unsupported file dataset manifest")
+        providers = manifest.get("providers")
+        if not isinstance(providers, list):
+            raise CapabilityResolutionError("file dataset manifest lacks providers")
+        self._providers = [dict(item) for item in providers if isinstance(item, Mapping)]
+
+    def resolve(self, requirement: Mapping[str, Any]) -> ResolvedCapability:
+        contract_ref = requirement.get("capability_contract_ref")
+        requirement_key = requirement.get("requirement_key")
+        level = requirement.get("requirement_level")
+        if not isinstance(contract_ref, str) or not isinstance(requirement_key, str):
+            raise CapabilityResolutionError("prepared requirement lacks contract or requirement key")
+        required = level == "required"
+        matches = [
+            provider
+            for provider in self._providers
+            if provider.get("capability_contract_ref") == contract_ref
+            and isinstance(provider.get("requirements"), Mapping)
+            and requirement_key in provider["requirements"]
+        ]
+        if len(matches) == 1:
+            return ResolvedCapability(contract_ref, str(matches[0]["provider_key"]), "bound", required)
+        if len(matches) > 1:
+            raise CapabilityResolutionError(f"multiple file providers match {contract_ref}/{requirement_key}")
+        if required:
+            raise CapabilityResolutionError(
+                f"required evidence {requirement_key} has no provider in the selected file dataset"
+            )
+        return ResolvedCapability(contract_ref, None, "unbound_optional", False)
 
 
 class FixtureCapabilityResolver:

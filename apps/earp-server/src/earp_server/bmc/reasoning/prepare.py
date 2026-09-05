@@ -271,6 +271,7 @@ async def prepare_case_a_reasoning(
     goal_skeleton_id: str | None = None,
     reasoning_mode: str = "causal_diagnosis",
     authz_scope: Mapping[str, Any] | None = None,
+    file_dataset: Mapping[str, Any] | None = None,
     expires_at: datetime | None = None,
 ) -> PrepareResult:
     """Resolve a Blueprint-pinned Case A context without contacting any provider.
@@ -311,6 +312,17 @@ async def prepare_case_a_reasoning(
             "algorithm_config_hash": algorithm["algorithm_config_hash"],
             "authz_scope_hash": canonical_json_hash(scope),
         }
+        if file_dataset is not None:
+            dataset_id = file_dataset.get("dataset_id")
+            content_hash = file_dataset.get("content_hash")
+            manifest = file_dataset.get("manifest")
+            if (
+                not isinstance(dataset_id, str)
+                or not isinstance(content_hash, str)
+                or not isinstance(manifest, Mapping)
+            ):
+                raise ReasoningPrepareError("file_dataset must be a published pinned dataset snapshot")
+            identity["file_dataset"] = {"dataset_id": dataset_id, "content_hash": content_hash}
         prepare_id = _stable_id("prepare", identity)
         existing = await _one(
             session,
@@ -382,6 +394,12 @@ async def prepare_case_a_reasoning(
             "source_snapshot_hash": source["source_content_hash"],
             "authz_scope": scope,
         }
+        if file_dataset is not None:
+            scope_meta["file_dataset"] = {
+                "dataset_id": file_dataset["dataset_id"],
+                "content_hash": file_dataset["content_hash"],
+                "manifest": dict(file_dataset["manifest"]),
+            }
         context_payload = {
             **identity,
             "target": context_entity,
