@@ -171,7 +171,21 @@ async def lookup_entities(
         if data_domain_ids:
             sql += " AND data_domain_id = ANY(:dds)"
             params["dds"] = data_domain_ids
-        sql += f" ORDER BY name LIMIT {int(top_k)}"
+        # 2026-09 相关度排序（修复长中文句命中错序）：精确 > 名称/编码前缀 > 名称含整句 >
+        # 句含名称（反向提及，越长越具体越靠前）；同档按名称长度降序兜底。
+        sql += (
+            " ORDER BY CASE "
+            "  WHEN name = :q OR business_code = :q THEN 0 "
+            "  WHEN name ILIKE :pre OR business_code ILIKE :pre THEN 1 "
+            "  WHEN :qpat ILIKE '%' || name || '%' OR :qpat ILIKE '%' || business_code || '%' THEN 2 "
+            "  WHEN name ILIKE '%' || :q || '%' OR business_code ILIKE '%' || :q || '%' THEN 3 "
+            "  ELSE 4 END, "
+            " CASE WHEN :qpat ILIKE '%' || name || '%' THEN char_length(name) END DESC NULLS LAST, "
+            " name "
+            f" LIMIT {int(top_k)}"
+        )
+        params["q"] = query
+        params["pre"] = f"{query}%"
         rows = await conn.execute(text(sql), params)
         return [dict(r._mapping) for r in rows.fetchall()]
 
@@ -361,6 +375,7 @@ async def graph_query(
     entity_id: str,
     max_hops: int = 3,
     direction: str = "forward",
+    limit: int | None = None,
 ) -> list[dict]:
     """Recursive CTE traversal (≤ max_hops, cycle-protected via visited path).
 
@@ -369,6 +384,9 @@ async def graph_query(
     Phase D2 缺口闭合）。返回行统一为 {depth, relation_type_id, source_entity_id,
     target_entity_id, target_name, target_type}：backward 时邻居实体（原 source）
     以 target_* 字段呈现，消费方（knowledge_search Layer 2）无需感知方向。
+
+    limit（2026-09 性能）：图谱页首查大枢纽实体时限制返回行数（默认 None 不限，
+    其它消费方不受影响）；在 ORDER BY depth, id 之后截断，结果确定性保持。
     """
     if direction == "backward":
         sql = text(
@@ -426,9 +444,14 @@ async def graph_query(
             ORDER BY h.depth, h.target_entity_id
             """
         )
+    if limit is not None:
+        sql = text(sql.text + "\nLIMIT :lim")
+    params: dict = {"tid": tenant_id, "eid": entity_id, "max_hops": max_hops}
+    if limit is not None:
+        params["lim"] = limit
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
-        rows = await conn.execute(sql, {"tid": tenant_id, "eid": entity_id, "max_hops": max_hops})
+        rows = await conn.execute(sql, params)
         return [dict(r._mapping) for r in rows.fetchall()]
 
 

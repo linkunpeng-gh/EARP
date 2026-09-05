@@ -11,7 +11,7 @@
   <input id="entity-q" placeholder="实体名或业务编码，如 CNC-01" style="flex:1 1 260px">
   <button onclick="explore()">🔍 探索</button>
   <label style="font-size:0.78rem;display:flex;align-items:center;gap:4px"><input type="checkbox" id="include-backward" checked> 含反向关系</label>
-  <span id="entity-info" style="font-size:0.78rem;color:var(--text-tertiary)"></span>
+  <button id="graph-back" class="btn-outline btn-sm" onclick="graphBack()" style="display:none" title="返回上一图谱中心">← 返回</button>
 </div>
 
 <div id="graph-wrap" style="background:var(--bg-panel);border:1px solid var(--border-subtle);border-radius:8px;overflow:auto;display:none">
@@ -37,32 +37,74 @@ async function lookupEntity(q) {
 }
 
 async function graphOf(id, direction) {
-  var items = await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(id) + '/graph?max_hops=1' + (direction === 'backward' ? '&direction=backward' : ''));
+  var items = await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(id) + '/graph?max_hops=1&limit=200' + (direction === 'backward' ? '&direction=backward' : ''));
   return items || [];
+}
+
+// 中心栈回退（2026-09）：每次节点展开把当前中心压栈，提供「← 返回」
+var GRAPH_STACK = [];
+var CURRENT_ENT = null;
+var GRAPH_CACHE = {};   // entity_id -> {fwd, back, ent}：会话内缓存，返回/回看秒开
+var ENT_CACHE = {};     // entity_id -> 实体行
+
+async function neighborsOf(entityId) {
+  var backward = document.getElementById('include-backward').checked;
+  var c = GRAPH_CACHE[entityId] || (GRAPH_CACHE[entityId] = { fwd: null, back: null });
+  // 前向/反向并发拉取（首次），后续命中缓存
+  if (!c.fwd) {
+    var fwdP = graphOf(entityId, 'forward');
+    var backP = backward && !c.back ? graphOf(entityId, 'backward') : null;
+    c.fwd = await fwdP;
+    if (backP) c.back = await backP;
+    else if (backward && c.back === null) c.back = [];
+  }
+  var back = backward ? (c.back || []) : [];
+  return { fwd: c.fwd || [], back: back };
+}
+
+function refreshGraphNav() {
+  var back = document.getElementById('graph-back');
+  back.style.display = GRAPH_STACK.length ? '' : 'none';
+}
+
+async function graphBack() {
+  var prev = GRAPH_STACK.pop();
+  if (!prev) return;
+  CURRENT_ENT = prev;
+  try {
+    await renderGraph(prev);
+  } catch (e) {
+    alert(e.message);
+  }
+  refreshGraphNav();
+}
+
+async function focusEntity(ent) {
+  if (CURRENT_ENT) GRAPH_STACK.push(CURRENT_ENT);
+  CURRENT_ENT = ent;
+  await renderGraph(ent);
+  refreshGraphNav();
 }
 
 async function explore() {
   var q = document.getElementById('entity-q').value.trim();
   if (!q) return;
-  var info = document.getElementById('entity-info');
-  info.textContent = '查询中…';
   try {
     var ent = await lookupEntity(q);
-    await renderGraph(ent);
+    GRAPH_STACK = [];   // 新一轮探索：清空历史与缓存
+    GRAPH_CACHE = {};
+    ENT_CACHE = {};
+    CURRENT_ENT = null;
+    await focusEntity(ent);
   } catch (e) {
-    info.textContent = '';
     alert(e.message);
   }
 }
 
 async function renderGraph(ent) {
-  var info = document.getElementById('entity-info');
-  info.textContent = ent.entity_type_id + ' · ' + (ent.business_code || '') + ' · ' + ent.entity_id;
-  var backward = document.getElementById('include-backward').checked;
-  var fwd = await graphOf(ent.entity_id, 'forward');
-  var back = backward ? await graphOf(ent.entity_id, 'backward') : [];
-  drawSvg(ent, fwd, back);
-  renderTextList(ent, fwd, back);
+  var nb = await neighborsOf(ent.entity_id);
+  drawSvg(ent, nb.fwd, nb.back);
+  renderTextList(ent, nb.fwd, nb.back);
   document.getElementById('graph-wrap').style.display = 'block';
   document.getElementById('graph-relations').style.display = 'block';
 }
@@ -81,11 +123,18 @@ function drawSvg(center, fwd, back) {
 
   // 去重邻居（同实体多关系 → 取最近一跳 + 聚合关系标签）
   var fwdMap = {}, backMap = {};
+  // 键语义（2026-09 修复）：forward 行 target_entity_id=邻居；backward 行把「原 source
+  // 邻居」以 target_* 别名呈现，真实邻居 id 在 source_entity_id——此前按 target 键会
+  // 塌缩成中心实体，导致反向节点点击无法跳转。
   fwd.forEach(function (h) { fwdMap[h.target_entity_id] = h; });
-  back.forEach(function (h) { backMap[h.target_entity_id] = h; });
+  back.forEach(function (h) { backMap[h.source_entity_id] = h; });
 
   // 布局：forward 邻居在右半圆，backward 在左半圆
   var fwdKeys = Object.keys(fwdMap), backKeys = Object.keys(backMap);
+  var CAP = 48;  // 图示节点上限/侧（2026-09 性能：大枢纽实体不全量画）
+  var fwdCapped = fwdKeys.length > CAP, backCapped = backKeys.length > CAP;
+  if (fwdCapped) fwdKeys = fwdKeys.slice(0, CAP);
+  if (backCapped) backKeys = backKeys.slice(0, CAP);
   function place(keys, angle0, angle1) {
     var out = {};
     keys.forEach(function (k, i) {
@@ -121,7 +170,7 @@ function drawSvg(center, fwd, back) {
 
   // 邻居节点 + 边（可点击展开）
   var clickable = [];
-  Object.keys(fwdMap).forEach(function (id) {
+  fwdKeys.forEach(function (id) {
     var h = fwdMap[id], pos = fwdPos[id];
     edge(h.relation_type_id, CENTER, pos, '#16a34a').forEach(function (n) { svg.appendChild(n); });
     var g = el('g', { style: 'cursor:pointer', id: 'node-' + id });
@@ -132,7 +181,7 @@ function drawSvg(center, fwd, back) {
     svg.appendChild(g);
     clickable.push({ id: id, name: h.target_name || id });
   });
-  Object.keys(backMap).forEach(function (id) {
+  backKeys.forEach(function (id) {
     var h = backMap[id], pos = backPos[id];
     edge(h.relation_type_id, pos, CENTER, '#d97706', '4,3').forEach(function (n) { svg.appendChild(n); });
     var g = el('g', { style: 'cursor:pointer' });
@@ -148,12 +197,16 @@ function drawSvg(center, fwd, back) {
   svg.appendChild(el('text', { x: 20, y: 30, 'font-size': 11, fill: '#16a34a' }, '→ 前向关系（source→target）'));
   svg.appendChild(el('text', { x: 20, y: 48, 'font-size': 11, fill: '#d97706' }, '⇠ 反向关系（target←source）'));
   svg.appendChild(el('text', { x: 20, y: 66, 'font-size': 11, fill: '#888' }, '点击节点 → 以它为中心展开'));
+  if (fwdCapped || backCapped) {
+    svg.appendChild(el('text', { x: 20, y: 84, 'font-size': 11, fill: '#b45309' }, '节点较多：图示每侧仅显示前 ' + CAP + ' 个，完整关系见下方明细'));
+  }
 }
 
 async function expand(entityId) {
   try {
-    var ent = await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(entityId));
-    await renderGraph(ent);
+    var ent = ENT_CACHE[entityId] || await EARP.fetchJSON('/v1/ontology/entities/' + encodeURIComponent(entityId));
+    ENT_CACHE[entityId] = ent;
+    await focusEntity(ent);
   } catch (e) {
     alert(e.message);
   }

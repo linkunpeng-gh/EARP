@@ -280,11 +280,12 @@ async def graph_query(
     req: Request,
     max_hops: int = 3,
     direction: str = "forward",
+    limit: int | None = None,
 ) -> list[dict]:
     if direction not in ("forward", "backward"):
         raise HTTPException(status_code=400, detail="direction 必须是 forward 或 backward")
     return await abox_service.graph_query(
-        req.app.state.engine, req.state.tenant_id, entity_id, max_hops, direction=direction
+        req.app.state.engine, req.state.tenant_id, entity_id, max_hops, direction=direction, limit=limit
     )
 
 

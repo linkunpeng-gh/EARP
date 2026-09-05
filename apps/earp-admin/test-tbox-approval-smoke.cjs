@@ -143,6 +143,17 @@ try {
     if (!relSub) fail++;
     console.log((relOk ? 'PASS' : 'FAIL') + '  saveRtEdit 成功提示');
     if (!relOk) fail++;
+
+    // setMultiValue 预选：逗号串逐项勾选（原生 multiple .value 不支持逗号串）
+    els['rt-e-src'].options = [
+      { value: 'equipment', selected: false }, { value: 'sensor', selected: false }, { value: 'employee', selected: false },
+    ];
+    global.setMultiValue('rt-e-src', 'equipment,employee');
+    const selMap = {};
+    els['rt-e-src'].options.forEach(function (o) { selMap[o.value] = o.selected; });
+    const preOk = selMap['equipment'] === true && selMap['employee'] === true && selMap['sensor'] === false;
+    console.log((preOk ? 'PASS' : 'FAIL') + '  setMultiValue 逐项预选（多值）');
+    if (!preOk) fail++;
     process.exit(fail ? 1 : 0);
 } catch (e) {
   console.log('SMOKE ERROR:', e.message);

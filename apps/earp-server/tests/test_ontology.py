@@ -316,3 +316,28 @@ async def test_upsert_entity_domain_follows_type(app_engine: AsyncEngine) -> Non
     assert (await abox_service.get_entity(app_engine, "ont-t10", e1["entity_id"]))["data_domain_id"] == "finance_data"
     await abox_service.upsert_entity(app_engine, "ont-t10", "equipment", "CNC-01 更名", business_code="CNC-01")
     assert (await abox_service.get_entity(app_engine, "ont-t10", e1["entity_id"]))["data_domain_id"] == "equipment_data"
+
+
+async def test_lookup_relevance_longer_specific_first(app_engine: AsyncEngine) -> None:
+    """2026-09 修复：长中文句反向子串命中按相关度排序——句「3号矿综采一队工作面」应
+    优先返回最具体的「综采一队工作面」而非笼统的「3号矿」（原实现仅按 name 排序）。"""
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t11")
+    for name, code in [
+        ("3号矿", "M-3"),
+        ("综采一队", "T-1"),
+        ("综采一队工作面", "W-1"),
+        ("工作面", "W-0"),
+    ]:
+        await abox_service.upsert_entity(app_engine, "ont-t11", "mine", name, business_code=code)
+
+    hits = await abox_service.lookup_entities(app_engine, "ont-t11", "3号矿综采一队工作面", top_k=5)
+    names = [h["name"] for h in hits]
+    assert names[0] == "综采一队工作面", names  # 最长反向命中居首
+    assert "3号矿" in names
+
+    # 精确/前缀仍居前：搜 "综采一队工作" → 前缀命中 "综采一队工作面"（bucket1）
+    hits2 = await abox_service.lookup_entities(app_engine, "ont-t11", "综采一队工作", top_k=3)
+    assert hits2[0]["name"] == "综采一队工作面", [h["name"] for h in hits2]
+    # business_code 精确优先
+    hits3 = await abox_service.lookup_entities(app_engine, "ont-t11", "M-3", top_k=3)
+    assert hits3[0]["business_code"] == "M-3"

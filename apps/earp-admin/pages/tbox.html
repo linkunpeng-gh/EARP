@@ -205,11 +205,9 @@ function showRtEditModal(r) {
   document.getElementById('rt-e-name').value = r.name || '';
   fillTypeMultiSel('rt-e-src');
   fillTypeMultiSel('rt-e-tgt');
-  document.getElementById('rt-e-src').value = r.source_type || '';
-  document.getElementById('rt-e-tgt').value = r.target_type || '';
+  setMultiValue('rt-e-src', r.source_type);
+  setMultiValue('rt-e-tgt', r.target_type);
   document.getElementById('rt-e-card').value = r.cardinality || 'N:M';
-  updateMultiCount('rt-e-src');
-  updateMultiCount('rt-e-tgt');
   document.getElementById('rt-edit-modal').style.display = 'block';
 }
 
@@ -335,6 +333,27 @@ async function reactEt(id, name) {
 
 // ── 多选切换（2026-09：原生 multiple 需 Ctrl/⌘ 才能多选，普通点击互斥——
 //    改为点击即 toggle，附计数提示；Ctrl/⌘/Shift 仍走原生行为）────────────────
+// 多选预填：原生 multiple select 的 .value 只匹配单个精确值，逗号串无效——
+// 改为逐项 selected=true；现值含列表外（如已停用）类型时补占位选项保证不丢。
+function setMultiValue(selId, csv) {
+  var sel = document.getElementById(selId);
+  if (!sel) return;
+  var want = {};
+  String(csv || '').split(',').forEach(function (x) { x = x.trim(); if (x) want[x] = 1; });
+  var present = {};
+  Array.from(sel.options).forEach(function (o) { present[o.value] = true; o.selected = !!want[o.value]; });
+  Object.keys(want).forEach(function (v) {
+    if (!present[v]) {
+      var o = document.createElement('option');
+      o.value = v;
+      o.text = '(' + v + ')';
+      o.selected = true;
+      sel.appendChild(o);
+    }
+  });
+  updateMultiCount(selId);
+}
+
 function updateMultiCount(selId) {
   var sel = document.getElementById(selId);
   var el = document.getElementById(selId + '-count');
@@ -345,11 +364,19 @@ function updateMultiCount(selId) {
 function enableMultiToggle(selId) {
   var sel = document.getElementById(selId);
   if (!sel) return;
+  // mousedown 仅拦截原生「单选互斥」，不做切换——避免 Chromium 在
+  // mousedown 阶段手动改 selected 后把列表自动滚到底的怪癖；
+  // 切换放 click 阶段（此时原生选择已被拦下，纯手动 toggle）。
   sel.addEventListener('mousedown', function (e) {
     var opt = e.target;
     if (!opt || opt.tagName !== 'OPTION') return;
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;  // 修饰键走原生
     e.preventDefault();
+  });
+  sel.addEventListener('click', function (e) {
+    var opt = e.target;
+    if (!opt || opt.tagName !== 'OPTION') return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     opt.selected = !opt.selected;
     updateMultiCount(selId);
   });
