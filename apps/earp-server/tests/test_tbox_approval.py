@@ -571,3 +571,69 @@ async def test_update_reject_leaves_domain_unchanged(migrated: str, app_url: str
         ).fetchone()
     assert t.data_domain_id == "equipment_data"
     await engine.dispose()
+
+
+async def test_domain_migration_vs_concurrent_upsert_never_leaves_stale_instance(migrated: str, app_url: str) -> None:
+    """upsert_entity 对类型行的 FOR SHARE 锁：与 update 审批并发时，实例域要么读到迁移后
+    的新域、要么先于迁移提交（审批随后级联覆盖），终态类型域 == 实例域恒成立。
+
+    无锁（READ COMMITTED）时存在 TOCTOU：upsert 读到旧域 → 审批迁移并提交 → upsert
+    把旧域写回实例行（merge-UPDATE 覆盖已迁移实例 / INSERT 在迁移后落旧域新行）。
+    """
+    import asyncio
+    import uuid
+
+    from earp_server.ontology import abox_service
+
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = f"tb-toctou-{uuid.uuid4().hex[:6]}"
+    await _seed(engine, migrated, tid)
+    await _seed_update_dds(engine, tid)
+    # 轮换目标域需 equipment_data 作为 active 数据域行存在（init_tenant_tbox 只建类型）。
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(
+            text(
+                "INSERT INTO data_domains (data_domain_id, tenant_id, name, data_classification, status) "
+                "VALUES ('equipment_data', :t, '设备数据', 'internal', 'active') ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
+        await conn.commit()
+    targets = ("finance_data", "equipment_data")
+    codes = [f"CNC-TOCTOU-{i}" for i in range(3)]
+    try:
+        for round_no in range(8):
+            target = targets[round_no % 2]
+            change = await tbox_service.submit_change(
+                engine,
+                tid,
+                "u1",
+                change_type="entity_type",
+                action="update",
+                target_id="equipment",
+                payload={"data_domain_id": target},
+            )
+            # 并发：域迁移审批（类型行排他锁 + 实例级联） vs 既有实例 merge-upsert（首轮为
+            # INSERT，后续轮次走 merge-UPDATE 路径）——覆盖两条写入路径的 TOCTOU 窗口。
+            tasks = [
+                tbox_service.approve_change(engine, tid, "u2", change["change_id"], role_id="r-approver"),
+                *[abox_service.upsert_entity(engine, tid, "equipment", code, business_code=code) for code in codes],
+            ]
+            await asyncio.gather(*tasks)
+        # 终态不变量：类型域 == 每个 active 实例域（无残留旧域写回）。
+        async with engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+            type_dd = (
+                await conn.execute(text("SELECT data_domain_id FROM entity_types WHERE entity_type_id='equipment'"))
+            ).scalar_one()
+            instance_dds = set(
+                (
+                    await conn.execute(
+                        text("SELECT data_domain_id FROM entities WHERE entity_type_id='equipment' AND status='active'")
+                    )
+                ).scalars()
+            )
+        assert instance_dds == {type_dd}, f"实例域 {instance_dds} 与类型域 {type_dd} 不一致（旧域被写回）"
+    finally:
+        await engine.dispose()

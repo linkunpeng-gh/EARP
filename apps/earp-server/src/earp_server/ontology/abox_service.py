@@ -41,8 +41,14 @@ async def upsert_entity(
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         # 类型域（一致性事实源）：同连接查询，避免开额外连接
+        # FOR SHARE：与 TBox update 审批（_apply_domain_update 对类型行加排他锁并级联迁移
+        # active/deprecated 实例）互斥。READ COMMITTED 下若无锁，存在 TOCTOU：本事务读到
+        # 旧域 → 审批并发迁移类型+实例并提交 → 本事务再把旧域写回实例行，静默覆盖已迁移
+        # 实例（RLS 数据域可见性随之错位，直到该行再次被 upsert）。共享锁保证两种时序均
+        # 一致：审批先提交 → 本读阻塞后重读拿到新域；审批后到 → 阻塞至本事务提交，其级联
+        # 迁移随后覆盖本事务写入的行。
         trow = await conn.execute(
-            text("SELECT data_domain_id FROM entity_types WHERE entity_type_id = :et AND tenant_id = :tid"),
+            text("SELECT data_domain_id FROM entity_types WHERE entity_type_id = :et AND tenant_id = :tid FOR SHARE"),
             {"et": entity_type_id, "tid": tenant_id},
         )
         tr = trow.fetchone()
