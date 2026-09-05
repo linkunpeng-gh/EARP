@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.infra.db import build_session_factory, tenant_session
 
-TENANT_TABLE_COUNT = 92  # + Catalog Phase 1 Profile/governance/outbox/cursor/webhook tables
+TENANT_TABLE_COUNT = 94  # + File dataset and immutable revision tables.
 
 
 @pytest.fixture(scope="module")
@@ -149,6 +149,8 @@ async def test_full_table_rls_matrix(app_engine: AsyncEngine) -> None:
         "idempotency_records",
         "outbox_events",
         "outbox_deliveries",
+        "file_datasets",
+        "file_dataset_revisions",
     ]
     async with tenant_session(app_engine, "rls-t1") as session:
         for table in tables:

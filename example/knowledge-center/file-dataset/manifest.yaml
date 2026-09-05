@@ -1,0 +1,108 @@
+schema_version: earp-file-dataset/v1
+
+dataset:
+  id: mine3-production-demo
+  name: 3号矿产量下降演示数据集
+  description: |
+    煤矿开采行业演示数据集，用于3号矿产量下降因果诊断模型的运行时取数。
+    数据覆盖2026年8月1日至8月31日，包含产量、设备可用率、运输周期、排队时间等指标。
+    业务场景：8月20日起3号矿产量出现明显下降，同时伴随运输周期变长、设备可用率下降、排队时间增加。
+
+# 数据域和实体类型声明（发布时可导入ABox）
+data_domains:
+  - data_domain_id: production_data
+    name: 生产数据
+  - data_domain_id: equipment_data
+    name: 设备数据
+  - data_domain_id: transport_data
+    name: 运输数据
+
+entity_types:
+  - entity_type_id: mine
+    name: 矿山
+    kind: object
+    data_domain_id: production_data
+  - entity_type_id: equipment_group
+    name: 设备组
+    kind: object
+    data_domain_id: equipment_data
+  - entity_type_id: haulage_system
+    name: 运输系统
+    kind: object
+    data_domain_id: transport_data
+
+relation_types:
+  - relation_type_id: has_subsystem
+    name: 拥有子系统
+    source_type: mine
+    target_type: haulage_system
+  - relation_type_id: has_equipment_group
+    name: 拥有设备组
+    source_type: mine
+    target_type: equipment_group
+
+# 实体映射（可选，发布时导入ABox）
+entities:
+  file: entities.csv
+  columns:
+    entity_id: entity_id
+    entity_type: entity_type
+    name: name
+    business_code: business_code
+    data_domain_id: data_domain_id
+
+# 关系映射（可选，发布时导入ABox）
+relations:
+  file: relations.csv
+  columns:
+    source_code: source_code
+    source_type: source_type
+    relation_type: relation_type
+    target_code: target_code
+    target_type: target_type
+    confidence: confidence
+
+providers:
+  # 产量数据 Provider
+  - provider_key: file-production-metric-v1
+    capability_contract_ref: production_metric_query
+    file: production.csv
+    entity_column: entity_id
+    time_column: observed_at
+    requirements:
+      production_actual_and_baseline:
+        value_column: value
+        baseline_column: baseline
+        unit: t
+        description: 3号矿原煤产量（按班次统计），包含实际值和计划基线值
+
+  # 设备可用率 Provider
+  - provider_key: file-equipment-metric-v1
+    capability_contract_ref: equipment_availability_query
+    file: equipment.csv
+    entity_column: entity_id
+    time_column: observed_at
+    requirements:
+      equipment_availability_actual_and_baseline:
+        value_column: value
+        baseline_column: baseline
+        unit: ratio
+        description: 3号矿关键设备组可用率（日统计），包含实际值和目标基线值
+
+  # 运输系统 Provider（运输周期 + 排队时间）
+  - provider_key: file-haulage-metric-v1
+    capability_contract_ref: haulage_metric_query
+    file: haulage.csv
+    entity_column: entity_id
+    time_column: observed_at
+    requirements:
+      haulage_cycle_time_observation:
+        value_column: cycle_time
+        baseline_column: cycle_baseline
+        unit: min
+        description: 3号矿矿卡运输周期（日平均），包含实际值和正常基线值
+      haulage_queue_time_observation:
+        value_column: queue_time
+        baseline_column: queue_baseline
+        unit: min
+        description: 3号矿矿卡装载点排队时间（日平均），包含实际值和正常基线值

@@ -1,0 +1,4 @@
+entity_id,entity_type,name,business_code,data_domain_id
+mine-3,mine,3号矿,MINE-003,production_data
+critical-equipment-group-mine-3,equipment_group,3号矿关键设备组,EQ-GRP-M3,equipment_data
+haulage-system-mine-3,haulage_system,3号矿运输系统,HAUL-M3,transport_data

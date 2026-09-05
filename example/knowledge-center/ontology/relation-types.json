@@ -1,0 +1,102 @@
+{
+  "schema_version": "earp-demo-relation-types/v1",
+  "description": "煤矿开采行业演示关系类型定义（TBox），用于知识中心关系类型管理",
+  "relation_types": [
+    {
+      "relation_type_id": "has_subsystem",
+      "name": "拥有子系统",
+      "source_type": "mine",
+      "target_type": "transport_system",
+      "cardinality": "one_to_many",
+      "description": "矿山拥有运输、通风、安全监测等子系统"
+    },
+    {
+      "relation_type_id": "has_equipment_group",
+      "name": "拥有设备组",
+      "source_type": "mine",
+      "target_type": "equipment_group",
+      "cardinality": "one_to_many",
+      "description": "矿山按功能划分拥有多个设备组"
+    },
+    {
+      "relation_type_id": "has_coal_face",
+      "name": "拥有采煤工作面",
+      "source_type": "mine",
+      "target_type": "coal_face",
+      "cardinality": "one_to_many",
+      "description": "矿山拥有多个采煤工作面"
+    },
+    {
+      "relation_type_id": "has_heading_face",
+      "name": "拥有掘进工作面",
+      "source_type": "mine",
+      "target_type": "heading_face",
+      "cardinality": "one_to_many",
+      "description": "矿山拥有多个掘进工作面"
+    },
+    {
+      "relation_type_id": "belongs_to",
+      "name": "属于",
+      "source_type": "equipment_group",
+      "target_type": "mine",
+      "cardinality": "many_to_one",
+      "description": "设备组归属于某矿山"
+    },
+    {
+      "relation_type_id": "equipped_with",
+      "name": "配备",
+      "source_type": "equipment_group",
+      "target_type": "shearer",
+      "cardinality": "one_to_many",
+      "description": "设备组配备具体的生产设备"
+    },
+    {
+      "relation_type_id": "located_in",
+      "name": "位于",
+      "source_type": "coal_face",
+      "target_type": "mine",
+      "cardinality": "many_to_one",
+      "description": "采煤工作面位于某矿山"
+    },
+    {
+      "relation_type_id": "responsible_for",
+      "name": "负责",
+      "source_type": "team",
+      "target_type": "coal_face",
+      "cardinality": "many_to_many",
+      "description": "班组负责某工作面的生产作业"
+    },
+    {
+      "relation_type_id": "monitors",
+      "name": "监测",
+      "source_type": "safety_monitor_system",
+      "target_type": "mine",
+      "cardinality": "many_to_one",
+      "description": "安全监测系统对矿山进行安全参数监测"
+    },
+    {
+      "relation_type_id": "operated_by",
+      "name": "由...操作",
+      "source_type": "shearer",
+      "target_type": "employee",
+      "cardinality": "many_to_one",
+      "description": "设备由特定员工操作"
+    },
+    {
+      "relation_type_id": "transports_for",
+      "name": "为...运输",
+      "source_type": "transport_system",
+      "target_type": "coal_face",
+      "cardinality": "many_to_many",
+      "description": "运输系统为采煤工作面提供煤炭运输服务"
+    },
+    {
+      "relation_type_id": "supports",
+      "name": "支护",
+      "source_type": "hydraulic_support",
+      "target_type": "coal_face",
+      "cardinality": "many_to_one",
+      "description": "液压支架为采煤工作面提供顶板支护"
+    }
+  ]
+}

@@ -1,0 +1,164 @@
+{
+  "schema_version": "earp-demo-entity-types/v1",
+  "description": "煤矿开采行业演示实体类型定义（TBox），用于知识中心实体类型管理",
+  "entity_types": [
+    {
+      "entity_type_id": "mine",
+      "name": "矿山",
+      "kind": "object",
+      "data_domain_id": "production_data",
+      "description": "煤矿生产经营单位，包含多个工作面、运输系统和设备组",
+      "attributes": [
+        {"name": "design_capacity", "type": "number", "required": false},
+        {"name": "commissioning_date", "type": "date", "required": false},
+        {"name": "coal_seam_thickness", "type": "number", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "coal_face",
+      "name": "采煤工作面",
+      "kind": "object",
+      "data_domain_id": "production_data",
+      "description": "进行采煤作业的工作面，配备采煤机、液压支架等设备",
+      "attributes": [
+        {"name": "face_length", "type": "number", "required": false},
+        {"name": "current_advance", "type": "number", "required": false},
+        {"name": "coal_type", "type": "string", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "heading_face",
+      "name": "掘进工作面",
+      "kind": "object",
+      "data_domain_id": "production_data",
+      "description": "进行巷道掘进作业的工作面，配备掘进机等设备",
+      "attributes": [
+        {"name": "roadway_type", "type": "string", "required": false},
+        {"name": "monthly_advance_target", "type": "number", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "transport_system",
+      "name": "运输系统",
+      "kind": "object",
+      "data_domain_id": "transport_data",
+      "description": "煤矿煤炭运输子系统，包括矿卡运输、皮带运输等",
+      "attributes": [
+        {"name": "transport_mode", "type": "string", "required": false},
+        {"name": "average_distance", "type": "number", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "equipment_group",
+      "name": "设备组",
+      "kind": "object",
+      "data_domain_id": "equipment_data",
+      "description": "按功能或区域划分的设备集合，如综采设备组、掘进设备组、运输设备组",
+      "attributes": [
+        {"name": "equipment_count", "type": "integer", "required": false},
+        {"name": "criticality_level", "type": "string", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "mining_truck",
+      "name": "矿用卡车",
+      "kind": "object",
+      "data_domain_id": "transport_data",
+      "description": "用于煤炭运输的矿用自卸卡车",
+      "attributes": [
+        {"name": "load_capacity", "type": "number", "required": false},
+        {"name": "manufacturer", "type": "string", "required": false},
+        {"name": "purchase_year", "type": "integer", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "shearer",
+      "name": "采煤机",
+      "kind": "object",
+      "data_domain_id": "equipment_data",
+      "description": "综采工作面核心采煤设备",
+      "attributes": [
+        {"name": "model", "type": "string", "required": false},
+        {"name": "cutting_height_max", "type": "number", "required": false},
+        {"name": "installed_power", "type": "number", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "roadheader",
+      "name": "掘进机",
+      "kind": "object",
+      "data_domain_id": "equipment_data",
+      "description": "巷道掘进作业核心设备",
+      "attributes": [
+        {"name": "model", "type": "string", "required": false},
+        {"name": "cutting_power", "type": "number", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "hydraulic_support",
+      "name": "液压支架",
+      "kind": "object",
+      "data_domain_id": "equipment_data",
+      "description": "综采工作面顶板支护设备",
+      "attributes": [
+        {"name": "working_resistance", "type": "number", "required": false},
+        {"name": "support_height_max", "type": "number", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "loader",
+      "name": "装载机",
+      "kind": "object",
+      "data_domain_id": "transport_data",
+      "description": "用于煤炭装载作业的设备",
+      "attributes": [
+        {"name": "bucket_capacity", "type": "number", "required": false},
+        {"name": "manufacturer", "type": "string", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "ventilation_system",
+      "name": "通风系统",
+      "kind": "object",
+      "data_domain_id": "safety_data",
+      "description": "矿井通风系统，保障井下空气质量和瓦斯稀释",
+      "attributes": [
+        {"name": "main_fan_capacity", "type": "number", "required": false},
+        {"name": "ventilation_mode", "type": "string", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "safety_monitor_system",
+      "name": "安全监测系统",
+      "kind": "object",
+      "data_domain_id": "safety_data",
+      "description": "煤矿安全监测监控系统，监测瓦斯、一氧化碳、温度、风速等参数",
+      "attributes": [
+        {"name": "sensor_count", "type": "integer", "required": false},
+        {"name": "system_vendor", "type": "string", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "team",
+      "name": "班组",
+      "kind": "actor",
+      "data_domain_id": "production_data",
+      "description": "煤矿生产作业班组，如采煤一班、掘进二班等",
+      "attributes": [
+        {"name": "shift", "type": "string", "required": false},
+        {"name": "team_size", "type": "integer", "required": false}
+      ]
+    },
+    {
+      "entity_type_id": "employee",
+      "name": "员工",
+      "kind": "actor",
+      "data_domain_id": "production_data",
+      "description": "煤矿从业人员",
+      "attributes": [
+        {"name": "position", "type": "string", "required": false},
+        {"name": "certification", "type": "string", "required": false}
+      ]
+    }
+  ]
+}

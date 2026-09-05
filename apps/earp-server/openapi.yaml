@@ -95,6 +95,13 @@ components:
       description: T07's explicit Case A entry; it is intentionally not a ``/plan``
         variant.
       properties:
+        dataset_id:
+          anyOf:
+          - maxLength: 64
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Dataset Id
         text:
           maxLength: 500
           minLength: 1
@@ -123,6 +130,23 @@ components:
           - type: 'null'
           title: Facts File
       title: Body_import_abox_endpoint_v1_ontology_import_post
+      type: object
+    Body_upload_dataset_v1_file_datasets_post:
+      properties:
+        files:
+          items:
+            contentMediaType: application/octet-stream
+            type: string
+          title: Files
+          type: array
+        manifest:
+          contentMediaType: application/octet-stream
+          title: Manifest
+          type: string
+      required:
+      - manifest
+      - files
+      title: Body_upload_dataset_v1_file_datasets_post
       type: object
     Body_upload_document_file_knowledge_documents_upload_post:
       properties:
@@ -803,6 +827,17 @@ components:
       - target_entity_type_ref
       - time_window_schema_ref
       title: DiagnosticTarget
+      type: object
+    DirectoryDatasetIn:
+      properties:
+        relative_path:
+          maxLength: 512
+          minLength: 1
+          title: Relative Path
+          type: string
+      required:
+      - relative_path
+      title: DirectoryDatasetIn
       type: object
     DocClassUpdate:
       properties:
@@ -8270,6 +8305,132 @@ paths:
       summary: Sync Eval Set
       tags:
       - evaluations
+  /v1/file-datasets:
+    get:
+      operationId: list_file_datasets_v1_file_datasets_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response List File Datasets V1 File Datasets Get
+                type: object
+          description: Successful Response
+      summary: List File Datasets
+      tags:
+      - file-datasets
+    post:
+      operationId: upload_dataset_v1_file_datasets_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_dataset_v1_file_datasets_post'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Upload Dataset V1 File Datasets Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Upload Dataset
+      tags:
+      - file-datasets
+  /v1/file-datasets/from-directory:
+    post:
+      operationId: register_directory_v1_file_datasets_from_directory_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DirectoryDatasetIn'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Register Directory V1 File Datasets From Directory
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Register Directory
+      tags:
+      - file-datasets
+  /v1/file-datasets/{dataset_id}:
+    get:
+      operationId: get_file_dataset_v1_file_datasets__dataset_id__get
+      parameters:
+      - in: path
+        name: dataset_id
+        required: true
+        schema:
+          title: Dataset Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get File Dataset V1 File Datasets  Dataset Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get File Dataset
+      tags:
+      - file-datasets
+  /v1/file-datasets/{dataset_id}/publish:
+    post:
+      operationId: publish_file_dataset_v1_file_datasets__dataset_id__publish_post
+      parameters:
+      - in: path
+        name: dataset_id
+        required: true
+        schema:
+          title: Dataset Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Publish File Dataset V1 File Datasets  Dataset Id  Publish
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Publish File Dataset
+      tags:
+      - file-datasets
   /v1/ontology/capabilities/by-entity-type/{entity_type_id}:
     get:
       description: Reverse lookup for Resolution Engine candidate narrowing (planner-spec
