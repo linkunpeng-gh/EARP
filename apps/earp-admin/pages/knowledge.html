@@ -129,17 +129,17 @@ function renderKBList() {
   }
   list.innerHTML = state.kbs.map(function(kb) {
     var active = state.selectedKB === kb.knowledge_base_id ? ' active' : '';
-    return '<div class="kb-list-item' + active + '" onclick="selectKB(\'' + kb.knowledge_base_id + '\')">'
-      + '<div class="kb-name" title="' + kb.knowledge_base_id + '">' + (kb.name || kb.knowledge_base_id) + '</div>'
+    return '<div class="kb-list-item' + active + '" data-kb-select="' + esc(kb.knowledge_base_id) + '">'
+      + '<div class="kb-name" title="' + esc(kb.knowledge_base_id) + '">' + (kb.name || kb.knowledge_base_id) + '</div>'
       + '<div class="kb-meta">'
         + (kb.data_domain_id
-          ? '<span class="kb-dd-tag" title="数据域: ' + kb.data_domain_id + '">'
+          ? '<span class="kb-dd-tag" title="数据域: ' + esc(kb.data_domain_id) + '">'
             + (state.ddNames[kb.data_domain_id] || ddLabels[kb.data_domain_id] || kb.data_domain_id) + '</span>'
           : '')
         + '<span class="kb-count">' + kb.doc_count + ' docs · ' + kb.chunk_count + ' chunks</span>'
         + '<span class="kb-actions">'
-          + '<button class="kb-act-btn" onclick="event.stopPropagation();editKB(\'' + kb.knowledge_base_id + '\')" title="编辑 KB 基础属性">✏️</button> '
-          + '<button class="kb-act-btn del" onclick="event.stopPropagation();deleteKB(\'' + kb.knowledge_base_id + '\')" title="Delete">🗑</button>'
+          + '<button class="kb-act-btn" type="button" data-kb-edit="' + esc(kb.knowledge_base_id) + '" title="编辑 KB 基础属性">✏️</button> '
+          + '<button class="kb-act-btn del" type="button" data-kb-del="' + esc(kb.knowledge_base_id) + '" title="Delete">🗑</button>'
         + '</span>'
       + '</div>'
       + '</div>';
@@ -201,12 +201,12 @@ function renderDocTable(docs) {
       + '<td>' + fmtChars(d.char_count || 0) + '</td>'
       + '<td>' + (d.recall_count || 0) + '</td>'
       + '<td style="font-size:0.78rem;color:var(--text-tertiary)">' + fmtTime(d.created_at) + '</td>'
-      + '<td><select class="cls-editor" onchange="changeCls(this,\'' + d.document_id + '\')">' + clsOpts + '</select></td>'
-      + '<td><select class="status-editor" onchange="changeDocStatus(this,\'' + d.document_id + '\')">' + statusOpts + '</select></td>'
+      + '<td><select class="cls-editor" data-doc-cls="' + esc(d.document_id) + '">' + clsOpts + '</select></td>'
+      + '<td><select class="status-editor" data-doc-status="' + esc(d.document_id) + '">' + statusOpts + '</select></td>'
       + '<td style="white-space:nowrap">'
-        + '<button class="kb-act-btn" onclick="openDocSeg(\'' + d.document_id + '\')" title="分段设置">✂️</button> '
-        + '<button class="kb-act-btn" onclick="editDocMetadata(\'' + d.document_id + '\')" title="元数据">🏷️</button> '
-        + '<button class="kb-act-btn del" onclick="deleteDoc(\'' + d.document_id + '\')" title="Delete">🗑</button>'
+        + '<button class="kb-act-btn" type="button" data-doc-action="seg" data-doc-id="' + esc(d.document_id) + '" title="分段设置">✂️</button> '
+        + '<button class="kb-act-btn" type="button" data-doc-action="meta" data-doc-id="' + esc(d.document_id) + '" title="元数据">🏷️</button> '
+        + '<button class="kb-act-btn del" type="button" data-doc-action="del" data-doc-id="' + esc(d.document_id) + '" title="Delete">🗑</button>'
       + '</td>'
       + '</tr>';
   }).join('');
@@ -604,6 +604,30 @@ var docMetaState = { docId: null, kbSchema: [] };
 // HTML 转义（全局——editDocMetadata 与 autoMetaHtml 共用；原局部定义导致
 // autoMetaHtml 词法不可见：保存元数据后 updated_at 有值 → 二次打开 ReferenceError）
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]; }); }
+
+// 行内动作委托（安全修复）：knowledge_base_id/document_id 为用户可控自由文本（此前裸拼
+// 进 inline onclick/onchange 的 JS 字符串字面量）。值经 esc() 进入 HTML 属性（单上下文）
+// 后由 dataset 读取；onchange 场景改为 change 委托并把事件源 select 传给既有 handler。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest
+    ? e.target.closest('[data-kb-select],[data-kb-edit],[data-kb-del],[data-doc-action]')
+    : null;
+  if (!el) return;
+  if (el.hasAttribute('data-kb-select')) { selectKB(el.getAttribute('data-kb-select') || ''); return; }
+  if (el.hasAttribute('data-kb-edit')) { editKB(el.getAttribute('data-kb-edit') || ''); return; }
+  if (el.hasAttribute('data-kb-del')) { deleteKB(el.getAttribute('data-kb-del') || ''); return; }
+  var docId = el.getAttribute('data-doc-id') || '';
+  var action = el.getAttribute('data-doc-action');
+  if (action === 'seg') openDocSeg(docId);
+  else if (action === 'meta') editDocMetadata(docId);
+  else if (action === 'del') deleteDoc(docId);
+});
+document.addEventListener('change', function (e) {
+  var sel = e.target;
+  if (!sel || !sel.getAttribute) return;
+  if (sel.hasAttribute('data-doc-cls')) changeCls(sel, sel.getAttribute('data-doc-cls') || '');
+  else if (sel.hasAttribute('data-doc-status')) changeDocStatus(sel, sel.getAttribute('data-doc-status') || '');
+});
 
 function editDocMetadata(docId) {
   var kb = state.kbs.find(function(k) { return k.knowledge_base_id === state.selectedKB; });

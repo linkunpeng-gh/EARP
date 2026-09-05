@@ -81,11 +81,11 @@ function renderDdList() {
   }
   list.innerHTML = ddState.domains.map(function(dd) {
     var active = ddState.selected === dd.data_domain_id ? ' selected' : '';
-    return '<div class="dd-card' + active + '" data-class="' + dd.data_classification + '" onclick="selectDd(\'' + dd.data_domain_id + '\')">'
+    return '<div class="dd-card' + active + '" data-class="' + esc(dd.data_classification) + '" data-dd-select="' + esc(dd.data_domain_id) + '">'
       + '<div class="dd-card-name">' + (dd.name || dd.data_domain_id)
       + '<span class="dd-actions">'
-        + '<button class="dd-del-btn" title="编辑" onclick="event.stopPropagation();editDd(\'' + dd.data_domain_id + '\')">✏️</button> '
-        + '<button class="dd-del-btn" title="删除" onclick="event.stopPropagation();deleteDd(\'' + dd.data_domain_id + '\', \'' + (dd.name || dd.data_domain_id) + '\')">🗑</button>'
+        + '<button class="dd-del-btn" type="button" title="编辑" data-dd-edit="' + esc(dd.data_domain_id) + '">✏️</button> '
+        + '<button class="dd-del-btn" type="button" title="删除" data-dd-del="' + esc(dd.data_domain_id) + '" data-dd-name="' + esc(dd.name || dd.data_domain_id) + '">🗑</button>'
       + '</span>'
       + '</div>'
       + '<div class="dd-card-meta">'
@@ -290,6 +290,26 @@ document.addEventListener('DOMContentLoaded', function() {
       };
     },
   });
+});
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// 行内动作委托（安全修复）：data_domain_id/name 为用户可控自由文本（此前裸拼进
+// inline onclick 的 JS 字符串字面量，且本页无输出转义）。值经 esc() 进入 HTML 属性
+// （单上下文）后由 dataset 读取；按钮在卡片内也不再需要 stopPropagation（单次委托）。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest
+    ? e.target.closest('[data-dd-select],[data-dd-edit],[data-dd-del]')
+    : null;
+  if (!el) return;
+  var id = el.getAttribute('data-dd-select') || el.getAttribute('data-dd-edit') || el.getAttribute('data-dd-del') || '';
+  if (el.hasAttribute('data-dd-select')) selectDd(id);
+  else if (el.hasAttribute('data-dd-edit')) editDd(id);
+  else if (el.hasAttribute('data-dd-del')) deleteDd(id, el.getAttribute('data-dd-name') || id);
 });
 </script>
 

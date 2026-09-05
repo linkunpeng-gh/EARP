@@ -329,7 +329,7 @@ function renderBoundKBs() {
     var dd = kbDD(id);
     return '<span class="bound-tag">' + esc(kbName(id))
       + (dd ? '<span class="bt-dd">' + esc(state.ddNames[dd] || dd) + '</span>' : '')
-      + '<button class="bt-x" onclick="removeBoundKB(\'' + id + '\')" title="移除">✕</button></span>';
+      + '<button class="bt-x" type="button" data-kb-remove="' + esc(id) + '" title="移除">✕</button></span>';
   }).join('');
 }
 
@@ -582,6 +582,13 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+
+// 行内动作委托（安全修复）：kb id 不再裸拼进 inline onclick 的 JS 字符串字面量
+// （esc 的 HTML 实体在属性解析时还原为单引号，构成双上下文注入面）。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest ? e.target.closest('[data-kb-remove]') : null;
+  if (el) removeBoundKB(el.getAttribute('data-kb-remove') || '');
+});
 
 // ── Copilot init ──
 document.addEventListener('DOMContentLoaded', function() {

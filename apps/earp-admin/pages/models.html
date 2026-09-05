@@ -152,8 +152,8 @@ function renderConfigs() {
       + '<td><code>' + c.model_name + '</code></td>'
       + '<td><span class="tag tag-internal">已加密</span></td>'
       + '<td>' + (isDef ? '<span class="tag tag-accent">默认</span>' : (c.enabled ? '✅' : '⏸')) + '</td>'
-      + '<td><button class="btn-sm" onclick="testConfig(\'' + c.config_id + '\')">测试</button> '
-      + '<button class="btn-sm" onclick="deleteConfig(\'' + c.config_id + '\')">🗑</button></td>'
+      + '<td><button class="btn-sm" type="button" data-mc-action="test" data-mc-id="' + esc(c.config_id) + '">测试</button> '
+      + '<button class="btn-sm" type="button" data-mc-action="del" data-mc-id="' + esc(c.config_id) + '">🗑</button></td>'
       + '</tr>';
   }).join('');
 }
@@ -238,6 +238,22 @@ document.addEventListener('DOMContentLoaded', function() {
       };
     },
   });
+});
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// 行内动作委托（安全修复）：config_id 为用户可控自由文本（此前裸拼进 inline onclick
+// 的 JS 字符串字面量）。值经 esc() 进入 HTML 属性（单上下文）后由 dataset 读取。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest ? e.target.closest('[data-mc-action]') : null;
+  if (!el) return;
+  var id = el.getAttribute('data-mc-id') || '';
+  if (el.getAttribute('data-mc-action') === 'test') testConfig(id);
+  else if (el.getAttribute('data-mc-action') === 'del') deleteConfig(id);
 });
 </script>
 </main></body></html>

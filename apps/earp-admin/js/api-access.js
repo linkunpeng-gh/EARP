@@ -96,7 +96,7 @@ var EARPApiAccess = (function () {
           ? '<span class="tag tag-green">有效</span>'
           : '<span class="tag" style="background:var(--bg-surface);color:var(--text-tertiary);">已吊销</span>';
         var revokeBtn = k.status === 'active'
-          ? '<button class="btn-sm btn-outline" style="color:#dc2626;border-color:rgba(220,38,38,.4);" onclick="EARPApiAccess.revoke(\'' + k.api_key_id + '\')">吊销</button>'
+          ? '<button class="btn-sm btn-outline" type="button" style="color:#dc2626;border-color:rgba(220,38,38,.4);" data-key-action="revoke" data-key-id="' + esc(k.api_key_id) + '">吊销</button>'
           : '';
         return '<tr>' +
           '<td style="padding:0.35rem 0.25rem;">' + esc(k.name) + '</td>' +
@@ -155,6 +155,13 @@ var EARPApiAccess = (function () {
       if (b) { var old = b.textContent; b.textContent = '已复制'; setTimeout(function () { b.textContent = old; }, 1200); }
     }).catch(function () { /* clipboard 不可用（file:// 等）——用户可手动选中复制 */ });
   }
+
+  // 行内动作委托（安全修复）：api_key_id 不再裸拼进 inline onclick 的 JS 字符串
+  // 字面量（esc 的 HTML 实体会被属性解析还原，构成双上下文注入面）。
+  document.addEventListener('click', function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-key-action]') : null;
+    if (el && el.getAttribute('data-key-action') === 'revoke') revoke(el.getAttribute('data-key-id') || '');
+  });
 
   return { open: open, close: close, create: create, revoke: revoke, copyPlain: copyPlain, loadKeys: loadKeys };
 })();

@@ -124,7 +124,7 @@ function showSyncBtn(s) {
   // 仅 builtin 且版本落后（老租户 seed_version NULL）显示「同步内置模板」
   if (s.source !== 'builtin') return '';
   if (seedVersion(s) >= SEED_VERSION) return '';
-  return '<button class="btn-outline btn-sm" onclick="event.stopPropagation();syncSet(\'' + s.eval_set_id + '\')" title="同步最新内置模板（覆盖内置题，custom 题保留）">↻ 同步内置模板</button>';
+  return '<button class="btn-outline btn-sm" type="button" data-set-action="sync" data-set-id="' + esc(s.eval_set_id) + '" title="同步最新内置模板（覆盖内置题，custom 题保留）">↻ 同步内置模板</button>';
 }
 
 // builtin 集的模板版本徽标（seed_version：这租户内置集同步自哪个模板版本）
@@ -153,7 +153,7 @@ async function syncSet(id) {
 }
 
 function exportBtn(s) {
-  return '<button class="btn-outline btn-sm" onclick="event.stopPropagation();exportSet(\'' + s.eval_set_id + '\')">导出</button>';
+  return '<button class="btn-outline btn-sm" type="button" data-set-action="export" data-set-id="' + esc(s.eval_set_id) + '">导出</button>';
 }
 
 async function exportSet(id) {
@@ -199,7 +199,7 @@ function renderSets() {
   if (!SETS.length) { grid.innerHTML = '<div class="empty-state">暂无评估集</div>'; return; }
   grid.innerHTML = SETS.map(function (s) {
     var meta = KIND_META[s.kind] || { label: s.kind, color: 'var(--text-quaternary)' };
-    return '<div class="panel" style="cursor:pointer;border-top:3px solid ' + meta.color + ';display:flex;flex-direction:column;gap:6px" onclick="selectSet(\'' + s.eval_set_id + '\')">'
+    return '<div class="panel" style="cursor:pointer;border-top:3px solid ' + meta.color + ';display:flex;flex-direction:column;gap:6px" data-set-open="' + esc(s.eval_set_id) + '">'
       + '<div style="display:flex;align-items:center;gap:8px">'
       + '<span class="badge" style="background:' + meta.color + ';color:#fff">' + meta.label + '</span>'
       + '<span style="font-weight:600;font-size:0.85rem">' + esc(s.name) + '</span>'
@@ -212,8 +212,8 @@ function renderSets() {
       + thresholdsHtml(s)
       + latestBadge(s)
       + '<div style="display:flex;gap:6px;margin-top:2px">'
-      + '<button class="btn-outline btn-sm" onclick="event.stopPropagation();runEvalFor(\'' + s.eval_set_id + '\',\'rules\')">规则层跑分</button>'
-      + '<button class="btn-outline btn-sm" onclick="event.stopPropagation();runEvalFor(\'' + s.eval_set_id + '\',\'llm\')">LLM 跑分</button>'
+      + '<button class="btn-outline btn-sm" type="button" data-set-action="run-rules" data-set-id="' + esc(s.eval_set_id) + '">规则层跑分</button>'
+      + '<button class="btn-outline btn-sm" type="button" data-set-action="run-llm" data-set-id="' + esc(s.eval_set_id) + '">LLM 跑分</button>'
       + showSyncBtn(s)
       + '<span style="flex:1"></span>'
       + exportBtn(s)
@@ -263,8 +263,8 @@ function renderCases() {
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);font-size:0.72rem;color:var(--text-tertiary)">' + esc(expText) + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);font-size:0.7rem;color:var(--text-quaternary)">' + esc(c.note || '') + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
-      + '<button class="btn-outline btn-sm" onclick="toggleCase(\'' + c.case_id + '\',' + !c.enabled + ')">' + (c.enabled ? '停用' : '启用') + '</button> '
-      + '<button class="btn-outline btn-sm" style="color:var(--red)" onclick="delCase(\'' + c.case_id + '\')">删</button>'
+      + '<button class="btn-outline btn-sm" type="button" data-case-action="toggle" data-case-id="' + esc(c.case_id) + '" data-case-target="' + (c.enabled ? '0' : '1') + '">' + (c.enabled ? '停用' : '启用') + '</button> '
+      + '<button class="btn-outline btn-sm" type="button" style="color:var(--red)" data-case-action="del" data-case-id="' + esc(c.case_id) + '">删</button>'
       + '</td></tr>';
   }).join('');
   if (!CASES_EXPANDED && total > CASES_LIMIT) {
@@ -411,7 +411,7 @@ async function loadRuns() {
       .map(function (k) { return k + '=' + pct(r.summary[k]); }).join(' ');
     var dur = '—';
     if (r.started_at && r.finished_at) dur = ((new Date(r.finished_at) - new Date(r.started_at)) / 1000).toFixed(1) + 's';
-    return '<tr style="cursor:pointer" data-run="' + r.run_id + '" onclick="showRunDetail(\'' + r.run_id + '\')">'
+    return '<tr style="cursor:pointer" data-run="' + esc(r.run_id) + '" data-run-open="' + esc(r.run_id) + '">'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + fmtTime(r.started_at) + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + r.mode + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + st + progressBar(r.status === 'running' ? r.progress : null) + '</td>'
@@ -419,7 +419,7 @@ async function loadRuns() {
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);font-size:0.7rem">' + gateOk + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + dur + '</td>'
       + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
-      + (r.status === 'running' ? '<button class="btn-outline btn-sm" style="color:var(--red)" onclick="event.stopPropagation();cancelRun(\'' + r.run_id + '\')">停止</button> ' : '')
+      + (r.status === 'running' ? '<button class="btn-outline btn-sm" type="button" style="color:var(--red)" data-run-action="cancel" data-run-id="' + esc(r.run_id) + '">停止</button> ' : '')
       + '▶</td></tr>';
   }).join('');
   // T3: 历史里 running 行自动轮询进度（pollRun 更新进度条，复用 2s 间隔）
@@ -530,6 +530,28 @@ async function reloadSets() {
 async function init() {
   await reloadSets();
 }
+
+// 行内动作委托（安全修复）：eval_set_id/case_id/run_id 为用户可控自由文本（此前裸拼
+// 进 inline onclick 的 JS 字符串字面量）。值经 esc() 进入 HTML 属性（单上下文）后由
+// dataset 读取；卡片/按钮嵌套场景单次委托天然等价原 event.stopPropagation 语义。
+document.addEventListener('click', function (e) {
+  var el = e.target && e.target.closest
+    ? e.target.closest('[data-set-open],[data-set-action],[data-case-action],[data-run-open],[data-run-action]')
+    : null;
+  if (!el) return;
+  if (el.hasAttribute('data-set-open')) { selectSet(el.getAttribute('data-set-open') || ''); return; }
+  if (el.hasAttribute('data-run-open')) { showRunDetail(el.getAttribute('data-run-open') || ''); return; }
+  var setAction = el.getAttribute('data-set-action');
+  var setId = el.getAttribute('data-set-id') || '';
+  if (setAction === 'sync') syncSet(setId);
+  else if (setAction === 'export') exportSet(setId);
+  else if (setAction === 'run-rules') runEvalFor(setId, 'rules');
+  else if (setAction === 'run-llm') runEvalFor(setId, 'llm');
+  var caseAction = el.getAttribute('data-case-action');
+  if (caseAction === 'toggle') toggleCase(el.getAttribute('data-case-id') || '', (el.getAttribute('data-case-target') || '1') === '1');
+  else if (caseAction === 'del') delCase(el.getAttribute('data-case-id') || '');
+  else if (el.getAttribute('data-run-action') === 'cancel') cancelRun(el.getAttribute('data-run-id') || '');
+});
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
