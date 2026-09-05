@@ -165,6 +165,10 @@ class Operation(BaseModel):
     order_by: str | None = None
     limit: int | None = None
     compare_subjects: list[str] = Field(default_factory=list)  # COMPARISON 用
+    # 2026-09 B1：量词型 COUNT 的计数对象（"多少台采煤机" → TBox entity_type shearer）。
+    # 供 plan_aggregation 的多跳子图计数（锚点实体沿 facts 出边 ≤N 跳后按类型计数）；
+    # 默认空 = 未识别计数对象（行为与冻结 schema 之前一致）。
+    count_entity_type_ids: list[str] = Field(default_factory=list)
 
 
 class AnswerRequirement(BaseModel):
@@ -588,6 +592,11 @@ _AGG_OP_WORDS: dict[str, Literal["COUNT", "SUM", "AVG", "MAX", "MIN"]] = {
     "多少台": "COUNT",
     "多少个": "COUNT",
     "多少次": "COUNT",
+    "几台": "COUNT",
+    "几个": "COUNT",
+    "几辆": "COUNT",
+    "几座": "COUNT",
+    "几套": "COUNT",
     "数量": "COUNT",
     "总计": "SUM",
     "合计": "SUM",
@@ -604,6 +613,56 @@ def _extract_operation(query: str) -> tuple[Operation, bool]:
         if kw in query:
             return Operation(aggregate=agg), True
     return Operation(), False
+
+
+# ── B1（2026-09）：量词型 COUNT 计数对象抽取（多跳子图计数前置）─────────────
+# 「3号矿有多少台采煤机」→ 名词「采煤机」→ TBox entity_type（shearer）。
+# 只取量词后紧邻的中文名词（≤8 字），遇功能词（在/的/有/是/和…）截断；
+# 解析不到类型（名词过泛/过长/非类型名）→ 放弃，行为与冻结 schema 之前一致。
+_COUNT_NOUN_RE = re.compile(r"(?:多少|几)([台辆座套个条项起名家张部本件份次])([\u4e00-\u9fff]{2,8})?")
+_COUNT_NOUN_STOPS = ("分别", "在", "的", "有", "是", "和", "与", "为", "每", "各", "平均", "一共", "呢", "吗")
+
+
+def _count_noun(query: str) -> str | None:
+    m = _COUNT_NOUN_RE.search(query)
+    if not m or not m.group(2):
+        return None
+    noun = m.group(2)
+    for stop in _COUNT_NOUN_STOPS:
+        if stop in noun:
+            noun = noun.split(stop)[0]
+    return noun or None
+
+
+async def _resolve_count_type_ids(engine: AsyncEngine, tenant_id: str, noun: str) -> list[str]:
+    """计数名词 → TBox entity_type_id（名称精确优先；前缀唯一匹配兜底）。
+
+    0 或 >1 个候选 → 返回空（歧义宁可不设，避免错误计数目标）。
+    """
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT entity_type_id FROM entity_types "
+                    "WHERE tenant_id = :tid AND status = 'active' AND name = :n"
+                ),
+                {"tid": tenant_id, "n": noun},
+            )
+        ).fetchall()
+        if len(rows) == 1:
+            return [rows[0].entity_type_id]
+        rows2 = (
+            await conn.execute(
+                text(
+                    "SELECT entity_type_id FROM entity_types "
+                    "WHERE tenant_id = :tid AND status = 'active' AND name LIKE :p"
+                ),
+                {"tid": tenant_id, "p": noun + "%"},
+            )
+        ).fetchall()
+        ids = [r.entity_type_id for r in rows2]
+        return ids if len(ids) == 1 else []
 
 
 # ── Task 6: 规则层组装 + 置信度（§6.4）────────────────────────────────────────
@@ -668,6 +727,16 @@ async def understand(
         engine, tenant_id, query, result.entities, rel_cands, context=context
     )
     result.operation, op_hit = _extract_operation(query)
+
+    # B1（2026-09）：量词型 COUNT 抽计数对象（"多少台采煤机" → shearer）——
+    # 多跳子图计数（plan_aggregation）的输入；解析失败（无/歧义类型）不设。
+    if op_hit and (result.operation.aggregate or "").upper() == "COUNT":
+        noun = _count_noun(query)
+        if noun:
+            type_ids = await _resolve_count_type_ids(engine, tenant_id, noun)
+            if type_ids:
+                result.operation.count_entity_type_ids = type_ids
+                result.field_reasons["operation"] = f"计数对象 {noun} → {','.join(type_ids)}"
 
     # 2. 相关字段判定（§6.4：未涉及的维度不拉低覆盖率）
     relevant: set[str] = {"intent"}

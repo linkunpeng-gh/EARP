@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from earp_server.infra.db import tenant_session
 from earp_server.ontology import abox_service, tbox_service
-from earp_server.ontology.capability_query import execute_capability_query
+from earp_server.ontology.capability_query import descendant_count, execute_capability_query
 from earp_server.ontology.planning import EvidenceChannel, apply_role_layer
 from earp_server.ontology.search import resolve_with_query
 from earp_server.ontology.understanding import (
@@ -20,6 +20,8 @@ from earp_server.ontology.understanding import (
     Operation,
     RelationMention,
     StructuredQuery,
+    build_structured_query,
+    understand,
 )
 
 
@@ -258,3 +260,124 @@ def test_role_layer_conflict_resolution() -> None:
     assert any(e.conflict for e in out)
     primary = [e for e in out if not e.conflict][0]
     assert primary.content == "新事实"
+
+
+# ── B2（2026-09）：多跳子图计数 descendant_count + plan_aggregation 兜底 ──────
+
+
+async def _seed_subgraph(engine: AsyncEngine, tid: str, suffix: str = "") -> dict:
+    """3号矿(equipment) →[has_equipment_group] 综采设备组 →[equipped_with] 采煤机×2。
+
+    类型 shearer/equipment_group 注册为 equipment_data 域；角色 cap 授 equipment_data
+    + quality_data（不授 other_data——负样本验证域门禁）。加一条回边采煤机→设备组
+    验证环路安全（distinct 不重复计数）。
+    """
+    await tbox_service.init_tenant_tbox(engine, tid)
+    role = f"r-sg{suffix}"
+    await tbox_service.create_entity_type(engine, tid, "shearer", "采煤机", data_domain_id="equipment_data")
+    await tbox_service.create_entity_type(engine, tid, "equipment_group", "设备组", data_domain_id="equipment_data")
+    async with tenant_session(engine, tid) as session:
+        await session.execute(
+            text(
+                "INSERT INTO data_domains (data_domain_id, tenant_id, name, description, "
+                "data_classification, status) VALUES "
+                "('equipment_data', :tid, '设备数据', '设备', 'internal', 'active'), "
+                "('other_data', :tid, '其他域', '负样本', 'internal', 'active') "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"tid": tid},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
+                "VALUES (:rid, :tid, 'sg', '{}', 'all', "
+                '\'[{"data_domain_id": "equipment_data"}, {"data_domain_id": "quality_data"}]\') '
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"rid": role, "tid": tid},
+        )
+    hub = await abox_service.upsert_entity(engine, tid, "equipment", "3号矿", business_code="M-3")
+    grp = await abox_service.upsert_entity(engine, tid, "equipment_group", "3号矿综采设备组", business_code="EG-3")
+    s1 = await abox_service.upsert_entity(engine, tid, "shearer", "采煤机SL-301", business_code="SL-301")
+    s2 = await abox_service.upsert_entity(engine, tid, "shearer", "采煤机SL-302", business_code="SL-302")
+    await abox_service.add_fact(engine, tid, hub["entity_id"], "has_equipment_group", grp["entity_id"])
+    await abox_service.add_fact(engine, tid, grp["entity_id"], "equipped_with", s1["entity_id"])
+    await abox_service.add_fact(engine, tid, grp["entity_id"], "equipped_with", s2["entity_id"])
+    await abox_service.add_fact(engine, tid, s1["entity_id"], "belongs_to", grp["entity_id"])  # 回边（环路）
+    # other_data 域采煤机——角色域门禁应排除
+    async with tenant_session(engine, tid) as session:
+        await session.execute(
+            text(
+                "INSERT INTO entities (entity_id, tenant_id, entity_type_id, name, business_code, "
+                "attributes, source_mode, data_domain_id, status) VALUES "
+                "(:eid, :tid, 'shearer', '采煤机SL-999', 'SL-999', '{}', 'extracted', 'other_data', 'active')"
+            ),
+            {"eid": f"ent-sg999{suffix}", "tid": tid},
+        )
+    return {
+        "hub": hub["entity_id"],
+        "grp": grp["entity_id"],
+        "s1": s1["entity_id"],
+        "s2": s2["entity_id"],
+        "role": role,
+    }
+
+
+async def test_descendant_count_two_hop(migrated: str, app_url: str) -> None:
+    """B2：锚点 3号矿 沿出边 2 跳到 shearer——count=2，环路回边不重复计数。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "cap-sg1"
+    scene = await _seed_subgraph(engine, tid, suffix="-1")
+    out = await descendant_count(
+        engine, tid, anchor_entity_id=scene["hub"], target_type_ids=["shearer"], role_id=scene["role"]
+    )
+    assert out["aggregate"]["count"] == 2
+    names = {r["name"] for r in out["rows"]}
+    assert names == {"采煤机SL-301", "采煤机SL-302"}, names
+
+
+async def test_descendant_count_role_domain_fail_closed(migrated: str, app_url: str) -> None:
+    """B2：other_data 域 shearer 被角色域门禁排除；无权限角色 fail-closed count=0。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "cap-sg2"
+    scene = await _seed_subgraph(engine, tid, suffix="-2")
+    out = await descendant_count(
+        engine, tid, anchor_entity_id=scene["hub"], target_type_ids=["shearer"], role_id=scene["role"]
+    )
+    assert all(r["name"] != "采煤机SL-999" for r in out["rows"])
+    # 无授权角色（不存在）→ fail-closed
+    out2 = await descendant_count(
+        engine, tid, anchor_entity_id=scene["hub"], target_type_ids=["shearer"], role_id="r-no-such"
+    )
+    assert out2["aggregate"]["count"] == 0 and out2.get("permission_denied")
+
+
+async def test_understand_extracts_count_object(migrated: str, app_url: str) -> None:
+    """B1：理解层把「多少台采煤机」解析成 TBox 类型 shearer（operation 计数对象）。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "cap-sg3"
+    await _seed_subgraph(engine, tid, suffix="-3")
+    r = await understand(engine, tid, "3号矿有多少台采煤机？")
+    sq = build_structured_query(r)
+    assert sq.operation.count_entity_type_ids == ["shearer"], sq.operation.model_dump()
+
+
+async def test_plan_aggregation_subgraph_count(migrated: str, app_url: str) -> None:
+    """B2 端到端：plan_aggregation 无 capability 候选 → 子图计数产出 count=2（不再回落 plan_fact）。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "cap-sg4"
+    scene = await _seed_subgraph(engine, tid, suffix="-4")
+
+    from earp_server.ontology.planning import execute_plan
+
+    q = StructuredQuery(
+        intent=Intent.AGGREGATION,
+        confidence=0.9,
+        entities=[EntityMention(mention="3号矿", semantic_type="equipment", entity_id=scene["hub"])],
+        operation=Operation(aggregate="COUNT", count_entity_type_ids=["shearer"]),
+    )
+    sel, res = await execute_plan(engine, tid, scene["role"], "3号矿有多少台采煤机？", q)
+    assert sel.plan_name == "plan_aggregation" and res.plan_name == "plan_aggregation"
+    assert res.evidence and res.evidence[0].payload["aggregate"]["count"] == 2
+    assert any(t.type == "SUBGRAPH_COUNT" for t in res.trace)
+    assert res.citations[0]["aggregate"]["count"] == 2

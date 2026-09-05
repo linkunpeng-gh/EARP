@@ -23,6 +23,7 @@ from earp_server.ontology.understanding import (
     StructuredQuery,
     TimeConstraint,
     _classify_intent,
+    _count_noun,
     _extract_operation,
     _extract_time,
     build_structured_query,
@@ -171,6 +172,43 @@ def test_extract_operation(query, agg) -> None:
     op, hit = _extract_operation(query)
     assert op.aggregate == agg
     assert hit is (agg is not None)
+
+
+# ── B1（2026-09）：量词型 COUNT 计数对象（多跳子图计数前置）──────────────────
+
+
+@pytest.mark.parametrize(
+    "query,noun",
+    [
+        ("3号矿有多少台采煤机？", "采煤机"),  # 核心场景
+        ("有几台掘进机在3号矿综采一队工作面", "掘进机"),  # 功能词「在」截断
+        ("一共有多少辆矿卡运输", "矿卡运输"),
+        ("平均采煤量多少吨", None),  # 「吨」不在量词集 → 不误抽
+        ("采煤机有几台", None),  # 名词在量词前
+        ("统计设备数量", None),  # 非量词型 COUNT
+    ],
+)
+def test_count_noun(query, noun) -> None:
+    assert _count_noun(query) == noun
+
+
+@pytest.mark.parametrize(
+    "query,agg",
+    [
+        ("综采一队工作面有几台采煤机", "COUNT"),
+        ("3号矿有几个设备组", "COUNT"),
+        ("矿区有几辆矿卡", "COUNT"),
+    ],
+)
+def test_extract_operation_ji_quantifier(query, agg) -> None:
+    """intent 层已有 几台/几个/几辆（AGGREGATION），operation 层补齐一致。"""
+    op, hit = _extract_operation(query)
+    assert op.aggregate == agg and hit
+
+
+def test_operation_count_type_ids_default_empty() -> None:
+    """Operation 新字段默认空——冻结 schema 行为不变（向后兼容）。"""
+    assert Operation(aggregate="COUNT").count_entity_type_ids == []
 
 
 # ── derive_needs（§7，单一来源 = §8.2）───────────────────────────────────────

@@ -534,6 +534,71 @@ async def plan_relation(query: StructuredQuery, *, ctx: QueryContext, max_hops: 
     )
 
 
+async def _subgraph_count(ctx: QueryContext, query: StructuredQuery, tracer) -> PlanResult | None:
+    """B2（2026-09）：多跳子图计数——plan_aggregation 的 COUNT 兜底。
+
+    形态：COUNT + operation.count_entity_type_ids（「多少台采煤机」→ shearer）+
+    单一已解析锚点实体（3号矿）→ descendant_count（锚点沿 facts 出边 ≤3 跳按目标
+    类型计数）。非此形态 → None（调用方回落 plan_fact，行为与 B2 前一致）。
+    0 台也是有效答案（count=0 直接产出，不回落）。
+    """
+    anchors = [e for e in query.entities if e.entity_id]
+    if (
+        (query.operation.aggregate or "COUNT").upper() != "COUNT"
+        or not query.operation.count_entity_type_ids
+        or len(anchors) != 1
+    ):
+        return None
+    from earp_server.ontology.capability_query import descendant_count
+
+    anchor = anchors[0]
+    t0 = time.monotonic()
+    tracer.step(
+        "SUBGRAPH_COUNT",
+        input_={
+            "anchor_entity_id": anchor.entity_id,
+            "target_type_ids": query.operation.count_entity_type_ids,
+            "max_hops": 3,
+        },
+    )
+    out = await descendant_count(
+        ctx.engine,
+        ctx.tenant_id,
+        anchor_entity_id=anchor.entity_id,
+        target_type_ids=query.operation.count_entity_type_ids,
+        role_id=ctx.role_id,
+    )
+    tracer.finish({"count": out["aggregate"]["count"], "rows": len(out.get("rows", []))})
+    ev = _mk_evidence(
+        EvidenceChannel.CAPABILITY,
+        content=str(out["aggregate"] or ""),
+        source="ontology-subgraph-count",
+        source_ref=f"subgraph-{uuid.uuid4().hex[:10]}",
+        confidence=1.0,
+        payload={
+            "capability_id": "ontology-subgraph-count",
+            "rows": out.get("rows", []),
+            "aggregate": out.get("aggregate"),
+            "anchor_entity_id": anchor.entity_id,
+            "target_type_ids": query.operation.count_entity_type_ids,
+        },
+    )
+    return PlanResult(
+        plan_name="plan_aggregation",
+        evidence=apply_role_layer([ev], query.intent),
+        citations=[
+            {
+                "source": "capability",
+                "capability_id": "ontology-subgraph-count",
+                "title": f"{anchor.mention} 子图计数",
+                "aggregate": out.get("aggregate"),
+            }
+        ],
+        trace=tracer.records,
+        latency_ms=round((time.monotonic() - t0) * 1000, 1),
+    )
+
+
 async def plan_aggregation(query: StructuredQuery, *, ctx: QueryContext) -> PlanResult:
     """plan_aggregation（§12 例 4，D1c：D2 边界解除）。
 
@@ -554,7 +619,10 @@ async def plan_aggregation(query: StructuredQuery, *, ctx: QueryContext) -> Plan
     tracer.finish({"candidates": len(candidates), "query_candidates": len(query_cands)})
 
     if not query_cands:
-        # 无候选 query capability → 回落 plan_fact（§11.2）
+        # 无候选 query capability → B2 多跳子图计数兜底（多少台采煤机）→ 回落 plan_fact（§11.2）
+        sub = await _subgraph_count(ctx, query, tracer)
+        if sub is not None:
+            return sub
         sub = await plan_fact(query, ctx=ctx)
         sub.plan_name = "plan_fact"
         sub.fallback_reason = "no query capability candidate → plan_fact"
@@ -596,7 +664,10 @@ async def plan_aggregation(query: StructuredQuery, *, ctx: QueryContext) -> Plan
             latency_ms=round((time.monotonic() - t0) * 1000, 1),
         )
 
-    # 全部候选执行失败 → 回落 plan_fact
+    # 全部候选执行失败 → B2 多跳子图计数兜底 → 回落 plan_fact
+    sub = await _subgraph_count(ctx, query, tracer)
+    if sub is not None:
+        return sub
     sub = await plan_fact(query, ctx=ctx)
     sub.plan_name = "plan_fact"
     sub.fallback_reason = "capability query 无数据支撑（数值属性缺失）→ plan_fact"
