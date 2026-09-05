@@ -88,7 +88,7 @@ function fillSelect(id, items, selected, emptyLabel) {
   var html = '<option value="">' + (emptyLabel || '— 未配置 —') + '</option>';
   html += items.map(function(it) {
     var s = it.value === selected ? ' selected' : '';
-    return '<option value="' + it.value + '"' + s + '>' + it.label + '</option>';
+    return '<option value="' + esc(it.value) + '"' + s + '>' + esc(it.label) + '</option>';
   }).join('');
   sel.innerHTML = html;
   if (!selected) sel.value = '';
