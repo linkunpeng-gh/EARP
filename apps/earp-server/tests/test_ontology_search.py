@@ -112,6 +112,111 @@ async def test_knowledge_search_fallback_no_embedding(migrated: str, app_url: st
     assert any(h["source"] == "profile" for h in hits)
 
 
+async def test_graph_lane_dedup_selfcycle_and_relevance(app_engine: AsyncEngine, migrated: str) -> None:
+    """2026-09 修复：图谱 lane 回环重复行不再给 RRF 重复计票 + 自指回环不入 lane。
+
+    场景（对齐「3号矿有哪些运输系统」）：中心 hub has_subsystem→transport（直连答案）、
+    has_coal_face→face；face located_in→hub（深度2 自指回环）；transport transports_for→face
+    （face 深度2 重复出现）。修复前：face/中心靠重复票堆分，transport（单次出现）可能被
+    挤出融合 top；修复后：自指回环剔除、同目标去重（face 只 1 票）、相关度重排 transport 在前。
+    """
+    tid = "osr-t4"
+    await tbox_service.init_tenant_tbox(app_engine, tid)
+    from sqlalchemy import text as _t
+
+    purge = create_async_engine(migrated)
+    async with purge.begin() as conn:
+        await conn.execute(_t("DELETE FROM roles WHERE role_id = 'r-admin'"))
+    await purge.dispose()
+    async with app_engine.connect() as conn:
+        await conn.execute(_t(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(
+            _t(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
+                "data_domain_access, is_admin) VALUES "
+                "('r-admin', :t, 'tester', '{}', 'all', '[]', TRUE) ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
+        await conn.commit()
+
+    hub = await abox_service.upsert_entity(app_engine, tid, "equipment", "3号矿", business_code="M-3")
+    face = await abox_service.upsert_entity(app_engine, tid, "sensor", "3号矿综采一队工作面", business_code="F-1")
+    truck = await abox_service.upsert_entity(app_engine, tid, "component", "3号矿矿卡运输系统", business_code="T-1")
+    await abox_service.add_fact(app_engine, tid, hub["entity_id"], "has_subsystem", truck["entity_id"])
+    await abox_service.add_fact(app_engine, tid, hub["entity_id"], "has_coal_face", face["entity_id"])
+    await abox_service.add_fact(app_engine, tid, face["entity_id"], "located_in", hub["entity_id"])
+    await abox_service.add_fact(app_engine, tid, truck["entity_id"], "transports_for", face["entity_id"])
+
+    hits = await search.knowledge_search(
+        app_engine, tid, "3号矿有哪些运输系统", role_id="r-admin", top_k=5, embedding=None
+    )
+    assert hits, "must return hits"
+    # 自指回环（g:hub）不入融合
+    assert not any(h["key"] == f"g:{hub['entity_id']}" for h in hits), [h["key"] for h in hits]
+    # 直连答案 transport 在融合 top 且排在 face 前
+    truck_hits = [h for h in hits if h["entity_id"] == truck["entity_id"]]
+    assert truck_hits, [h["title"] for h in hits]
+    truck_rank = hits.index(truck_hits[0])
+    face_rank = next(i for i, h in enumerate(hits) if h["entity_id"] == face["entity_id"])
+    assert truck_rank < face_rank, [h["title"] for h in hits]
+    # 去重：face 只保留 1 票（深度1 has_coal_face）——rrf=1/(60+2)，不再累加 transports_for 深度2
+    face_hit = next(h for h in hits if h["entity_id"] == face["entity_id"])
+    assert abs(float(face_hit["rrf_score"]) - 1.0 / 62.0) < 1e-9, face_hit["rrf_score"]
+
+
+async def test_graph_lane_two_hop_answer_surfaces(app_engine: AsyncEngine, migrated: str) -> None:
+    """2026-09 A1：多跳答案不被一跳中间节点压住——「3号矿有多少台采煤机」。
+
+    图谱 lane 用「残差查询」重排（扣掉已命中实体名 3号矿 → 剩「有多少台采煤机」）：
+    一跳中间节点（综采设备组/工作面，只有前缀命中）rel→0，2 跳的采煤机（命中采煤/煤机）
+    rel>0 排到 lane 前列并进入融合 top；修复前两者同分、tiebreak depth 把答案压到 lane 底部。
+    """
+    tid = "osr-t5"
+    await tbox_service.init_tenant_tbox(app_engine, tid)
+    from sqlalchemy import text as _t
+
+    purge = create_async_engine(migrated)
+    async with purge.begin() as conn:
+        await conn.execute(_t("DELETE FROM roles WHERE role_id = 'r-admin'"))
+    await purge.dispose()
+    async with app_engine.connect() as conn:
+        await conn.execute(_t(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(
+            _t(
+                "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
+                "data_domain_access, is_admin) VALUES "
+                "('r-admin', :t, 'tester', '{}', 'all', '[]', TRUE) ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
+        await conn.commit()
+
+    hub = await abox_service.upsert_entity(app_engine, tid, "equipment", "3号矿", business_code="M-3")
+    grp = await abox_service.upsert_entity(app_engine, tid, "equipment_group", "3号矿综采设备组", business_code="EG-3")
+    face = await abox_service.upsert_entity(app_engine, tid, "sensor", "3号矿综采一队工作面", business_code="F-3")
+    s1 = await abox_service.upsert_entity(app_engine, tid, "shearer", "采煤机SL-301", business_code="SL-301")
+    s2 = await abox_service.upsert_entity(app_engine, tid, "shearer", "采煤机SL-302", business_code="SL-302")
+    await abox_service.add_fact(app_engine, tid, hub["entity_id"], "has_equipment_group", grp["entity_id"])
+    await abox_service.add_fact(app_engine, tid, hub["entity_id"], "has_coal_face", face["entity_id"])
+    await abox_service.add_fact(app_engine, tid, grp["entity_id"], "equipped_with", s1["entity_id"])
+    await abox_service.add_fact(app_engine, tid, grp["entity_id"], "equipped_with", s2["entity_id"])
+    await abox_service.add_fact(app_engine, tid, face["entity_id"], "located_in", hub["entity_id"])
+
+    hits = await search.knowledge_search(
+        app_engine, tid, "3号矿有多少台采煤机", role_id="r-admin", top_k=5, embedding=None
+    )
+    # 两个 2 跳采煤机进入融合 top（修复前被 3号矿XXX 前缀的一跳邻居按 depth 压到 lane 尾部）
+    shearer_ids = {s1["entity_id"], s2["entity_id"]}
+    fused_ids = {h["entity_id"] for h in hits if h.get("entity_id")}
+    assert shearer_ids & fused_ids, [h["title"] for h in hits]
+    # 直连中间节点（综采设备组）不出现在采煤机之前
+    grp_idx = next((i for i, h in enumerate(hits) if h.get("entity_id") == grp["entity_id"]), None)
+    s1_idx = next(i for i, h in enumerate(hits) if h.get("entity_id") == s1["entity_id"])
+    if grp_idx is not None:
+        assert s1_idx < grp_idx, [h["title"] for h in hits]
+
+
 def test_rrf_merge_ordering() -> None:
     lane_a = [
         {"key": "x1", "source": "profile", "content": "a"},

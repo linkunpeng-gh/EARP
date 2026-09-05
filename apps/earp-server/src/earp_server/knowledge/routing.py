@@ -444,7 +444,7 @@ async def _ontology_layers_debug(
         role_id=role_id,
         data_domain_ids=cand_dds or None,
         knowledge_base_ids=cand_kbs or None,
-        top_k=5,
+        top_k=10,  # 2026-09 A2：调试视图融合 top 扩到 10（召回可观测，不改业务 top_k 语义）
         embedding_dim=_ROUTING_DIM,
         query_text=query,
         mode="hybrid",
@@ -455,10 +455,14 @@ async def _ontology_layers_debug(
         "profile": [
             {k: h.get(k) for k in ("entity_id", "entity_type", "title", "score")} for h in layers["profile"][:5]
         ],
+        # 2026-09 A2：图谱 lane 不再截断到前 5——多跳结果（depth=2 如 equipped_with→采煤机）
+        # 常排在 depth-1 邻居之后，只显示 5 行会误读成「图谱只能 1 跳」。返回前 50 行供
+        # 路由调试逐层检查（前端表格带 depth 列可区分跳数）。
         "graph": [
-            {k: h.get(k) for k in ("entity_id", "entity_type", "title", "depth", "score")} for h in layers["graph"][:5]
+            {k: h.get(k) for k in ("entity_id", "entity_type", "title", "depth", "score")}
+            for h in layers["graph"][:50]
         ],
-        "chunk": [{k: h.get(k) for k in ("chunk_id", "title", "kb_name", "score")} for h in layers["chunk"][:5]],
+        "chunk": [{k: h.get(k) for k in ("chunk_id", "title", "kb_name", "score")} for h in layers["chunk"][:10]],
         "fused": [{k: h.get(k) for k in ("source", "title", "rrf_score")} for h in fused],
     }
 

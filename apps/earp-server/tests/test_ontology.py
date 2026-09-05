@@ -341,3 +341,28 @@ async def test_lookup_relevance_longer_specific_first(app_engine: AsyncEngine) -
     # business_code 精确优先
     hits3 = await abox_service.lookup_entities(app_engine, "ont-t11", "M-3", top_k=3)
     assert hits3[0]["business_code"] == "M-3"
+
+
+async def test_lookup_whitespace_tolerant(app_engine: AsyncEngine) -> None:
+    """2026-09 修复：图谱探索「3 号矿」搜不到实体「3号矿」——
+    查询串/实体名/业务编码里的空白参与匹配前剥掉（归一化超集，无空白行为不变）。"""
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t12")
+    await abox_service.upsert_entity(app_engine, "ont-t12", "mine", "3号矿", business_code="M-3")
+    await abox_service.upsert_entity(app_engine, "ont-t12", "mine", "3号矿综采一队", business_code="T-3")
+
+    # 带空格查询命中（原实现 0 命中）："3 号矿" → 精确命中居首
+    hits = await abox_service.lookup_entities(app_engine, "ont-t12", "3 号矿", top_k=5)
+    assert hits and hits[0]["name"] == "3号矿", [h["name"] for h in hits]
+    # 实体名含空格（导入脏数据）同样命中："综采一队" → "3 号矿综采一队"
+    await abox_service.upsert_entity(app_engine, "ont-t12", "mine", "3 号矿掘进二队", business_code="T-4")
+    hits2 = await abox_service.lookup_entities(app_engine, "ont-t12", "3号矿掘进二队")
+    assert any(h["name"] == "3 号矿掘进二队" for h in hits2)
+    # 编码带空格 vs 查询不带空格
+    await abox_service.upsert_entity(app_engine, "ont-t12", "mine", "某队", business_code="T-5 甲")
+    hits3 = await abox_service.lookup_entities(app_engine, "ont-t12", "T-5甲")
+    assert any(h["name"] == "某队" for h in hits3)
+    # 全空白查询 → 空结果（不误命中全表）
+    assert await abox_service.lookup_entities(app_engine, "ont-t12", "   ") == []
+    # 无空白查询行为不回归（反向提及仍在）
+    hits4 = await abox_service.lookup_entities(app_engine, "ont-t12", "3号矿综采一队在干嘛")
+    assert any(h["name"] == "3号矿综采一队" for h in hits4)

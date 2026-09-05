@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 
 from sqlalchemy import text
@@ -154,17 +155,31 @@ async def lookup_entities(
       - 反向：查询串包含实体名（:qpat LIKE %name%）——「主变压器是哪个公司生产的」→
         命中实体「主变压器」（实体提及检测的本质）。代价：两方向均全表扫，
         实体表规模 < 万级可接受（QU Phase B 实体识别增强前的兜底）。
+
+    空白容忍（2026-09 修复图谱探索「3 号矿」搜不到实体「3号矿」）：匹配/排序前把
+    查询串与实体名/业务编码里的空白全部剥掉（regexp_replace '\\s'）——中文实体名通常
+    不含空格，输入法/复制带来的空格不再漏检。归一化匹配是原子串匹配的超集（去掉空白
+    不破坏子串关系），无空白查询/实体名场景行为与原来完全一致。
     """
+    nq = re.sub(r"\s+", "", query)  # 归一化查询串：剥掉全部空白
+    if not nq:
+        return []  # 全空白查询无意义——防归一化后 %%% 全表误命中
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         sql = (
+            "WITH base AS ("
+            "  SELECT entity_id, entity_type_id, name, business_code, attributes, source_mode, data_domain_id, "
+            "         regexp_replace(name, '\\s', '', 'g') AS nname, "
+            "         regexp_replace(business_code, '\\s', '', 'g') AS ncode "
+            "  FROM entities WHERE tenant_id = :tid AND status = 'active'"
+            ") "
             "SELECT entity_id, entity_type_id, name, business_code, attributes, source_mode, data_domain_id "
-            "FROM entities WHERE tenant_id = :tid AND status = 'active' "
-            "AND (name ILIKE :pat OR business_code ILIKE :pat "
-            "     OR :qpat LIKE '%' || name || '%' "
-            "     OR (:qpat LIKE '%' || business_code || '%'))"
+            "FROM base "
+            "WHERE (nname ILIKE :patn OR ncode ILIKE :patn "
+            "       OR :nq LIKE '%' || nname || '%' "
+            "       OR :nq LIKE '%' || ncode || '%')"
         )
-        params: dict = {"tid": tenant_id, "pat": f"%{query}%", "qpat": query}
+        params: dict = {"tid": tenant_id, "patn": f"%{nq}%", "nq": nq}
         if entity_type_ids:
             sql += " AND entity_type_id = ANY(:ets)"
             params["ets"] = entity_type_ids
@@ -173,19 +188,19 @@ async def lookup_entities(
             params["dds"] = data_domain_ids
         # 2026-09 相关度排序（修复长中文句命中错序）：精确 > 名称/编码前缀 > 名称含整句 >
         # 句含名称（反向提及，越长越具体越靠前）；同档按名称长度降序兜底。
+        # 排序键同样用归一化后的名称/编码——带空格查询命中「精确」档（3 号矿 → 3号矿 居首）。
         sql += (
             " ORDER BY CASE "
-            "  WHEN name = :q OR business_code = :q THEN 0 "
-            "  WHEN name ILIKE :pre OR business_code ILIKE :pre THEN 1 "
-            "  WHEN :qpat ILIKE '%' || name || '%' OR :qpat ILIKE '%' || business_code || '%' THEN 2 "
-            "  WHEN name ILIKE '%' || :q || '%' OR business_code ILIKE '%' || :q || '%' THEN 3 "
+            "  WHEN nname = :nq OR ncode = :nq THEN 0 "
+            "  WHEN nname ILIKE :npre OR ncode ILIKE :npre THEN 1 "
+            "  WHEN :nq ILIKE '%' || nname || '%' OR :nq ILIKE '%' || ncode || '%' THEN 2 "
+            "  WHEN nname ILIKE :patn OR ncode ILIKE :patn THEN 3 "
             "  ELSE 4 END, "
-            " CASE WHEN :qpat ILIKE '%' || name || '%' THEN char_length(name) END DESC NULLS LAST, "
+            " CASE WHEN :nq ILIKE '%' || nname || '%' THEN char_length(nname) END DESC NULLS LAST, "
             " name "
             f" LIMIT {int(top_k)}"
         )
-        params["q"] = query
-        params["pre"] = f"{query}%"
+        params["npre"] = f"{nq}%"
         rows = await conn.execute(text(sql), params)
         return [dict(r._mapping) for r in rows.fetchall()]
 
