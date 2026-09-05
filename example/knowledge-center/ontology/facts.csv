@@ -1,55 +1,55 @@
 # 列: source_code, relation_type_id, target_code, confidence
-# 煤矿开采行业演示事实关系数据（ABox），用于知识中心批量导入
-# 3号矿拥有的子系统
-MINE-003,has_subsystem,TS-301,1.0
-MINE-003,has_subsystem,TS-302,1.0
-MINE-003,has_subsystem,VS-301,1.0
-MINE-003,has_subsystem,SMS-301,1.0
-# 1号矿拥有的子系统
-MINE-001,has_subsystem,TS-101,1.0
-MINE-001,has_subsystem,VS-101,1.0
-MINE-001,has_subsystem,SMS-101,1.0
-# 3号矿拥有的设备组
-MINE-003,has_equipment_group,EG-301,1.0
-MINE-003,has_equipment_group,EG-302,1.0
-MINE-003,has_equipment_group,EG-303,1.0
-# 1号矿拥有的设备组
-MINE-001,has_equipment_group,EG-101,1.0
-# 3号矿拥有的采煤工作面
-MINE-003,has_coal_face,CF-301,1.0
-MINE-003,has_coal_face,CF-302,1.0
-# 1号矿拥有的采煤工作面
-MINE-001,has_coal_face,CF-101,1.0
-# 3号矿拥有的掘进工作面
-MINE-003,has_heading_face,HF-301,1.0
-MINE-003,has_heading_face,HF-302,1.0
-# 1号矿拥有的掘进工作面
-MINE-001,has_heading_face,HF-101,1.0
-# 设备组配备的设备
-EG-301,equipped_with,SL-301,1.0
-EG-301,equipped_with,SL-302,1.0
-EG-302,equipped_with,RH-301,1.0
-EG-302,equipped_with,RH-302,1.0
-EG-101,equipped_with,SL-101,1.0
-# 工作面位于矿山
-CF-301,located_in,MINE-003,1.0
-CF-302,located_in,MINE-003,1.0
-CF-101,located_in,MINE-001,1.0
-# 班组负责工作面
-TM-301,responsible_for,CF-301,1.0
-TM-302,responsible_for,CF-302,1.0
-TM-303,responsible_for,HF-301,1.0
-TM-101,responsible_for,CF-101,1.0
-# 安全监测系统监测矿山
-SMS-301,monitors,MINE-003,1.0
-SMS-101,monitors,MINE-001,1.0
-# 设备由员工操作
-SL-301,operated_by,EMP-001,1.0
-RH-301,operated_by,EMP-002,1.0
-# 运输系统为工作面运输
-TS-301,transports_for,CF-301,1.0
-TS-301,transports_for,CF-302,1.0
-TS-101,transports_for,CF-101,1.0
-# 液压支架支护工作面
-HS-301-A,supports,CF-301,1.0
-HS-302-A,supports,CF-302,1.0
+# 煤矿开采行业演示事实关系数据（ABox），用于知识中心批量导入,,,
+# 3号矿拥有的子系统,,,
+MINE-003,has_subsystem,TS-301,1
+MINE-003,has_subsystem,TS-302,1
+MINE-003,has_subsystem,VS-301,1
+MINE-003,has_subsystem,SMS-301,1
+# 1号矿拥有的子系统,,,
+MINE-001,has_subsystem,TS-101,1
+MINE-001,has_subsystem,VS-101,1
+MINE-001,has_subsystem,SMS-101,1
+# 3号矿拥有的设备组,,,
+MINE-003,has_equipment_group,EG-301,1
+MINE-003,has_equipment_group,EG-302,1
+MINE-003,has_equipment_group,EG-303,1
+# 1号矿拥有的设备组,,,
+MINE-001,has_equipment_group,EG-101,1
+# 3号矿拥有的采煤工作面,,,
+MINE-003,has_coal_face,CF-301,1
+MINE-003,has_coal_face,CF-302,1
+# 1号矿拥有的采煤工作面,,,
+MINE-001,has_coal_face,CF-101,1
+# 3号矿拥有的掘进工作面,,,
+MINE-003,has_heading_face,HF-301,1
+MINE-003,has_heading_face,HF-302,1
+# 1号矿拥有的掘进工作面,,,
+MINE-001,has_heading_face,HF-101,1
+# 设备组配备的设备,,,
+EG-301,equipped_with,SL-301,1
+EG-301,equipped_with,SL-302,1
+EG-302,equipped_with,RH-301,1
+EG-302,equipped_with,RH-302,1
+EG-101,equipped_with,SL-101,1
+# 工作面位于矿山,,,
+CF-301,located_in,MINE-003,1
+CF-302,located_in,MINE-003,1
+CF-101,located_in,MINE-001,1
+# 班组负责工作面,,,
+TM-301,responsible_for,CF-301,1
+TM-302,responsible_for,CF-302,1
+TM-303,responsible_for,HF-301,1
+TM-101,responsible_for,CF-101,1
+# 安全监测系统监测矿山,,,
+SMS-301,monitors,MINE-003,1
+SMS-101,monitors,MINE-001,1
+# 设备由员工操作,,,
+SL-301,operated_by,EMP-001,1
+RH-301,operated_by,EMP-002,1
+# 运输系统为工作面运输,,,
+TS-301,transports_for,CF-301,1
+TS-301,transports_for,CF-302,1
+TS-101,transports_for,CF-101,1
+# 液压支架支护工作面,,,
+HS-301-A,support,CF-301,1
+HS-302-A,support,CF-302,1
