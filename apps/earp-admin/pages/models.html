@@ -147,9 +147,9 @@ function renderConfigs() {
   tbody.innerHTML = state.configs.map(function(c) {
     var isDef = state.defaults[c.model_type] && state.defaults[c.model_type].model_config_id === c.config_id;
     return '<tr>'
-      + '<td>' + c.provider + '</td>'
-      + '<td>' + (typeLabels[c.model_type] || c.model_type) + '</td>'
-      + '<td><code>' + c.model_name + '</code></td>'
+      + '<td>' + esc(c.provider) + '</td>'
+      + '<td>' + esc(typeLabels[c.model_type] || c.model_type) + '</td>'
+      + '<td><code>' + esc(c.model_name) + '</code></td>'
       + '<td><span class="tag tag-internal">已加密</span></td>'
       + '<td>' + (isDef ? '<span class="tag tag-accent">默认</span>' : (c.enabled ? '✅' : '⏸')) + '</td>'
       + '<td><button class="btn-sm" type="button" data-mc-action="test" data-mc-id="' + esc(c.config_id) + '">测试</button> '

@@ -130,11 +130,11 @@ function renderKBList() {
   list.innerHTML = state.kbs.map(function(kb) {
     var active = state.selectedKB === kb.knowledge_base_id ? ' active' : '';
     return '<div class="kb-list-item' + active + '" data-kb-select="' + esc(kb.knowledge_base_id) + '">'
-      + '<div class="kb-name" title="' + esc(kb.knowledge_base_id) + '">' + (kb.name || kb.knowledge_base_id) + '</div>'
+      + '<div class="kb-name" title="' + esc(kb.knowledge_base_id) + '">' + esc(kb.name || kb.knowledge_base_id) + '</div>'
       + '<div class="kb-meta">'
         + (kb.data_domain_id
           ? '<span class="kb-dd-tag" title="数据域: ' + esc(kb.data_domain_id) + '">'
-            + (state.ddNames[kb.data_domain_id] || ddLabels[kb.data_domain_id] || kb.data_domain_id) + '</span>'
+            + esc(state.ddNames[kb.data_domain_id] || ddLabels[kb.data_domain_id] || kb.data_domain_id) + '</span>'
           : '')
         + '<span class="kb-count">' + kb.doc_count + ' docs · ' + kb.chunk_count + ' chunks</span>'
         + '<span class="kb-actions">'
@@ -197,7 +197,7 @@ function renderDocTable(docs) {
     var statusOpts = '<option value="active"' + (d.status==='active'?' selected':'') + '>可用</option>'
       + '<option value="disabled"' + (d.status==='disabled'?' selected':'') + '>不可用</option>';
     return '<tr>'
-      + '<td>' + (d.title || d.name || '-') + (d.chunk_count ? ' <span class="tag tag-accent" style="font-size:0.65rem">' + d.chunk_count + '块</span>' : '') + '</td>'
+      + '<td>' + esc(d.title || d.name || '-') + (d.chunk_count ? ' <span class="tag tag-accent" style="font-size:0.65rem">' + d.chunk_count + '块</span>' : '') + '</td>'
       + '<td>' + fmtChars(d.char_count || 0) + '</td>'
       + '<td>' + (d.recall_count || 0) + '</td>'
       + '<td style="font-size:0.78rem;color:var(--text-tertiary)">' + fmtTime(d.created_at) + '</td>'

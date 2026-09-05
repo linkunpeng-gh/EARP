@@ -82,7 +82,7 @@ function renderDdList() {
   list.innerHTML = ddState.domains.map(function(dd) {
     var active = ddState.selected === dd.data_domain_id ? ' selected' : '';
     return '<div class="dd-card' + active + '" data-class="' + esc(dd.data_classification) + '" data-dd-select="' + esc(dd.data_domain_id) + '">'
-      + '<div class="dd-card-name">' + (dd.name || dd.data_domain_id)
+      + '<div class="dd-card-name">' + esc(dd.name || dd.data_domain_id)
       + '<span class="dd-actions">'
         + '<button class="dd-del-btn" type="button" title="编辑" data-dd-edit="' + esc(dd.data_domain_id) + '">✏️</button> '
         + '<button class="dd-del-btn" type="button" title="删除" data-dd-del="' + esc(dd.data_domain_id) + '" data-dd-name="' + esc(dd.name || dd.data_domain_id) + '">🗑</button>'
@@ -215,9 +215,9 @@ async function selectDd(id) {
 
 function renderDdDetail(dd) {
   return '<div class="dd-detail-header">'
-    + '<div><h3 style="margin:0;font-size:1.1rem">' + (dd.name || dd.data_domain_id) + '</h3>'
-    + '<p style="margin:4px 0 0;font-size:0.81rem;color:var(--text-tertiary,#8b8d91)">' + (dd.owner ? 'Owner: ' + dd.owner + ' · ' : '') + dd.data_domain_id + '</p></div>'
-    + '<div><span class="tag ' + (clsTag[dd.data_classification] || 'tag-internal') + '" style="font-size:0.81rem;padding:2px 10px">' + (clsLabels[dd.data_classification] || dd.data_classification) + '</span></div>'
+    + '<div><h3 style="margin:0;font-size:1.1rem">' + esc(dd.name || dd.data_domain_id) + '</h3>'
+    + '<p style="margin:4px 0 0;font-size:0.81rem;color:var(--text-tertiary,#8b8d91)">' + (dd.owner ? 'Owner: ' + esc(dd.owner) + ' · ' : '') + esc(dd.data_domain_id) + '</p></div>'
+    + '<div><span class="tag ' + (clsTag[dd.data_classification] || 'tag-internal') + '" style="font-size:0.81rem;padding:2px 10px">' + esc(clsLabels[dd.data_classification] || dd.data_classification) + '</span></div>'
     + '</div>'
     + '<div class="section-card"><div class="section-header">'
     + '<h4 style="margin:0;font-size:0.87rem">Knowledge Bases <span style="font-weight:400;color:var(--text-tertiary)">(' + dd.kb_count + ' KBs)</span></h4>'
@@ -236,7 +236,7 @@ function renderKbSection(ddId, kbs) {
   }
   wrap.innerHTML = '<table><thead><tr><th>KB ID</th><th>Name</th><th>Documents</th><th>Chunks</th></tr></thead><tbody>'
     + kbs.map(function(kb) {
-      return '<tr><td>' + kb.knowledge_base_id + '</td><td><a href="knowledge.html">' + kb.name + '</a></td>'
+      return '<tr><td>' + esc(kb.knowledge_base_id) + '</td><td><a href="knowledge.html">' + esc(kb.name) + '</a></td>'
         + '<td>' + kb.doc_count + '</td><td>' + kb.chunk_count + '</td></tr>';
     }).join('')
     + '</tbody></table>';
