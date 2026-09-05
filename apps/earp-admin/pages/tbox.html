@@ -105,10 +105,10 @@
       <input id="rt-id" style="display:block;width:100%;margin-top:4px" placeholder="如 connected_to"></label>
     <label style="display:block;font-size:0.78rem;margin-bottom:8px">名称 *
       <input id="rt-name" style="display:block;width:100%;margin-top:4px" placeholder="如 连接至"></label>
-    <label style="display:block;font-size:0.78rem;margin-bottom:8px">源类型 *（多选）
-      <select id="rt-src" multiple size="4" style="display:block;width:100%;margin-top:4px"></select></label>
-    <label style="display:block;font-size:0.78rem;margin-bottom:8px">目标类型 *（多选）
-      <select id="rt-tgt" multiple size="4" style="display:block;width:100%;margin-top:4px"></select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">源类型 *（多选，点击切换）
+      <select id="rt-src" multiple size="4" style="display:block;width:100%;margin-top:4px"></select><div style="font-size:0.72rem;color:var(--text-tertiary);margin:2px 0 6px">直接点击选项即选中/取消（无需 Ctrl/⌘）· <span id="rt-src-count">已选 0 项</span></div></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">目标类型 *（多选，点击切换）
+      <select id="rt-tgt" multiple size="4" style="display:block;width:100%;margin-top:4px"></select><div style="font-size:0.72rem;color:var(--text-tertiary);margin:2px 0 6px">直接点击选项即选中/取消（无需 Ctrl/⌘）· <span id="rt-tgt-count">已选 0 项</span></div></label>
     <label style="display:block;font-size:0.78rem;margin-bottom:8px">基数
       <select id="rt-card" style="display:block;width:100%;margin-top:4px">
         <option value="1:1">1:1</option><option value="1:N">1:N</option>
@@ -128,10 +128,10 @@
     <div id="rt-e-meta" style="font-size:0.78rem;color:var(--text-tertiary);margin-bottom:10px"></div>
     <label style="display:block;font-size:0.78rem;margin-bottom:8px">名称 *
       <input id="rt-e-name" style="display:block;width:100%;margin-top:4px" placeholder="如 位于"></label>
-    <label style="display:block;font-size:0.78rem;margin-bottom:8px">源类型 *（多选）
-      <select id="rt-e-src" multiple size="4" style="display:block;width:100%;margin-top:4px"></select></label>
-    <label style="display:block;font-size:0.78rem;margin-bottom:8px">目标类型 *（多选）
-      <select id="rt-e-tgt" multiple size="4" style="display:block;width:100%;margin-top:4px"></select></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">源类型 *（多选，点击切换）
+      <select id="rt-e-src" multiple size="4" style="display:block;width:100%;margin-top:4px"></select><div style="font-size:0.72rem;color:var(--text-tertiary);margin:2px 0 6px">直接点击选项即选中/取消（无需 Ctrl/⌘）· <span id="rt-e-src-count">已选 0 项</span></div></label>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">目标类型 *（多选，点击切换）
+      <select id="rt-e-tgt" multiple size="4" style="display:block;width:100%;margin-top:4px"></select><div style="font-size:0.72rem;color:var(--text-tertiary);margin:2px 0 6px">直接点击选项即选中/取消（无需 Ctrl/⌘）· <span id="rt-e-tgt-count">已选 0 项</span></div></label>
     <label style="display:block;font-size:0.78rem;margin-bottom:8px">基数
       <select id="rt-e-card" style="display:block;width:100%;margin-top:4px">
         <option value="1:1">1:1</option><option value="1:N">1:N</option>
@@ -179,6 +179,11 @@ async function init() {
       srcSel.innerHTML += '<option value="' + esc(t.entity_type_id) + '">' + esc(t.name) + ' (' + t.entity_type_id + ')</option>';
       tgtSel.innerHTML += '<option value="' + esc(t.entity_type_id) + '">' + esc(t.name) + ' (' + t.entity_type_id + ')</option>';
     });
+    // 2026-09：点击即多选（无需 Ctrl/⌘）
+    enableMultiToggle('rt-src');
+    enableMultiToggle('rt-tgt');
+    enableMultiToggle('rt-e-src');
+    enableMultiToggle('rt-e-tgt');
   } catch (e) { console.warn('init:', e.message); }
   loadEt();
   loadRt();
@@ -203,6 +208,8 @@ function showRtEditModal(r) {
   document.getElementById('rt-e-src').value = r.source_type || '';
   document.getElementById('rt-e-tgt').value = r.target_type || '';
   document.getElementById('rt-e-card').value = r.cardinality || 'N:M';
+  updateMultiCount('rt-e-src');
+  updateMultiCount('rt-e-tgt');
   document.getElementById('rt-edit-modal').style.display = 'block';
 }
 
@@ -326,6 +333,30 @@ async function reactEt(id, name) {
   } catch (e) { alert('提交失败: ' + e.message); }
 }
 
+// ── 多选切换（2026-09：原生 multiple 需 Ctrl/⌘ 才能多选，普通点击互斥——
+//    改为点击即 toggle，附计数提示；Ctrl/⌘/Shift 仍走原生行为）────────────────
+function updateMultiCount(selId) {
+  var sel = document.getElementById(selId);
+  var el = document.getElementById(selId + '-count');
+  if (!sel || !el) return;
+  var n = sel.selectedOptions.length;
+  el.textContent = '已选 ' + n + ' 项' + (n ? '' : '（至少选 1 项）');
+}
+function enableMultiToggle(selId) {
+  var sel = document.getElementById(selId);
+  if (!sel) return;
+  sel.addEventListener('mousedown', function (e) {
+    var opt = e.target;
+    if (!opt || opt.tagName !== 'OPTION') return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;  // 修饰键走原生
+    e.preventDefault();
+    opt.selected = !opt.selected;
+    updateMultiCount(selId);
+  });
+  sel.addEventListener('change', function () { updateMultiCount(selId); });
+  updateMultiCount(selId);
+}
+
 // ── 关系类型 ──────────────────────────────────────────────────────────────
 async function loadRt() {
   try {
@@ -356,6 +387,8 @@ function showRtModal() {
   document.getElementById('rt-name').value = '';
   document.getElementById('rt-src').selectedIndex = -1;
   document.getElementById('rt-tgt').selectedIndex = -1;
+  updateMultiCount('rt-src');
+  updateMultiCount('rt-tgt');
   document.getElementById('rt-modal').style.display = 'block';
 }
 
