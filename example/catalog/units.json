@@ -1,0 +1,106 @@
+{
+  "schema_version": "earp-demo-catalog-units/v1",
+  "description": "煤矿开采行业演示单位定义（Catalog Unit），用于Catalog语义目录注册",
+  "units": [
+    {
+      "kind": "unit",
+      "stable_id": "common.mass.tonne",
+      "version": "1.0.0",
+      "unit_id": "tonne",
+      "name": "吨",
+      "symbol": "t",
+      "dimension": "mass",
+      "description": "质量单位，1吨=1000千克，用于煤炭产量、运输量等质量计量"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.mass.kilogram",
+      "version": "1.0.0",
+      "unit_id": "kilogram",
+      "name": "千克",
+      "symbol": "kg",
+      "dimension": "mass",
+      "description": "质量单位，用于设备重量、物料重量等"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.time.minute",
+      "version": "1.0.0",
+      "unit_id": "minute",
+      "name": "分钟",
+      "symbol": "min",
+      "dimension": "time",
+      "description": "时间单位，用于运输周期、排队时间、作业时间等时间计量"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.time.hour",
+      "version": "1.0.0",
+      "unit_id": "hour",
+      "name": "小时",
+      "symbol": "h",
+      "dimension": "time",
+      "description": "时间单位，用于设备运行时间、停机时间等"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.time.second",
+      "version": "1.0.0",
+      "unit_id": "second",
+      "name": "秒",
+      "symbol": "s",
+      "dimension": "time",
+      "description": "时间单位，用于精确时间计量"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.dimension.ratio",
+      "version": "1.0.0",
+      "unit_id": "ratio",
+      "name": "比率",
+      "symbol": "%",
+      "dimension": "ratio",
+      "description": "无量纲比率，用于设备可用率、开机率、回收率等百分比指标"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.dimension.dimensionless",
+      "version": "1.0.0",
+      "unit_id": "dimensionless",
+      "name": "无量纲",
+      "symbol": "",
+      "dimension": "dimensionless",
+      "description": "无量纲指标，用于品位指数、质量指数等综合评分"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.length.meter",
+      "version": "1.0.0",
+      "unit_id": "meter",
+      "name": "米",
+      "symbol": "m",
+      "dimension": "length",
+      "description": "长度单位，用于掘进进尺、工作面长度、运输距离等"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.volume.cubic_meter",
+      "version": "1.0.0",
+      "unit_id": "cubic_meter",
+      "name": "立方米",
+      "symbol": "m³",
+      "dimension": "volume",
+      "description": "体积单位，用于风量、排水量、瓦斯涌出量等"
+    },
+    {
+      "kind": "unit",
+      "stable_id": "common.energy.megajoule_per_kg",
+      "version": "1.0.0",
+      "unit_id": "megajoule_per_kg",
+      "name": "兆焦每千克",
+      "symbol": "MJ/kg",
+      "dimension": "other",
+      "description": "发热量单位，用于煤炭热值计量"
+    }
+  ]
+}

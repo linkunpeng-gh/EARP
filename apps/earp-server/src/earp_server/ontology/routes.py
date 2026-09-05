@@ -658,6 +658,7 @@ async def approve_tbox_change(change_id: str, req: Request) -> dict:
             "domain_from": result.get("domain_from"),
             "domain_to": result.get("domain_to"),
             "entity_count": result.get("entity_count"),
+            "fields_changed": result.get("fields_changed"),
         },
     )
     return result

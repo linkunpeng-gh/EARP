@@ -1,0 +1,57 @@
+{
+  "schema_version": "earp-demo-catalog-time-windows/v1",
+  "description": "煤矿开采行业演示时间窗口定义（Catalog Time Window Schema），用于Catalog语义目录注册",
+  "time_windows": [
+    {
+      "kind": "time_window_schema",
+      "stable_id": "common.time_window.hourly",
+      "version": "1.0.0",
+      "window_id": "hourly",
+      "name": "小时窗口",
+      "duration": "PT1H",
+      "alignment": "natural",
+      "description": "按自然小时划分的时间窗口，每小时一个统计周期，适用于高频监测指标的短时统计"
+    },
+    {
+      "kind": "time_window_schema",
+      "stable_id": "common.time_window.shift",
+      "version": "1.0.0",
+      "window_id": "shift",
+      "name": "班次窗口",
+      "duration": "PT8H",
+      "alignment": "shift",
+      "shift_definition": "早班00:00-08:00, 中班08:00-16:00, 晚班16:00-24:00",
+      "description": "按煤矿三班制作业划分的时间窗口，每班8小时，适用于按班次统计的生产指标"
+    },
+    {
+      "kind": "time_window_schema",
+      "stable_id": "common.time_window.daily",
+      "version": "1.0.0",
+      "window_id": "daily",
+      "name": "日窗口",
+      "duration": "P1D",
+      "alignment": "natural",
+      "description": "按自然日划分的时间窗口，每日00:00至次日00:00，适用于日产量、日进尺等日度统计指标"
+    },
+    {
+      "kind": "time_window_schema",
+      "stable_id": "common.time_window.weekly",
+      "version": "1.0.0",
+      "window_id": "weekly",
+      "name": "周窗口",
+      "duration": "P1W",
+      "alignment": "natural",
+      "description": "按自然周划分的时间窗口，每周一至周日，适用于周度生产指标统计和趋势分析"
+    },
+    {
+      "kind": "time_window_schema",
+      "stable_id": "common.time_window.monthly",
+      "version": "1.0.0",
+      "window_id": "monthly",
+      "name": "月窗口",
+      "duration": "P1M",
+      "alignment": "natural",
+      "description": "按自然月划分的时间窗口，每月1日至月末，适用于月度生产指标统计和经营分析"
+    }
+  ]
+}

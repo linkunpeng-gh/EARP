@@ -1,0 +1,177 @@
+{
+  "schema_version": "earp-demo-catalog-rule-schemas/v1",
+  "description": "煤矿开采行业演示规则Schema定义（Catalog Rule Schema），用于因果模型中的异常判定规则",
+  "rule_schemas": [
+    {
+      "kind": "rule_schema",
+      "stable_id": "common.rule.threshold",
+      "version": "1.0.0",
+      "rule_id": "threshold",
+      "name": "阈值规则",
+      "algorithm_profile": "deterministic_threshold",
+      "description": "基于绝对值的阈值判定规则，判断指标值是否超过或低于指定阈值",
+      "params_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operator", "threshold"],
+        "properties": {
+          "operator": {
+            "type": "string",
+            "enum": [
+              "absolute_gte",
+              "absolute_gt",
+              "absolute_lte",
+              "absolute_lt",
+              "absolute_eq",
+              "absolute_neq"
+            ],
+            "description": "比较运算符：大于等于/大于/小于等于/小于/等于/不等于"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "阈值，与指标值同单位"
+          },
+          "tolerance": {
+            "type": "number",
+            "default": 0,
+            "description": "容差，在阈值±容差范围内视为临界状态"
+          }
+        }
+      }
+    },
+    {
+      "kind": "rule_schema",
+      "stable_id": "common.rule.direction_rule",
+      "version": "1.0.0",
+      "rule_id": "direction_rule",
+      "name": "方向变化规则",
+      "algorithm_profile": "relative_change_direction",
+      "description": "基于相对基线变化率的方向判定规则，判断指标相对基线的上升或下降幅度是否超过阈值",
+      "params_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operator", "threshold", "direction"],
+        "properties": {
+          "operator": {
+            "type": "string",
+            "enum": [
+              "relative_change_gte",
+              "relative_change_gt",
+              "relative_change_lte",
+              "relative_change_lt",
+              "absolute_relative_change_gte",
+              "absolute_relative_change_lt"
+            ],
+            "description": "相对变化率比较运算符"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "变化率阈值，如0.10表示10%，0.20表示20%"
+          },
+          "direction": {
+            "type": "string",
+            "enum": ["up", "down", "unchanged", "any"],
+            "description": "变化方向：上升/下降/不变/任意"
+          },
+          "baseline_source": {
+            "type": "string",
+            "enum": ["explicit_baseline", "historical_average", "previous_period"],
+            "default": "explicit_baseline",
+            "description": "基线来源：显式基线值/历史平均值/上一周期值"
+          }
+        }
+      }
+    },
+    {
+      "kind": "rule_schema",
+      "stable_id": "common.rule.predicate",
+      "version": "1.0.0",
+      "rule_id": "predicate",
+      "name": "谓词规则",
+      "algorithm_profile": "boolean_predicate",
+      "description": "通用布尔谓词规则，支持多种条件组合的逻辑判定",
+      "params_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operator", "threshold"],
+        "properties": {
+          "operator": {
+            "type": "string",
+            "enum": [
+              "absolute_gte",
+              "absolute_gt",
+              "absolute_lte",
+              "absolute_lt",
+              "absolute_eq",
+              "absolute_neq",
+              "relative_change_gte",
+              "relative_change_gt",
+              "relative_change_lte",
+              "relative_change_lt",
+              "absolute_relative_change_gte",
+              "absolute_relative_change_lt",
+              "in_range",
+              "out_of_range",
+              "is_null",
+              "is_not_null"
+            ],
+            "description": "谓词运算符"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "阈值"
+          },
+          "upper_threshold": {
+            "type": "number",
+            "description": "上阈值，用于in_range/out_of_range运算符"
+          },
+          "lower_threshold": {
+            "type": "number",
+            "description": "下阈值，用于in_range/out_of_range运算符"
+          }
+        }
+      }
+    },
+    {
+      "kind": "rule_schema",
+      "stable_id": "coal.rule.production_anomaly",
+      "version": "1.0.0",
+      "rule_id": "production_anomaly",
+      "name": "生产异常判定规则",
+      "algorithm_profile": "multi_factor_anomaly_detection",
+      "description": "煤矿生产异常综合判定规则，结合产量、设备、运输等多因素综合判断异常程度",
+      "params_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["production_drop_threshold", "anomaly_severity"],
+        "properties": {
+          "production_drop_threshold": {
+            "type": "number",
+            "default": 0.10,
+            "description": "产量下降触发阈值，默认10%"
+          },
+          "equipment_availability_threshold": {
+            "type": "number",
+            "default": 0.90,
+            "description": "设备可用率异常阈值，默认90%"
+          },
+          "cycle_time_increase_threshold": {
+            "type": "number",
+            "default": 0.20,
+            "description": "运输周期增加触发阈值，默认20%"
+          },
+          "anomaly_severity": {
+            "type": "string",
+            "enum": ["mild", "moderate", "severe", "critical"],
+            "description": "异常严重程度分级"
+          },
+          "require_consecutive_periods": {
+            "type": "integer",
+            "default": 1,
+            "description": "要求连续异常的周期数，避免单点波动误报"
+          }
+        }
+      }
+    }
+  ]
+}

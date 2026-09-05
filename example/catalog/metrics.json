@@ -1,0 +1,230 @@
+{
+  "schema_version": "earp-demo-catalog-metrics/v1",
+  "description": "煤矿开采行业演示指标定义（Catalog Metric），用于Catalog语义目录注册和因果模型证据需求引用",
+  "metrics": [
+    {
+      "kind": "metric",
+      "stable_id": "coal.raw_coal_output",
+      "version": "1.0.0",
+      "metric_id": "raw_coal_output",
+      "name": "原煤产量",
+      "data_domain_id": "production_data",
+      "semantic_schema_version": "catalog-metric/v1",
+      "description": "矿山在报告期内生产的全部煤炭数量，包括回采产量和掘进煤量，按日统计",
+      "value_semantics": {
+        "measurement_type": "cumulative_mass",
+        "unit_ref": {
+          "kind": "unit",
+          "stable_id": "common.mass.tonne",
+          "version": "1.0.0"
+        },
+        "aggregation_ref": {
+          "kind": "aggregation",
+          "stable_id": "common.aggregation.sum",
+          "version": "1.0.0"
+        },
+        "time_window_ref": {
+          "kind": "time_window_schema",
+          "stable_id": "common.time_window.daily",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "kind": "metric",
+      "stable_id": "coal.equipment_availability",
+      "version": "1.0.0",
+      "metric_id": "equipment_availability",
+      "name": "设备可用率",
+      "data_domain_id": "equipment_data",
+      "semantic_schema_version": "catalog-metric/v1",
+      "description": "设备实际可用时间与制度工作时间的比值，反映设备的可利用程度，按日统计",
+      "value_semantics": {
+        "measurement_type": "availability_ratio",
+        "unit_ref": {
+          "kind": "unit",
+          "stable_id": "common.dimension.ratio",
+          "version": "1.0.0"
+        },
+        "aggregation_ref": {
+          "kind": "aggregation",
+          "stable_id": "common.aggregation.avg",
+          "version": "1.0.0"
+        },
+        "time_window_ref": {
+          "kind": "time_window_schema",
+          "stable_id": "common.time_window.daily",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "kind": "metric",
+      "stable_id": "coal.haulage_cycle_time",
+      "version": "1.0.0",
+      "metric_id": "haulage_cycle_time",
+      "name": "矿卡运输周期",
+      "data_domain_id": "transport_data",
+      "semantic_schema_version": "catalog-metric/v1",
+      "description": "矿用卡车完成一次运输循环所需的平均时间，包括装车、重车运行、卸车、空车返回，按日平均统计",
+      "value_semantics": {
+        "measurement_type": "mean_duration",
+        "unit_ref": {
+          "kind": "unit",
+          "stable_id": "common.time.minute",
+          "version": "1.0.0"
+        },
+        "aggregation_ref": {
+          "kind": "aggregation",
+          "stable_id": "common.aggregation.avg",
+          "version": "1.0.0"
+        },
+        "time_window_ref": {
+          "kind": "time_window_schema",
+          "stable_id": "common.time_window.daily",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "kind": "metric",
+      "stable_id": "coal.haulage_queue_time",
+      "version": "1.0.0",
+      "metric_id": "haulage_queue_time",
+      "name": "装载点排队时间",
+      "data_domain_id": "transport_data",
+      "semantic_schema_version": "catalog-metric/v1",
+      "description": "矿卡到达装载点后从进入队列到开始装载的平均等待时长，按日平均统计",
+      "value_semantics": {
+        "measurement_type": "mean_duration",
+        "unit_ref": {
+          "kind": "unit",
+          "stable_id": "common.time.minute",
+          "version": "1.0.0"
+        },
+        "aggregation_ref": {
+          "kind": "aggregation",
+          "stable_id": "common.aggregation.avg",
+          "version": "1.0.0"
+        },
+        "time_window_ref": {
+          "kind": "time_window_schema",
+          "stable_id": "common.time_window.daily",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "kind": "metric",
+      "stable_id": "coal.ore_quality_index",
+      "version": "1.0.0",
+      "metric_id": "ore_quality_index",
+      "name": "原矿品位指数",
+      "data_domain_id": "production_data",
+      "semantic_schema_version": "catalog-metric/v1",
+      "description": "综合反映原煤质量的指数，包括灰分、发热量、硫分等指标的加权评分，按日平均统计",
+      "value_semantics": {
+        "measurement_type": "quality_index",
+        "unit_ref": {
+          "kind": "unit",
+          "stable_id": "common.dimension.dimensionless",
+          "version": "1.0.0"
+        },
+        "aggregation_ref": {
+          "kind": "aggregation",
+          "stable_id": "common.aggregation.avg",
+          "version": "1.0.0"
+        },
+        "time_window_ref": {
+          "kind": "time_window_schema",
+          "stable_id": "common.time_window.daily",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "kind": "metric",
+      "stable_id": "coal.heading_advance",
+      "version": "1.0.0",
+      "metric_id": "heading_advance",
+      "name": "掘进进尺",
+      "data_domain_id": "production_data",
+      "semantic_schema_version": "catalog-metric/v1",
+      "description": "掘进工作面在报告期内实际掘进的巷道长度，按日统计",
+      "value_semantics": {
+        "measurement_type": "cumulative_length",
+        "unit_ref": {
+          "kind": "unit",
+          "stable_id": "common.length.meter",
+          "version": "1.0.0"
+        },
+        "aggregation_ref": {
+          "kind": "aggregation",
+          "stable_id": "common.aggregation.sum",
+          "version": "1.0.0"
+        },
+        "time_window_ref": {
+          "kind": "time_window_schema",
+          "stable_id": "common.time_window.daily",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "kind": "metric",
+      "stable_id": "coal.gas_concentration",
+      "version": "1.0.0",
+      "metric_id": "gas_concentration",
+      "name": "瓦斯浓度",
+      "data_domain_id": "safety_data",
+      "semantic_schema_version": "catalog-metric/v1",
+      "description": "矿井空气中瓦斯（甲烷）的体积百分比浓度，安全监测系统实时监测",
+      "value_semantics": {
+        "measurement_type": "gas_volume_ratio",
+        "unit_ref": {
+          "kind": "unit",
+          "stable_id": "common.dimension.ratio",
+          "version": "1.0.0"
+        },
+        "aggregation_ref": {
+          "kind": "aggregation",
+          "stable_id": "common.aggregation.max",
+          "version": "1.0.0"
+        },
+        "time_window_ref": {
+          "kind": "time_window_schema",
+          "stable_id": "common.time_window.daily",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "kind": "metric",
+      "stable_id": "coal.air_volume",
+      "version": "1.0.0",
+      "metric_id": "air_volume",
+      "name": "风量",
+      "data_domain_id": "safety_data",
+      "semantic_schema_version": "catalog-metric/v1",
+      "description": "矿井通风系统的供风量，单位时间内通过巷道断面的空气体积",
+      "value_semantics": {
+        "measurement_type": "volume_flow_rate",
+        "unit_ref": {
+          "kind": "unit",
+          "stable_id": "common.volume.cubic_meter",
+          "version": "1.0.0"
+        },
+        "aggregation_ref": {
+          "kind": "aggregation",
+          "stable_id": "common.aggregation.avg",
+          "version": "1.0.0"
+        },
+        "time_window_ref": {
+          "kind": "time_window_schema",
+          "stable_id": "common.time_window.daily",
+          "version": "1.0.0"
+        }
+      }
+    }
+  ]
+}

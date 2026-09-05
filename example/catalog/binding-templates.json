@@ -1,0 +1,107 @@
+{
+  "schema_version": "earp-demo-catalog-binding-templates/v1",
+  "description": "煤矿开采行业演示绑定模板定义（Catalog Binding Template），用于因果模型证据需求的实体绑定",
+  "binding_templates": [
+    {
+      "kind": "binding_template",
+      "stable_id": "coal.binding.context_entity",
+      "version": "1.0.0",
+      "template_id": "context_entity",
+      "name": "上下文实体绑定",
+      "description": "直接使用诊断上下文中的目标实体作为证据查询的目标实体，适用于指标直接归属于诊断目标实体的情况",
+      "params_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expected_entity_type"],
+        "properties": {
+          "expected_entity_type": {
+            "type": "string",
+            "description": "期望的目标实体类型ID，如 mine、equipment_group 等"
+          }
+        }
+      }
+    },
+    {
+      "kind": "binding_template",
+      "stable_id": "coal.binding.outbound_relation",
+      "version": "1.0.0",
+      "template_id": "outbound_relation",
+      "name": "出向关系绑定",
+      "description": "从诊断上下文实体出发，通过指定的出向关系找到关联的目标实体，适用于指标归属于目标实体的关联子系统的情况",
+      "params_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relation_type", "target_entity_type"],
+        "properties": {
+          "relation_type": {
+            "type": "string",
+            "description": "关系类型ID，如 has_subsystem、has_equipment_group 等"
+          },
+          "target_entity_type": {
+            "type": "string",
+            "description": "目标实体类型ID，如 haulage_system、equipment_group 等"
+          },
+          "cardinality": {
+            "type": "string",
+            "enum": ["exactly_one", "one_or_many", "many"],
+            "default": "exactly_one",
+            "description": "期望的目标实体数量"
+          }
+        }
+      }
+    },
+    {
+      "kind": "binding_template",
+      "stable_id": "coal.binding.inbound_relation",
+      "version": "1.0.0",
+      "template_id": "inbound_relation",
+      "name": "入向关系绑定",
+      "description": "从诊断上下文实体出发，通过指定的入向关系找到关联的源实体，适用于指标归属于上级实体的情况",
+      "params_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relation_type", "source_entity_type"],
+        "properties": {
+          "relation_type": {
+            "type": "string",
+            "description": "关系类型ID"
+          },
+          "source_entity_type": {
+            "type": "string",
+            "description": "源实体类型ID"
+          }
+        }
+      }
+    },
+    {
+      "kind": "binding_template",
+      "stable_id": "coal.binding.multi_hop_relation",
+      "version": "1.0.0",
+      "template_id": "multi_hop_relation",
+      "name": "多跳关系绑定",
+      "description": "通过多跳关系链找到目标实体，适用于指标归属于间接关联实体的情况",
+      "params_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relation_path", "target_entity_type"],
+        "properties": {
+          "relation_path": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "relation_type": {"type": "string"},
+                "direction": {"type": "string", "enum": ["outbound", "inbound"]}
+              }
+            },
+            "description": "关系路径，按顺序执行的关系跳转列表"
+          },
+          "target_entity_type": {
+            "type": "string",
+            "description": "最终目标实体类型ID"
+          }
+        }
+      }
+    }
+  ]
+}

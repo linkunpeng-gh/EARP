@@ -1,0 +1,458 @@
+{
+  "schema_version": "causal-model-demo/v1",
+  "description": "煤矿开采行业演示因果模型——3号矿产量下降诊断。用于ECMC模型中心新建模型、编辑、校验、审核发布、编译、激活全流程演示。",
+  "model_info": {
+    "model_name": "3号矿产量下降诊断",
+    "model_type": "causal",
+    "data_domain": "production_data",
+    "target_entity_type": "mine",
+    "diagnostic_direction": "down",
+    "entry_node_key": "production_output",
+    "time_window_schema": "daily_production_window",
+    "business_description": "用于诊断3号矿日产量低于计划基线时的主要业务原因。通过分析运输周期、设备可用率、排队时间、原矿品位等因素，定位产量下降的根因。"
+  },
+  "nodes": [
+    {
+      "node_key": "production_output",
+      "business_name": "原煤产量",
+      "entity_type_catalog_ref": {
+        "kind": "entity_type",
+        "stable_id": "coal.mine",
+        "version": "1.0.0"
+      },
+      "observability": "observable",
+      "is_entry_node": true,
+      "notes": "入口节点，诊断目标。按日统计的原煤产量，单位吨。"
+    },
+    {
+      "node_key": "effective_production_capacity",
+      "business_name": "有效生产能力",
+      "entity_type_catalog_ref": {
+        "kind": "entity_type",
+        "stable_id": "coal.mine",
+        "version": "1.0.0"
+      },
+      "observability": "indirectly_observable",
+      "is_entry_node": false,
+      "notes": "中间节点。综合设备、运输等因素后的实际生产能力，无法直接测量，通过其他因素推断。"
+    },
+    {
+      "node_key": "equipment_availability",
+      "business_name": "关键设备可用率",
+      "entity_type_catalog_ref": {
+        "kind": "entity_type",
+        "stable_id": "coal.equipment_group",
+        "version": "1.0.0"
+      },
+      "observability": "observable",
+      "is_entry_node": false,
+      "notes": "原因节点。综采设备组的日可用率，设备故障、维护不及时会导致可用率下降，进而影响产量。"
+    },
+    {
+      "node_key": "haulage_cycle_time",
+      "business_name": "矿卡运输周期",
+      "entity_type_catalog_ref": {
+        "kind": "entity_type",
+        "stable_id": "coal.haulage_system",
+        "version": "1.0.0"
+      },
+      "observability": "observable",
+      "is_entry_node": false,
+      "notes": "原因节点。矿卡完成一次运输循环的平均时间，包括装车、重车运行、卸车、空车返回。周期变长意味着单位时间运输量减少。"
+    },
+    {
+      "node_key": "haulage_queue_time",
+      "business_name": "装载点排队时间",
+      "entity_type_catalog_ref": {
+        "kind": "entity_type",
+        "stable_id": "coal.haulage_system",
+        "version": "1.0.0"
+      },
+      "observability": "observable",
+      "is_entry_node": false,
+      "notes": "原因节点。矿卡到达装载点后等待装载的平均时间。排队时间增加说明运输系统存在拥堵，可能是装载机不足或装载效率下降。"
+    },
+    {
+      "node_key": "ore_quality",
+      "business_name": "原矿品位",
+      "entity_type_catalog_ref": {
+        "kind": "entity_type",
+        "stable_id": "coal.mine",
+        "version": "1.0.0"
+      },
+      "observability": "observable",
+      "is_entry_node": false,
+      "notes": "原因节点。原煤的质量指标，如灰分、发热量等。品位变化可能影响洗选回收率，但对原煤产量影响较小。"
+    }
+  ],
+  "edges": [
+    {
+      "edge_key": "edge-equipment-to-capacity",
+      "source_node_key": "equipment_availability",
+      "target_node_key": "effective_production_capacity",
+      "relation_type_catalog_ref": {
+        "kind": "relation_type",
+        "stable_id": "coal.affects_production_capacity",
+        "version": "1.0.0"
+      },
+      "effect": "+",
+      "strength": 0.85,
+      "confidence": 0.95,
+      "lag": 0,
+      "rationale": "设备可用率越高，有效生产能力越强。设备故障停机直接导致采煤工作面无法正常生产。"
+    },
+    {
+      "edge_key": "edge-cycle-to-capacity",
+      "source_node_key": "haulage_cycle_time",
+      "target_node_key": "effective_production_capacity",
+      "relation_type_catalog_ref": {
+        "kind": "relation_type",
+        "stable_id": "coal.affects_production_capacity",
+        "version": "1.0.0"
+      },
+      "effect": "-",
+      "strength": 0.90,
+      "confidence": 0.95,
+      "lag": 0,
+      "rationale": "运输周期越长，单位时间运输量越少，有效生产能力越低。运输是煤矿生产的关键瓶颈环节。"
+    },
+    {
+      "edge_key": "edge-queue-to-capacity",
+      "source_node_key": "haulage_queue_time",
+      "target_node_key": "effective_production_capacity",
+      "relation_type_catalog_ref": {
+        "kind": "relation_type",
+        "stable_id": "coal.affects_production_capacity",
+        "version": "1.0.0"
+      },
+      "effect": "-",
+      "strength": 0.80,
+      "confidence": 0.90,
+      "lag": 0,
+      "rationale": "排队时间越长，矿卡有效作业时间越少，运输效率下降，进而影响整体生产能力。"
+    },
+    {
+      "edge_key": "edge-capacity-to-output",
+      "source_node_key": "effective_production_capacity",
+      "target_node_key": "production_output",
+      "relation_type_catalog_ref": {
+        "kind": "relation_type",
+        "stable_id": "coal.determines_production_output",
+        "version": "1.0.0"
+      },
+      "effect": "+",
+      "strength": 0.95,
+      "confidence": 0.98,
+      "lag": 0,
+      "rationale": "有效生产能力直接决定原煤产量。在需求稳定的情况下，产量主要受生产能力约束。"
+    },
+    {
+      "edge_key": "edge-quality-to-output",
+      "source_node_key": "ore_quality",
+      "target_node_key": "production_output",
+      "relation_type_catalog_ref": {
+        "kind": "relation_type",
+        "stable_id": "coal.affects_production_output",
+        "version": "1.0.0"
+      },
+      "effect": "+",
+      "strength": 0.55,
+      "confidence": 0.85,
+      "lag": 0,
+      "rationale": "原矿品位对原煤产量有一定影响，但影响程度相对较小。品位变化主要影响精煤产量和洗选回收率。"
+    }
+  ],
+  "evidence_requirements": [
+    {
+      "requirement_id": "er-production-actual-and-baseline",
+      "node_key": "production_output",
+      "required": true,
+      "metric_catalog_ref": {
+        "kind": "metric",
+        "stable_id": "coal.raw_coal_output",
+        "version": "1.0.0"
+      },
+      "unit_catalog_ref": {
+        "kind": "unit",
+        "stable_id": "common.mass.tonne",
+        "version": "1.0.0"
+      },
+      "aggregation_catalog_ref": {
+        "kind": "aggregation",
+        "stable_id": "common.aggregation.sum",
+        "version": "1.0.0"
+      },
+      "time_window_catalog_ref": {
+        "kind": "time_window_schema",
+        "stable_id": "common.time_window.daily",
+        "version": "1.0.0"
+      },
+      "binding_template_ref": {
+        "kind": "binding_template",
+        "stable_id": "coal.binding.context_entity",
+        "version": "1.0.0"
+      },
+      "binding_params": {
+        "expected_entity_type": "mine"
+      },
+      "primary_capability_contract": {
+        "kind": "capability_contract",
+        "stable_id": "coal.capability.production_metric_query",
+        "version": "1.0.0"
+      },
+      "supporting_capability_contracts": [],
+      "business_description": "获取目标矿山的日原煤产量实际值和计划基线值，用于判断产量是否下降及下降幅度。"
+    },
+    {
+      "requirement_id": "er-equipment-availability",
+      "node_key": "equipment_availability",
+      "required": true,
+      "metric_catalog_ref": {
+        "kind": "metric",
+        "stable_id": "coal.equipment_availability",
+        "version": "1.0.0"
+      },
+      "unit_catalog_ref": {
+        "kind": "unit",
+        "stable_id": "common.dimension.ratio",
+        "version": "1.0.0"
+      },
+      "aggregation_catalog_ref": {
+        "kind": "aggregation",
+        "stable_id": "common.aggregation.avg",
+        "version": "1.0.0"
+      },
+      "time_window_catalog_ref": {
+        "kind": "time_window_schema",
+        "stable_id": "common.time_window.daily",
+        "version": "1.0.0"
+      },
+      "binding_template_ref": {
+        "kind": "binding_template",
+        "stable_id": "coal.binding.outbound_relation",
+        "version": "1.0.0"
+      },
+      "binding_params": {
+        "relation_type": "has_equipment_group",
+        "target_entity_type": "equipment_group"
+      },
+      "primary_capability_contract": {
+        "kind": "capability_contract",
+        "stable_id": "coal.capability.equipment_availability_query",
+        "version": "1.0.0"
+      },
+      "supporting_capability_contracts": [
+        {
+          "kind": "capability_contract",
+          "stable_id": "coal.capability.equipment_failure_log_query",
+          "version": "1.0.0"
+        }
+      ],
+      "business_description": "获取目标矿山关联的关键设备组的日可用率，用于判断设备是否是产量下降的原因。"
+    },
+    {
+      "requirement_id": "er-haulage-cycle-time",
+      "node_key": "haulage_cycle_time",
+      "required": true,
+      "metric_catalog_ref": {
+        "kind": "metric",
+        "stable_id": "coal.haulage_cycle_time",
+        "version": "1.0.0"
+      },
+      "unit_catalog_ref": {
+        "kind": "unit",
+        "stable_id": "common.time.minute",
+        "version": "1.0.0"
+      },
+      "aggregation_catalog_ref": {
+        "kind": "aggregation",
+        "stable_id": "common.aggregation.avg",
+        "version": "1.0.0"
+      },
+      "time_window_catalog_ref": {
+        "kind": "time_window_schema",
+        "stable_id": "common.time_window.daily",
+        "version": "1.0.0"
+      },
+      "binding_template_ref": {
+        "kind": "binding_template",
+        "stable_id": "coal.binding.outbound_relation",
+        "version": "1.0.0"
+      },
+      "binding_params": {
+        "relation_type": "has_subsystem",
+        "target_entity_type": "haulage_system"
+      },
+      "primary_capability_contract": {
+        "kind": "capability_contract",
+        "stable_id": "coal.capability.haulage_metric_query",
+        "version": "1.0.0"
+      },
+      "supporting_capability_contracts": [],
+      "business_description": "获取目标矿山运输系统的日平均矿卡运输周期，用于判断运输效率是否下降。"
+    },
+    {
+      "requirement_id": "er-haulage-queue-time",
+      "node_key": "haulage_queue_time",
+      "required": false,
+      "metric_catalog_ref": {
+        "kind": "metric",
+        "stable_id": "coal.haulage_queue_time",
+        "version": "1.0.0"
+      },
+      "unit_catalog_ref": {
+        "kind": "unit",
+        "stable_id": "common.time.minute",
+        "version": "1.0.0"
+      },
+      "aggregation_catalog_ref": {
+        "kind": "aggregation",
+        "stable_id": "common.aggregation.avg",
+        "version": "1.0.0"
+      },
+      "time_window_catalog_ref": {
+        "kind": "time_window_schema",
+        "stable_id": "common.time_window.daily",
+        "version": "1.0.0"
+      },
+      "binding_template_ref": {
+        "kind": "binding_template",
+        "stable_id": "coal.binding.outbound_relation",
+        "version": "1.0.0"
+      },
+      "binding_params": {
+        "relation_type": "has_subsystem",
+        "target_entity_type": "haulage_system"
+      },
+      "primary_capability_contract": {
+        "kind": "capability_contract",
+        "stable_id": "coal.capability.haulage_metric_query",
+        "version": "1.0.0"
+      },
+      "supporting_capability_contracts": [],
+      "business_description": "获取目标矿山运输系统的日平均装载点排队时间，作为运输拥堵的辅助证据。"
+    },
+    {
+      "requirement_id": "er-ore-quality",
+      "node_key": "ore_quality",
+      "required": false,
+      "metric_catalog_ref": {
+        "kind": "metric",
+        "stable_id": "coal.ore_quality_index",
+        "version": "1.0.0"
+      },
+      "unit_catalog_ref": {
+        "kind": "unit",
+        "stable_id": "common.dimension.dimensionless",
+        "version": "1.0.0"
+      },
+      "aggregation_catalog_ref": {
+        "kind": "aggregation",
+        "stable_id": "common.aggregation.avg",
+        "version": "1.0.0"
+      },
+      "time_window_catalog_ref": {
+        "kind": "time_window_schema",
+        "stable_id": "common.time_window.daily",
+        "version": "1.0.0"
+      },
+      "binding_template_ref": {
+        "kind": "binding_template",
+        "stable_id": "coal.binding.context_entity",
+        "version": "1.0.0"
+      },
+      "binding_params": {
+        "expected_entity_type": "mine"
+      },
+      "primary_capability_contract": {
+        "kind": "capability_contract",
+        "stable_id": "coal.capability.quality_metric_query",
+        "version": "1.0.0"
+      },
+      "supporting_capability_contracts": [],
+      "business_description": "获取目标矿山的日平均原矿品位，用于排除或确认质量因素对产量的影响。"
+    }
+  ],
+  "rules": [
+    {
+      "rule_key": "rule-production-drop-detection",
+      "node_key": "production_output",
+      "rule_schema_ref": {
+        "kind": "rule_schema",
+        "stable_id": "common.rule.direction_rule",
+        "version": "1.0.0"
+      },
+      "rule_params": {
+        "operator": "relative_change_lte",
+        "threshold": -0.10,
+        "direction": "down"
+      },
+      "business_description": "当日产量相对基线下降超过10%时，标记为产量下降异常。"
+    },
+    {
+      "rule_key": "rule-equipment-low-availability",
+      "node_key": "equipment_availability",
+      "rule_schema_ref": {
+        "kind": "rule_schema",
+        "stable_id": "common.rule.threshold",
+        "version": "1.0.0"
+      },
+      "rule_params": {
+        "operator": "absolute_lte",
+        "threshold": 0.90
+      },
+      "business_description": "当设备可用率低于90%时，标记为设备可用率异常，可能是产量下降的原因。"
+    },
+    {
+      "rule_key": "rule-cycle-time-increase",
+      "node_key": "haulage_cycle_time",
+      "rule_schema_ref": {
+        "kind": "rule_schema",
+        "stable_id": "common.rule.direction_rule",
+        "version": "1.0.0"
+      },
+      "rule_params": {
+        "operator": "relative_change_gte",
+        "threshold": 0.20,
+        "direction": "up"
+      },
+      "business_description": "当运输周期相对基线增加超过20%时，标记为运输周期异常，可能是产量下降的原因。"
+    },
+    {
+      "rule_key": "rule-queue-time-increase",
+      "node_key": "haulage_queue_time",
+      "rule_schema_ref": {
+        "kind": "rule_schema",
+        "stable_id": "common.rule.direction_rule",
+        "version": "1.0.0"
+      },
+      "rule_params": {
+        "operator": "relative_change_gte",
+        "threshold": 0.50,
+        "direction": "up"
+      },
+      "business_description": "当排队时间相对基线增加超过50%时，标记为排队拥堵异常，作为运输问题的佐证。"
+    },
+    {
+      "rule_key": "rule-quality-stable",
+      "node_key": "ore_quality",
+      "rule_schema_ref": {
+        "kind": "rule_schema",
+        "stable_id": "common.rule.predicate",
+        "version": "1.0.0"
+      },
+      "rule_params": {
+        "operator": "absolute_relative_change_lt",
+        "threshold": 0.05
+      },
+      "business_description": "当原矿品位相对基线变化小于5%时，认为品位稳定，可排除质量因素。"
+    }
+  ],
+  "demo_scenario": {
+    "scenario_name": "3号矿8月下旬产量下降事件",
+    "time_range": "2026-08-20 至 2026-08-31",
+    "expected_diagnosis": "运输周期变长（+50%）和设备可用率下降（至80-83%）是产量下降的主要原因，排队时间增加（+200%）进一步加剧了运输瓶颈，原矿品位基本稳定可排除。",
+    "dataset_id": "mine3-production-demo",
+    "dataset_path": "example/knowledge-center/file-dataset/"
+  }
+}

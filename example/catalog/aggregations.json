@@ -1,0 +1,70 @@
+{
+  "schema_version": "earp-demo-catalog-aggregations/v1",
+  "description": "煤矿开采行业演示聚合方式定义（Catalog Aggregation），用于Catalog语义目录注册",
+  "aggregations": [
+    {
+      "kind": "aggregation",
+      "stable_id": "common.aggregation.sum",
+      "version": "1.0.0",
+      "aggregation_id": "sum",
+      "name": "求和",
+      "formula_type": "sum",
+      "description": "对时间窗口内的所有数据点求和，适用于产量、进尺等累计型指标"
+    },
+    {
+      "kind": "aggregation",
+      "stable_id": "common.aggregation.avg",
+      "version": "1.0.0",
+      "aggregation_id": "avg",
+      "name": "平均值",
+      "formula_type": "avg",
+      "description": "对时间窗口内的所有数据点取算术平均值，适用于可用率、周期时间、温度等均值型指标"
+    },
+    {
+      "kind": "aggregation",
+      "stable_id": "common.aggregation.max",
+      "version": "1.0.0",
+      "aggregation_id": "max",
+      "name": "最大值",
+      "formula_type": "max",
+      "description": "取时间窗口内的最大值，适用于瓦斯浓度、温度等峰值监测指标"
+    },
+    {
+      "kind": "aggregation",
+      "stable_id": "common.aggregation.min",
+      "version": "1.0.0",
+      "aggregation_id": "min",
+      "name": "最小值",
+      "formula_type": "min",
+      "description": "取时间窗口内的最小值，适用于风量、水位等下限监测指标"
+    },
+    {
+      "kind": "aggregation",
+      "stable_id": "common.aggregation.count",
+      "version": "1.0.0",
+      "aggregation_id": "count",
+      "name": "计数",
+      "formula_type": "count",
+      "description": "统计时间窗口内的数据点数量，适用于故障次数、报警次数等计数型指标"
+    },
+    {
+      "kind": "aggregation",
+      "stable_id": "common.aggregation.latest",
+      "version": "1.0.0",
+      "aggregation_id": "latest",
+      "name": "最新值",
+      "formula_type": "last",
+      "description": "取时间窗口内最新的一个数据点，适用于状态型指标的当前值查询"
+    },
+    {
+      "kind": "aggregation",
+      "stable_id": "common.aggregation.p95",
+      "version": "1.0.0",
+      "aggregation_id": "p95",
+      "name": "95分位数",
+      "formula_type": "custom",
+      "custom_formula": "PERCENTILE(value, 0.95)",
+      "description": "取时间窗口内数据的95分位数，适用于排队时间等长尾分布指标的统计"
+    }
+  ]
+}
