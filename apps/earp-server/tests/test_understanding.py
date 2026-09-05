@@ -128,10 +128,13 @@ def test_extract_time(query, kind, expr, constraints) -> None:
     [
         ("报销制度是什么", Intent.FACT),
         ("设备维护标准有哪些", Intent.FACT),
+        ("3号矿有哪些运输系统", Intent.RELATION),  # 「有哪些+系统名词」→ RELATION
+        ("3号矿有哪些子系统", Intent.RELATION),
         ("CNC-01 由哪家供应商制造", Intent.RELATION),
         ("谁负责 A产线", Intent.RELATION),
         ("昨天有多少次报警", Intent.AGGREGATION),
         ("最近三个月平均故障率", Intent.AGGREGATION),
+        ("设备可用率是多少", Intent.AGGREGATION),  # 指标读数（率是多少）；「是多少」整体仍回落
     ],
 )
 def test_classify_intent_reliable_subset(query, expected) -> None:
@@ -320,6 +323,48 @@ async def test_understand_fact_document_query(migrated: str, app_url: str) -> No
     assert r.constraints == {"year": 2024}
     assert r.confidence >= 0.7  # intent+constraints+time 命中，实体/关系不相关
     assert "entities" not in r.relevant_fields
+
+
+async def test_understand_coal_domain_relation_triggers(migrated: str, app_url: str) -> None:
+    """「3号矿有哪些运输系统」→ RELATION + has_subsystem；「采煤机SL-301由谁操作」→ operated_by。
+
+    煤炭租户 TBox（mine/shearer + has_subsystem/operated_by）测试内补种——
+    名词/动词触发词必须过方向校验（D2）才产出关系。
+    """
+    from sqlalchemy import text
+
+    engine = _engine(app_url)
+    tid = "qu-t-coal"
+    await tbox_service.init_tenant_tbox(engine, tid)
+    async with engine.begin() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(
+            text(
+                "INSERT INTO entity_types (entity_type_id, tenant_id, name, kind) "
+                "VALUES ('mine', :tid, '矿井', 'object'), ('shearer', :tid, '采煤机', 'object') "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"tid": tid},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO relation_types (relation_type_id, tenant_id, name, source_type, target_type, cardinality) "
+                "VALUES ('has_subsystem', :tid, '拥有子系统', 'mine', 'transport_system,ventilation_system', '1:N'), "
+                "('operated_by', :tid, '由…操作', 'shearer', 'employee', 'N:1') "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"tid": tid},
+        )
+    await abox_service.upsert_entity(engine, tid, "mine", "3号矿")
+    await abox_service.upsert_entity(engine, tid, "shearer", "采煤机SL-301")
+
+    r = await understand(engine, tid, "3号矿有哪些运输系统？")
+    assert r.intent == Intent.RELATION
+    assert any(rel.relation == "has_subsystem" and rel.subject == "3号矿" for rel in r.relations)
+
+    r2 = await understand(engine, tid, "采煤机SL-301由谁操作？")
+    assert r2.intent == Intent.RELATION
+    assert any(rel.relation == "operated_by" and rel.subject == "采煤机SL-301" for rel in r2.relations)
 
 
 async def test_understand_coreference_resolution(migrated: str, app_url: str) -> None:

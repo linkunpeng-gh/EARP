@@ -264,6 +264,10 @@ _INTENT_KEYWORDS: dict[Intent, list[str]] = {
         "几台",
         "几次",
         "频率",
+        # 指标读数句式（"设备可用率是多少"）——「是多少」不能整体入 AGGREGATION：
+        # 内置基线「设备报警阈值是多少」是 ATTRIBUTE 回落（FALLBACK，§17），
+        # 只有比率类指标后缀才聚合（故障率/开机率/达标率同式）。
+        "率是多少",
         "哪个最多",
         "哪个最少",
     ],
@@ -484,6 +488,12 @@ def _entity_relevant(query: str, context: dict | None) -> bool:
 # ── Task 4: intent 分类（§5.4/QP-14，D3）──────────────────────────────────────
 
 
+# 「有哪些 + 系统名词」结构化对象列举 → RELATION（"3号矿有哪些运输系统"）。
+# 「有哪些」不能整体入 RELATION 关键词——内置基线「设备维护标准有哪些」是文档
+# 列举（FACT，§17），仅在无关键词命中且后接系统类名词时补判（见 _classify_intent）。
+_LISTED_SYSTEM_RE = re.compile(r"有哪些[\u4e00-\u9fff]{0,6}系统")
+
+
 def _classify_intent(query: str) -> tuple[Intent | None, list[Intent]]:
     """关键词匹配 → 可靠子集 intent；多候选返回候选列表（ambiguity_penalty）。
 
@@ -495,6 +505,11 @@ def _classify_intent(query: str) -> tuple[Intent | None, list[Intent]]:
     for intent, kws in _INTENT_KEYWORDS.items():
         if any(kw in query for kw in kws):
             hits.append(intent)
+    if not hits and _LISTED_SYSTEM_RE.search(query):
+        # 「有哪些 + 系统名词」结构化对象列举 → RELATION（"3号矿有哪些运输系统"）。
+        # 「有哪些」不能整体入 RELATION 关键词——内置基线「设备维护标准有哪些」
+        # 是文档列举（FACT，§17），仅在无关键词命中且后接系统类名词时补判。
+        hits.append(Intent.RELATION)
     if not hits:
         return None, []
     chosen = min(hits, key=lambda i: _INTENT_AMBIGUITY_ORDER.index(i))
@@ -509,7 +524,15 @@ def _classify_intent(query: str) -> tuple[Intent | None, list[Intent]]:
 # 关系源（CNC-01 由谁制造 → CNC-01 是 subject）。“谁负责 A产线”等主动疑问
 # （实体在 target 侧）一期不提取（subject 未命中，Phase C plan_relation 范畴）。
 # 长短语在前（dict 保序）——「供应商生产」先于「生产」匹配，避免误映射 produces。
+# 「子系统/运输系统…」是目标类型名词触发（mine 作 subject 时方向校验才放行），
+# 不用「有哪些」整体触发——否则「设备维护标准有哪些」等文档问句会误标 relations 相关。
 _VERB_TO_RELATION: dict[str, str] = {
+    "由谁操作": "operated_by",
+    "谁操作": "operated_by",
+    "子系统": "has_subsystem",
+    "运输系统": "has_subsystem",
+    "通风系统": "has_subsystem",
+    "安全监控系统": "has_subsystem",
     "由谁制造": "manufactured_by",
     "供应商生产": "manufactured_by",
     "哪家供应商": "manufactured_by",
