@@ -115,6 +115,13 @@
 // Each KB / Data Domain has its OWN history; switching scope shows that scope's.
 var HISTORY_KEY = 'earp_search_history_v2';  // v2: map of scopeKey -> history[]
 var MAX_HISTORY = 50;
+// 顶层输出转义（含引号，兼容属性与文本上下文）——各渲染函数共用；
+// doRouteDebug 内的同名局部定义移除，避免遮蔽与不一致。
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
 
 function scopeKey(scope) { return scope.type + ':' + scope.value; }
 function currentScopeKey() { var s = getScope(); return s.value ? scopeKey(s) : ''; }
@@ -165,7 +172,7 @@ async function loadScopeKBs() {
     kbState.kbs = kbs;
     var sel = document.getElementById('scope-kb');
     sel.innerHTML = kbs.map(function(k) {
-      return '<option value="' + k.knowledge_base_id + '">' + k.name + ' (' + k.knowledge_base_id + ')</option>';
+      return '<option value="' + esc(k.knowledge_base_id) + '">' + esc(k.name) + ' (' + esc(k.knowledge_base_id) + ')</option>';
     }).join('');
     var params = new URLSearchParams(location.search);
     if (params.get('kb')) sel.value = params.get('kb');
@@ -179,7 +186,7 @@ async function loadScopeDDs() {
     var dds = await EARP.fetchJSON('/api/data-domains');
     var sel = document.getElementById('scope-dd');
     sel.innerHTML = dds.map(function(dd) {
-      return '<option value="' + dd.data_domain_id + '">' + dd.name + ' (' + dd.data_domain_id + ')</option>';
+      return '<option value="' + esc(dd.data_domain_id) + '">' + esc(dd.name) + ' (' + esc(dd.data_domain_id) + ')</option>';
     }).join('');
     var params = new URLSearchParams(location.search);
     if (params.get('dd')) sel.value = params.get('dd');
@@ -341,7 +348,7 @@ function doSearch() {
     recordSearch(q, scope, items ? items.length : 0);
   }).catch(function(err) {
     if (mySeq !== searchSeq) return; // 过期请求的错误也丢弃
-    container.innerHTML = '<div class="result-card"><div class="result-card-body" style="color:var(--red)">Failed: ' + err.message + '</div></div>';
+    container.innerHTML = '<div class="result-card"><div class="result-card-body" style="color:var(--red)">Failed: ' + esc(err.message) + '</div></div>';
   });
 }
 
@@ -361,7 +368,7 @@ function renderHistory() {
   list.innerHTML = arr.map(function(h, i) {
     var timeStr = new Date(h.time).toLocaleTimeString();
     return '<div class="history-item" onclick="replaySearch(' + i + ')" style="cursor:pointer;padding:0.35rem 0.4rem;border-radius:4px;margin-bottom:2px">'
-      + '<div style="font-size:0.81rem;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + h.query + '</div>'
+      + '<div style="font-size:0.81rem;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(h.query) + '</div>'
       + '<div style="font-size:0.69rem;color:var(--text-quaternary);display:flex;gap:0.5rem">'
         + '<span>' + h.results + ' results</span>'
         + '<span>' + timeStr + '</span>'
@@ -422,7 +429,6 @@ function doRouteDebug() {
   var mySeq = ++debugSeq;
   var panel = document.getElementById('routing-debug-panel');
   var body = document.getElementById('routing-debug-body');
-  var esc = function(s) { return String(s == null ? '' : s).replace(/[&<>]/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); };
   panel.style.display = '';
   body.innerHTML = '路由中...';
   EARP.fetchJSON('/knowledge/routing/debug', {

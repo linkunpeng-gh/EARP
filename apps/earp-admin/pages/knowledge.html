@@ -92,7 +92,7 @@ async function loadDDFilter() {
     var sel = document.getElementById('dd-filter');
     sel.innerHTML = '<option value="">All Data Domains</option>'
       + dds.map(function(dd) {
-        return '<option value="' + dd.data_domain_id + '">' + (dd.name || dd.data_domain_id) + '</option>';
+        return '<option value="' + esc(dd.data_domain_id) + '">' + esc(dd.name || dd.data_domain_id) + '</option>';
       }).join('');
   } catch (err) { /* keep defaults */ }
 }
@@ -117,7 +117,7 @@ async function loadKBs() {
       else selectKB(state.selectedKB);  // auto-expand workspace for ?kb=xxx
     }
   } catch (err) {
-    document.getElementById('kb-list').innerHTML = '<p style="font-size:0.75rem;color:var(--red);padding:0.5rem">Failed: ' + err.message + '</p>';
+    document.getElementById('kb-list').innerHTML = '<p style="font-size:0.75rem;color:var(--red);padding:0.5rem">Failed: ' + esc(err.message) + '</p>';
   }
 }
 

@@ -176,7 +176,7 @@ async function deleteConfig(id) {
 function showAddModal() {
   var sel = document.getElementById('add-provider');
   sel.innerHTML = state.providers.map(function(p) {
-    return '<option value="' + p.provider + '">' + p.name + ' (' + p.provider + ')</option>';
+    return '<option value="' + esc(p.provider) + '">' + esc(p.name) + ' (' + esc(p.provider) + ')</option>';
   }).join('');
   document.getElementById('add-type').value = 'llm';
   document.getElementById('add-name').value = '';

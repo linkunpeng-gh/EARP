@@ -69,7 +69,7 @@ async function loadDds() {
     ddState.domains = await EARP.fetchJSON('/api/data-domains');
     renderDdList();
   } catch (err) {
-    document.getElementById('dd-list').innerHTML = '<p style="font-size:0.75rem;color:var(--red);padding:0.5rem">Failed: ' + err.message + '</p>';
+    document.getElementById('dd-list').innerHTML = '<p style="font-size:0.75rem;color:var(--red);padding:0.5rem">Failed: ' + esc(err.message) + '</p>';
   }
 }
 

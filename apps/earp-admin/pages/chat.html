@@ -44,7 +44,7 @@ async function loadApps() {
       .filter(function (a) { return a.orchestration !== 'flow'; }); // Chatflow 已独立到 chatflow.html
   } catch (err) {
     document.getElementById('chat-grid').innerHTML +=
-      '<p class="kb-empty" style="grid-column:1/-1">加载失败: ' + err.message + '</p>';
+      '<p class="kb-empty" style="grid-column:1/-1">加载失败: ' + esc(err.message) + '</p>';
     return;
   }
   renderApps();
