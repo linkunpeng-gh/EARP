@@ -1,9 +1,9 @@
 # EARP 知识资产管理 — FDE 使用说明
 
-- 版本: v1.2
-- 日期: 2026-08-24
+- 版本: v1.4
+- 日期: 2026-09-04
 - 适用对象: FDE（一线部署/实施工程师）——负责为客户搭建和运营 EARP 知识资产
-- 适用范围: 实体管理 / 批量导入 / 图谱探索 / 知识检索（含三层检索与引用溯源）/ 评估管理（跑分）/ 中台对接（M3）/ Chatflow flow 编排（F 系列）/ 能力中心与通用执行器（§15.6）
+- 适用范围: 实体管理 / 批量导入 / 图谱探索 / 知识检索（含三层检索与引用溯源）/ 评估管理（跑分）/ 中台对接（M3）/ 文件场景数据集（§12.4）/ Chatflow flow 编排（F 系列）/ 能力中心与通用执行器（§15.6）/ Catalog Phase 1（§16）
 - 前置: 服务已启动（API :8000）、Ollama embedding 可达、已通过 `pages/login.html` 登录获取 token
 
 ---
@@ -27,15 +27,17 @@
 | **评估集（eval set）** | 一组「问题 + 期望答案」的标注用例，系统逐条跑分衡量检索/理解/规划质量 | 考卷 + 标准答案 |
 | **跑分（eval run）** | 把评估集全部用例跑一遍，输出各指标通过率 + 逐条明细，对照门槛判 ✅/❌ | 交卷出分 |
 | **中台对接**（M3） | 企业数据自动流入知识库：synced（拷贝主数据副本）/ virtual（指标实时直连）——见 §12 操作、§14 原理 | 自来水管 + 实时行情 |
+| **文件场景数据集** | 一个 manifest 加多个 CSV：发布时可导入演示所需实体/关系，运行时按模型契约提供时序证据——见 §12.4 | 可复现的“业务场景压缩包” |
 | **Enrichment**（M3） | 夜间自动维护：档案重编 + 过期事实清理 + 时间线回填 + 热度报告——见 §13 | 夜间保洁员 |
 | **能力**（capability） | 给一个可复用动作（取数/LLM 生成/检索）起名 + 配权限 + 声明执行方式，Chatflow「能力调用」节点按名字调用——见 §15.6 | 定制的快捷指令 |
 | **执行方式**（execution） | 能力注册时声明的"怎么执行"：走哪个 adapter（白名单 6 选 1）+ 固定参数（如走哪条连接） | 菜谱里的"做法" |
+| **Catalog（语义目录）** | 受控语义资产的引用登记、组合、签署和运行时校验；不编辑原始语义 | 已盖章的业务词典索引 |
 
 **关键认知**：
 1. **实体/事实与文档是两套知识**——实体图谱回答"谁、属于谁、由谁供应"（结构化）；文档（KB）回答"标准是什么、流程怎么走"（非结构化）。检索时两者融合。
 2. **先有实体+事实，才有图谱和档案**——`KB 传文档不会生成实体`；实体必须通过「实体管理/导入」或**中台对接（§12）**录入。
 3. **权限贯穿**——实体按数据域归属，你的角色看不到无权限域的实体/文档。
-4. **中台对接不是强制**——没中台照常用 CSV 导入（§2）；中台来了只是多一条更自动的路。
+4. **中台对接不是强制**——没中台可用 CSV 批量导入（§2），也可用文件场景数据集跑通因果模型（§12.4）；中台来了只是多一条自动化路径。
 
 ---
 
@@ -695,6 +697,112 @@ GET /v1/ontology/data-sources/{id}       # 详情
 - 取数实时经 connector 调用中台 API（查询参数 `business_code`）；失败返回 503（不假造值）。
 - 中台侧最小契约：GET 端点 + 按业务编码查询 + JSON 响应（裸数组或 `{data:[...]}`）+ 响应 ≤30s。
 
+### 12.4 文件场景数据集：无中台时跑通因果模型
+
+> 适用：售前演示、实施早期联调、模型回归测试。它不替代中台 Connector；它把一个可复现的
+> 场景包作为运行时 Provider，让模型按原有 Evidence Requirement 取数。
+>
+> 页面入口：知识中心 → **中台对接** → **文件场景数据集**。上传、从目录暂存和发布均需
+> **Admin**；同租户内有查看权限的人员可查看列表和校验报告。
+
+**先选对方式：**
+
+| 需求 | 用什么 |
+|---|---|
+| 仅把设备、供应商、关系等主数据一次导入知识图谱 | §2 的 `entities.csv` / `facts.csv` 批量导入 |
+| 要带时序指标、baseline，并实际执行因果模型的 Acquire / Evaluate | 本节的文件场景数据集 |
+| 已有稳定 API 或数仓，准备长期生产运行 | §12.1 的中台 Connector |
+
+#### 12.4.1 准备场景包
+
+最小包由一个 `manifest.yaml` 和一个或多个 CSV 构成。manifest 的 `dataset.id` 是运行时传入的
+`dataset_id`；每个 Provider 绑定一个已存在的 Capability Contract，并把模型的
+`requirement_key` 映射到 value、baseline 与单位列。
+
+```yaml
+schema_version: earp-file-dataset/v1
+dataset:
+  id: mine-production-demo
+  name: 3 号矿产量演示
+providers:
+  - provider_key: file-production-v1
+    capability_contract_ref: production_metric_query
+    file: production.csv
+    entity_column: entity_id
+    time_column: observed_at
+    requirements:
+      production_actual_and_baseline:
+        value_column: value
+        baseline_column: baseline
+        unit: t
+```
+
+```csv
+entity_id,observed_at,value,baseline
+mine-3,2026-08-28T01:00:00+08:00,4200,5000
+mine-3,2026-08-28T13:00:00+08:00,4000,5000
+```
+
+- CSV 必须是 UTF-8 / UTF-8-BOM；时间使用带时区的 ISO-8601；`baseline` 必须显式提供。
+- 文件名只填包内文件名，不能使用绝对路径、`../` 或符号链接。不要上传 Excel、Parquet，
+  也不要依赖跨文件 join 或公式。
+- 需要演示实体关系时，在 manifest 添加 `entities`、`relations` 映射并同时上传对应 CSV；
+  参考完整契约 [文件场景数据集说明](/Users/linkunpeng/work/EARP/arch/guides/earp-file-dataset.md)。
+
+#### 12.4.2 上传、检查和发布
+
+1. 打开“文件场景数据集”，选择 manifest，再**同时选择所有被引用的 CSV**，点“上传并校验”。
+2. 系统创建 `staged` revision，显示数据集 ID、内容哈希、Provider 数量及校验报告。
+3. 检查 warning 明细。坏行会显示文件名、行号和原因；若仍有可用 Provider 数据，可修复后重传，
+   或确认 warning 的业务影响后发布。缺文件、manifest 结构错误、未绑定任何可用 Provider 或
+   安全错误不能发布。
+4. 点“发布最新暂存版本”。发布会将有效的场景实体/关系导入共享 ABox，实体按“类型 +
+   business_code”复用，绝不覆盖已有业务数据；数据集更新也不会自动删除旧 ABox 数据。
+
+开发机已准备目录时，可将包放到服务端 `EARP_FILE_DATA_ROOT` 下的相对目录，并由 Admin 调用：
+
+```text
+POST /v1/file-datasets/from-directory
+{ "relative_path": "demos/mine-production" }
+```
+
+目录方式同样会先进入 `staged`，仍必须经过校验和发布；不能传服务器任意绝对路径。
+
+#### 12.4.3 在因果规划中选择数据集
+
+调用因果模型规划入口时显式传 `dataset_id`：
+
+```json
+POST /v1/ecmc/planning/entry
+{
+  "text": "为什么 3 号矿产量下降？",
+  "dataset_id": "mine-production-demo"
+}
+```
+
+规划只能选择当前租户已发布的数据集。返回中的
+`execution_profile.file_dataset` 会包含本次实际使用的 `content_hash` 和 manifest 快照；后续
+Prepare/运行必须原样传递这个 pin。即使稍后发布同一数据集的新 CSV，已开始运行、审计记录和
+回放仍使用原来的内容哈希。
+
+运行时 File Provider 以目标实体和 `[start, end)` 过滤 CSV，按 Evidence Requirement 所声明的
+`sum` / `mean` / `min` / `max` / `latest` 分别聚合 value 与 baseline。没有匹配数据时会返回
+`DATA_UNAVAILABLE`（required/optional 仍按模型原契约处理）；文件被删改、哈希不一致或解析失败
+则是基础设施失败，不会编造结果。
+
+#### 12.4.4 排障速查
+
+| 现象 | 原因与处理 |
+|---|---|
+| 上传被拒绝，提示缺文件/列映射/未知 requirement | manifest 与实际 CSV 不一致；核对每个 `file`、表头、Capability Contract 和模型 Evidence Requirement |
+| 只有 warning，能否发布 | 可以，前提是还有可用 Provider 数据；先查看行号和原因，确认不会影响本次演示的实体和时间窗 |
+| 规划报“数据集未发布或不可见” | 用 Admin 完成发布；确认 `dataset_id` 拼写正确且在当前租户 |
+| 运行得到 `DATA_UNAVAILABLE` | 核对 target entity ID、带时区时间、`[start,end)` 边界、数值列和 baseline 列是否都有有效值 |
+| 运行报基础设施失败 | 检查发布后的文件是否仍在受控根目录，且内容未被人工修改；重新上传并发布以生成新哈希 |
+
+> 详细 manifest 字段、实体/关系映射和 API 形状见
+> [文件场景数据集说明](/Users/linkunpeng/work/EARP/arch/guides/earp-file-dataset.md)。
+
 ## 13. Enrichment 夜间任务（自动维护，M3）
 
 知识库的"夜间保洁"——scheduler 进程每 `EARP_ENRICHMENT_INTERVAL_SECONDS`（默认 3600s）自动执行，也可手动：
@@ -1123,3 +1231,51 @@ curl -s -X POST http://localhost:8000/api/v1/chat-apps/<app_id>/chat \
 - 吊销即时生效（status=revoked 后所有调用 401）；按环境隔离、按应用拆分
 - 应用删除会级联吊销其全部密钥（FK ON DELETE CASCADE）
 - 一期不做：SDK 包、webhook/消息平台绑定（企业微信/钉钉等接入层）、密钥轮换/过期策略、按密钥限流（可后接 TokenBucket）
+
+---
+
+## 16. Catalog Phase 1（语义目录）
+
+### 16.1 Catalog 是什么，FDE 需要做什么
+
+Catalog 是 EARP 的“受控业务词典索引”。它管理可执行语义的**精确引用**：对象类型（kind）、稳定 ID、版本和内容 hash；不在 Catalog 中第二次编辑指标、单位或绑定模板的业务定义。
+
+FDE 的工作是：确认客户的权威源系统和业务 owner，登记已经发布的精确引用，把引用组合成 Pack，并在签署后使 Manifest 生效。若业务定义需要修改，应回到权威源系统发布新版本，再在 Catalog 中登记新引用。
+
+不要在 Catalog 或 ECMC 中手填 `latest`、通配版本、SQL、接口地址、Provider 参数或凭据。
+
+### 16.2 本期可使用的页面
+
+进入左侧 **知识中心 → 目录管理**：
+
+| 页面 | 用途 | 本期人工验证重点 |
+|---|---|---|
+| Catalog 治理 | 查看引用，登记引用，创建 Pack，生成 Manifest 预览，激活已签署 Manifest，查看审批 | 核心治理闭环 |
+| 项目配置 | 创建并查看 Profile；Profile 只描述范围、数据域和治理角色 | 角色与数据域边界 |
+| 指标管理 | 查看 Catalog 运行摘要、同步记录和运行时指标 | 观测信息展示 |
+| 基础配置 | 查看单位、聚合方式、时间窗口和规则模式的接入状态 | 明确语义由权威源维护 |
+| 绑定模板 | 查看绑定模板接入状态 | 明确模板由权威源维护 |
+
+### 16.3 一条完整业务路径
+
+1. 在**权威源系统**确认对象已经发布，记录其 kind、stable ID 和精确版本。
+2. 在 **Catalog 治理 → 引用注册** 输入来源系统、kind、stable ID、版本。系统自行读取 canonical input 并复算 hash；FDE 不填写 hash。
+3. 在 **Pack 管理**创建草稿，把已注册引用加入草稿，提交发布申请；由不同用户的 Pack owner 审批并履约发布。
+4. 在 **项目配置**创建目标 Profile，配置行业范围、企业范围、一个数据域和治理角色。
+5. 在 **Manifest 管理**选择已发布 Pack 生成预览，检查条目、层级组合和 hash。
+6. 获得外部签署的 attestation 后，激活 Manifest。激活后 Resolver 才会向 ECMC 等调用方返回该 Profile 中的精确引用。
+
+撤销引用要填写原因；恢复历史 Manifest 内容必须走 rollback，生成更高的新 revision，不能修改历史 revision。
+
+### 16.4 当前测试边界与注意事项
+
+当前 Phase 1 已完成 Mock/Test Adapter 下的端到端闭环。人工验证阶段可以验证页面、权限、审批、Pack、Manifest、Resolver 和错误提示。
+
+以下内容尚未具备生产条件，页面出现 `readiness HOLD`、空态或“API 尚未就绪”属于**预期结果**，不是缺陷：真实源系统 Adapter、真实 webhook 密钥和调度器、真实 Pack hash、真实 JQMK 初始引用、业务 owner 确认，以及源驱动的指标/基础配置/绑定模板列表。
+
+因此，测试记录必须标注环境：
+
+- **Mock/Test 验收通过**：证明产品闭环和防护逻辑可工作；
+- **生产接入待验证**：必须等真实源系统、真实 owner 和真实签署材料就绪后执行，不能以 Mock 结果替代。
+
+详细的 Catalog 操作说明见 [ECMC FDE 使用指南](/Users/linkunpeng/work/EARP/arch/guides/earp-ecmc-guide.md)，逐项测试步骤见 [Catalog Phase 1 人工验证测试方案](/Users/linkunpeng/work/EARP/arch/acceptance/2026-09-03-catalog-phase1-fde-manual-test-plan.md)。

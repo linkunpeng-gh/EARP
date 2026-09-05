@@ -1,9 +1,9 @@
 # EARP 企业认知模型中心（ECMC）— FDE 使用指南
 
-- 版本：v1.1
-- 日期：2026-09-01
+- 版本：v1.2
+- 日期：2026-09-03
 - 适用对象：FDE（一线部署/实施工程师）、交付测试、客户侧模型管理员
-- 当前范围：因果模型管理、版本治理、校验、审核发布、编译、显式激活、目录扩展申请
+- 当前范围：因果模型管理、版本治理、校验、审核发布、编译、显式激活、Catalog Phase 1 引用治理、目录扩展申请
 - 不在当前范围：决策模型、任务模型、诊断结果 UI、真实 Provider/凭据/endpoint 配置
 - 前置条件：EARP Admin 与 API 已启动，用户已登录，并已获得相应租户、数据域和 ECMC 权限
 
@@ -154,8 +154,9 @@ ECMC 不内置固定“建模者”“审核者”角色，而是使用既有 RB
 | `ecmc.causal_model.compile` | 发起或重试编译 |
 | `ecmc.causal_model.activate` | 激活指定 Candidate Artifact |
 | `ecmc.catalog.read` | 浏览受控目录 |
-| `ecmc.catalog.request` | 创建或取消目录扩展申请 |
-| `ecmc.catalog.approve` | 批准、驳回申请或重试履约 |
+| `ecmc.catalog.request` | 创建/刷新/撤销 Catalog 引用，创建 Pack 草稿与提交发布申请，也用于目录扩展申请 |
+| `ecmc.catalog.approve` | 批准、驳回申请或执行 Pack 发布履约 |
+| `ecmc.catalog.manifest.publish` | 生成 Manifest 预览、激活、撤销和回滚 Manifest |
 | `ecmc.causal_model.audit.read` | 查看治理和 Artifact 信息 |
 
 权限同时受以下边界约束：
@@ -176,7 +177,7 @@ ECMC 不内置固定“建模者”“审核者”角色，而是使用既有 RB
 
 ---
 
-## 3. 当前 Catalog 前置条件
+## 3. Catalog（语义目录）与 ECMC
 
 因果模型中的实体类型、关系类型、指标、单位、聚合、时间窗口、绑定模板、规则 Schema 和 Capability Contract 都是**可执行语义**，必须从受控 Catalog 选择。
 
@@ -189,33 +190,27 @@ ECMC 不内置固定“建模者”“审核者”角色，而是使用既有 RB
 - 任意 stable ID、`latest` 或 `*` 版本；
 - 自由执行 DSL。
 
-### 3.1 当前签署状态
+### 3.1 本期能力和正确使用方式
 
-当前 N01A 已实现 CatalogResolver interface、fake adapter、contract test 和 CatalogChangeRequest，但**生产 Catalog browse/search API 与 manifest owner 尚未签署**。
+Catalog Phase 1 已提供引用注册、三层 Pack、Profile、Manifest、Resolver、基础权限/审计及 5 个页面的 Mock/Test 闭环。FDE 可从 **知识中心 → 目录管理 → Catalog 治理** 完成以下操作：
 
-因此：
+1. 只用“来源系统 + kind + stable ID + 精确版本”注册权威源对象；Catalog 服务端复算 hash，页面不接收或展示可编辑的 canonical input。
+2. 创建 platform、industry 或 enterprise 层的 Pack 草稿，只加入已经注册的精确引用；提交发布申请后由 Pack owner 审批和履约。
+3. 创建 Profile，限定行业范围、企业范围、单一数据域和治理角色；Profile 不定义业务语义。
+4. 用已发布 Pack 生成 Manifest 预览；只有外部签署的 attestation 校验通过后才能激活。
+5. 使用已激活 Manifest 的 Profile 解析模型所需引用；未注册、已撤销、hash 漂移或不在当前 Manifest 中的引用会被拒绝。
 
-- 正式页面默认不伪造 Catalog 数据；
-- 没有生产 adapter 时，依赖 Catalog 的创建操作会禁用并说明原因；
-- 已保存的 CatalogRef 可以只读展示；
-- FDE 不得在生产环境启用 Case A Fixture；
-- 真实 Provider、endpoint 和凭据仍属于后续 N03。
+Catalog 不是第二个指标、单位或绑定模板编辑器。业务含义变更必须在权威源系统发布新版本，再登记新的精确引用。
 
-### 3.2 test-only 演示模式
+Catalog 的 5 个页面是：**Catalog 治理**（核心操作）、**项目配置**（Profile）、**指标管理**（运行摘要）、**基础配置**（单位/聚合/时间窗口/规则模式）和**绑定模板**。后面三个页面在真实源列表 API 未接入时会显示明确空态，不应被当作功能缺失或允许本地新建语义的入口。
 
-本地开发或集成测试可在 URL 上显式增加：
+### 3.2 当前人工验证与生产边界
 
-```text
-?catalog=fake
-```
+人工验证阶段允许在明确隔离的测试环境使用已部署的 Mock/Test Adapter；它用于验证 UI、权限、审批、Pack、Manifest 和 Resolver 的闭环。测试报告必须写明“Mock/Test 验收”，不能宣称已完成生产源接入。
 
-例如：
+下列生产依赖尚未就绪：真实 Source Adapter、pull/webhook 调度和密钥、真实 Pack version/content hash、真实 JQMK 初始引用、业务 owner/RACI，以及源驱动的指标/基础配置/绑定模板列表。它们未就绪时，页面展示 readiness HOLD、空态或禁用新建按钮是预期保护行为；FDE 不应通过 Fixture、自由 stable ID 或直接写库绕过。
 
-```text
-pages/ecmc-models.html?type=causal&catalog=fake
-```
-
-该模式只加载 Case A 的 test-only Catalog，用于界面合成和合同测试。它不是生产数据源，禁止用于客户生产建模、正式 HTTP composition、N02 Discovery 或 Provider 接入。
+详细的测试步骤、测试角色与通过标准见 [Catalog Phase 1 人工验证测试方案](/Users/linkunpeng/work/EARP/arch/acceptance/2026-09-03-catalog-phase1-fde-manual-test-plan.md)。
 
 ### 3.3 为什么煤矿和金融看到的 Catalog 不一样
 
@@ -833,7 +828,7 @@ approved_pending_fulfillment → fulfillment_failed → retry → approved_pendi
 - reject 必须填写原因；
 - 申请人只能取消自己的 draft/submitted 申请。
 
-当前生产 Catalog browse 合同未签署时，页面会禁用提交并明确提示。FDE 不应通过自由 ID 或 Fixture 绕过该限制。
+在本次人工验证环境中，目录扩展申请、审批和履约入口可以验证既有状态机；但真实源系统尚未接入时，申请不会自动变成可生产使用的 Catalog 引用。只有权威源对象已发布、被 Catalog 注册，并且 Resolver 能在已激活 Manifest 中解析到该精确引用，申请才可视为 `fulfilled`。FDE 不应通过自由 ID、Fixture 或直接写库绕过该限制。
 
 ### 12.3 目录申请示例
 
@@ -879,7 +874,7 @@ contract：http://10.0.0.8/query?sql=...
 | `INVALID_RETRY_PARENT` | retry 指向其他 Version 或非 failed Attempt | 使用同一 Version 的精确 failed Attempt ID |
 | `ACTIVE_VERSION_CHANGED` | active pointer 被其他用户更新 | 刷新指针，重新人工确认 |
 | `IDEMPOTENCY_KEY_REUSE` | 同一 key 被用于不同业务请求 | 重新发起一次新的业务操作 |
-| 新建按钮不可用 | 生产 Catalog browse API 未签署 | 等待 Catalog 合同/adapter；仅本地可用 fake |
+| Catalog 页面显示 readiness HOLD 或新建按钮不可用 | 所需真实源列表 API、真实 Adapter 或生产配置尚未接入 | 在 Mock/Test 环境按人工测试方案验证核心闭环；生产环境等待真实源接入，不使用 Fixture 绕过 |
 | 编译失败后旧模型仍在运行 | 正常的 last-known-good 行为 | 修复候选后创建新的 Compile Attempt |
 | 发布后诊断仍使用旧模型 | 尚未激活 | 编译成功后显式激活指定 Artifact |
 
@@ -1005,6 +1000,7 @@ pages/ecmc-models.html?type=causal&catalog=fake
 - [ ] 不存在自由 stable ID、SQL、endpoint、Provider、credential 或自由 DSL 输入。
 - [ ] 未履约申请不能进入模型选择器。
 - [ ] 生产无 Catalog adapter 时不回退 Case A Fixture。
+- [ ] Catalog 的 Profile、引用、Pack、Manifest、Resolver、权限和撤销场景按 [Catalog Phase 1 人工验证测试方案](/Users/linkunpeng/work/EARP/arch/acceptance/2026-09-03-catalog-phase1-fde-manual-test-plan.md) 单独记录结果。
 
 ---
 

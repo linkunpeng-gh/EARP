@@ -559,6 +559,54 @@ MUST: output_mapping 声明输出字段映射，保证 Planner 生成的 Step �
       可直接作为节点观测值参与归因计算
 ```
 
+#### 3.1.4A 文件场景数据集与 File Provider（实现补充）
+
+> **目标**：在尚未接入业务系统、演示验证或回归测试时，以受控文件包提供
+> 运行时证据；它是 `Capability Contract` 的一个 Provider 实现，**不是**因果模型
+> 的字段，也不是把 CSV 中的观测值固化到模型快照。
+
+```
+Evidence Requirement
+  → Capability Contract
+  → File Provider（由本次运行选择的数据集解析）
+  → EvidenceObservation
+```
+
+**选择与固定规则：**
+
+- 调用 Planner entry 时可显式传入 `dataset_id`。该 ID 仅属于本次运行的
+  execution profile，不改变 CausalModel、Blueprint 或 Evidence Requirement 的快照。
+- 数据集有 `staged → published` 生命周期；只有已发布版本可用于规划。默认解析该
+  `dataset_id` 的最新发布版本，并在规划时把实际 `content_hash` 与 manifest 快照固定到
+  `Prepare`、PlanFragment 和运行 trace。之后上传/发布新版本不得改变历史审计或 replay 输入。
+- File Provider 以 `provider_key + capability_contract_ref` 绑定现有能力契约；其
+  `requirement_key` 必须指向模型已声明的 Evidence Requirement。运行时按目标实体和
+  `[start, end)` 时间窗口读取时序行，使用 Requirement 已声明的聚合方法分别聚合
+  `value` 与显式 `baseline`（`sum` / `mean` / `min` / `max` / `latest`）。一期不从
+  历史数据自动推导 baseline。
+
+**场景包与 ABox：**
+
+- manifest 规范为 `earp-file-dataset/v1`；一期只接受 UTF-8 或 UTF-8-BOM CSV。
+  一个包可含多个 Provider，并可选携带 `entities.csv`、`relations.csv` 及其列映射，
+  从而让演示场景一次具备实例、结构关系和观测明细。
+- 发布时有效实体、关系导入当前租户共享 ABox。实体按“实体类型 + business_code”复用，
+  不覆盖已有业务数据；关系目标无法解析、类型冲突或 CSV 坏行跳过并记录 warning。不会因
+  数据集更新而删除或回滚租户既有 ABox。
+- manifest 结构错误、缺少被引用文件、没有任何可用 Provider、越权文件名或安全校验失败
+  必须阻止暂存/发布；单行数据错误只要仍有可用数据则可带 warning 发布。
+
+**运行失败语义与安全边界：**
+
+- 无匹配行或所有匹配行无效，Provider 返回 `DATA_UNAVAILABLE`，继续沿既有
+  required/optional Evidence 语义处理；文件缺失、内容哈希不一致或解析失败属于基础设施
+  失败，禁止伪造观测结果。
+- 服务只可从 `EARP_FILE_DATA_ROOT` 读取；上传内容保存于租户隔离、内容哈希寻址的目录。
+  禁止绝对路径、目录穿越和符号链接，并限制文件数量、单文件大小与总大小。数据集写操作
+  仅 Admin，元数据和发布版本按租户隔离。
+- 该 Connector 基座可供后续决策模型复用；一期只接入因果运行链路。完整 manifest 与 API
+  操作见 `arch/guides/earp-file-dataset.md`，FDE 使用步骤见 `arch/guides/earp-fde-user-guide.md` §12.4。
+
 #### 3.1.5 TBox causal 命名空间（修订 P1-3）
 
 现状：`relation_types` 表（migration 0008）无 namespace 字段，status 仅

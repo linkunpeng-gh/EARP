@@ -258,6 +258,29 @@ MUST: EARP 不重复建设数据整理（ETL / 数仓 / 指标计算归数据中
 MUST: 无中台场景兜底——CSV / 文件导入（extracted / synced）仍支持
 ```
 
+### 4.6.1 文件场景数据集（因果运行时 Provider）
+
+```
+定位：文件场景数据集不是通用 ETL 或新的模型字段；它为尚未接入中台的
+      演示、联调、回归场景提供受控的 Capability Provider。
+
+MUST: 模型只声明 Evidence Requirement → Capability Contract；运行以 dataset_id
+      选择 File Provider，不把 CSV 观测值写入 CausalModel / Blueprint 快照
+MUST: 数据集状态为 staged / published；仅 published 可运行。规划时固定实际
+      content_hash 与 manifest 快照，Prepare、PlanFragment、trace 和 replay 均使用该 pin
+MUST: File Provider 按 target entity 与 [start,end) 过滤时序 CSV，以 Requirement 声明的
+      聚合规则分别计算 value / 显式 baseline；无数据返回 DATA_UNAVAILABLE，文件完整性或
+      解析故障属于基础设施失败
+MUST: 场景包可选导入实体、结构关系到共享 ABox；按实体类型 + business_code 幂等复用，
+      不覆盖/不删除已有 ABox 数据
+MUST: 仅接受 earp-file-dataset/v1 的 UTF-8(/BOM) CSV，受 EARP_FILE_DATA_ROOT、
+      租户隔离、路径/符号链接校验及文件大小限制保护；写入/发布仅 Admin
+SHOULD: File Connector 契约可被后续决策模型复用；一期仅接入因果运行链路
+```
+
+完整字段和 FDE 操作见 `arch/guides/earp-file-dataset.md` 及
+`arch/guides/earp-fde-user-guide.md` §12.4。
+
 ---
 
 # 第五章：Semantic Index
