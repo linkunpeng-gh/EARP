@@ -837,6 +837,17 @@ async def acquire_observation(
         None,
     )
     if provider is None:
+        # 可选未绑定需求：规划期解析为 unbound_optional（provider_key=None）。与 fixture
+        # 适配器（runtime.py，文档明确 DATA_UNAVAILABLE 只返回不抛错）一致，以业务终态
+        # 返回而非抛基础设施错误——否则被 connector 当作 connection 错误重试，整轮失败。
+        if input_.get("provider_resolution_status") == "unbound_optional" or provider_key is None:
+            return _unavailable(
+                input_,
+                provider_key,
+                dataset_id,
+                content_hash,
+                "no file provider binding for optional requirement",
+            )
         raise FileDatasetInfrastructureError("pinned file provider binding is unavailable")
     requirement_key = _required_string(input_.get("requirement_key"), "requirement_key")
     mapping = provider["requirements"].get(requirement_key)

@@ -9,6 +9,7 @@ import pytest
 from earp_server.capability.resolution import FileDatasetCapabilityResolver
 from earp_server.file_dataset import (
     FileDatasetError,
+    FileDatasetInfrastructureError,
     acquire_observation,
     parse_manifest,
     validate_package,
@@ -183,3 +184,108 @@ async def test_file_provider_filters_half_open_window_and_aggregates_sum(
     assert observation["baseline_value"] == 34
     assert observation["quality"]["matched_rows"] == 2
     assert observation["provenance"]["dataset_content_hash"] == "a" * 64
+
+
+@pytest.mark.asyncio
+async def test_optional_unbound_requirement_returns_data_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """可选未绑定需求（unbound_optional / provider_key=None）应以 DATA_UNAVAILABLE
+    业务终态返回，而非抛 FileDatasetInfrastructureError（后者会被 connector 当作
+    connection 错误重试，导致整轮失败；fixture 适配器对同输入返回 DATA_UNAVAILABLE）。
+    """
+    content = b"entity_id,observed_at,value,baseline\nmine-3,2026-08-28T00:00:00+08:00,10,12\n"
+    base = tmp_path / "tenant-demo" / "mine-demo" / ("a" * 64)
+    base.mkdir(parents=True)
+    (base / "production.csv").write_bytes(content)
+
+    async def snapshot(*_args, **_kwargs):
+        return {
+            "dataset_id": "mine-demo",
+            "content_hash": "a" * 64,
+            "manifest": _manifest(),
+            "files": [
+                {
+                    "name": "production.csv",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                    "size": len(content),
+                }
+            ],
+            "storage_relpath": str(Path("tenant-demo") / "mine-demo" / ("a" * 64)),
+        }
+
+    monkeypatch.setattr("earp_server.file_dataset.published_snapshot", snapshot)
+    # 可选未绑定：status=unbound_optional 且 provider_key 不在 pinned manifest 中
+    result = await acquire_observation(
+        object(),  # type: ignore[arg-type]
+        "tenant-demo",
+        tmp_path,
+        {
+            "prepare_id": "prepare-1",
+            "requirement_id": "req-optional",
+            "source_requirement_id": "source-optional",
+            "requirement_key": "opt_metric",
+            "node_key": "opt_output",
+            "requirement_level": "optional",
+            "capability_contract_ref": "some_optional_contract",
+            "provider_key": None,
+            "provider_resolution_status": "unbound_optional",
+            "target": {"entity_id": "mine-3", "entity_type": "mine"},
+            "time_window": {"start": "2026-08-28T00:00:00+08:00", "end": "2026-08-29T00:00:00+08:00"},
+            "file_dataset": {"dataset_id": "mine-demo", "content_hash": "a" * 64},
+        },
+    )
+    assert result["terminal_state"] == "business"
+    assert result["task_status"] == "completed"
+    assert result["observation"]["status"] == "DATA_UNAVAILABLE"
+    assert result["observation"]["provenance"]["dataset_content_hash"] == "a" * 64
+
+
+@pytest.mark.asyncio
+async def test_required_missing_provider_still_raises_infrastructure_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """修复边界：非可选（provider_key 已给定、status 非 unbound_optional）但 provider 不在
+    pinned manifest 中——即 pinned 绑定缺失/漂移——仍应抛基础设施错误（不吞成 DATA_UNAVAILABLE）。
+    """
+    content = b"entity_id,observed_at,value,baseline\nmine-3,2026-08-28T00:00:00+08:00,10,12\n"
+    base = tmp_path / "tenant-demo" / "mine-demo" / ("a" * 64)
+    base.mkdir(parents=True)
+    (base / "production.csv").write_bytes(content)
+
+    async def snapshot(*_args, **_kwargs):
+        return {
+            "dataset_id": "mine-demo",
+            "content_hash": "a" * 64,
+            "manifest": _manifest(),
+            "files": [
+                {
+                    "name": "production.csv",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                    "size": len(content),
+                }
+            ],
+            "storage_relpath": str(Path("tenant-demo") / "mine-demo" / ("a" * 64)),
+        }
+
+    monkeypatch.setattr("earp_server.file_dataset.published_snapshot", snapshot)
+    with pytest.raises(FileDatasetInfrastructureError, match="pinned file provider binding"):
+        await acquire_observation(
+            object(),  # type: ignore[arg-type]
+            "tenant-demo",
+            tmp_path,
+            {
+                "prepare_id": "prepare-1",
+                "requirement_id": "req-req",
+                "source_requirement_id": "source-req",
+                "requirement_key": "required_metric",
+                "node_key": "req_output",
+                "requirement_level": "required",
+                "capability_contract_ref": "ghost_contract",
+                "provider_key": "ghost-provider",
+                "provider_resolution_status": "bound",
+                "target": {"entity_id": "mine-3", "entity_type": "mine"},
+                "time_window": {"start": "2026-08-28T00:00:00+08:00", "end": "2026-08-29T00:00:00+08:00"},
+                "file_dataset": {"dataset_id": "mine-demo", "content_hash": "a" * 64},
+            },
+        )
