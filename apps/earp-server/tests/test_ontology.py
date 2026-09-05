@@ -279,3 +279,40 @@ async def test_get_entity_deprecated_viewable(app_engine: AsyncEngine) -> None:
     # 检索路径仍排除 deprecated（lookup_entities）
     hits = await abox_service.lookup_entities(app_engine, "ont-t9", "CNC-D2")
     assert hits == []
+
+
+async def test_upsert_entity_domain_follows_type(app_engine: AsyncEngine) -> None:
+    """2026-09（设计 2026-09-04 §4.4）：实例数据域以所属类型为唯一事实——
+    省略自动取类型域；显式一致放行；显式不一致拒绝；merge-update 顺带纠正历史不一致。"""
+    await tbox_service.init_tenant_tbox(app_engine, "ont-t10")
+
+    # 省略 → 自动取类型域（equipment → equipment_data）
+    e1 = await abox_service.upsert_entity(app_engine, "ont-t10", "equipment", "CNC-01", business_code="CNC-01")
+    assert (await abox_service.get_entity(app_engine, "ont-t10", e1["entity_id"]))["data_domain_id"] == "equipment_data"
+
+    # 显式传一致 → 放行
+    e2 = await abox_service.upsert_entity(
+        app_engine, "ont-t10", "equipment", "CNC-02", business_code="CNC-02", data_domain_id="equipment_data"
+    )
+    assert (await abox_service.get_entity(app_engine, "ont-t10", e2["entity_id"]))["data_domain_id"] == "equipment_data"
+
+    # 显式不一致 → fail-fast 拒绝（不静默覆盖）
+    with pytest.raises(ValueError, match="不一致"):
+        await abox_service.upsert_entity(
+            app_engine, "ont-t10", "equipment", "X", business_code="CNC-03", data_domain_id="finance_data"
+        )
+    # 类型未配置域 + 显式传值 → 拒绝
+    await tbox_service.create_entity_type(app_engine, "ont-t10", "plain_type", "无域类型")
+    with pytest.raises(ValueError, match="不一致"):
+        await abox_service.upsert_entity(
+            app_engine, "ont-t10", "plain_type", "P1", business_code="P1", data_domain_id="equipment_data"
+        )
+
+    # merge-update 路径：历史不一致（手工置错域）在下一次 upsert 时纠正为类型域
+    async with tenant_session(app_engine, "ont-t10") as s:
+        await s.execute(
+            text("UPDATE entities SET data_domain_id = 'finance_data' WHERE entity_id = :e"), {"e": e1["entity_id"]}
+        )
+    assert (await abox_service.get_entity(app_engine, "ont-t10", e1["entity_id"]))["data_domain_id"] == "finance_data"
+    await abox_service.upsert_entity(app_engine, "ont-t10", "equipment", "CNC-01 更名", business_code="CNC-01")
+    assert (await abox_service.get_entity(app_engine, "ont-t10", e1["entity_id"]))["data_domain_id"] == "equipment_data"

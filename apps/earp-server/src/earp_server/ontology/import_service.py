@@ -23,13 +23,15 @@ from earp_server.ontology import abox_service, connector_service, data_adapter, 
 logger = logging.getLogger(__name__)
 
 # 模板（含说明头注释 + 示例行）——下载后 Excel 可直接编辑
+# 2026-09：数据域不再出现在模板——实例数据域以所属实体类型为准（设计 2026-09-04 §4.4）
 ENTITIES_TEMPLATE = """# EARP 实体导入模板（entities.csv）
-# 列: entity_type_id, name, business_code, data_domain_id, attributes(JSON)
+# 列: entity_type_id, name, business_code, attributes(JSON)
 # entity_type_id 必须是已注册类型（如 equipment/supplier/plant/employee...，见 GET /v1/ontology/entity-types）
 # business_code 必填：业务编码，作为 facts 引用的锚点（同类型内唯一）
-# data_domain_id 必须已存在；attributes 可选，JSON 对象
-equipment,CNC-01,CNC-01,equipment_data,{"model":"XK-500"}
-supplier,上海某精机,SUP-001,equipment_data,
+# attributes 可选，JSON 对象；数据域无需填写——自动取所属实体类型的数据域
+# 兼容：旧模板若含 data_domain_id 列，将校验其与类型数据域一致（不一致报行错）
+equipment,CNC-01,CNC-01,{"model":"XK-500"}
+supplier,上海某精机,SUP-001,
 """
 
 FACTS_TEMPLATE = """# EARP 事实导入模板（facts.csv）
@@ -57,16 +59,24 @@ def parse_csv_rows(content: str) -> list[tuple[int, list[str]]]:
     return rows
 
 
-async def _load_tbox(engine: AsyncEngine, tenant_id: str) -> tuple[dict, dict, set[str], dict]:
-    """TBox (entity_types kind / relation_types src+tgt sets) + DD ids + existing
-    business_code → {entity_id, entity_type_id} map, for validation."""
+async def _load_tbox(engine: AsyncEngine, tenant_id: str) -> tuple[dict, dict, set[str], dict, dict]:
+    """TBox (entity_types kind + data_domain_id / relation_types src+tgt sets) + DD ids +
+    existing business_code → {entity_id, entity_type_id} map, for validation.
+    """
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
         et = await conn.execute(
-            text("SELECT entity_type_id, kind FROM entity_types WHERE tenant_id = :tid AND status = 'active'"),
+            text(
+                "SELECT entity_type_id, kind, data_domain_id FROM entity_types "
+                "WHERE tenant_id = :tid AND status = 'active'"
+            ),
             {"tid": tenant_id},
         )
-        entity_types = {r.entity_type_id: r.kind for r in et}
+        entity_types = {}
+        type_dd = {}
+        for r in et:  # 结果集只迭代一次（kind 与 data_domain_id 同源）
+            entity_types[r.entity_type_id] = r.kind
+            type_dd[r.entity_type_id] = r.data_domain_id
         rt = await conn.execute(
             text(
                 "SELECT relation_type_id, source_type, target_type FROM relation_types "
@@ -89,27 +99,34 @@ async def _load_tbox(engine: AsyncEngine, tenant_id: str) -> tuple[dict, dict, s
             {"tid": tenant_id},
         )
         existing = {r.business_code: {"entity_id": r.entity_id, "entity_type_id": r.entity_type_id} for r in ec}
-        return entity_types, relation_types, dd_ids, existing
+        return entity_types, relation_types, dd_ids, existing, type_dd
+
+
+def _looks_json_object(raw: str) -> bool:
+    """新格式第 4 列（attributes JSON 对象）判据；旧格式第 4 列是 data_domain_id（非 JSON）。"""
+    s = raw.strip()
+    return s.startswith("{") and s.endswith("}")
 
 
 def _validate_entities(
     rows: list[tuple[int, list[str]]],
     entity_types: dict,
     dd_ids: set[str],
-) -> tuple[list[tuple[int, list[str], dict]], list[dict]]:
-    valid: list[tuple[int, list[str], dict]] = []
+    type_dd: dict,
+) -> tuple[list[tuple[int, str, str, str, dict]], list[dict]]:
+    """实体行校验。2026-09 起数据域以类型为准（设计 2026-09-04 §4.4/D7）：
+    - 新格式：列 = entity_type_id,name,business_code[,attributes(JSON)]——无域列；
+    - 旧格式兼容：第 4 列 data_domain_id（非 JSON）——校验存在且 == 类型域，不一致报行错。
+    返回 valid: (row_no, entity_type_id, name, business_code, attributes)。
+    """
+    valid: list[tuple[int, str, str, str, dict]] = []
     errors: list[dict] = []
     seen: set[tuple[str, str]] = set()
     for row_no, cells in rows:
-        if len(cells) < 4:
-            errors.append(
-                {
-                    "row": row_no,
-                    "reason": "列数不足（需要 entity_type_id,name,business_code,data_domain_id[,attributes]）",
-                }
-            )
+        if len(cells) < 3:
+            errors.append({"row": row_no, "reason": "列数不足（需要 entity_type_id,name,business_code[,attributes]）"})
             continue
-        et, name, code, dd = cells[0], cells[1], cells[2], cells[3]
+        et, name, code = cells[0], cells[1], cells[2]
         if et not in entity_types:
             errors.append({"row": row_no, "reason": f"实体类型不存在: {et}"})
             continue
@@ -119,11 +136,32 @@ def _validate_entities(
         if not name or not code:
             errors.append({"row": row_no, "reason": "name/business_code 不能为空"})
             continue
-        if dd not in dd_ids:
-            errors.append({"row": row_no, "reason": f"数据域不存在: {dd}"})
-            continue
+        # 域列解析：第 4 列是 attributes JSON → 新格式（无域）；否则旧格式 data_domain_id；空列 → 无域无 attrs
+        dd: str | None = None
+        attrs_raw = ""
+        rest = cells[3:]
+        if rest and rest[0].strip():
+            if _looks_json_object(rest[0]):
+                attrs_raw = rest[0]
+            else:
+                dd = rest[0]
+                if len(rest) > 1:
+                    attrs_raw = rest[1]
+        if dd is not None:
+            if dd not in dd_ids:
+                errors.append({"row": row_no, "reason": f"数据域不存在: {dd}"})
+                continue
+            type_dd_v = type_dd.get(et)
+            if type_dd_v != dd:
+                errors.append(
+                    {
+                        "row": row_no,
+                        "reason": f"数据域 {dd} 与实体类型 {et} 的数据域不一致（应为 {type_dd_v or '类型未配置'}）"
+                        f"——数据域以类型为准，请删除该列",
+                    }
+                )
+                continue
         attrs: dict = {}
-        attrs_raw = cells[4] if len(cells) > 4 else ""
         if attrs_raw.strip():
             try:
                 parsed = json.loads(attrs_raw)  # Any——run-time 防御性 isinstance 检查
@@ -138,7 +176,7 @@ def _validate_entities(
             errors.append({"row": row_no, "reason": f"business_code 重复（同类型内）: {code}"})
             continue
         seen.add(key)
-        valid.append((row_no, cells, attrs))
+        valid.append((row_no, et, name, code, attrs))
     return valid, errors
 
 
@@ -206,7 +244,7 @@ async def import_abox(
 
     Returns {"dry_run", "entities": {total, ok, errors}, "facts": {...}}。
     """
-    entity_types, relation_types, dd_ids, existing = await _load_tbox(engine, tenant_id)
+    entity_types, relation_types, dd_ids, existing, type_dd = await _load_tbox(engine, tenant_id)
     entity_map: dict = {code: dict(v) for code, v in existing.items()}
 
     ent_result = {"total": 0, "ok": 0, "errors": []}
@@ -215,14 +253,14 @@ async def import_abox(
     # ── entities ──
     if entities_csv and entities_csv.strip():
         rows = parse_csv_rows(entities_csv)
-        valid_ents, ent_errors = _validate_entities(rows, entity_types, dd_ids)
+        valid_ents, ent_errors = _validate_entities(rows, entity_types, dd_ids, type_dd)
         ent_result = {"total": len(rows), "ok": len(valid_ents), "errors": ent_errors}
         if dry_run:
-            for _, cells, _ in valid_ents:
-                entity_map[cells[2]] = {"entity_id": None, "entity_type_id": cells[0]}
+            for _, _et, _name, code, _attrs in valid_ents:
+                entity_map[code] = {"entity_id": None, "entity_type_id": _et}
         else:
-            for _, cells, attrs in valid_ents:
-                et, name, code, dd = cells[0], cells[1], cells[2], cells[3]
+            for _, et, name, code, attrs in valid_ents:
+                # 2026-09：不再传 data_domain_id——实例域以所属类型为准（upsert_entity 对齐）
                 ent = await abox_service.upsert_entity(
                     engine,
                     tenant_id,
@@ -230,7 +268,6 @@ async def import_abox(
                     name,
                     business_code=code,
                     attributes=attrs,
-                    data_domain_id=dd,
                 )
                 entity_map[code] = {"entity_id": ent["entity_id"], "entity_type_id": et}
 
@@ -449,10 +486,8 @@ async def sync_from_connector(
 
     rows = await data_adapter.fetch(cfg, params)
 
-    # TBox 上下文：实体类型 DD（属性继承）+ 关系目标类型（目标实体创建用）
-    types = await tbox_service.list_entity_types(engine, tenant_id)
-    et = next((t for t in types if t["entity_type_id"] == ds["entity_type_id"]), {})
-    dd_id = et.get("data_domain_id")
+    # TBox 上下文：关系目标类型（目标实体创建用）——2026-09 起实例域由 upsert_entity
+    # 按各自类型自动对齐（设计 2026-09-04 §4.4/修正③），同步不再显式传域
     rels = {r["relation_type_id"]: r for r in await tbox_service.list_relation_types(engine, tenant_id)}
 
     fm = ds["field_mapping"]
@@ -477,7 +512,6 @@ async def sync_from_connector(
                 attributes=attrs,
                 source_mode="synced",
                 source_ref=data_source_id,
-                data_domain_id=dd_id,
             )
             if ent["merged"]:
                 merged += 1
@@ -503,7 +537,6 @@ async def sync_from_connector(
                         business_code=str(target_code),
                         source_mode="synced",
                         source_ref=data_source_id,
-                        data_domain_id=dd_id,
                     )
                     target = tgt
                 if await _fact_exists(engine, tenant_id, ent["entity_id"], rel["relation_type"], target["entity_id"]):

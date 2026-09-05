@@ -105,7 +105,7 @@ async def _purge(migration_url: str, ids: list[str]) -> None:
 
 async def _seed_tenant(engine, migration_url: str, tid: str) -> None:
     """DDs + role + KBs + a doc per KB (titles carry the eval keywords)."""
-    await _purge(migration_url, ["finance_data", "equipment_data", "hr_data"])
+    await _purge(migration_url, ["finance_data", "equipment_data", "hr_data", "supply_chain_data"])
     async with tenant_session(engine, tid) as session:
         await session.execute(
             text(
@@ -113,7 +113,8 @@ async def _seed_tenant(engine, migration_url: str, tid: str) -> None:
                 "VALUES "
                 "('finance_data', :tid, '财务数据', '财务制度、报销与成本管理', 'internal', 'active'), "
                 "('equipment_data', :tid, '设备数据', '设备运行、报警与维护', 'internal', 'active'), "
-                "('hr_data', :tid, '人力资源', '员工、休假与公司政策', 'internal', 'active') "
+                "('hr_data', :tid, '人力资源', '员工、休假与公司政策', 'internal', 'active'), "
+                "('supply_chain_data', :tid, '供应链数据', '供应商', 'internal', 'active') "
                 "ON CONFLICT DO NOTHING"
             ),
             {"tid": tid},
@@ -124,7 +125,7 @@ async def _seed_tenant(engine, migration_url: str, tid: str) -> None:
                 "VALUES (:rid, :tid, 'routing-tester', '{}', 'all', "
                 '\'[{"data_domain_id": "finance_data"}, '
                 '{"data_domain_id": "equipment_data"}, '
-                '{"data_domain_id": "hr_data"}]\') '
+                '{"data_domain_id": "hr_data"}, {"data_domain_id": "supply_chain_data"}]\') '
                 "ON CONFLICT DO NOTHING"
             ),
             {"rid": "r-all", "tid": tid},
@@ -177,10 +178,10 @@ async def test_build_index_idempotent_and_locality(migrated: str, app_url: str, 
     await _seed_tenant(engine, migrated, tid)
 
     stats1 = await build_routing_index(engine, tid)
-    assert stats1["dds_rebuilt"] == 3 and stats1["kbs_rebuilt"] == 4, stats1
+    assert stats1["dds_rebuilt"] == 4 and stats1["kbs_rebuilt"] == 4, stats1  # +supply_chain_data(2026-09)
     # idempotent: same aggregate text → skipped (no embedding calls)
     stats2 = await build_routing_index(engine, tid)
-    assert stats2["dds_skipped"] == 3 and stats2["kbs_skipped"] == 4, stats2
+    assert stats2["dds_skipped"] == 4 and stats2["kbs_skipped"] == 4, stats2
 
     # locality: uploading a doc must not change DD embeddings (title-free DDs)
     async with tenant_session(engine, tid) as session:
@@ -479,9 +480,7 @@ async def test_route_debug_ontology_layers(migrated: str, app_url: str, monkeypa
     await build_routing_index(engine, tid)
     # 补实体图谱：CNC-01 —manufactured_by→ 上海某精机（equipment_data 域）
     await tbox_service.init_tenant_tbox(engine, tid)
-    sup = await abox_service.upsert_entity(
-        engine, tid, "supplier", "上海某精机", business_code="SUP-D", data_domain_id="equipment_data"
-    )
+    sup = await abox_service.upsert_entity(engine, tid, "supplier", "上海某精机", business_code="SUP-D")
     equip = await abox_service.upsert_entity(
         engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
     )

@@ -31,10 +31,28 @@ async def upsert_entity(
 ) -> dict:
     """Idempotent upsert keyed by (tenant, entity_type, business_code) when code given;
     otherwise keyed by entity_id. business_code NULL → always insert new entity.
+
+    2026-09 一致性（arch/design/2026-09-04-entity-type-data-domain-change-design.md §4.4）：
+    实例数据域以**所属类型的 data_domain_id** 为唯一事实——省略自动取类型域；
+    显式传入与类型不一致 → fail-fast（不静默覆盖）。merge-update 路径同规则
+    （顺带纠正历史不一致实例）。
     """
     eid = entity_id or f"ent-{uuid.uuid4().hex[:12]}"
     async with engine.connect() as conn:
         await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        # 类型域（一致性事实源）：同连接查询，避免开额外连接
+        trow = await conn.execute(
+            text("SELECT data_domain_id FROM entity_types WHERE entity_type_id = :et AND tenant_id = :tid"),
+            {"et": entity_type_id, "tid": tenant_id},
+        )
+        tr = trow.fetchone()
+        type_dd: str | None = tr.data_domain_id if tr is not None else None
+        if data_domain_id is not None and data_domain_id != type_dd:
+            raise ValueError(
+                f"数据域 {data_domain_id} 与实体类型 {entity_type_id} 的数据域不一致"
+                f"（{type_dd or '未配置'}）——数据域以类型为准，请省略该字段"
+            )
+        dd = type_dd
         if business_code:
             # find existing row by (entity_type, business_code) and merge
             existing = await conn.execute(
@@ -51,10 +69,10 @@ async def upsert_entity(
                 await conn.execute(
                     text(
                         "UPDATE entities SET name = :name, attributes = :attrs, "
-                        "data_domain_id = COALESCE(:dd, data_domain_id), updated_at = now() "
+                        "data_domain_id = :dd, updated_at = now() "
                         "WHERE entity_id = :eid"
                     ),
-                    {"name": name, "attrs": json.dumps(attributes or {}), "dd": data_domain_id, "eid": eid},
+                    {"name": name, "attrs": json.dumps(attributes or {}), "dd": dd, "eid": eid},
                 )
                 await conn.commit()
                 # tech-debt #11：merge 写时失效（实体变更 → profile 重编译）+ timeline
@@ -85,7 +103,7 @@ async def upsert_entity(
                 "attrs": json.dumps(attributes or {}),
                 "sm": source_mode,
                 "ref": source_ref,
-                "dd": data_domain_id,
+                "dd": dd,
             },
         )
         await conn.commit()

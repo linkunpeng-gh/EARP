@@ -70,7 +70,8 @@ async def _seed_scene(engine: AsyncEngine, tid: str, suffix: str = "") -> dict:
                 "INSERT INTO data_domains (data_domain_id, tenant_id, name, description, "
                 "data_classification, status) "
                 "VALUES ('equipment_data', :tid, '设备数据', '设备报警维护', 'internal', 'active'), "
-                "('finance_data', :tid, '财务数据', '财务制度报销', 'internal', 'active') "
+                "('finance_data', :tid, '财务数据', '财务制度报销', 'internal', 'active'), "
+                "('supply_chain_data', :tid, '供应链数据', '供应商', 'internal', 'active') "
                 "ON CONFLICT DO NOTHING"
             ),
             {"tid": tid},
@@ -79,7 +80,7 @@ async def _seed_scene(engine: AsyncEngine, tid: str, suffix: str = "") -> dict:
             text(
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
                 "VALUES (:rid, :tid, 'plan-all', '{}', 'all', "
-                '\'[{"data_domain_id": "equipment_data"}, {"data_domain_id": "finance_data"}]\') '
+                '\'[{"data_domain_id": "equipment_data"}, {"data_domain_id": "finance_data"}, {"data_domain_id": "supply_chain_data"}]\') '  # noqa: E501 — 授权 JSON 单行（SQL 内嵌）
                 "ON CONFLICT DO NOTHING"
             ),
             {"rid": role_all, "tid": tid},
@@ -105,9 +106,7 @@ async def _seed_scene(engine: AsyncEngine, tid: str, suffix: str = "") -> dict:
     await embed_chunks(engine, tid, chunk_ids_all)
     await build_routing_index(engine, tid)
 
-    sup = await abox_service.upsert_entity(
-        engine, tid, "supplier", "上海某精机", business_code="SUP-1", data_domain_id="equipment_data"
-    )
+    sup = await abox_service.upsert_entity(engine, tid, "supplier", "上海某精机", business_code="SUP-1")
     equip = await abox_service.upsert_entity(
         engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
     )

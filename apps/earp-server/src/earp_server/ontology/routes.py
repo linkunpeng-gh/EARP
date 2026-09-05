@@ -614,16 +614,21 @@ async def submit_tbox_change(req_body: TboxChangeIn, req: Request) -> dict:
 
 @router.get("/tbox/changes")
 async def list_tbox_changes(req: Request, status: str | None = None) -> list[dict]:
-    """变更请求列表；每项附 can_approve（tech-debt #9 审批人角色门禁，前端据此
-    隐藏/显示审批按钮——不向客户端泄露角色权限明细）。"""
+    """变更请求列表；每项附审批能力（tech-debt #9/#12，前端据此渲染操作列）：
+    can_approve（有门禁权限且非自己提交——提交者不能自审，与 approve 403 语义一致）、
+    can_reject（门禁权限；提交者可拒绝/撤回自己的请求）、own（是否自己提交）。
+    不向客户端泄露角色权限明细。"""
     from earp_server.policy.roles_service import check_permission
 
     engine = req.app.state.engine
     tid = req.state.tenant_id
     changes = await tbox_service.list_changes(engine, tid, status=status)
-    can_approve = await check_permission(engine, tid, req.state.role_id, "tbox.approve")
+    gate = await check_permission(engine, tid, req.state.role_id, "tbox.approve")
     for c in changes:
-        c["can_approve"] = can_approve
+        own = c["requested_by"] == req.state.user_id
+        c["own"] = own
+        c["can_approve"] = gate and not own
+        c["can_reject"] = gate
     return changes
 
 
@@ -648,7 +653,12 @@ async def approve_tbox_change(change_id: str, req: Request) -> dict:
         req.state.tenant_id,
         req.state.user_id,
         change_id,
-        {"status": result["status"]},
+        {
+            "status": result["status"],
+            "domain_from": result.get("domain_from"),
+            "domain_to": result.get("domain_to"),
+            "entity_count": result.get("entity_count"),
+        },
     )
     return result
 

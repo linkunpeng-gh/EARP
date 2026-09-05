@@ -23,7 +23,14 @@ const EARP = {
     const attempt = async (base) => {
       const res = await fetch(base + url, { headers: this.headers(), ...opts });
       if (!res.ok) {
-        const err = new Error(res.status === 401 ? '401 未授权 — 请先通过 pages/login.html 登录获取 token' : `${res.status} ${res.statusText}`);
+        // 附带服务端 detail（403/409 等业务错误原因），避免只看到 "403 Forbidden" 无从排查
+        let extra = '';
+        try {
+          const j = await res.json();
+          const d = j && (j.detail !== undefined ? j.detail : j.error);
+          if (typeof d === 'string' && d) extra = ' — ' + d;
+        } catch (_) { /* 非 JSON 错误体 — 用默认文案 */ }
+        const err = new Error(res.status === 401 ? '401 未授权 — 请先通过 pages/login.html 登录获取 token' : `${res.status} ${res.statusText}` + extra);
         err.status = res.status;
         throw err;
       }

@@ -121,6 +121,21 @@
   </div>
 </div>
 
+<!-- 数据域迁移模态（2026-09：类型改域走审批流，设计 2026-09-04） -->
+<div id="dd-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100">
+  <div style="max-width:460px;margin:10vh auto;background:var(--bg-panel);border-radius:10px;padding:18px">
+    <h3 style="margin:0 0 12px">迁移数据域</h3>
+    <div id="dd-meta" style="font-size:0.78rem;color:var(--text-tertiary);margin-bottom:10px"></div>
+    <label style="display:block;font-size:0.78rem;margin-bottom:8px">新数据域 *
+      <select id="dd-new" style="display:block;width:100%;margin-top:4px"></select></label>
+    <div style="font-size:0.72rem;color:var(--text-quaternary);margin-bottom:6px">提交后需其他用户审批；审批通过后该类型名下实体将随迁至新数据域（已合并记录除外）。</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button onclick="document.getElementById('dd-modal').style.display='none'">取消</button>
+      <button id="dd-save-btn" onclick="saveDomainChange()" style="background:var(--green);color:#fff">提交审批</button>
+    </div>
+  </div>
+</div>
+
 </main>
 <script src="../js/nav.js"></script>
 <script src="../js/app.js"></script>
@@ -145,6 +160,35 @@ async function init() {
   loadRt();
 }
 
+// ── 数据域迁移（2026-09：类型改域走审批流，设计 2026-09-04）──────────────────
+var DD_TARGET = { id: '', name: '' };
+
+function showDomainModal(t) {
+  DD_TARGET = { id: t.entity_type_id, name: t.name };
+  document.getElementById('dd-meta').textContent =
+    t.entity_type_id + ' · ' + t.name + '（当前数据域：' + (t.data_domain_id || '未配置') + '）';
+  var sel = document.getElementById('dd-new');
+  sel.innerHTML = DDS.map(function (d) { return '<option value="' + esc(d.data_domain_id) + '">' + esc(d.name || d.data_domain_id) + '</option>'; }).join('');
+  // 移除当前域选项（同域提交后端 409）
+  Array.from(sel.options).forEach(function (o) { if (o.value === (t.data_domain_id || '')) o.remove(); });
+  document.getElementById('dd-save-btn').disabled = sel.options.length === 0;
+  document.getElementById('dd-modal').style.display = 'block';
+}
+
+async function saveDomainChange() {
+  var dd = document.getElementById('dd-new').value;
+  if (!dd) { alert('请选择新数据域'); return; }
+  if (!confirm('确认提交「' + DD_TARGET.name + '」数据域迁移变更请求？审批通过后生效，该类型名下实体将随迁至「' + dd + '」。')) return;
+  try {
+    var r = await EARP.fetchJSON('/v1/ontology/tbox/changes', { method: 'POST', body: JSON.stringify({
+      change_type: 'entity_type', action: 'update', target_id: DD_TARGET.id, payload: { data_domain_id: dd }
+    }) });
+    document.getElementById('dd-modal').style.display = 'none';
+    alert('已提交变更请求，审批通过后生效' + (r.entity_count != null ? '（预计 ' + r.entity_count + ' 条实体将随迁）' : ''));
+    loadPending(); loadEt();
+  } catch (e) { alert('提交失败: ' + e.message); }
+}
+
 // ── 实体类型 ──────────────────────────────────────────────────────────────
 async function loadEt() {
   try {
@@ -161,7 +205,7 @@ async function loadEt() {
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + esc(t.data_domain_id || '') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle)">' + (dep ? '<span style="color:var(--red)">deprecated</span>' : 'active') + '</td>'
         + '<td style="padding:6px;border-bottom:1px solid var(--border-subtle);text-align:right">'
-        + (dep ? '<a href="javascript:void(0)" onclick="reactEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--green,#166534)">恢复</a>' : '<a href="javascript:void(0)" onclick="depEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--red)">停用</a>')
+        + (dep ? '<a href="javascript:void(0)" onclick="reactEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--green,#166534)">恢复</a>' : '<a href="javascript:void(0)" onclick="showDomainModal({entity_type_id:\'' + esc(t.entity_type_id) + '\',name:\'' + esc(t.name) + '\',data_domain_id:\'' + esc(t.data_domain_id || '') + '\'})" style="color:var(--accent-text,#1d4ed8);margin-right:8px">改域</a><a href="javascript:void(0)" onclick="depEt(\'' + esc(t.entity_type_id) + '\',\'' + esc(t.name) + '\')" style="color:var(--red)">停用</a>')
         + '</td></tr>';
     }).join('');
   } catch (e) { document.getElementById('et-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }
@@ -292,7 +336,7 @@ async function loadPending() {
     var rows = await EARP.fetchJSON('/v1/ontology/tbox/changes?status=pending');
     document.getElementById('pc-count').textContent = rows.length;
     var tb = document.getElementById('pc-tbody');
-    var actLabel = { create: '新增', deprecate: '停用', reactivate: '恢复' };
+    var actLabel = { create: '新增', deprecate: '停用', reactivate: '恢复', update: '迁移数据域' };
     var typeLabel = { entity_type: '实体类型', relation_type: '关系类型' };
     if (!rows.length) {
       tb.innerHTML = '<tr><td colspan="6" style="padding:10px;text-align:center;color:var(--text-tertiary)">暂无待审批变更 — 新增/停用/恢复操作提交后在此审批</td></tr>';
@@ -303,13 +347,16 @@ async function loadPending() {
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.requested_by) + '</td>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(typeLabel[c.change_type] || c.change_type) + '</td>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(actLabel[c.action] || c.action) + '</td>'
-        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.target_id) + (c.payload && c.payload.name ? '（' + esc(c.payload.name) + '）' : '') + '</td>'
+        + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle)">' + esc(c.target_id) + (c.payload && c.payload.name ? '（' + esc(c.payload.name) + '）' : '') + (c.action === 'update' && c.payload && c.payload.data_domain_id ? ' → ' + esc(c.payload.data_domain_id) : '') + '</td>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle);color:var(--text-tertiary)">' + esc(String(c.created_at || '').slice(0, 19)) + '</td>'
         + '<td style="padding:4px 6px;border-bottom:1px solid var(--border-subtle);text-align:right;white-space:nowrap">'
         + (c.can_approve
           ? '<a href="javascript:void(0)" onclick="approveChange(\'' + esc(c.change_id) + '\')" style="color:var(--green,#166534);margin-right:8px">批准</a>'
             + '<a href="javascript:void(0)" onclick="rejectChange(\'' + esc(c.change_id) + '\')" style="color:var(--red)">拒绝</a>'
-          : '<span style="color:var(--text-quaternary)" title="当前角色无 tbox.approve 权限（或非 admin）">无审批权限</span>')
+          : (c.can_reject && c.own
+            ? '<span style="color:var(--text-tertiary)" title="不能审批自己提交的请求——需其他有 tbox.approve 权限的用户审批">自己提交</span>'
+              + '<a href="javascript:void(0)" onclick="rejectChange(\'' + esc(c.change_id) + '\')" style="color:var(--red);margin-left:8px">拒绝</a>'
+            : '<span style="color:var(--text-quaternary)" title="当前角色无 tbox.approve 权限（或非 admin）">无审批权限</span>'))
         + '</td></tr>';
     }).join('');
   } catch (e) { document.getElementById('pc-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>'; }

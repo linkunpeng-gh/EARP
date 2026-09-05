@@ -49,8 +49,7 @@
       <input id="m-name" style="display:block;width:100%;margin-top:4px" placeholder="如 CNC-01"></label>
     <label style="display:block;font-size:0.78rem;margin-bottom:8px">业务编码
       <input id="m-code" style="display:block;width:100%;margin-top:4px" placeholder="唯一编码，facts 引用锚点"></label>
-    <label style="display:block;font-size:0.78rem;margin-bottom:8px">数据域 *
-      <select id="m-dd" style="display:block;width:100%;margin-top:4px"></select></label>
+    <div id="m-dd-hint" style="font-size:0.72rem;color:var(--text-tertiary);margin-bottom:8px">数据域随所选类型自动对齐</div>
     <label style="display:block;font-size:0.78rem;margin-bottom:8px">attributes（JSON，可选）
       <textarea id="m-attrs" style="display:block;width:100%;margin-top:4px;min-height:60px" placeholder='{"model":"XK-500"}'></textarea></label>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
@@ -134,9 +133,19 @@ function showEntityModal() {
   document.getElementById('m-attrs').value = '';
   var tsel = document.getElementById('m-type');
   tsel.innerHTML = TYPES.map(function (t) { return '<option value="' + esc(t.entity_type_id) + '">' + esc(t.name) + ' (' + t.entity_type_id + ')</option>'; }).join('');
-  var dsel = document.getElementById('m-dd');
-  dsel.innerHTML = DDS.map(function (d) { return '<option value="' + esc(d.data_domain_id) + '">' + esc(d.name || d.data_domain_id) + '</option>'; }).join('');
+  // 2026-09：数据域不再自由选择——随所选类型自动对齐（服务端 upsert 强制）
+  tsel.onchange = updateDomainHint;
+  updateDomainHint();
   document.getElementById('ent-modal').style.display = 'block';
+}
+
+function updateDomainHint() {
+  var et = document.getElementById('m-type').value;
+  var t = TYPES.filter(function (x) { return x.entity_type_id === et; })[0];
+  var dd = t && t.data_domain_id;
+  document.getElementById('m-dd-hint').textContent = dd
+    ? '数据域随类型：「' + (t.name || et) + '」→ ' + dd
+    : '数据域随类型自动对齐（该类型未配置数据域）';
 }
 
 async function saveEntity() {
@@ -144,8 +153,8 @@ async function saveEntity() {
     entity_type_id: document.getElementById('m-type').value,
     name: document.getElementById('m-name').value.trim(),
     business_code: document.getElementById('m-code').value.trim() || null,
-    data_domain_id: document.getElementById('m-dd').value,
   };
+  // 2026-09：不再传 data_domain_id——实例域以所属类型为准（后端 upsert_entity 对齐）
   var attrsRaw = document.getElementById('m-attrs').value.trim();
   if (attrsRaw) {
     try { body.attributes = JSON.parse(attrsRaw); }

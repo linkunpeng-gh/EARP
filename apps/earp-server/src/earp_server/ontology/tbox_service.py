@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -316,12 +317,16 @@ async def submit_change(
     target_id: str,
     payload: dict | None = None,
 ) -> dict:
-    """提交 TBox 变更请求（pending）。create 预检目标 id 冲突（active 拒绝；deprecated 提示走恢复）。"""
+    """提交 TBox 变更请求（pending）。create 预检目标 id 冲突（active 拒绝；deprecated 提示走恢复）；
+    update（数据域变更，设计 2026-09-04）预检：实体类型/目标域合法性 + 随迁实例数。"""
     if change_type not in ("entity_type", "relation_type"):
         raise ValueError(f"非法 change_type: {change_type}")
-    if action not in ("create", "deprecate", "reactivate"):
+    if action not in ("create", "deprecate", "reactivate", "update"):
         raise ValueError(f"非法 action: {action}")
     payload = payload or {}
+
+    domain_from: str | None = None
+    entity_count: int | None = None
 
     if action == "create":
         table = "entity_types" if change_type == "entity_type" else "relation_types"
@@ -337,6 +342,41 @@ async def submit_change(
             for k in ("name", "source_type", "target_type"):
                 if not payload.get(k):
                     raise ValueError(f"create 关系类型缺少 {k}")
+    elif action == "update":
+        # 数据域变更：仅实体类型（关系类型无数据域）；类型 active；新域≠当前域；
+        # 目标域存在且 active（与 roles_service._validate_domain_access 同口径）
+        if change_type != "entity_type":
+            raise ValueError("update 仅支持实体类型（关系类型无数据域）")
+        existing = await _get_tbox_row(engine, tenant_id, "entity_types", target_id)
+        if existing is None:
+            raise ValueError(f"实体类型不存在: {target_id}")
+        if existing["status"] != "active":
+            raise ValueError(f"实体类型已停用: {target_id}（请先提交 reactivate 恢复后再改域）")
+        new_dd = str(payload.get("data_domain_id") or "").strip()
+        if not new_dd:
+            raise ValueError("update 缺少 data_domain_id")
+        if new_dd == existing["data_domain_id"]:
+            raise ValueError(f"数据域未变更: {target_id}（当前已是 {new_dd}）")
+        domain_from = existing["data_domain_id"]
+        async with engine.connect() as conn:
+            await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+            drow = await conn.execute(
+                text(
+                    "SELECT data_domain_id FROM data_domains "
+                    "WHERE tenant_id = :tid AND data_domain_id = :dd AND status = 'active'"
+                ),
+                {"tid": tenant_id, "dd": new_dd},
+            )
+            if drow.fetchone() is None:
+                raise ValueError(f"目标数据域不存在或未启用: {new_dd}")
+            crow = await conn.execute(
+                text(
+                    "SELECT count(*) AS n FROM entities WHERE tenant_id = :tid "
+                    "AND entity_type_id = :et AND status IN ('active','deprecated')"
+                ),
+                {"tid": tenant_id, "et": target_id},
+            )
+            entity_count = int(crow.scalar() or 0)
 
     cid = f"tc-{uuid.uuid4().hex[:12]}"
     async with engine.connect() as conn:
@@ -358,7 +398,10 @@ async def submit_change(
             },
         )
         await conn.commit()
-    return {"change_id": cid, "status": "pending"}
+    result: dict[str, Any] = {"change_id": cid, "status": "pending"}
+    if action == "update":
+        result.update({"domain_from": domain_from, "entity_count": entity_count})
+    return result
 
 
 async def list_changes(engine: AsyncEngine, tenant_id: str, *, status: str | None = None) -> list[dict]:
@@ -383,10 +426,12 @@ async def approve_change(
     *,
     role_id: str = "",
 ) -> dict:
-    """审批通过：apply 真实变更（create/deprecate/reactivate）→ 请求 applied。
+    """审批通过：apply 真实变更（create/deprecate/reactivate/update）→ 请求 applied。
 
     tech-debt #9 审批人角色门禁：角色需 tbox.approve 权限或 is_admin；
     提交者不能审批自己（403）；apply 失败（并发冲突等）→ 抛错，请求保持 pending。
+    update（数据域变更）走单连接单事务：类型域 + 名下 active/deprecated 实例域级联迁移
+    （merged 不随迁）+ applied 一并提交；profile 由读时 freshness（updated_at bump）自动覆盖。
     """
     from earp_server.policy.roles_service import check_permission
 
@@ -441,6 +486,8 @@ async def approve_change(
             await reactivate_entity_type(engine, tenant_id, r.target_id)
         else:
             await reactivate_relation_type(engine, tenant_id, r.target_id)
+    elif r.action == "update":
+        return await _apply_domain_update(engine, tenant_id, reviewer, change_id, r)
     else:  # 理论不可达（submit 校验）
         raise ValueError(f"非法 action: {r.action}")
 
@@ -455,6 +502,77 @@ async def approve_change(
         )
         await conn.commit()
     return {"change_id": change_id, "status": "applied"}
+
+
+async def _apply_domain_update(
+    engine: AsyncEngine,
+    tenant_id: str,
+    reviewer: str,
+    change_id: str,
+    r: Any,
+) -> dict:
+    """apply 数据域变更（update）：单事务 = 类型域 + active/deprecated 实例域级联迁移 + applied。
+
+    设计：arch/design/2026-09-04-entity-type-data-domain-change-design.md §4.1/§4.2。
+    apply 复检（类型存在&active、目标域 active）；任一失败抛错，请求保持 pending。
+    merged（已吸收）实例不随迁；级联 bump updated_at → profile 读时 freshness 自动重编译。
+    """
+    p = r.payload if isinstance(r.payload, dict) else {}
+    new_dd = str(p.get("data_domain_id") or "").strip()
+    if not new_dd:
+        raise ValueError("update 请求缺少 data_domain_id")
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tenant_id}'"))
+        trow = await conn.execute(
+            text("SELECT data_domain_id, status FROM entity_types WHERE entity_type_id = :et AND tenant_id = :tid"),
+            {"et": r.target_id, "tid": tenant_id},
+        )
+        t = trow.fetchone()
+        if t is None:
+            raise ValueError(f"实体类型不存在: {r.target_id}")
+        if t.status != "active":
+            raise ValueError(f"实体类型已停用: {r.target_id}")
+        domain_from = t.data_domain_id
+        drow = await conn.execute(
+            text(
+                "SELECT data_domain_id FROM data_domains "
+                "WHERE tenant_id = :tid AND data_domain_id = :dd AND status = 'active'"
+            ),
+            {"tid": tenant_id, "dd": new_dd},
+        )
+        if drow.fetchone() is None:
+            raise ValueError(f"目标数据域不存在或未启用: {new_dd}")
+
+        await conn.execute(
+            text(
+                "UPDATE entity_types SET data_domain_id = :dd, updated_at = now() "
+                "WHERE entity_type_id = :et AND tenant_id = :tid"
+            ),
+            {"dd": new_dd, "et": r.target_id, "tid": tenant_id},
+        )
+        moved = await conn.execute(
+            text(
+                "UPDATE entities SET data_domain_id = :dd, updated_at = now() "
+                "WHERE entity_type_id = :et AND tenant_id = :tid "
+                "AND status IN ('active','deprecated')"
+            ),
+            {"dd": new_dd, "et": r.target_id, "tid": tenant_id},
+        )
+        await conn.execute(
+            text(
+                "UPDATE tbox_changes SET status = 'applied', reviewed_by = :r, reviewed_at = now() "
+                "WHERE change_id = :cid AND tenant_id = :tid"
+            ),
+            {"r": reviewer, "cid": change_id, "tid": tenant_id},
+        )
+        await conn.commit()
+    return {
+        "change_id": change_id,
+        "status": "applied",
+        "domain_from": domain_from,
+        "domain_to": new_dd,
+        "entity_count": int(moved.rowcount or 0),
+    }
 
 
 async def reject_change(

@@ -33,7 +33,8 @@ async def _seed(engine: AsyncEngine, tid: str, suffix: str = "") -> dict:
             text(
                 "INSERT INTO data_domains (data_domain_id, tenant_id, name, description, "
                 "data_classification, status) "
-                "VALUES ('equipment_data', :tid, '设备数据', '设备报警', 'internal', 'active') "
+                "VALUES ('equipment_data', :tid, '设备数据', '设备报警', 'internal', 'active') , "
+                "('other_data', :tid, '其他域', '遗留负样本', 'internal', 'active') "
                 "ON CONFLICT DO NOTHING"
             ),
             {"tid": tid},
@@ -42,7 +43,8 @@ async def _seed(engine: AsyncEngine, tid: str, suffix: str = "") -> dict:
             text(
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
                 "VALUES (:rid, :tid, 'cap-all', '{}', 'all', "
-                '\'[{"data_domain_id": "equipment_data"}]\') ON CONFLICT DO NOTHING'
+                # 2026-09 一致性：alarm 实例域随类型 quality_data——角色授 equipment+quality
+                '\'[{"data_domain_id": "equipment_data"}, {"data_domain_id": "quality_data"}]\') ON CONFLICT DO NOTHING'
             ),
             {"rid": role_all, "tid": tid},
         )
@@ -57,15 +59,21 @@ async def _seed(engine: AsyncEngine, tid: str, suffix: str = "") -> dict:
         )
     await tbox_service.map_capability_entity(engine, tid, cap_id, "equipment", "read")
 
-    equip = await abox_service.upsert_entity(
-        engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
-    )
-    alarm = await abox_service.upsert_entity(engine, tid, "alarm", "高温报警", data_domain_id="equipment_data")
+    equip = await abox_service.upsert_entity(engine, tid, "equipment", "CNC-01", business_code="CNC-01")
+    alarm = await abox_service.upsert_entity(engine, tid, "alarm", "高温报警")
     await abox_service.add_fact(engine, tid, alarm["entity_id"], "caused_by", equip["entity_id"])
-    # 无权限实体（other_data 域）——权限过滤验证
-    await abox_service.upsert_entity(
-        engine, tid, "equipment", "CNC-X1", business_code="CNC-X1", data_domain_id="other_data"
-    )
+    # 无权限实体（other_data 域）——权限过滤验证。2026-09 一致性后 upsert 拒绝跨类型打域
+    # （arch/design/2026-09-04 §4.4）——原生 SQL 模拟「一致性前遗留数据」；运行时角色域
+    # 门禁仍按实例域 fail-closed 生效（与真实存量场景一致）
+    async with tenant_session(engine, tid) as session:
+        await session.execute(
+            text(
+                "INSERT INTO entities (entity_id, tenant_id, entity_type_id, name, business_code, "
+                "attributes, source_mode, data_domain_id, status) VALUES "
+                "(:eid, :tid, 'equipment', 'CNC-X1', 'CNC-X1', '{}', 'extracted', 'other_data', 'active')"
+            ),
+            {"eid": f"ent-cap-x1{suffix}", "tid": tid},
+        )
     return {"equip": equip["entity_id"], "alarm": alarm["entity_id"], "role": role_all, "cap": cap_id}
 
 

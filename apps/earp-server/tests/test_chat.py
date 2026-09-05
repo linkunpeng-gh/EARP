@@ -122,7 +122,8 @@ async def _seed(engine: AsyncEngine, tid: str, migration_url: str, monkeypatch) 
             text(
                 "INSERT INTO data_domains (data_domain_id, tenant_id, name, description, data_classification, status) "
                 "VALUES ('finance_data', :tid, '财务数据', '财务制度、报销', 'internal', 'active'), "
-                "('equipment_data', :tid, '设备数据', '设备报警维护', 'internal', 'active') "
+                "('equipment_data', :tid, '设备数据', '设备报警维护', 'internal', 'active'), "
+                "('supply_chain_data', :tid, '供应链数据', '供应商', 'internal', 'active') "
                 "ON CONFLICT DO NOTHING"
             ),
             {"tid": tid},
@@ -131,7 +132,7 @@ async def _seed(engine: AsyncEngine, tid: str, migration_url: str, monkeypatch) 
             text(
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, data_domain_access) "
                 "VALUES (:rid, :tid, 'all', '{}', 'all', "
-                '\'[{"data_domain_id": "finance_data"}, {"data_domain_id": "equipment_data"}]\') '
+                '\'[{"data_domain_id": "finance_data"}, {"data_domain_id": "equipment_data"}, {"data_domain_id": "supply_chain_data"}]\') '  # noqa: E501 — 授权 JSON 单行（SQL 内嵌）
                 "ON CONFLICT DO NOTHING"
             ),
             {"rid": "r-all", "tid": tid},
@@ -302,9 +303,7 @@ async def test_chat_kb_scope_keeps_abox(migrated: str, app_url: str, monkeypatch
     await _seed(engine, tid, migrated, monkeypatch)
 
     await tbox_service.init_tenant_tbox(engine, tid)
-    sup = await abox_service.upsert_entity(
-        engine, tid, "supplier", "上海某精机", business_code="SUP-SA", data_domain_id="equipment_data"
-    )
+    sup = await abox_service.upsert_entity(engine, tid, "supplier", "上海某精机", business_code="SUP-SA")
     equip = await abox_service.upsert_entity(
         engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
     )
@@ -361,9 +360,7 @@ async def test_chat_soft_route_three_layer_citations(
 
     # 追加实体图谱：CNC-01 (equipment, equipment_data) —manufactured_by→ 上海某精机
     await tbox_service.init_tenant_tbox(engine, tid)
-    sup = await abox_service.upsert_entity(
-        engine, tid, "supplier", "上海某精机", business_code="SUP-P2", data_domain_id="equipment_data"
-    )
+    sup = await abox_service.upsert_entity(engine, tid, "supplier", "上海某精机", business_code="SUP-P2")
     equip = await abox_service.upsert_entity(
         engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
     )

@@ -278,3 +278,296 @@ async def test_admin_role_bypasses_approval_gate(migrated: str, app_url: str) ->
     )
     r = await tbox_service.approve_change(engine, tid, "u2", c["change_id"], role_id="r-admin")
     assert r["status"] == "applied"
+
+
+# ── 2026-09 修复：list 路由逐项审批能力 + 自审 403（路由层，回归 bug：本体审批点批准 403）─
+
+
+def test_list_changes_route_flags_and_self_approval_403(migrated: str, app_url: str) -> None:
+    """GET /tbox/changes 逐项返回 own/can_approve/can_reject——自己提交行 can_approve=false
+    （提交者不能自审，与 approve 403 语义一致，前端据此不渲染「批准」）；
+    自审 approve → 403；他人审批 → 200 applied；无门禁角色全 false（fail-closed）。"""
+    import asyncio
+
+    import jwt
+    from fastapi.testclient import TestClient
+
+    from earp_server.config import Settings
+    from earp_server.main import create_app
+
+    tid = "tb-rt1"
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    asyncio.run(_seed(engine, migrated, tid))
+
+    c_own = asyncio.run(
+        tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="entity_type",
+            action="create",
+            target_id="rt_x",
+            payload={"name": "X"},
+        )
+    )
+    c_other = asyncio.run(
+        tbox_service.submit_change(
+            engine,
+            tid,
+            "u2",
+            change_type="entity_type",
+            action="create",
+            target_id="rt_y",
+            payload={"name": "Y"},
+        )
+    )
+
+    app = create_app(Settings(database_url=app_url, app_env="test"))
+    SECRET = "earp-dev-secret-change-in-production"
+
+    def _tok(user: str, role: str) -> str:
+        return jwt.encode(
+            {"sub": user, "tenant_id": tid, "role_id": role, "exp": 9999999999},
+            SECRET,
+            algorithm="HS256",
+        )
+
+    with TestClient(app) as c:
+        # u1（提交者 + 审批员角色）：自己的请求 can_approve=false / own=true / can_reject=true；
+        # 他人的请求 can_approve=true
+        h_own = {"Authorization": f"Bearer {_tok('u1', 'r-approver')}"}
+        rows = c.get("/v1/ontology/tbox/changes", headers=h_own).json()
+        mine = next(x for x in rows if x["change_id"] == c_own["change_id"])
+        assert mine["own"] is True and mine["can_approve"] is False and mine["can_reject"] is True, mine
+        theirs = next(x for x in rows if x["change_id"] == c_other["change_id"])
+        assert theirs["own"] is False and theirs["can_approve"] is True and theirs["can_reject"] is True, theirs
+
+        # u1 自审自己的请求 → 403（detail 含原因）
+        r = c.post(f"/v1/ontology/tbox/changes/{c_own['change_id']}/approve", headers=h_own)
+        assert r.status_code == 403, r.text
+        assert "自己" in r.json()["detail"]
+        # u2 审批 u1 的请求 → 200 applied
+        h_other = {"Authorization": f"Bearer {_tok('u2', 'r-approver')}"}
+        r2 = c.post(f"/v1/ontology/tbox/changes/{c_own['change_id']}/approve", headers=h_other)
+        assert r2.status_code == 200 and r2.json()["status"] == "applied", r2.text
+
+        # 无门禁角色（r-nogate）：can_approve/can_reject 全 false；approve → 403
+        h_nogate = {"Authorization": f"Bearer {_tok('u1', 'r-nogate')}"}
+        rows2 = c.get("/v1/ontology/tbox/changes", headers=h_nogate).json()
+        row2 = next(x for x in rows2 if x["change_id"] == c_other["change_id"])
+        assert row2["can_approve"] is False and row2["can_reject"] is False, row2
+        r3 = c.post(f"/v1/ontology/tbox/changes/{c_other['change_id']}/approve", headers=h_nogate)
+        assert r3.status_code == 403, r3.text
+    asyncio.run(engine.dispose())
+
+
+# ── 2026-09：数据域变更（action='update'，设计 arch/design/2026-09-04 §4.2/§4.1）─────────
+
+
+async def _seed_update_dds(engine: AsyncEngine, tid: str) -> None:
+    """目标域必须存在且 active（与角色域授权同口径）。"""
+    from sqlalchemy import text as _text
+
+    async with engine.connect() as conn:
+        await conn.execute(_text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(
+            _text(
+                "INSERT INTO data_domains (data_domain_id, tenant_id, name, data_classification, status) "
+                "VALUES ('finance_data', :t, '财务数据', 'internal', 'active'), "
+                "('archive_data', :t, '归档数据', 'internal', 'deprecated') "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"t": tid},
+        )
+        await conn.commit()
+
+
+async def test_update_change_submit_prechecks(migrated: str, app_url: str) -> None:
+    """update 提交预检：仅实体类型/类型存在且 active/同域 no-op/目标域 active。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "tb-up1"
+    await _seed(engine, migrated, tid)
+    await _seed_update_dds(engine, tid)
+
+    with pytest.raises(ValueError, match="仅支持实体类型"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="relation_type",
+            action="update",
+            target_id="manufactured_by",
+            payload={"data_domain_id": "finance_data"},
+        )
+    with pytest.raises(ValueError, match="实体类型不存在"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="entity_type",
+            action="update",
+            target_id="ghost",
+            payload={"data_domain_id": "finance_data"},
+        )
+    # deprecated 类型不可改域（先 reactivate）
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(text("UPDATE entity_types SET status='deprecated' WHERE entity_type_id='equipment'"))
+        await conn.commit()
+    with pytest.raises(ValueError, match="已停用"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="entity_type",
+            action="update",
+            target_id="equipment",
+            payload={"data_domain_id": "finance_data"},
+        )
+    await tbox_service.reactivate_entity_type(engine, tid, "equipment")
+    # 同域 no-op
+    with pytest.raises(ValueError, match="数据域未变更"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="entity_type",
+            action="update",
+            target_id="equipment",
+            payload={"data_domain_id": "equipment_data"},
+        )
+    # 目标域不存在 / 非 active
+    with pytest.raises(ValueError, match="不存在或未启用"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="entity_type",
+            action="update",
+            target_id="equipment",
+            payload={"data_domain_id": "hr_data"},
+        )
+    with pytest.raises(ValueError, match="不存在或未启用"):
+        await tbox_service.submit_change(
+            engine,
+            tid,
+            "u1",
+            change_type="entity_type",
+            action="update",
+            target_id="equipment",
+            payload={"data_domain_id": "archive_data"},
+        )
+    # 缺 payload
+    with pytest.raises(ValueError, match="缺少 data_domain_id"):
+        await tbox_service.submit_change(
+            engine, tid, "u1", change_type="entity_type", action="update", target_id="equipment", payload={}
+        )
+    await engine.dispose()
+
+
+async def test_update_approve_cascades_entities(migrated: str, app_url: str) -> None:
+    """批准 update：类型域 + active/deprecated 实例级联迁移；merged 不随迁；
+    entity_count/domain_from 随提交响应；自审 403；profile 读时 freshness 覆盖。"""
+    from earp_server.ontology import abox_service
+
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "tb-up2"
+    await _seed(engine, migrated, tid)
+    await _seed_update_dds(engine, tid)
+
+    act = await abox_service.upsert_entity(engine, tid, "equipment", "CNC-01", business_code="CNC-01")
+    dep = await abox_service.upsert_entity(engine, tid, "equipment", "CNC-02", business_code="CNC-02")
+    mer = await abox_service.upsert_entity(engine, tid, "equipment", "CNC-03", business_code="CNC-03")
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        await conn.execute(text("UPDATE entities SET status='deprecated' WHERE entity_id=:e"), {"e": dep["entity_id"]})
+        await conn.execute(text("UPDATE entities SET status='merged' WHERE entity_id=:e"), {"e": mer["entity_id"]})
+        await conn.commit()
+    # 审批前 profile 编译（读时 freshness 覆盖验证前置）
+    await abox_service.compile_profile(engine, tid, act["entity_id"])
+
+    c = await tbox_service.submit_change(
+        engine,
+        tid,
+        "u1",
+        change_type="entity_type",
+        action="update",
+        target_id="equipment",
+        payload={"data_domain_id": "finance_data"},
+    )
+    assert c["status"] == "pending"
+    assert c["domain_from"] == "equipment_data"
+    assert c["entity_count"] == 2  # active + deprecated；merged 不计
+
+    # 自审 403（沿用）
+    with pytest.raises(PermissionError, match="自己"):
+        await tbox_service.approve_change(engine, tid, "u1", c["change_id"], role_id="r-approver")
+
+    # 提交后、批准前域未变
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        t = (
+            await conn.execute(text("SELECT data_domain_id FROM entity_types WHERE entity_type_id='equipment'"))
+        ).fetchone()
+    assert t.data_domain_id == "equipment_data"
+
+    r = await tbox_service.approve_change(engine, tid, "u2", c["change_id"], role_id="r-approver")
+    assert r["status"] == "applied"
+    assert r["domain_from"] == "equipment_data" and r["domain_to"] == "finance_data"
+    assert r["entity_count"] == 2
+
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        t = (
+            await conn.execute(text("SELECT data_domain_id, status FROM entity_types WHERE entity_type_id='equipment'"))
+        ).fetchone()
+        assert t.data_domain_id == "finance_data" and t.status == "active"
+        rows = await conn.execute(
+            text("SELECT entity_id, data_domain_id, status FROM entities WHERE entity_type_id='equipment'")
+        )
+        by_id = {r.entity_id: (r.data_domain_id, r.status) for r in rows}
+        assert by_id[act["entity_id"]] == ("finance_data", "active")
+        assert by_id[dep["entity_id"]] == ("finance_data", "deprecated")
+        assert by_id[mer["entity_id"]] == ("equipment_data", "merged")  # merged 不随迁
+        # profile 读时 freshness：域变更 bump updated_at → 下次读取自动重编译
+        chg = (
+            await conn.execute(
+                text(
+                    "SELECT compiled_at < updated_at AS stale FROM entities e "
+                    "JOIN entity_profiles p ON p.entity_id = e.entity_id "
+                    "WHERE e.entity_id = :eid"
+                ),
+                {"eid": act["entity_id"]},
+            )
+        ).fetchone()
+    assert chg is not None and chg.stale is True
+    fresh = await abox_service.get_entity_profile(engine, tid, act["entity_id"])
+    assert fresh is not None and fresh["profile_version"] >= 1
+    await engine.dispose()
+
+
+async def test_update_reject_leaves_domain_unchanged(migrated: str, app_url: str) -> None:
+    """拒绝 update：pending → rejected，类型与实例域不变。"""
+    engine = create_async_engine(app_url, pool_pre_ping=True)
+    tid = "tb-up3"
+    await _seed(engine, migrated, tid)
+    await _seed_update_dds(engine, tid)
+
+    c = await tbox_service.submit_change(
+        engine,
+        tid,
+        "u1",
+        change_type="entity_type",
+        action="update",
+        target_id="equipment",
+        payload={"data_domain_id": "finance_data"},
+    )
+    r = await tbox_service.reject_change(engine, tid, "u2", c["change_id"], "暂缓", role_id="r-approver")
+    assert r["status"] == "rejected"
+    async with engine.connect() as conn:
+        await conn.execute(text(f"SET LOCAL earp.tenant_id = '{tid}'"))
+        t = (
+            await conn.execute(text("SELECT data_domain_id FROM entity_types WHERE entity_type_id='equipment'"))
+        ).fetchone()
+    assert t.data_domain_id == "equipment_data"
+    await engine.dispose()

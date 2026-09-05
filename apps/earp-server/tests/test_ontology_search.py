@@ -58,7 +58,9 @@ async def _seed_entity_graph(engine: AsyncEngine, migration_url: str, tid: str) 
             _t(
                 "INSERT INTO data_domains (data_domain_id, tenant_id, name, description, "
                 "data_classification, status) VALUES "
-                "('equipment_data', :t, '设备数据', '设备', 'internal', 'active') ON CONFLICT DO NOTHING"
+                "('equipment_data', :t, '设备数据', '设备', 'internal', 'active'), "
+                "('quality_data', :t, '质量数据', '报警质量', 'internal', 'active'), "
+                "('supply_chain_data', :t, '供应链数据', '供应商', 'internal', 'active') ON CONFLICT DO NOTHING"
             ),
             {"t": tid},
         )
@@ -67,18 +69,16 @@ async def _seed_entity_graph(engine: AsyncEngine, migration_url: str, tid: str) 
                 "INSERT INTO roles (role_id, tenant_id, name, permissions, data_scope, "
                 "data_domain_access, is_admin) VALUES "
                 "('r-any', :t, 'tester', '{}', 'all', "
-                '\'[{"data_domain_id": "equipment_data"}]\', FALSE) ON CONFLICT DO NOTHING'
+                '\'[{"data_domain_id": "equipment_data"}, {"data_domain_id": "quality_data"}, {"data_domain_id": "supply_chain_data"}]\', FALSE) ON CONFLICT DO NOTHING'  # noqa: E501 — 授权 JSON 单行（SQL 内嵌）
             ),
             {"t": tid},
         )
         await conn.commit()
-    sup = await abox_service.upsert_entity(
-        engine, tid, "supplier", "上海某精机", business_code="SUP-1", data_domain_id="equipment_data"
-    )
+    sup = await abox_service.upsert_entity(engine, tid, "supplier", "上海某精机", business_code="SUP-1")
     equip = await abox_service.upsert_entity(
         engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
     )
-    alarm = await abox_service.upsert_entity(engine, tid, "alarm", "高温报警", data_domain_id="equipment_data")
+    alarm = await abox_service.upsert_entity(engine, tid, "alarm", "高温报警")
     await abox_service.add_fact(engine, tid, equip["entity_id"], "manufactured_by", sup["entity_id"])
     await abox_service.add_fact(engine, tid, alarm["entity_id"], "caused_by", equip["entity_id"])
     await abox_service.compile_profile(engine, tid, equip["entity_id"])
@@ -222,17 +222,13 @@ async def _seed_p2_routing_scene(engine: AsyncEngine, tid: str, suffix: str = ""
     await embed_chunks(engine, tid, chunk_ids_all)
     await build_routing_index(engine, tid)
 
-    sup = await abox_service.upsert_entity(
-        engine, tid, "supplier", "上海某精机", business_code="SUP-1", data_domain_id="equipment_data"
-    )
+    sup = await abox_service.upsert_entity(engine, tid, "supplier", "上海某精机", business_code="SUP-1")
     equip = await abox_service.upsert_entity(
         engine, tid, "equipment", "CNC-01", business_code="CNC-01", data_domain_id="equipment_data"
     )
     await abox_service.add_fact(engine, tid, equip["entity_id"], "manufactured_by", sup["entity_id"])
     await abox_service.compile_profile(engine, tid, equip["entity_id"])
-    fin = await abox_service.upsert_entity(
-        engine, tid, "employee", "财务系统", business_code="FIN-SYS", data_domain_id="finance_data"
-    )
+    fin = await abox_service.upsert_entity(engine, tid, "employee", "财务系统", business_code="FIN-SYS")
     return {
         "equip": equip["entity_id"],
         "sup": sup["entity_id"],

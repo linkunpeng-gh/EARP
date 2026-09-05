@@ -19,12 +19,18 @@ function mkEl() {
 }
 const els = {};
 const pendingRows = [
-  { change_id: 'tc-1', requested_by: 'u1', change_type: 'entity_type', action: 'create',
-    target_id: 'new_equip', payload: { name: '新设备' }, created_at: '2026-08-17T10:00:00+00:00', can_approve: true },
-  { change_id: 'tc-2', requested_by: 'u1', change_type: 'relation_type', action: 'deprecate',
-    target_id: 'manufactured_by', payload: {}, created_at: '2026-08-17T10:01:00+00:00', can_approve: true },
-  { change_id: 'tc-3', requested_by: 'u2', change_type: 'entity_type', action: 'reactivate',
-    target_id: 'old_type', payload: {}, created_at: '2026-08-17T10:02:00+00:00', can_approve: false },
+  { change_id: 'tc-1', requested_by: 'u2', change_type: 'entity_type', action: 'create',
+    target_id: 'new_equip', payload: { name: '新设备' }, created_at: '2026-08-17T10:00:00+00:00', can_approve: true, can_reject: true, own: false },
+  { change_id: 'tc-2', requested_by: 'u2', change_type: 'relation_type', action: 'deprecate',
+    target_id: 'manufactured_by', payload: {}, created_at: '2026-08-17T10:01:00+00:00', can_approve: true, can_reject: true, own: false },
+  { change_id: 'tc-3', requested_by: 'u3', change_type: 'entity_type', action: 'reactivate',
+    target_id: 'old_type', payload: {}, created_at: '2026-08-17T10:02:00+00:00', can_approve: false, can_reject: false, own: false },
+  // 自己提交（own=true）：无批准按钮（提交者不能自审 403），保留拒绝/撤回 + 提示
+  { change_id: 'tc-4', requested_by: 'u1', change_type: 'entity_type', action: 'create',
+    target_id: 'mine', payload: { name: '矿山' }, created_at: '2026-08-17T10:03:00+00:00', can_approve: false, can_reject: true, own: true },
+  // 数据域变更请求（action=update，2026-09）
+  { change_id: 'tc-5', requested_by: 'u2', change_type: 'entity_type', action: 'update',
+    target_id: 'equipment', payload: { data_domain_id: 'finance_data' }, created_at: '2026-08-17T10:04:00+00:00', can_approve: true, can_reject: true, own: false },
 ];
 const calls = [];
 global.document = {
@@ -42,7 +48,8 @@ global.EARP = {
   async fetchJSON(url, opts = {}) {
     calls.push(url + ' ' + (opts.method || 'GET'));
     if (url.includes('/tbox/changes?status=pending')) return pendingRows;
-    if (url.includes('/tbox/changes/') && url.includes('/approve')) return { status: 'applied' };
+    if (url.includes('/tbox/changes') && url.includes('/approve')) return { status: 'applied' };
+    if (url.includes('/tbox/changes') && opts.method === 'POST') return { change_id: 'tc-x', status: 'pending', entity_count: 5 };
     if (url.includes('/entity-types')) return [{ entity_type_id: 'equipment', name: '设备', status: 'active', kind: 'object' }];
     if (url.includes('/relation-types')) return [{ relation_type_id: 'manufactured_by', name: '由…制造', status: 'active' }];
     if (url.includes('/api/data-domains')) return [];
@@ -67,6 +74,11 @@ try {
       ['拒绝按钮（can_approve=true）', out.includes('rejectChange')],
       // tech-debt #9 审批人角色门禁：can_approve=false → 隐藏按钮 + 提示
       ['无权限行提示（can_approve=false）', out.includes('无审批权限') && !out.includes("approveChange('tc-3'")],
+      // 2026-09 修复：自己提交行不显示批准（提交者不能自审 403）——「自己提交」提示 + 仅保留拒绝/撤回
+      ['自己提交行：提示 + 无批准 + 可拒绝', out.includes('自己提交') && !out.includes("approveChange('tc-4'") && out.includes("rejectChange('tc-4'")],
+      // 2026-09：update（迁移数据域）动作标签 + 目标列展示新域
+      ['update 行动作标签（迁移数据域）', out.includes('迁移数据域')],
+      ['update 行目标列显示新域', out.includes('→ finance_data')],
     ];
     let fail = 0;
     checks.forEach(([name, ok]) => { console.log((ok ? 'PASS' : 'FAIL') + '  ' + name); if (!ok) fail++; });
@@ -94,6 +106,20 @@ try {
     const sub = calls.slice(before).find(c => c.includes('/tbox/changes') && c.includes('POST'));
     console.log((sub ? 'PASS' : 'FAIL') + '  saveEt 提交 /tbox/changes (POST)' + (sub ? ' (' + sub + ')' : ''));
     if (!sub) fail++;
+
+    // saveDomainChange 提交数据域变更（action=update；alert 含随迁数量 entity_count）
+    els['dd-meta'] = { textContent: '' }; els['dd-save-btn'] = { disabled: false };
+    els['dd-new'] = { value: 'finance_data' };
+    els['dd-modal'] = { style: {} };
+    global.DD_TARGET = { id: 'equipment', name: '设备' };
+    const before2 = calls.length;
+    await global.saveDomainChange();
+    const upSub = calls.slice(before2).find(c => c.includes('/tbox/changes') && c.includes('POST'));
+    const okMsg = calls.slice(before2).some(c => c.includes('alert: 已提交变更请求') && c.includes('5 条实体将随迁'));
+    console.log((upSub ? 'PASS' : 'FAIL') + '  saveDomainChange 提交 action=update (/tbox/changes POST)' + (upSub ? ' (' + upSub + ')' : ''));
+    if (!upSub) fail++;
+    console.log((okMsg ? 'PASS' : 'FAIL') + '  saveDomainChange 成功提示含随迁数量（entity_count=5）');
+    if (!okMsg) fail++;
     process.exit(fail ? 1 : 0);
 } catch (e) {
   console.log('SMOKE ERROR:', e.message);
