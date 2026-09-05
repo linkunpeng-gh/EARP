@@ -659,6 +659,17 @@ async def _publish_entities(
             )
             continue
         entity_id = values.get("entity_id") or f"ent-{uuid.uuid4().hex[:12]}"
+        # entities.entity_id 为 VARCHAR(64) PK；CSV 提供超长 id 会让 INSERT 抛 DataError
+        # （此前经 publish 层翻译为 422 且整批回滚）——与其它坏行一致改为逐行跳过 + warning。
+        if len(entity_id) > 64:
+            warnings.append(
+                {
+                    "file": spec["file"],
+                    "row": row_no,
+                    "reason": "entity_id exceeds 64 characters; row skipped",
+                }
+            )
+            continue
         id_exists = await session.execute(
             text("SELECT 1 FROM entities WHERE entity_id=:id"),
             {"id": entity_id},

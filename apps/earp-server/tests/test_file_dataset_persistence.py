@@ -197,6 +197,43 @@ async def test_publish_translates_catalog_schema_errors_to_validation_error(
         await engine.dispose()
 
 
+async def test_publish_skips_overlong_entity_id_with_warning(migrated: str, app_url: str, tmp_path: Path) -> None:
+    """CSV 提供的 entity_id 超 64 字符（entities.varchar(64) PK）应逐行跳过 + warning，
+    而不是让 INSERT 抛 DataError 整批回滚（此前经 publish 翻译为 422 全量失败）。
+    """
+    engine = create_async_engine(app_url)
+    tenant_id = "file-dataset-len-tenant"
+    try:
+        manifest, files = _package()
+        manifest_obj = json.loads(manifest)
+        files["entities.csv"] = (
+            b"entity_id,entity_type,name,business_code,data_domain_id\n"
+            + (b"x" * 65)
+            + b",fd-mine,Large entity,FD-LARGE,fd-production\n"
+            + b"fd-mine-len,fd-mine,Len entity,FD-LEN,fd-production\n"
+        )
+        await stage_dataset(engine, tenant_id, tmp_path, json.dumps(manifest_obj).encode(), files)
+        published = await publish_dataset(engine, tenant_id, tmp_path, "file-dataset-test")
+        assert published["status"] == "published"
+        assert published["validation"]["entities_imported"] == 1
+        reasons = [w.get("reason", "") for w in published["validation"]["warnings"]]
+        assert any("exceeds 64 characters" in r for r in reasons)
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT set_config('earp.tenant_id', :tenant, true)"), {"tenant": tenant_id})
+            ids = (
+                (
+                    await connection.execute(
+                        text("SELECT entity_id FROM entities WHERE tenant_id=:tenant"), {"tenant": tenant_id}
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        assert ids == ["fd-mine-len"]
+    finally:
+        await engine.dispose()
+
+
 def test_file_dataset_api_admin_gate_and_lifecycle(migrated: str, app_url: str, tmp_path: Path) -> None:
     tenant_id = "file-dataset-api-tenant"
     asyncio.run(_seed_roles(app_url, tenant_id))
