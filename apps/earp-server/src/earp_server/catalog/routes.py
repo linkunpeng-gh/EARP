@@ -174,6 +174,10 @@ async def register_ref(body: RegisterRefRequest, request: Request) -> dict[str, 
         )
     except LookupError as error:
         raise HTTPException(status_code=404, detail="Authoritative source object is unavailable.") from error
+    except CatalogRegistrationError as error:
+        message = str(error)
+        status = 409 if "different content hash" in message else 422
+        raise HTTPException(status_code=status, detail=message) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail="Authoritative source verification failed.") from error
     return {
@@ -210,6 +214,8 @@ async def refresh_ref(body: RefreshRefRequest, request: Request) -> dict[str, ob
             stable_id=body.stable_id,
             version=body.version,
         )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail="Authoritative source object is unavailable.") from error
     except CatalogRegistrationError as error:
         message = str(error)
         status = 404 if "not registered" in message else 409 if "drifted" in message else 422
@@ -243,7 +249,13 @@ async def revoke_ref(body: RevokeRefRequest, request: Request, idempotency_key: 
         )
     except CatalogRegistrationError as error:
         message = str(error)
-        status = 404 if "not registered" in message else 409 if "Idempotency" in message else 422
+        status = (
+            404
+            if "not registered" in message
+            else 409
+            if "Idempotency" in message or "already inactive" in message
+            else 422
+        )
         raise HTTPException(status_code=status, detail=message) from error
 
 

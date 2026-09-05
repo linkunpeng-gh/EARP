@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import replace
 
@@ -190,3 +191,158 @@ async def test_ref_revoke_requires_reason_and_is_idempotent(app_engine: AsyncEng
     replay = await registry.revoke(**payload)
     assert revoked["ref_id"] == replay["ref_id"] == registered["ref_id"]
     assert replay["replayed"] is True
+
+
+async def test_ref_revoke_of_already_inactive_pin_with_new_key_conflicts_once(app_engine: AsyncEngine) -> None:
+    tenant_id = f"catalog-reg-revoke-again-{uuid.uuid4().hex[:10]}"
+    source = _source()
+    registry = CatalogRefRegistry(app_engine)
+    await registry.register(
+        AuthoritativeAdapter(source),
+        tenant_id=tenant_id,
+        actor_id="user-1",
+        correlation_id="revoke-again-register",
+        kind=source.kind,
+        stable_id=source.stable_id,
+        version=source.version,
+    )
+    base = {
+        "tenant_id": tenant_id,
+        "actor_id": "user-1",
+        "correlation_id": "revoke-again",
+        "kind": source.kind,
+        "stable_id": source.stable_id,
+        "version": source.version,
+    }
+    await registry.revoke(**{**base, "idempotency_key": "revoke-key-a", "reason": "First confirmed revoke."})
+    with pytest.raises(CatalogRegistrationError, match="already inactive"):
+        await registry.revoke(**{**base, "idempotency_key": "revoke-key-b", "reason": "Retry with a brand-new key."})
+    async with tenant_session(app_engine, tenant_id) as session:
+        recorded = await session.execute(text("SELECT count(*) FROM idempotency_records"))
+        audits = await session.execute(text("SELECT count(*) FROM catalog_audit_logs WHERE operation='revoke'"))
+        assert recorded.scalar_one() == 1
+        assert audits.scalar_one() == 1
+
+
+async def test_ref_revoke_same_key_concurrent_is_replayed_not_duplicated(app_engine: AsyncEngine) -> None:
+    tenant_id = f"catalog-reg-revoke-conc-{uuid.uuid4().hex[:10]}"
+    source = _source()
+    registry = CatalogRefRegistry(app_engine)
+    registered = await registry.register(
+        AuthoritativeAdapter(source),
+        tenant_id=tenant_id,
+        actor_id="user-1",
+        correlation_id="revoke-conc-register",
+        kind=source.kind,
+        stable_id=source.stable_id,
+        version=source.version,
+    )
+    payload = {
+        "tenant_id": tenant_id,
+        "actor_id": "user-1",
+        "correlation_id": "revoke-conc",
+        "idempotency_key": "revoke-shared-key",
+        "kind": source.kind,
+        "stable_id": source.stable_id,
+        "version": source.version,
+        "reason": "Concurrent confirmed revoke.",
+    }
+    first, second = await asyncio.gather(registry.revoke(**payload), registry.revoke(**payload))
+    assert first["ref_id"] == second["ref_id"] == registered["ref_id"]
+    assert sum(1 for response in (first, second) if response.get("replayed") is True) == 1
+    async with tenant_session(app_engine, tenant_id) as session:
+        recorded = await session.execute(text("SELECT count(*) FROM idempotency_records"))
+        audits = await session.execute(text("SELECT count(*) FROM catalog_audit_logs WHERE operation='revoke'"))
+        assert recorded.scalar_one() == 1
+        assert audits.scalar_one() == 1
+
+
+async def test_ref_revoke_same_key_different_pin_concurrent_rejects_without_side_effect(
+    app_engine: AsyncEngine,
+) -> None:
+    tenant_id = f"catalog-reg-revoke-conc2-{uuid.uuid4().hex[:10]}"
+    source_a = _source()
+    source_b = _source()
+    registry = CatalogRefRegistry(app_engine)
+    registered = []
+    for source in (source_a, source_b):
+        registered.append(
+            await registry.register(
+                AuthoritativeAdapter(source),
+                tenant_id=tenant_id,
+                actor_id="user-1",
+                correlation_id="revoke-conc2-register",
+                kind=source.kind,
+                stable_id=source.stable_id,
+                version=source.version,
+            )
+        )
+    payload_a = {
+        "tenant_id": tenant_id,
+        "actor_id": "user-1",
+        "correlation_id": "revoke-conc2",
+        "idempotency_key": "revoke-shared-across-pins",
+        "reason": "Revoke pin A.",
+        "kind": source_a.kind,
+        "stable_id": source_a.stable_id,
+        "version": source_a.version,
+    }
+    payload_b = {
+        "tenant_id": tenant_id,
+        "actor_id": "user-1",
+        "correlation_id": "revoke-conc2",
+        "idempotency_key": "revoke-shared-across-pins",
+        "reason": "Revoke pin B.",
+        "kind": source_b.kind,
+        "stable_id": source_b.stable_id,
+        "version": source_b.version,
+    }
+    first, second = await asyncio.gather(
+        registry.revoke(**payload_a), registry.revoke(**payload_b), return_exceptions=True
+    )
+    failures: list[CatalogRegistrationError] = []
+    successes: list[dict[str, object]] = []
+    for outcome in (first, second):
+        if isinstance(outcome, CatalogRegistrationError):
+            failures.append(outcome)
+        else:
+            successes.append(outcome)
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert "different request" in str(failures[0])
+    revoked_ref_id = successes[0]["ref_id"]
+    untouched_ref_id = registered[1]["ref_id"] if registered[0]["ref_id"] == revoked_ref_id else registered[0]["ref_id"]
+    async with tenant_session(app_engine, tenant_id) as session:
+        rows = await session.execute(
+            text("SELECT ref_id,status FROM catalog_refs WHERE tenant_id=:tenant"), {"tenant": tenant_id}
+        )
+        statuses = {row["ref_id"]: row["status"] for row in rows.mappings()}
+        recorded = await session.execute(text("SELECT count(*) FROM idempotency_records"))
+    assert statuses[revoked_ref_id] == "inactive"
+    assert statuses[untouched_ref_id] == "active"
+    assert recorded.scalar_one() == 1
+
+
+async def test_registry_concurrent_register_of_same_pin_is_idempotent(app_engine: AsyncEngine) -> None:
+    tenant_id = f"catalog-reg-reg-conc-{uuid.uuid4().hex[:10]}"
+    source = _source()
+    registry = CatalogRefRegistry(app_engine)
+    adapter = AuthoritativeAdapter(source)
+    kwargs = {
+        "tenant_id": tenant_id,
+        "actor_id": "user-1",
+        "correlation_id": "reg-conc",
+        "kind": source.kind,
+        "stable_id": source.stable_id,
+        "version": source.version,
+    }
+    first, second = await asyncio.gather(registry.register(adapter, **kwargs), registry.register(adapter, **kwargs))
+    assert first["ref_id"] == second["ref_id"]
+    assert first["content_hash"] == source.content_hash == second["content_hash"]
+    async with tenant_session(app_engine, tenant_id) as session:
+        rows = await session.execute(
+            text("SELECT count(*) FROM catalog_refs WHERE tenant_id=:tenant"), {"tenant": tenant_id}
+        )
+        audits = await session.execute(text("SELECT count(*) FROM catalog_audit_logs WHERE operation='register'"))
+        assert rows.scalar_one() == 1
+        assert audits.scalar_one() == 1
